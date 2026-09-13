@@ -295,7 +295,8 @@ struct PlayerTakeover: View {
     /// nothing else.
     @State var advanceAfterSheet: UUID?
 
-    // Offers. Neither ever blocks an answer.
+    // Offers. Start-here never blocks an answer; the split decision pauses
+    // the answered point until Split, No, Undo or navigation resolves it.
     @State var splitNudge: SplitNudge?
     @State var startHereDismissed = false
 
@@ -2921,6 +2922,9 @@ struct PlayerTakeover: View {
         point: MatchPoint,
         command: Task<ScorerCommandReceipt?, Never>
     ) {
+        // A new score action supersedes any decision raised by the previous
+        // one, even when the new write later fails.
+        splitNudge = nil
         nextScoreActionId += 1
         let entry = PendingScoreUndo(
             actionId: nextScoreActionId,
@@ -2933,6 +2937,14 @@ struct PlayerTakeover: View {
         Task {
             guard await command.value == nil,
                   scorerSessionEffects.sameSession(owner) else { return }
+            if scoreFailureClearsSplitNudge(
+                failedActionId: entry.actionId,
+                latestActionId: nextScoreActionId,
+                failedPointId: entry.pointId,
+                nudgePointId: splitNudge?.pointId
+            ) {
+                splitNudge = nil
+            }
             undoStack.removeAll { step in
                 if case .score(let candidate) = step {
                     return candidate.actionId == entry.actionId
@@ -3015,15 +3027,25 @@ struct PlayerTakeover: View {
         }
 
         endPausedId = nil
-        // ADVANCE ON ANY NEW ANSWER. Changing an existing outcome is a
-        // correction: it never advances, the rally just keeps playing.
-        guard !hadOutcome, next != nil else { return }
-        offerSplitIfEarly(target)
-        advance(from: target)
+        guard next != nil else { return }
+        switch scoreOutcomeDecision(
+            .winner(side), for: target, hadOutcome: hadOutcome,
+            now: currentT, pad: pad
+        ) {
+        case .pauseForSplit(let atCut, let certain):
+            pauseForSplitDecision(target, atCut: atCut, certain: certain)
+        case .continueExistingFlow:
+            advance(from: target)
+        case .stay:
+            break
+        }
     }
 
     func tapSkip() {
         guard let target = tapTarget else { return }
+        // Pressing the action again resolves any decision it raised. The
+        // last point has no navigation call below to clear it for us.
+        splitNudge = nil
         if target.isLet {
             // Already skipped — the press means "move on". Never a silent
             // no-op, and never an undo entry either: nothing changed.
@@ -3048,10 +3070,17 @@ struct PlayerTakeover: View {
             }
             return
         }
-        // A skipped point doesn't count — jump straight to the next rally.
-        // Skipping one that already HAD a winner is a correction and stays.
-        guard !hadOutcome else { return }
-        jumpAfter(target)
+        switch scoreOutcomeDecision(
+            .skip, for: target, hadOutcome: hadOutcome,
+            now: currentT, pad: pad
+        ) {
+        case .pauseForSplit(let atCut, let certain):
+            pauseForSplitDecision(target, atCut: atCut, certain: certain)
+        case .continueExistingFlow:
+            jumpAfter(target)
+        case .stay:
+            break
+        }
     }
 
     func tapDelete() {
@@ -3145,24 +3174,16 @@ struct PlayerTakeover: View {
         }
     }
 
-    /// "That clip might be two points": offered on the clip just answered
-    /// when a rally's worth of footage was still to run. Non-blocking, and
-    /// the clip advances on its own when the footage runs out.
-    func offerSplitIfEarly(_ p: MatchPoint) {
-        // One offer at a time, and answering anything retires the last one:
-        // the tail it belonged to has been watched by then, and a stale
-        // offer that outlives its clip is how you split the wrong point.
-        splitNudge = nil
-        guard phase == .play, let cutT0 = p.cutT0, let end = paddedEnd(p, pad),
-              end - currentT > TAIL_WATCH_S
-        else { return }
-        // The detections sharpen it where they exist — an actual quiet
-        // stretch places the cut and firms up the wording — but are never
-        // required. Without them, cut a beat before where the answer came:
-        // the tap always lands after the deciding shot.
-        let gap = fusedSplitCut(p, pad)
-        let atCut = gap ?? max(cutT0 + 0.4, currentT - SPLIT_LEAD_S)
-        splitNudge = SplitNudge(pointId: p.id, atCut: atCut, certain: gap != nil)
+    /// Hold an early first answer on its current point until the scorer says
+    /// whether the unseen footage is a second rally. The existing nudge owns
+    /// both exits: Split opens Modify at this seed, and No moves on.
+    func pauseForSplitDecision(_ p: MatchPoint, atCut: Double, certain: Bool) {
+        playTail = nil
+        endPauseBlockedId = nil
+        endPausedId = nil
+        splitNudge = SplitNudge(pointId: p.id, atCut: atCut, certain: certain)
+        player.pause()
+        showChrome(autoHide: false)
     }
 
     func showEndedNudge(_ pointId: UUID) {
@@ -3217,6 +3238,7 @@ struct PlayerTakeover: View {
 
     func undo() {
         guard !scoreUndoInFlight, let step = undoStack.popLast() else { return }
+        splitNudge = nil
         switch step {
         case .score(let pending):
             let originalIndex = undoStack.count
@@ -3717,6 +3739,7 @@ struct PlayerTakeover: View {
     }
 
     func play() {
+        splitNudge = nil
         scorePlaybackRun.invalidate()
         lastPlayAt = Date()
         runStartT = currentT
@@ -3728,6 +3751,7 @@ struct PlayerTakeover: View {
     }
 
     func seek(to seconds: Double) {
+        splitNudge = nil
         scorerSessionEffects.navigate()
         scorePlaybackRun.invalidate()
         scoreSeekGeneration += 1

@@ -71,9 +71,10 @@ async function fixture(viewport, scenario) {
 try {
   for(const [surface,viewport] of [['desktop',{width:1440,height:900}],['mobile',{width:393,height:660}]]) {
     const regressions=['correction','clear','skip','paused-first-answer','live-first-answer','scrubbed-first-answer','auto-paused-first-answer','failed-clear','failed-undo','immediate-undo','undo-then-correction','undo-after-close','undo-after-reopen','undo-after-navigation','undo-after-pause','join-then-score','backward-join-then-score','missing-own-clip','scorekeeper-full-card','scorekeeper-tap-stop'];
-    const scenarios=process.env.QA_SCENARIO==='reference'
-      ? ['reference']
-      : regressions.filter(name=>!process.env.QA_SCENARIO||process.env.QA_SCENARIO===name);
+    const earlyScenarios=['early-winner-me','early-winner-opponent','early-skip','early-live-winner','early-live-skip','early-let-key','early-skip-key','early-skip-no','early-winner-no','early-skip-split','early-winner-split','early-skip-undo','early-skip-failure','early-winner-failure','late-skip','threshold-skip','early-correction','early-skip-navigation','early-skip-resume'];
+    const scenarios=['reference','early-reference'].includes(process.env.QA_SCENARIO)
+      ? [process.env.QA_SCENARIO]
+      : [...regressions,...earlyScenarios].filter(name=>!process.env.QA_SCENARIO||process.env.QA_SCENARIO===name||(process.env.QA_SCENARIO==='early'&&earlyScenarios.includes(name)));
     for(const scenario of scenarios) {
       const f=await fixture(viewport,scenario);
       try {
@@ -81,6 +82,83 @@ try {
           assert.deepEqual(f.errors,[],'no browser runtime errors');
           await f.page.screenshot({path:output+`qa-${surface}-reference.png`});
           results.push(`${surface} reference: PASS`);
+          continue;
+        }
+        if(earlyScenarios.includes(scenario)||scenario==='early-reference') {
+          // Real Player handlers and real media, with only the external save
+          // replaced. The break this catches is Skip bypassing the split
+          // offer, or an early outcome continuing playback behind its offer.
+          const correction=scenario==='early-correction';
+          const live=scenario.startsWith('early-live-');
+          const late=scenario==='late-skip'||scenario==='threshold-skip';
+          await f.selectPoint(correction?1:2,{paused:!live});
+          const at=correction?2:scenario==='threshold-skip'?13.5:late?15:10;
+          if(live) {
+            await f.page.waitForFunction(()=>document.querySelector('video').currentTime>=10);
+          } else {
+            await f.page.evaluate(at=>{const v=document.querySelector('video');v.pause();v.currentTime=at;},at);
+            await f.page.waitForFunction(at=>{const v=document.querySelector('video');return !v.seeking&&Math.abs(v.currentTime-at)<.02;},at);
+          }
+          if(scenario.endsWith('failure')) f.fail();
+          const winner=scenario.includes('winner')||scenario==='early-reference';
+          if(scenario==='early-let-key'||scenario==='early-skip-key') await f.page.keyboard.press(scenario==='early-let-key'?'l':'k');
+          else if(winner) await f.page.locator('#full-video-card').getByRole('button',{name:scenario==='early-winner-me'?'Me':'Alex',exact:true}).click();
+          else await f.page.getByRole('button',{name:/^Skip\s*let$/}).click();
+          const nudge=f.page.getByText(/Point 2.*two points/);
+          if(scenario==='early-reference') {
+            await nudge.waitFor();
+            await f.page.screenshot({path:output+`qa-${surface}-early-reference.png`});
+            results.push(`${surface} ${scenario}: PASS`);
+            continue;
+          }
+          if(scenario.endsWith('failure')) {
+            await f.page.getByText("Couldn't save. Tap again.",{exact:true}).waitFor();
+            assert.equal(await nudge.count(),0,'failed outcome retires its split offer');
+            assert.equal(await f.page.evaluate(()=>document.querySelector('video').paused),true,'failed early answer stays paused');
+          } else if(late||correction) {
+            assert.equal(await nudge.count(),0,'late answer/correction does not offer a split');
+            if(late) await f.page.waitForFunction(()=>document.querySelector('video').currentTime>=18);
+            else assert.ok(Math.abs(await f.page.evaluate(()=>document.querySelector('video').currentTime)-2)<.05,'correction stays on current point');
+          } else {
+            await nudge.waitFor();
+            const state=await f.page.evaluate(()=>{const v=document.querySelector('video');return {paused:v.paused,t:v.currentTime};});
+            assert.equal(state.paused,true,'early outcome pauses the video for Split/No');
+            assert.ok(live?state.t>=10&&state.t<12:Math.abs(state.t-at)<.05,'early outcome does not seek away');
+            await f.page.waitForTimeout(350);
+            assert.equal(await f.page.evaluate(()=>document.querySelector('video').currentTime),state.t,'playhead stays still while deciding');
+            if(scenario.endsWith('-no')) {
+              await f.page.getByRole('button',{name:'No',exact:true}).click();
+              await f.page.waitForFunction(()=>{const v=document.querySelector('video');return !v.paused&&v.currentTime>=18;});
+              assert.equal(await nudge.count(),0,'No retires offer and advances');
+            } else if(scenario.endsWith('-split')) {
+              await f.page.getByRole('button',{name:'Split',exact:true}).click();
+              await f.page.getByRole('heading',{name:'Modify point',exact:true}).waitFor();
+              assert.equal(await f.page.evaluate(()=>document.querySelector('video').paused),true,'Split editor opens paused');
+              assert.equal(await nudge.count(),0,'offer retires when editor opens');
+            } else if(scenario.endsWith('-undo')) {
+              await f.page.getByRole('button',{name:'Undo last tap',exact:true}).click();
+              await f.page.waitForFunction(()=>document.querySelector('video').currentTime<10);
+              assert.equal(await nudge.count(),0,'Undo retires the early-outcome offer');
+            } else if(scenario.endsWith('-navigation')) {
+              await f.selectPoint(3);
+              assert.equal(await nudge.count(),0,'point navigation retires old offer');
+            } else if(scenario.endsWith('-resume')) {
+              if(surface==='desktop') await f.page.keyboard.press('Space');
+              else await f.page.locator('#full-video-card').getByRole('button',{name:'Play',exact:true}).click();
+              await f.page.waitForFunction(()=>!document.querySelector('video').paused);
+              // play() changes the media flag before its queued play event
+              // and React's corresponding UI update have been delivered.
+              await nudge.waitFor({state:'hidden',timeout:2000});
+              assert.equal(await nudge.count(),0,'manual playback retires old offer');
+            }
+          }
+          assert.deepEqual(f.errors,[],'no browser runtime errors');
+          assert.ok(f.writes.length>=1,'outcome was submitted');
+          const patch=f.writes[0].patch;
+          if(live&&winner) assert.ok(patch.scored_at_cut_s>=10&&patch.scored_at_cut_s<12,'live winner keeps its valid ending observation before pausing');
+          assert.deepEqual(patch,{confirmed_winner:winner?(scenario==='early-winner-me'?'user':'opponent'):null,is_let:!winner,scored_at_cut_s:live&&winner?patch.scored_at_cut_s:null},'save retains winner/Skip semantics and paused timing policy');
+          await f.page.screenshot({path:output+`qa-${surface}-${scenario}.png`,animations:'disabled'});
+          results.push(`${surface} ${scenario}: PASS`);
           continue;
         }
         if(['scorekeeper-full-card','scorekeeper-tap-stop'].includes(scenario)) {

@@ -10,12 +10,14 @@ The fixture uses the current app's default ending flags: tap-end playback on, Ke
 | Temporary route | Copy `scripts/qa/fixtures/scorekeeper-page.tsx` to `src/app/qa-scorekeeper/page.tsx`. Never commit the temporary route. |
 | Start server | `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:3218 NEXT_PUBLIC_SUPABASE_ANON_KEY=local-fixture-only node scripts/qa/scorekeeper-server.mjs` |
 | Run checks in another terminal | `node scripts/qa/scorekeeper.mjs` |
-| Expected | 40 scenarios pass: desktop 1440×900 and mobile 393×660, twenty each |
+| Expected | 78 scenarios pass: desktop 1440×900 and mobile 393×660, thirty-nine each |
 | Scenarios | Correct + Undo; clear + Undo; Skip + Undo; paused first answer; continuous first answer; scrubbed first answer; automatically paused first answer; failed clear with visible feedback; failed Undo followed by retry; Undo while save is pending; pending clear then Undo then correction; pending Undo followed by close; pending Undo followed by close and reopen at another point; pending Undo followed by choosing another point; pending Undo followed by explicit pause; Join immediately followed by a winner change; replay after an inserted point's required clip fails to load |
 | Focus one scenario | `QA_SCENARIO=missing-own-clip node scripts/qa/scorekeeper.mjs` |
+| Early-outcome checks only | `QA_SCENARIO=early node scripts/qa/scorekeeper.mjs` runs 38 checks: both winners, Skip, live taps, L/K shortcuts, Split/No, Undo, failed saves, timing threshold, corrections, navigation and manual resume |
+| Early-outcome behavior | A first winner or Skip with more than 3.5 seconds remaining pauses on the same point and offers the existing Split/No choice. Split opens Modify; No advances. Manual Play, navigation, Undo, a correction or a failed save retires the old offer. Live winner taps retain their valid ending observation; Skip and paused answers do not create one. |
 | Current UI reference only | `QA_SCENARIO=reference node scripts/qa/scorekeeper.mjs` checks the named “You serve. Press to give the serve to Alex.” switch on every surface, captures `qa-desktop-reference.png` and `qa-mobile-reference.png`, and performs no scorer-repair assertions |
 | Current-baseline preservation | Forward and backward Join immediately followed by scoring; Keep score full-card on stops at 8.0 seconds; flag off stops at 6.5 seconds. The named serve switch is required in every case. |
-| Baseline expectation | The reference path must pass on the current app. Until the scorer behavior is ported, failures in the regression matrix remain evidence of the intended repairs rather than permission to weaken its assertions. |
+| Baseline expectation | The reference path must pass on the current app. Before implementing the early-outcome repair, winner cases fail because video continues and Skip cases fail because no offer appears. |
 | Evidence | `.superpowers/sdd/2026-09-11-scorekeeper-containment/qa-*.png` |
 | Finish | Stop the server. Remove only the temporary `src/app/qa-scorekeeper/page.tsx` copied for this run. |
 | Not covered | Native iOS, production permissions/database behavior, real match footage or delayed media/network events beyond the explicit scenarios |

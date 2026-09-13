@@ -1319,13 +1319,19 @@ export const Player = forwardRef<
     atCut: number;
     certain: boolean;
   } | null>(null);
-  // Ref twin for onTime (built once, lives for the session) and the
-  // 2s hold at a fused clip's end: the nudge pauses there for a beat of
-  // reflection, then advances by itself — most clips are NOT two points,
-  // and the offer must never become a place you get stuck.
+  // Ref twin for media callbacks. Early answers pause immediately while
+  // the player decides whether to split or move on.
   const splitNudgeRef = useRef<typeof splitNudge>(null);
   splitNudgeRef.current = splitNudge;
   const nudgeHoldTimer = useRef<number | null>(null);
+  const clearSplitNudge = useCallback(() => {
+    splitNudgeRef.current = null;
+    setSplitNudge(null);
+    if (nudgeHoldTimer.current !== null) {
+      window.clearTimeout(nudgeHoldTimer.current);
+      nudgeHoldTimer.current = null;
+    }
+  }, []);
   // Analysis panel (score mode): the point whose detail is being recorded,
   // and the shared "Saved" line its questions report through.
   const [analysisPoint, setAnalysisPoint] = useState<Point | null>(null);
@@ -1368,11 +1374,15 @@ export const Player = forwardRef<
       command: Promise<ScorerCommandResult>
     ) => {
       const actionId = ++scorerActionId.current;
+      clearSplitNudge();
       const owner = scorerSessionEffects.current.capture();
       const receipt = command.catch<ScorerCommandResult>(() => ({ failed: true })).then((result) => {
         if (isScorerFailure(result)) {
           if (scorerSessionEffects.current.sameSession(owner)) {
             showToast("Couldn't save. Tap again.");
+            if (scorerActionId.current === actionId && splitNudgeRef.current?.pointId === pointId) {
+              clearSplitNudge();
+            }
           }
           return null;
         }
@@ -1391,7 +1401,7 @@ export const Player = forwardRef<
         );
       });
     },
-    [showToast]
+    [showToast, clearSplitNudge]
   );
   // Modify modal: the point it was opened for (null = closed), and an
   // in-flight guard for the split/join orchestration round-trips.
@@ -2037,6 +2047,7 @@ export const Player = forwardRef<
 
   const seekTo = useCallback(
     (t: number) => {
+      clearSplitNudge();
       scorerSessionEffects.current.navigate();
       scorePlaybackRun.current.invalidate();
       const clamped = Math.max(0, t);
@@ -2061,7 +2072,7 @@ export const Player = forwardRef<
       if (v && v.readyState >= 1) v.currentTime = clamped;
       else pendingSeek.current = clamped;
     },
-    [detourPointOf, enterDetour, exitDetour]
+    [detourPointOf, enterDetour, exitDetour, clearSplitNudge]
   );
 
   const playNow = useCallback(() => {
@@ -3959,20 +3970,22 @@ export const Player = forwardRef<
    * offer stands on the timing alone, worded as a question.
    */
   const offerSplitIfEarly = useCallback((p: Point) => {
-    // One offer at a time, and answering anything retires the last one: the
-    // tail it belonged to has been watched by then, and a stale offer that
-    // outlives its clip is how you split the wrong point.
-    setSplitNudge(null);
-    if (!onSplit || p.cut_t0 === null || p.t0 === null || p.t1 === null) return;
+    clearSplitNudge();
+    if (!onSplit || p.cut_t0 === null || p.t0 === null || p.t1 === null) return false;
     const now = nowT(0);
     const own = paddedEnd(p, padRef.current);
-    if (own === null || own - now <= TAIL_WATCH_S) return;
+    if (own === null || own - now <= TAIL_WATCH_S) return false;
     const gap = fusedSplitCut(p, padRef.current);
     // Without gap evidence, cut a beat before where they answered — the tap
     // always lands after the deciding shot (same lead the pad's Split uses).
     const atCut = gap ?? Math.max(Number(p.cut_t0) + 0.4, now - SPLIT_LEAD_S);
-    setSplitNudge({ pointId: p.id, atCut, certain: gap !== null });
-  }, [onSplit]);
+    playTailRef.current = null;
+    pauseBoth();
+    const offer = { pointId: p.id, atCut, certain: gap !== null };
+    splitNudgeRef.current = offer;
+    setSplitNudge(offer);
+    return true;
+  }, [onSplit, clearSplitNudge, pauseBoth]);
 
   /** Light the pad's Game-ended control for a just-answered point (only
    *  offered while a 'continue' override holds the game open). A glow on
@@ -4152,8 +4165,7 @@ export const Player = forwardRef<
       // the user put it).
       if (!hadOutcome && next !== null) {
         pinEndPause(null);
-        offerSplitIfEarly(p);
-        advanceFrom(p);
+        if (!offerSplitIfEarly(p)) advanceFrom(p);
       } else if (endPausedRef.current === p.id) {
         // Corrections while paused-at-end release the pin so playback
         // controls behave normally, but stay in place.
@@ -4177,6 +4189,7 @@ export const Player = forwardRef<
     const p = resolveTargetPoint();
     if (!p) return;
     if (p.is_let) {
+      clearSplitNudge();
       // Already skipped — the press means "move on". Never a silent no-op.
       const ps = pointsRef.current;
       const next = ps.find(
@@ -4199,26 +4212,14 @@ export const Player = forwardRef<
       window.setTimeout(() => nextReviewRef.current(), 400);
       return;
     }
-    // NEW answer → advance: a skipped point doesn't count — jump straight
-    // to the next rally (this is also the paused-at-end advance: Skip
-    // answers the pause). Skipping a rally that already HAD a winner is a
-    // correction and stays in place, like every other outcome change.
+    // A first Skip uses the same early split decision as a first winner.
+    // Changing an existing winner to Skip is a correction and stays put.
     if (hadOutcome) {
       if (endPausedRef.current === p.id) pinEndPause(null);
       return;
     }
     pinEndPause(null);
-    const ps = pointsRef.current;
-    const next = ps.find(
-      (pt) =>
-        pt.cut_t0 !== null &&
-        p.cut_t0 !== null &&
-        Number(pt.cut_t0) > Number(p.cut_t0)
-    );
-    if (next?.cut_t0 != null) {
-      seekTo(Number(next.cut_t0)); // zoom persists
-      playNow();
-    }
+    if (!offerSplitIfEarly(p)) jumpAfter(p);
   }, [
     resolveTargetPoint,
     onSetSkipped,
@@ -4229,6 +4230,9 @@ export const Player = forwardRef<
     playNow,
     indexById,
     pinEndPause,
+    clearSplitNudge,
+    offerSplitIfEarly,
+    jumpAfter,
   ]);
 
   // Delete ("dead space"): soft-remove the rally on screen — a mis-cut,
@@ -4982,6 +4986,7 @@ export const Player = forwardRef<
   const undo = useCallback(() => {
     const e = undoStack[undoStack.length - 1];
     if (!e) return;
+    clearSplitNudge();
     if (e.type === "tap") {
       if (scorerUndoInFlight.current !== null) return;
       scorerUndoInFlight.current = e.actionId;
@@ -5153,6 +5158,7 @@ export const Player = forwardRef<
     onUnsplit,
     onAdjustTiming,
     onRestoreScorer,
+    clearSplitNudge,
     onSetWinner,
     onSetSkipped,
     onSetGameOverride,
@@ -5627,14 +5633,9 @@ export const Player = forwardRef<
               // guard window (covers plays we didn't initiate too).
               lastPlayAtRef.current = Date.now();
               pinEndPause(null);
-              // Resuming during the split nudge's 2s hold cancels the
-              // pending auto-advance: the user chose to keep watching.
-              // (The auto-advance's own play() lands here after its timer
-              // has already cleared itself — a no-op.)
-              if (nudgeHoldTimer.current) {
-                window.clearTimeout(nudgeHoldTimer.current);
-                nudgeHoldTimer.current = null;
-              }
+              // Choosing to watch again retires the offer, so it cannot
+              // follow natural playback onto a different point.
+              clearSplitNudge();
               // A play() that lands mid-hold keeps the held rate, whichever
               // side is being held.
               e.currentTarget.playbackRate =
@@ -5721,10 +5722,7 @@ export const Player = forwardRef<
             setPaused(false);
             lastPlayAtRef.current = Date.now();
             pinEndPause(null);
-            if (nudgeHoldTimer.current) {
-              window.clearTimeout(nudgeHoldTimer.current);
-              nudgeHoldTimer.current = null;
-            }
+            clearSplitNudge();
             e.currentTarget.playbackRate =
               gesture.current.holding && holdRateRef.current !== null
                 ? holdRateRef.current
@@ -7370,13 +7368,8 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* "That clip might be two points" — offered on the clip you
-                just answered when a rally's worth of footage was still to
-                run. It sits in the pad, not over the video, because the
-                video is now playing the part you had not seen: watch it,
-                then decide. Non-blocking and never in the way of the next
-                answer; ignoring it costs nothing, and the clip advances on
-                its own when the footage runs out. */}
+            {/* Early first outcomes pause on the answered point until the
+                player chooses Split, No, or another deliberate action. */}
             {phase === "play" && splitNudge && (
               <div
                 className={`ks-fade flex items-center gap-2 rounded-xl border border-amber-400/40 px-3 py-2 ${
@@ -7397,9 +7390,7 @@ export const Player = forwardRef<
                     : undefined
                 }
               >
-                {/* Named, because the offer outlives the clip: the tail
-                    plays out and the pad moves on, and "this clip" would
-                    then be pointing at the wrong one. */}
+                {/* Name the point whose footage the split would change. */}
                 <span className="min-w-0 flex-1 text-[11px] leading-snug text-amber-200/90">
                   <span className="font-semibold">
                     Point {(indexById.get(splitNudge.pointId) ?? 0) + 1}
@@ -7414,7 +7405,7 @@ export const Player = forwardRef<
                     const p = pointsRef.current.find(
                       (x) => x.id === splitNudge.pointId
                     );
-                    setSplitNudge(null);
+                    clearSplitNudge();
                     // Splitting outright here proved confusing — the cut
                     // lands sight-unseen. Open the Modify sheet instead,
                     // with the suggested cut seeded as its split marker:
@@ -7440,7 +7431,7 @@ export const Player = forwardRef<
                     const p = pointsRef.current.find(
                       (x) => x.id === splitNudge.pointId
                     );
-                    setSplitNudge(null);
+                    clearSplitNudge();
                     playTailRef.current = null;
                     if (p) jumpAfter(p);
                   }}

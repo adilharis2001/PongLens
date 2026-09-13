@@ -351,6 +351,77 @@ func runAllChecks() {
            "the last rally has nowhere to go")
     }
 
+    suite("first outcome pauses for an early split decision") {
+        // paddedEnd = 16.6, so answering at 12.0 leaves 4.6 seconds.
+        let p = mkPoint(1, cutT0: 10, t0: 100, t1: 104)
+        let expected = ScoreOutcomeDecision.pauseForSplit(
+            atCut: 11.4, certain: false
+        )
+
+        eq(scoreOutcomeDecision(
+            .winner(.user), for: p, hadOutcome: false,
+            now: 12.0, pad: NORMAL
+        ), expected, "an early Me answer pauses on the current point")
+        eq(scoreOutcomeDecision(
+            .winner(.opponent), for: p, hadOutcome: false,
+            now: 12.0, pad: NORMAL
+        ), expected, "an early opponent answer pauses on the current point")
+        eq(scoreOutcomeDecision(
+            .skip, for: p, hadOutcome: false,
+            now: 12.0, pad: NORMAL
+        ), expected, "an early Skip or let pauses on the current point")
+
+        eq(scoreOutcomeDecision(
+            .winner(.user), for: p, hadOutcome: false,
+            now: 13.1, pad: NORMAL
+        ), .continueExistingFlow, "exactly 3.5 seconds left is not early")
+        eq(scoreOutcomeDecision(
+            .skip, for: p, hadOutcome: false,
+            now: 16.2, pad: NORMAL
+        ), .continueExistingFlow, "a late Skip keeps its existing jump")
+
+        eq(scoreOutcomeDecision(
+            .winner(.opponent), for: p, hadOutcome: true,
+            now: 12.0, pad: NORMAL
+        ), .stay, "correcting a winner never raises the split offer")
+        eq(scoreOutcomeDecision(
+            .skip, for: p, hadOutcome: true,
+            now: 12.0, pad: NORMAL
+        ), .stay, "correcting an outcome to Skip never advances")
+
+        let fused = mkPoint(
+            2, cutT0: 10, t0: 100, t1: 110,
+            placement: detections([100.2, 100.8, 101.4, 102.0, 105.0, 105.6, 106.2, 106.8])
+        )
+        eq(scoreOutcomeDecision(
+            .winner(.user), for: fused, hadOutcome: false,
+            now: 12.0, pad: NORMAL
+        ), .pauseForSplit(atCut: 14.5, certain: true),
+           "gap evidence seeds the existing Modify split and firms the nudge")
+    }
+
+    suite("score failure contains its split decision") {
+        let point = UUID(uuidString: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")!
+        let other = UUID(uuidString: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")!
+
+        check(scoreFailureClearsSplitNudge(
+            failedActionId: 4, latestActionId: 4,
+            failedPointId: point, nudgePointId: point
+        ), "the latest failed answer clears its own split decision")
+        check(!scoreFailureClearsSplitNudge(
+            failedActionId: 3, latestActionId: 4,
+            failedPointId: point, nudgePointId: point
+        ), "an older delayed failure cannot clear a newer decision on the same point")
+        check(!scoreFailureClearsSplitNudge(
+            failedActionId: 4, latestActionId: 4,
+            failedPointId: point, nudgePointId: other
+        ), "a failed answer cannot clear another point's decision")
+        check(!scoreFailureClearsSplitNudge(
+            failedActionId: 4, latestActionId: 4,
+            failedPointId: point, nudgePointId: nil
+        ), "a failure with no visible decision is contained")
+    }
+
     // MARK: - Effective end (the winner tap, 2026-08-25)
 
     suite("effectiveEnd") {

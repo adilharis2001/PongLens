@@ -32,7 +32,7 @@ cp /private/tmp/ponglens-scorekeeper-fixture.mp4 \
 
 The fixture refuses to open the player when the source file is absent. It never falls back to remote media.
 
-This runbook is for branch `codex/scorekeeper-current-app`, rooted at reconciled base `df4b36c4` with fetched current main `fd9e529c`. Before collecting evidence, confirm the branch with `git branch --show-current` and capture the current commit with `git rev-parse HEAD`; the native screenshot must show the shipped serve switch, not two separate serve balls.
+Build from the isolated worktree containing the change being verified, not an older main checkout or a previously built app. Before collecting evidence, confirm the branch with `git branch --show-current` and capture the current commit with `git rev-parse HEAD`; the native screenshot must show the shipped serve switch, not two separate serve balls.
 
 ## Launch cases
 
@@ -52,6 +52,8 @@ xcrun simctl launch --terminate-running-process \
 `--qa-delay-ms` is clamped to 0–30000 milliseconds. `--qa-fail-write` accepts a positive one-based request ordinal, and `--qa-start-point` accepts 1–3 with point 2 as its fallback.
 
 The current app's default playback flags are reproduced in the fixture: `tap_end_playback=on`, `keep_score_full_card=on`, `rally_end_respects_card=on`, and `unscored_rally_end=off`. A scored point therefore keeps its whole card in Keep score; fixture point 1 ends at 8.0 seconds, not the older tap-plus-guard stop at 6.5 seconds.
+
+For early-outcome checks, replay unanswered point 2 and tap either winner or Skip while more than 3.5 seconds remain. Each action must pause on point 2 with the existing Split/No offer. Verify Split opens Modify with the suggested cut, No advances, and manual Play, navigation, Undo or a correction dismisses the old offer. Late answers and corrections must not open a new offer. Use the delayed/failing transport cases to check that failed saves retire only their own current offer.
 
 Dismiss the player to compare current local fields with accepted remote fields, inspect submitted/accepted/failed event order, check that unexpected requests remain zero, and reopen without resetting the model. The JSONL evidence is at `$QA_DATA/Documents/scorekeeper-qa-events.jsonl`; it is truncated at fixture process start and contains no headers or credentials.
 

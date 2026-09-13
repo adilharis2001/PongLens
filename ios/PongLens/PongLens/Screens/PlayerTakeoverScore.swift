@@ -716,17 +716,16 @@ extension PlayerTakeover {
         showFlash("\(swept.count) removed")
     }
 
-    /// Offered on the clip you just answered when a rally's worth of footage
-    /// was still to run. It sits in the pad, not over the video, because the
-    /// video is now playing the part you had not seen: watch it, then decide.
+    /// Offered on the point you just answered when a rally's worth of footage
+    /// remains. It sits in the pad while that point is paused, so Split and No
+    /// are the two explicit ways forward.
     @ViewBuilder
     var splitNudgeOffer: some View {
         if let nudge = splitNudge,
            let n = points.firstIndex(where: { $0.id == nudge.pointId }) {
             HStack(spacing: 8) {
-                // Named, because the offer outlives the clip: the tail plays
-                // out and the pad moves on, and "this clip" would then be
-                // pointing at the wrong one.
+                // Named, because the decision belongs to the answered point
+                // even if a future layout moves the playhead independently.
                 Text("Point \(n + 1)\(nudge.certain ? " looks like two points." : " — two points in there?")")
                     .font(.system(size: 11))
                     .foregroundStyle(PL.warning.opacity(0.9))

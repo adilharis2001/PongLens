@@ -202,6 +202,53 @@ enum AdvanceMove: Equatable {
     case stay
 }
 
+enum ScoreOutcomeAction: Equatable {
+    case winner(Winner)
+    case skip
+}
+
+enum ScoreOutcomeDecision: Equatable {
+    case pauseForSplit(atCut: Double, certain: Bool)
+    case continueExistingFlow
+    case stay
+}
+
+/// First answers made with a rally's worth of footage still unseen stop on
+/// the current point and ask whether its card should be split. Corrections
+/// stay where they are, while late first answers keep each action's existing
+/// advance behavior.
+func scoreOutcomeDecision(
+    _ action: ScoreOutcomeAction, for p: MatchPoint, hadOutcome: Bool,
+    now: Double, pad: ClipPad
+) -> ScoreOutcomeDecision {
+    guard !hadOutcome else { return .stay }
+    guard let cutT0 = p.cutT0, let end = paddedEnd(p, pad),
+          end - now > TAIL_WATCH_S + 0.000_001
+    else { return .continueExistingFlow }
+
+    // Both answer kinds deliberately share this rule. Keeping the action in
+    // the contract makes that parity explicit and protects either caller
+    // from silently diverging later.
+    switch action {
+    case .winner, .skip:
+        let gap = fusedSplitCut(p, pad)
+        return .pauseForSplit(
+            atCut: gap ?? max(cutT0 + 0.4, now - SPLIT_LEAD_S),
+            certain: gap != nil
+        )
+    }
+}
+
+/// A delayed failed write may retire only the decision created by that same
+/// action. Without both identities, an older failure can dismiss a newer
+/// prompt on the same point.
+func scoreFailureClearsSplitNudge(
+    failedActionId: Int, latestActionId: Int,
+    failedPointId: UUID, nudgePointId: UUID?
+) -> Bool {
+    failedActionId == latestActionId && failedPointId == nudgePointId
+}
+
 /// The web's advanceFrom, as a decision. `now` is the playhead at the
 /// moment of the answer.
 func advanceMove(
