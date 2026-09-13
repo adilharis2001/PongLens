@@ -39,7 +39,7 @@ This release is being prepared, not deployed. It keeps the existing serve-openin
 | Fullwebbuild+desktop/393×660renders | Passed; synthetic transfers, no real upload or production writes |
 | Nativebuild+simulatorscreens | Build and main-screen renders passed. In-flight recording transfer/background-resume not exercised end to end; remains a device-check gate |
 | Independentreviews | Whole-branch review found one legacy YouTube mail regression; fixedf9aad58d and scoped rereview clean. No other Critical/Important findings |
-| Sealedpackageall8offlinechecks+integrity | Rebuilt final candidate checks running; prior85137860 passed8/8 but is not the activation target |
+| Sealedpackageall8offlinechecks+integrity | Final e9c3cd9c candidate passed8/8: imports, native, pose, table, ball, frozen parity and side changes twice; integrity checked after inference. Main/fast check-only verified, not started. Initial sandbox pose run failed on CoreML service access; same unchanged code passed with accelerator access, network denied |
 | Screenshotapproval | Approved by Adil September13,2026: “Yeah I think that's fine. It looks good”, in response to the web/iOS gallery http://127.0.0.1:8774/review. Approval covers the shown wording/layout, not a claim that remaining checks or deployment are complete |
 
 | Operational contract | Required at release |
@@ -60,3 +60,12 @@ This release is being prepared, not deployed. It keeps the existing serve-openin
 | Rough60fps range | Keep measured lower bound; expand upper byfps/30 for30–60fps, labelled extrapolated. Can be broad or miss unusual workloads; not a calibrated promise |
 | Native fixture isolation | First harness attempt likely issued one synthetic-token thumbnail read to production; stopped and corrected. Final harness seeds only in-memory fake auth, mocks API/Supabase/thumb transports, uses loopback and denies unhandled network.19 isolation assertions passed; no real credentials or writes used |
 | Not verified | No production migration/cutover, provider delivery, real video processing, native background transfer or physical-device run in this task |
+
+| Cross-task inclusion audit, September13 | Evidence |
+| --- | --- |
+| Upload-sanity app changes | App baseline49a82643 is an ancestor ofb31a8623; includes camera warnings, short-handheld guidance, trim-aware hiding, primary processing stages, owner-only feedback and removal of90-minute promise |
+| Upload-sanity worker changes | Combinedd11e1796 is an ancestor off9aad58d; camera_view_check.py, upload_feedback.py and all five associated regression files exactly match handed-overf8fa3309. Worker retains camera-check call sites and claimed/profile/stage/progress/ready/released receipts |
+| Later ETA request | Explicit handoff docs/queue-aware-eta-handoff-2026-09-13.md implemented by receiving task; estimator/server/UI included in this release, not a separate pending package |
+| Prior rally/serve work | Worker baseline6aebfd66 retains combined rally preservation, measured playback mapping and guarded serve-opening adjustment; no algorithms changed in this candidate |
+| Delivery boundary | One coordinated rollout has worker package, three database migrations, web deployment and a new iOS build. The sealed worker package alone does not install customer UI on phones |
+| Final smoke evidence | /private/tmp/ponglens-availability-package-a1mPjl/e9c3cd9cb3bd536dc689bc3214e63085ec6e3d1de129c30cf3202a75d44e9552 and sibling ending-native-access contain results/logs; final six modes all exit0, first two exit0 in initial run |
