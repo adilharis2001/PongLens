@@ -220,6 +220,21 @@ def main():
                     raise RuntimeError('email unavailable')
                 return worker_mail.send_email(worker_mail.ADMIN_EMAIL, message, **kwargs)
             deliver_notifications(connection, send)
+        # Independent of media jobs and operational alert opt-in. The new
+        # migration's capture switch starts off and is enabled at cutover only.
+        # A missing migration/provider must not stop the health monitor.
+        try:
+            with connection:
+                with connection.cursor() as cur:
+                    cur.execute('select enabled from public.match_ready_delivery_control where singleton')
+                    ready_enabled = cur.fetchone()[0]
+            if ready_enabled:
+                import worker as worker_mail
+                for _ in range(4):
+                    if not worker_mail.retry_match_ready(connection):
+                        break
+        except Exception as exc:
+            log.warning('Match-ready retry unavailable: %s', type(exc).__name__)
     finally:
         connection.close()
 

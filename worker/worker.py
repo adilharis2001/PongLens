@@ -60,11 +60,12 @@ import requests
 from botocore.exceptions import ClientError
 
 if __package__:
-    from . import processing_outcome, cut_timeline
+    from . import processing_outcome, cut_timeline, match_ready_delivery
     from .upload_feedback import ProcessingTelemetry
 else:
     import processing_outcome
     import cut_timeline
+    import match_ready_delivery
     from upload_feedback import ProcessingTelemetry
 
 # Best-effort measurements are queued in memory and delivered off the job
@@ -827,6 +828,15 @@ def send_email(
         }
     if bcc_list:
         payload["bcc"] = bcc_list
+    return send_email_payload(payload, idempotency_key=idempotency_key, cost_meter=cost_meter)
+
+
+def send_email_payload(payload, *, idempotency_key=None, cost_meter=None):
+    """Send an already-rendered payload unchanged, including across retries."""
+    if not RESEND_API_KEY:
+        raise RuntimeError("Email delivery unavailable")
+    if idempotency_key is not None and not (1 <= len(idempotency_key) <= 256):
+        raise ValueError("invalid Resend idempotency key")
     r = requests.post(
         "https://api.resend.com/emails",
         headers={
@@ -851,15 +861,16 @@ def send_email(
     meter.record([
         meter.email_event(
             message_id,
-            recipients=1 + len(bcc_list),
+            recipients=len(payload.get("to", [])) + len(payload.get("bcc", [])),
         )
     ])
     log.info(
         "  email sent: %r -> %s%s",
-        subject_text,
-        to,
-        f" (bcc {', '.join(bcc_list)})" if bcc_list else "",
+        payload["subject"],
+        ", ".join(payload["to"]),
+        f" (bcc {', '.join(payload['bcc'])})" if payload.get("bcc") else "",
     )
+    return message_id
 
 
 def get_user_email(conn, user_id: str) -> str | None:
@@ -1014,9 +1025,36 @@ def done_email_html(original_name: str, match_id: str | None = None) -> str:
 # notify_job_failed like any other failure.
 
 
+def match_ready_payload(conn, job_id, user_id):
+    """Freeze the existing approved message and recipient before first send."""
+    original_name = get_job_original_name(conn, job_id) or "your match video"
+    match_id = get_job_match_id(conn, job_id)
+    message = render_email(match_ready_message(
+        original_name, f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL))
+    return {
+        "from": EMAIL_FROM, "to": [get_user_email(conn, user_id) or ADMIN_EMAIL],
+        "reply_to": EMAIL_REPLY_TO, "subject": message.subject,
+        "html": message.html, "text": message.text,
+        "headers": {"X-PongLens-Template-Id": message.template_id,
+                    "X-PongLens-Template-Version": str(message.template_version)},
+    }
+
+
+def retry_match_ready(conn, job_id=None):
+    if not RESEND_API_KEY:
+        return False  # Do not start the deduplication clock without a transport.
+    return match_ready_delivery.deliver_one(
+        conn, match_ready_payload,
+        lambda payload, key: send_email_payload(payload, idempotency_key=key),
+        address_suppressed, job_id=job_id)
+
+
 def notify_job_done(conn, job_id: str, user_id: str):
     """Email the uploader that their video is ready. Never raises."""
     try:
+        if match_ready_delivery.managed(conn, job_id):
+            retry_match_ready(conn, job_id)
+            return
         original_name = get_job_original_name(conn, job_id) or "your match video"
         match_id = get_job_match_id(conn, job_id)
         message = render_email(match_ready_message(
