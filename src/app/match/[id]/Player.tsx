@@ -1319,18 +1319,19 @@ export const Player = forwardRef<
     atCut: number;
     certain: boolean;
   } | null>(null);
-  // Ref twin for media callbacks. Early answers pause immediately while
-  // the player decides whether to split or move on.
+  // Ref twin for media callbacks. The offer stays with the answered card
+  // while its remaining footage plays; it never interrupts playback.
   const splitNudgeRef = useRef<typeof splitNudge>(null);
   splitNudgeRef.current = splitNudge;
-  const nudgeHoldTimer = useRef<number | null>(null);
   const clearSplitNudge = useCallback(() => {
+    if (splitNudgeRef.current && playTailRef.current?.id === splitNudgeRef.current.pointId) {
+      playTailRef.current = null;
+      if (endPauseFiredRef.current === splitNudgeRef.current.pointId) {
+        endPauseFiredRef.current = null;
+      }
+    }
     splitNudgeRef.current = null;
     setSplitNudge(null);
-    if (nudgeHoldTimer.current !== null) {
-      window.clearTimeout(nudgeHoldTimer.current);
-      nudgeHoldTimer.current = null;
-    }
   }, []);
   // Analysis panel (score mode): the point whose detail is being recorded,
   // and the shared "Saved" line its questions report through.
@@ -1490,10 +1491,6 @@ export const Player = forwardRef<
       window.clearTimeout(hintTimer.current);
       hintTimer.current = null;
     }
-    if (nudgeHoldTimer.current) {
-      window.clearTimeout(nudgeHoldTimer.current);
-      nudgeHoldTimer.current = null;
-    }
   }, [open]);
   const holdRateRef = useRef<number | null>(null);
   holdRateRef.current = holdRate;
@@ -1555,6 +1552,7 @@ export const Player = forwardRef<
   const detourBaseRef = useRef(0);
   const detourVideoRef = useRef<HTMLVideoElement | null>(null);
   const detourPendingSeek = useRef<number | null>(null);
+  const detourHandoffSeekRef = useRef(false);
   const detourTickRef = useRef<number | null>(null);
   /** Presigned clip URLs for the cards that need one, by point id. */
   const clipUrlsRef = useRef(new Map<string, string>());
@@ -2013,6 +2011,7 @@ export const Player = forwardRef<
     scorerSessionEffects.current.navigate();
     scorePlaybackRun.current.invalidate();
     detourRef.current = null;
+    detourHandoffSeekRef.current = false;
     setDetourId(null);
     detourTickRef.current = null;
     // A surface out of the document's flow keeps playing WITH SOUND —
@@ -2022,10 +2021,11 @@ export const Player = forwardRef<
 
   /** Put the detour surface on card p at virtual time t. The main video
    *  pauses underneath and keeps its place. */
-  const enterDetour = useCallback((p: Point, t: number) => {
+  const enterDetour = useCallback((p: Point, t: number, continuous = false) => {
     const url = clipUrlsRef.current.get(p.id);
     const dv = detourVideoRef.current;
     if (!url || !dv || p.cut_t0 === null) return;
+    detourHandoffSeekRef.current = continuous;
     scorerSessionEffects.current.navigate();
     scorePlaybackRun.current.invalidate();
     // Pin FIRST: the pause below flushes one last timeupdate/pause pair
@@ -2187,7 +2187,7 @@ export const Player = forwardRef<
       if (!scrubbing.current && !v.paused && detourRef.current === null) {
         const dp = detourPointOf(v.currentTime);
         if (dp) {
-          enterDetour(dp, v.currentTime);
+          enterDetour(dp, v.currentTime, true);
           playNow();
           return;
         }
@@ -2297,10 +2297,8 @@ export const Player = forwardRef<
             ? pauseEnd(p, cpad, nextCutStart(ps, p))
             : effectiveEnd(p, cpad, scoreEndsRef.current);
         // Playing out an answered clip's tail: when it runs out, move on
-        // exactly as the answer would have — except while the split offer
-        // is still open, where the video holds its last frame for two
-        // seconds first ("was that two points?") and then advances by
-        // itself. Deliberate departures from the clip (chevron, chip,
+        // exactly as the answer would have, without a split-offer hold.
+        // Deliberate departures from the clip (chevron, chip,
         // scrub, replay) are all seeks, and onSeeked retires the tail.
         // The old WYSIWYG-flip retire is gone: on tight cuts the resolver
         // flips to the next rally's padded span mid-tail during NATURAL
@@ -2311,23 +2309,14 @@ export const Player = forwardRef<
           playTailRef.current = null;
           const tp = ps.find((x) => x.id === tail.id);
           if (tp) {
-            if (splitNudgeRef.current?.pointId === tail.id) {
-              v.pause();
-              if (nudgeHoldTimer.current)
-                window.clearTimeout(nudgeHoldTimer.current);
-              nudgeHoldTimer.current = window.setTimeout(() => {
-                nudgeHoldTimer.current = null;
-                if (splitNudgeRef.current?.pointId !== tail.id) return;
-                setSplitNudge(null);
-                const p = pointsRef.current.find((x) => x.id === tail.id);
-                if (p) advanceRef.current(p);
-              }, 2000);
-              return;
-            }
+            clearSplitNudge();
             advanceRef.current(tp);
             return;
           }
         }
+        // The offered tail must not hit the ending observation just saved
+        // by a live winner tap, even when full-card playback is disabled.
+        if (tail) return;
         if (endPauseFiredRef.current !== null) {
           const fp = ps.find((pt) => pt.id === endPauseFiredRef.current);
           const fend = fp ? stopAt(fp) : null;
@@ -2409,7 +2398,7 @@ export const Player = forwardRef<
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
-    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow, observeScorePlayback]
+    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow, observeScorePlayback, clearSplitNudge]
   );
 
   /**
@@ -2472,10 +2461,12 @@ export const Player = forwardRef<
         playTailRef.current = null;
         const tp = pointsRef.current.find((x) => x.id === tail.id);
         if (tp) {
+          clearSplitNudge();
           advanceRef.current(tp);
           return;
         }
       }
+      if (tail?.id === id) return;
       // Replay re-arm and the single-card boundary, same guards as the
       // main loop's crossing detector.
       if (
@@ -2500,7 +2491,7 @@ export const Player = forwardRef<
         }
       }
     },
-    [phase, pinEndPause]
+    [phase, pinEndPause, clearSplitNudge]
   );
 
   /**
@@ -2838,6 +2829,7 @@ export const Player = forwardRef<
   modeRef.current = mode;
 
   const openTakeover = useCallback((m: Mode) => {
+    clearSplitNudge();
     scorerSessionEffects.current.open();
     scorerUndoInFlight.current = null;
     if (modeRef.current === null) {
@@ -2874,12 +2866,13 @@ export const Player = forwardRef<
           detourPrimedRef.current = false;
         });
     }
-  }, []);
+  }, [clearSplitNudge]);
 
   // popstate (browser/OS Back or our own history.back) closes the takeover.
   useEffect(() => {
     if (!open) return;
     const onPop = () => {
+      clearSplitNudge();
       scorerSessionEffects.current.close();
       modeRef.current = null;
       pauseBoth();
@@ -2907,7 +2900,7 @@ export const Player = forwardRef<
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [open, pinEndPause, pauseBoth, exitDetour, videoUrl, setPhase]);
+  }, [open, pinEndPause, pauseBoth, exitDetour, videoUrl, setPhase, clearSplitNudge]);
 
   const exit = useCallback(() => {
     scorerSessionEffects.current.close();
@@ -3979,13 +3972,16 @@ export const Player = forwardRef<
     // Without gap evidence, cut a beat before where they answered — the tap
     // always lands after the deciding shot (same lead the pad's Split uses).
     const atCut = gap ?? Math.max(Number(p.cut_t0) + 0.4, now - SPLIT_LEAD_S);
-    playTailRef.current = null;
-    pauseBoth();
+    // Use the full card, not the ending observation just saved by the tap:
+    // the unseen footage is precisely what this offer asks about.
+    playTailRef.current = { id: p.id, end: own };
+    endPauseFiredRef.current = p.id;
     const offer = { pointId: p.id, atCut, certain: gap !== null };
     splitNudgeRef.current = offer;
     setSplitNudge(offer);
+    playNow();
     return true;
-  }, [onSplit, clearSplitNudge, pauseBoth]);
+  }, [onSplit, clearSplitNudge, playNow]);
 
   /** Light the pad's Game-ended control for a just-answered point (only
    *  offered while a 'continue' override holds the game open). A glow on
@@ -5618,11 +5614,8 @@ export const Player = forwardRef<
               // clip was playing out: retire the tail and any pending
               // nudge auto-advance. (The advance's own seek lands here too,
               // harmlessly — both are already null by then.)
+              clearSplitNudge();
               playTailRef.current = null;
-              if (nudgeHoldTimer.current) {
-                window.clearTimeout(nudgeHoldTimer.current);
-                nudgeHoldTimer.current = null;
-              }
               observeScorePlayback(e.currentTarget);
             }}
             onPlay={(e) => {
@@ -5633,9 +5626,9 @@ export const Player = forwardRef<
               // guard window (covers plays we didn't initiate too).
               lastPlayAtRef.current = Date.now();
               pinEndPause(null);
-              // Choosing to watch again retires the offer, so it cannot
-              // follow natural playback onto a different point.
-              clearSplitNudge();
+              // Starting/resuming this offered tail keeps its question.
+              // Navigation and tail completion retire it before leaving.
+              if (playTailRef.current?.id !== splitNudgeRef.current?.pointId) clearSplitNudge();
               // A play() that lands mid-hold keeps the held rate, whichever
               // side is being held.
               e.currentTarget.playbackRate =
@@ -5707,11 +5700,13 @@ export const Player = forwardRef<
             if (detourRef.current === null) return;
             setPlayheadT(detourBaseRef.current + e.currentTarget.currentTime);
             detourTickRef.current = null;
-            playTailRef.current = null;
-            if (nudgeHoldTimer.current) {
-              window.clearTimeout(nudgeHoldTimer.current);
-              nudgeHoldTimer.current = null;
+            // Loading the same ongoing run into its required clip is not
+            // navigation. Preserve the offer through that internal seek.
+            if (!detourHandoffSeekRef.current) {
+              clearSplitNudge();
+              playTailRef.current = null;
             }
+            detourHandoffSeekRef.current = false;
           }}
           onEnded={onDetourDone}
           onPlay={(e) => {
@@ -5722,7 +5717,7 @@ export const Player = forwardRef<
             setPaused(false);
             lastPlayAtRef.current = Date.now();
             pinEndPause(null);
-            clearSplitNudge();
+            if (playTailRef.current?.id !== splitNudgeRef.current?.pointId) clearSplitNudge();
             e.currentTarget.playbackRate =
               gesture.current.holding && holdRateRef.current !== null
                 ? holdRateRef.current
@@ -7368,8 +7363,8 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* Early first outcomes pause on the answered point until the
-                player chooses Split, No, or another deliberate action. */}
+            {/* Early first outcomes offer a split while the rest of the
+                answered card continues playing. */}
             {phase === "play" && splitNudge && (
               <div
                 className={`ks-fade flex items-center gap-2 rounded-xl border border-amber-400/40 px-3 py-2 ${
