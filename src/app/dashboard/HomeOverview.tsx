@@ -1,8 +1,8 @@
 "use client";
 import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
 import { useProcessingService } from "@/lib/useProcessingService";
-import { availabilityNotice, serviceLane } from "@/lib/processingAvailability";
-import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
+import { availabilityNotice, serviceLane, summarizeProcessingWork } from "@/lib/processingAvailability";
+import { ProcessingAvailabilityNoticeContent } from "@/components/ProcessingAvailabilityNotice";
 import { processingStageLabel } from "@/lib/processingFeedback";
 
 import Link from "next/link";
@@ -326,7 +326,7 @@ export function HomeOverview({
   const ownMatchIds = new Set(ownMatches.map((m) => m.id));
   const pendingPointJobs = (jobs ?? []).filter(
     (j) =>
-      j.options?.points === true &&
+      (j.options?.points === true || j.kind === "youtube_import") &&
       !matchJobIds.has(j.id) &&
       !ownMatchIds.has(String(j.options?.match_id ?? "")) &&
       (j.status === "queued" || j.status === "processing")
@@ -336,12 +336,16 @@ export function HomeOverview({
   const processingMatches = ownMatches.filter(
     (m) => m.status === "processing" || liveJobFor(m.id, m.job_id, jobs) !== null
   );
-  const activeWork = pendingPointJobs.length + processingMatches.length;
-  const waitingService = [
-    ...pendingPointJobs.map((j) => services[serviceLane(j.kind, services.clip_lane)]),
-    ...processingMatches.map((m) => services[processingFeedback[m.id]?.lane
-      ?? serviceLane(liveJobFor(m.id, m.job_id, jobs)?.kind, services.clip_lane)]),
-  ].find((state) => state === "unavailable" || state === "maintenance");
+  const processingSummary = summarizeProcessingWork(services, [
+    ...pendingPointJobs.map((job) => ({ kind: job.kind, status: job.status, videoSaved: job.kind !== "youtube_import" })),
+    ...processingMatches.map((match) => {
+      const live = liveJobFor(match.id, match.job_id, jobs);
+      const feedback = processingFeedback[match.id];
+      return { kind: live?.kind ?? feedback?.job_kind, status: live?.status ?? feedback?.job_status ?? (match.status === "processing" ? "processing" : "unknown"),
+        lane: feedback?.lane, videoSaved: true, stageLabel: processingStageLabel(feedback ?? null) };
+    }),
+  ]);
+  const activeWork = processingSummary.blockedCount + processingSummary.continuingCount;
 
   // Legacy cut-only jobs, plus finished point jobs that never got a match
   // row (their cut video is still worth surfacing). Internal job kinds
@@ -450,27 +454,20 @@ export function HomeOverview({
         </section>
       ) : activeWork > 0 ? (
         <section className="rounded-2xl border border-edge bg-surface p-5">
-          {waitingService ?
-            <ProcessingAvailabilityNotice state={waitingService} context="queued_work" className="" /> : <>
+          <ProcessingAvailabilityNoticeContent notice={processingSummary.notice} className="" />
+          {processingSummary.continuingCount > 0 && <div className={processingSummary.notice ? "mt-4" : ""}>
           <div className="flex items-center gap-3">
             <Chip
-              s={
-                pendingPointJobs[0]?.status === "queued" &&
-                processingMatches.length === 0
-                  ? queuedChip
-                  : matchChips.processing
-              }
+              s={processingSummary.queued ? queuedChip : matchChips.processing}
             />
             <p className="text-sm font-medium text-zinc-200">
-              {activeWork === 1
-                ? processingStageLabel(processingFeedback[processingMatches[0]?.id] ?? null) ?? "Your match is processing"
-                : `${activeWork} matches are processing`}
+              {processingSummary.continuingLabel}
             </p>
           </div>
           <p className="mt-2 text-xs text-zinc-500">
-            We&apos;ll email you when your match is ready.
+            {processingSummary.exitMessage}
           </p>
-          </>}
+          </div>}
           {latestReady && (
             <div className="mt-4 border-t border-edge/60 pt-4">
               <ArrowLink

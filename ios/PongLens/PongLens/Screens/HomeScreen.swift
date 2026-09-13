@@ -36,7 +36,7 @@ struct HomeScreen: View {
         ownMatches.first { $0.status == .ready }
     }
 
-    private var processingCount: Int {
+    private var processingWork: [ProcessingWork] {
         // A match counts as working when its own row says so OR a job of its
         // own is still queued or running; a job tied to no visible row (a
         // YouTube download, a commerce upload the worker hasn't linked yet)
@@ -46,13 +46,27 @@ struct HomeScreen: View {
         let ownJobIds = Set(ownMatches.compactMap(\.jobId))
         let ownIds = Set(ownMatches.map { $0.id.uuidString.lowercased() })
         let orphanJobs = library.activeJobs.filter { job in
-            !ownJobIds.contains(job.id)
+            (job.kind == "youtube_import" || job.kind == "deadspace_cut" || job.kind == "hand_cut")
+                && !ownJobIds.contains(job.id)
                 && !ownIds.contains(job.options?.matchId?.lowercased() ?? "")
         }
         let working = ownMatches.filter {
             $0.status == .processing || library.liveJob(for: $0) != nil
         }
-        return working.count + orphanJobs.count
+        return working.map { match in
+            let live = library.liveJob(for: match)
+            let feedback = library.processingFeedback[match.id]
+            return ProcessingWork(kind: live?.kind ?? feedback?.jobKind,
+                                  status: live?.status ?? feedback?.jobStatus ?? (match.status == .processing ? "processing" : "unknown"),
+                                  videoSaved: true,
+                                  lane: feedback?.lane.flatMap(ProcessingServiceLane.init(rawValue:)),
+                                  stageLabel: feedback?.stageLabel)
+        } + orphanJobs.map { ProcessingWork(kind: $0.kind, status: $0.status, videoSaved: $0.kind != "youtube_import") }
+    }
+
+    private var processingCount: Int { processingSummary.blockedCount + processingSummary.continuingCount }
+    private var processingSummary: ProcessingWorkSummary {
+        summarizeProcessingWork(ProcessingServiceStore.shared.status, work: processingWork)
     }
 
     var body: some View {
@@ -258,18 +272,7 @@ struct HomeScreen: View {
             .plCard(padding: 40)
         } else if processingCount > 0 {
             VStack(alignment: .leading, spacing: 10) {
-                if let affected = ownMatches.first(where: { (library.liveJob(for: $0) != nil || $0.status == .processing) && library.availabilityNotice(for: $0) != nil }),
-                   let notice = library.availabilityNotice(for: affected) {
-                    ProcessingAvailabilityNoticeView(notice: processingCount == 1 ? notice : ProcessingAvailabilityNotice(title: notice.title, body: availabilityNotice(.unavailable, context: .queuedWork)!.body))
-                } else {
-                StatusChip(status: .processing)
-                Text(processingCount == 1 ? (ownMatches.first(where: { library.liveJob(for: $0) != nil || $0.status == .processing }).flatMap { library.processingFeedback[$0.id]?.stageLabel } ?? "Your match is processing") : "\(processingCount) matches are processing")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text(processingHasReadyEmail ? "We’ll email you when your match is ready." : "You can leave this page and return to your match later.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-                }
+                HomeProcessingStatusView(summary: processingSummary)
                 if let ready = latestReady {
                     NavigationLink(value: ready) {
                         HStack(spacing: 4) {
@@ -748,16 +751,6 @@ struct HomeScreen: View {
         if entry.unscoredCount > 0 && entry.confirmedCount == 0 { return "Score it" }
         if entry.unscoredCount > 0 { return "Keep scoring" }
         return "Continue"
-    }
-
-    private var processingHasReadyEmail: Bool {
-        guard processingCount == 1 else { return false }
-        return ownMatches.contains { match in
-            if library.liveJob(for: match)?.kind == "deadspace_cut" { return true }
-            let feedback = library.processingFeedback[match.id]
-            return feedback?.jobKind == "deadspace_cut"
-                && (feedback?.jobStatus == "queued" || feedback?.jobStatus == "processing")
-        }
     }
 
     private var recentMatches: some View {

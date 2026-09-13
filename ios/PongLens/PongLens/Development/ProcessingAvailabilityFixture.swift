@@ -56,8 +56,15 @@ struct ProcessingAvailabilityFixtureView: View {
                     Text(context == .export ? "Export" : context == .beforeUpload || context == .uploading ? "Upload" : "Match")
                         .font(.plPageTitle).foregroundStyle(PL.textBody)
                     let notice = ProcessingServiceStore.shared.notice(lane: lane, context: context)
-                    if context == .savedMatch || context == .hand {
-                        MatchProcessingCard(notice: notice, stageLabel: "Finding the ball", warning: nil, progress: 38, sendsReadyEmail: context == .savedMatch)
+                    if let work = ProcessingAvailabilityFixture.argument("--qa-home-work") {
+                        let jobs = work == "orphan" ? [ProcessingWork(kind: "youtube_import", status: "queued", videoSaved: false)] : [
+                            ProcessingWork(kind: "deadspace_cut", status: "queued", videoSaved: true),
+                            ProcessingWork(kind: "hand_cut", status: "processing", videoSaved: true, stageLabel: "Preparing clips")
+                        ]
+                        HomeProcessingStatusView(summary: summarizeProcessingWork(ProcessingServiceStore.shared.status, work: jobs)).plCard()
+                    } else if context == .savedMatch || context == .hand {
+                        let warning = ProcessInfo.processInfo.arguments.contains("--qa-camera-warning") ? "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table." : nil
+                        MatchProcessingCard(notice: notice, stageLabel: "Finding the ball", warning: warning, progress: 38, sendsReadyEmail: context == .savedMatch)
                     } else if let notice {
                         ProcessingAvailabilityNoticeView(notice: notice).plCard()
                     }

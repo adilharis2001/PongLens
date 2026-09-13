@@ -24,6 +24,29 @@ private func check(_ value: @autoclosure () -> Bool, _ label: String) {
     check(status.state(for: .main, now: now.addingTimeInterval(-31)) == .unknown, "future timestamp is not trusted")
     let missing = try JSONDecoder().decode(ProcessingServiceStatus.self, from: Data("{}".utf8))
     check(missing.state(for: .main, now: now) == .unknown, "missing contract fails unknown")
+    for route in ["null", "\"hand\"", "\"\"", "1"] {
+        let invalid = try JSONDecoder().decode(ProcessingServiceStatus.self, from: Data("""
+        {"main":"unavailable","fast":"available","clip_lane":\(route),"observed_at":"\(ISO8601DateFormatter().string(from: now))"}
+        """.utf8))
+        check(invalid.state(for: invalid.clipLane, now: now) == .unknown, "invalid route cannot claim main clip outage")
+    }
+    check(availabilityNotice(.unavailable, context: .fast)?.title == "Clip updates and vertical exports are temporarily unavailable", "clip warning does not claim ordinary exports unavailable")
+    var mixedStatus = status
+    mixedStatus.hand = .available
+    let mixed = summarizeProcessingWork(mixedStatus, work: [
+        ProcessingWork(kind: "deadspace_cut", status: "queued", videoSaved: true),
+        ProcessingWork(kind: "hand_cut", status: "processing", videoSaved: true, stageLabel: "Preparing clips")
+    ], now: now)
+    check(mixed.blockedCount == 1 && mixed.continuingCount == 1, "mixed queues keep healthy work visible")
+    check(mixed.continuingLabel == "Preparing clips" && !mixed.exitMessage.contains("email"), "healthy hand work makes no email promise")
+    let orphan = summarizeProcessingWork(mixedStatus, work: [ProcessingWork(kind: "youtube_import", status: "queued", videoSaved: false)], now: now)
+    check(orphan.continuingCount == 0 && orphan.notice?.body == "Your import request is queued and will continue when service is restored. You can leave this page.", "orphan import has safe outage notice")
+    var availableStatus = mixedStatus
+    availableStatus.main = .available
+    let primarySummary = summarizeProcessingWork(availableStatus, work: [ProcessingWork(kind: "deadspace_cut", status: "processing", videoSaved: true)], now: now)
+    check(primarySummary.exitMessage == "We’ll email you when your match is ready.", "healthy primary retains email promise")
+    let terminalSummary = summarizeProcessingWork(mixedStatus, work: [ProcessingWork(kind: "deadspace_cut", status: "done", videoSaved: true)], now: now)
+    check(terminalSummary.notice == nil && terminalSummary.continuingCount == 0 && !terminalSummary.exitMessage.contains("email"), "terminal primary cannot claim queued or promise another email")
     check(processingServiceLane(kind: "hand_cut", clipLane: .fast) == .hand, "hand cut avoids main")
     check(processingServiceLane(kind: "reclip", clipLane: .main) == .main, "reclip follows returned main")
     check(processingServiceLane(kind: "reel", clipLane: .fast, scope: "v:point:1") == .fast, "vertical reel follows clip lane")
@@ -73,6 +96,32 @@ private func check(_ value: @autoclosure () -> Bool, _ label: String) {
     pending?.resume(returning: status)
     await inFlight.value
     check(serial.state(for: .main) == .unknown, "late response cannot restore outage after signout")
+    var hungResponse: CheckedContinuation<ProcessingServiceStatus, Never>?
+    var expiry: CheckedContinuation<Void, Error>?
+    var expiryCalls = 0
+    var renewedCalls = 0
+    var healthy = status
+    healthy.main = .available
+    let renewable = ProcessingServiceStore(fetch: {
+        renewedCalls += 1
+        if renewedCalls == 1 { return await withCheckedContinuation { hungResponse = $0 } }
+        return healthy
+    }, now: { now }, waitForExpiry: {
+        expiryCalls += 1
+        if expiryCalls == 1 { try await withCheckedThrowingContinuation { expiry = $0 } }
+        else { try await Task.sleep(for: .seconds(30)) }
+    })
+    let hungRequest = Task { await renewable.refresh() }
+    while hungResponse == nil || expiry == nil { await Task.yield() }
+    expiry?.resume()
+    await hungRequest.value
+    check(renewable.state(for: .main) == .unknown, "expiry retires an unresponsive request")
+    await renewable.refresh()
+    check(renewedCalls == 2 && renewable.state(for: .main) == .available, "new request runs after previous timeout")
+    hungResponse?.resume(returning: status)
+    for _ in 0..<20 { await Task.yield() }
+    check(renewable.state(for: .main) == .available, "late retired response cannot overwrite newer recovery")
+    renewable.stop()
     print("\(checks) processing availability checks passed")
 }
 Task { @MainActor in

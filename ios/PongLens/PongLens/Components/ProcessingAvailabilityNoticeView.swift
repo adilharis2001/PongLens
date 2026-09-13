@@ -28,7 +28,9 @@ struct MatchProcessingCard: View {
                 ProcessingAvailabilityNoticeView(notice: notice)
             } else {
                 Text(stageLabel ?? "Processing").font(.plCardTitle).foregroundStyle(PL.text100)
-                if let warning { Text(warning).font(.plBody).foregroundStyle(PL.warningText) }
+            }
+            if let warning { Text(warning).font(.plBody).foregroundStyle(PL.warningText) }
+            if notice == nil {
                 ProgressView(value: Double(min(100, max(4, progress ?? 0))) / 100).tint(PL.cyan)
                 Text(sendsReadyEmail ? "You can leave this page. We email you when the match is ready." : "You can leave this page and return to your match later.")
                     .font(.plBody).foregroundStyle(PL.text400)
@@ -36,5 +38,23 @@ struct MatchProcessingCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard()
+    }
+}
+
+/// Home keeps available jobs visible alongside jobs waiting for service.
+struct HomeProcessingStatusView: View {
+    let summary: ProcessingWorkSummary
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let notice = summary.notice { ProcessingAvailabilityNoticeView(notice: notice) }
+            if summary.continuingCount > 0 {
+                VStack(alignment: .leading, spacing: 10) {
+                    StatusChip(status: summary.queued ? .queued : .processing)
+                    Text(summary.continuingLabel).font(.plCardTitle).foregroundStyle(PL.text100)
+                    Text(summary.exitMessage).font(.plBody).foregroundStyle(PL.text400)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

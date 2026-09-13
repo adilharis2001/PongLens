@@ -8,14 +8,19 @@ final class ProcessingServiceStore {
     private(set) var status = ProcessingServiceStatus.unknown
     private let fetch: () async throws -> ProcessingServiceStatus
     private let now: () -> Date
+    private let waitForExpiry: () async throws -> Void
     private var pollTask: Task<Void, Never>?
     private var expiryTask: Task<Void, Never>?
-    private var refreshing = false
+    private var requestTask: Task<Void, Never>?
+    private var requestCompletion: CheckedContinuation<Void, Never>?
+    private var activeRequest: Int?
     private var generation = 0
 
-    init(fetch: @escaping () async throws -> ProcessingServiceStatus, now: @escaping () -> Date = Date.init) {
+    init(fetch: @escaping () async throws -> ProcessingServiceStatus, now: @escaping () -> Date = Date.init,
+         waitForExpiry: @escaping () async throws -> Void = { try await Task.sleep(for: .seconds(30)) }) {
         self.fetch = fetch
         self.now = now
+        self.waitForExpiry = waitForExpiry
     }
     func state(for lane: ProcessingServiceLane) -> ProcessingServiceState { status.state(for: lane, now: now()) }
     func notice(lane: ProcessingServiceLane = .main, context: AvailabilityContext) -> ProcessingAvailabilityNotice? {
@@ -34,25 +39,41 @@ final class ProcessingServiceStore {
     }
 
     func refresh() async {
-        guard !refreshing else { return }
-        refreshing = true
+        guard activeRequest == nil else { return }
+        generation += 1
         let requestGeneration = generation
+        activeRequest = requestGeneration
         expiryTask?.cancel()
-        expiryTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(30))
-            guard !Task.isCancelled, let self, self.generation == requestGeneration else { return }
-            self.status = .unknown
-            self.generation += 1
-        }
-        defer { refreshing = false }
-        do {
-            let result = try await fetch()
-            guard !Task.isCancelled, generation == requestGeneration else { return }
-            status = result
-        } catch {
-            if generation == requestGeneration { status = .unknown }
+        await withCheckedContinuation { completion in
+            requestCompletion = completion
+            requestTask = Task { [weak self, fetch] in
+                let result: ProcessingServiceStatus
+                do { result = try await fetch() }
+                catch { result = .unknown }
+                guard let self, self.generation == requestGeneration, self.activeRequest == requestGeneration else { return }
+                self.status = result
+                self.finishRequest()
+            }
+            expiryTask = Task { [weak self, waitForExpiry] in
+                do { try await waitForExpiry() } catch { return }
+                guard !Task.isCancelled, let self, self.generation == requestGeneration else { return }
+                // Retire before cancellation: even a transport that ignores
+                // cancellation cannot block the next request or publish late.
+                self.generation += 1
+                self.status = .unknown
+                self.requestTask?.cancel()
+                self.finishRequest()
+            }
         }
         // Keep expiry armed: even a hung subsequent read cannot retain a notice.
+    }
+
+    private func finishRequest() {
+        activeRequest = nil
+        requestTask = nil
+        let completion = requestCompletion
+        requestCompletion = nil
+        completion?.resume()
     }
     func start() {
         guard pollTask == nil else { return }
@@ -69,6 +90,8 @@ final class ProcessingServiceStore {
         pollTask = nil
         expiryTask?.cancel()
         expiryTask = nil
+        requestTask?.cancel()
+        finishRequest()
         status = .unknown
     }
 }

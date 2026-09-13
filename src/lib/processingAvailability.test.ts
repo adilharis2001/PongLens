@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { availabilityNotice, normalizeServiceStatus, serviceLane, processingContext, processingExitMessage } from "./processingAvailability.ts";
+import { availabilityNotice, normalizeServiceStatus, serviceLane, processingContext, processingExitMessage, summarizeProcessingWork, importedProcessingContext, selectImportedProcessingJob } from "./processingAvailability.ts";
 
 test("completion email wording is limited to a saved automatically processed match", () => {
   assert.equal(processingContext("youtube_import", false), "import");
@@ -40,7 +40,8 @@ test("a saved video awaiting only its check does not promise automatic match pro
 });
 test("clip/share work does not promise an email or imply match processing is unavailable", () => {
   const notice = availabilityNotice("unavailable", "fast")!;
-  assert.match(notice.title, /Clip updates and exports/);
+  assert.equal(notice.title, "Clip updates and vertical exports are temporarily unavailable");
+  assert.match(notice.body, /vertical exports/);
   assert.doesNotMatch(notice.body, /email|video processing/i);
 });
 test("job routing matches the existing queue routing", () => {
@@ -57,8 +58,56 @@ test("missing, malformed and stale responses become unknown instead of maintenan
   for (const input of [null, {}, { main: "maintenance" }, { main: "unavailable", observed_at: "2026-09-13T05:50:00Z" }]) {
     assert.equal(normalizeServiceStatus(input, now).main, "unknown");
   }
-  const healthy = normalizeServiceStatus({ main: "unavailable", fast: "available", hand: "made_up", observed_at: "2026-09-13T06:00:00Z" }, now);
+  const healthy = normalizeServiceStatus({ main: "unavailable", fast: "available", hand: "made_up", clip_lane: "fast", observed_at: "2026-09-13T06:00:00Z" }, now);
   assert.equal(healthy.main, "unavailable");
   assert.equal(healthy.fast, "available");
   assert.equal(healthy.hand, "unknown");
+});
+
+test("invalid clip routing cannot invent a main-lane outage for clip work", () => {
+  const now = Date.parse("2026-09-13T06:00:00Z");
+  for (const route of [undefined, null, "hand", "", 1]) {
+    const status = normalizeServiceStatus({ main: "unavailable", fast: "available", hand: "available", clip_lane: route, observed_at: "2026-09-13T06:00:00Z" }, now);
+    assert.equal(availabilityNotice(status[serviceLane("reclip", status.clip_lane)], "fast"), null);
+  }
+});
+
+const mixedService = { main: "unavailable", fast: "available", hand: "available", clip_lane: "fast", observed_at: "2026-09-13T06:00:00Z" } as const;
+test("Home preserves healthy hand progress beside a blocked main job", () => {
+  const summary = summarizeProcessingWork(mixedService, [
+    { kind: "deadspace_cut", status: "queued", videoSaved: true },
+    { kind: "hand_cut", status: "processing", videoSaved: true, stageLabel: "Preparing clips" },
+  ]);
+  assert.equal(summary.blockedCount, 1);
+  assert.equal(summary.continuingCount, 1);
+  assert.equal(summary.continuingLabel, "Preparing clips");
+  assert.doesNotMatch(summary.exitMessage, /email/);
+  assert.ok(summary.notice);
+});
+test("orphan imports have an outage notice without claiming a saved video", () => {
+  const summary = summarizeProcessingWork(mixedService, [{ kind: "youtube_import", status: "queued", videoSaved: false }]);
+  assert.equal(summary.continuingCount, 0);
+  assert.equal(summary.notice?.body, "Your import request is queued and will continue when service is restored. You can leave this page.");
+});
+test("Home email promises follow only active primary processing", () => {
+  const services = { ...mixedService, main: "available" } as const;
+  const hand = summarizeProcessingWork(services, [{ kind: "hand_cut", status: "processing", videoSaved: true }]);
+  assert.doesNotMatch(hand.exitMessage, /email/);
+  const primary = summarizeProcessingWork(services, [{ kind: "deadspace_cut", status: "processing", videoSaved: true }]);
+  assert.match(primary.exitMessage, /email/i);
+  const completed = summarizeProcessingWork(services, [{ kind: "deadspace_cut", status: "done", videoSaved: true }]);
+  assert.equal(completed.continuingCount, 0);
+  assert.doesNotMatch(completed.exitMessage, /email/);
+});
+test("an imported check retains its actual kind and never becomes primary processing", () => {
+  const check = { id: "check", kind: "content_check", status: "processing" };
+  const primary = { id: "primary", kind: "deadspace_cut", status: "queued" };
+  assert.deepEqual(selectImportedProcessingJob([check]), check);
+  assert.deepEqual(selectImportedProcessingJob([check, primary]), primary);
+  assert.equal(selectImportedProcessingJob([{ ...primary, status: "done" }]), null);
+  assert.equal(importedProcessingContext("uploaded", { kind: "content_check", status: "queued" }), "saved_video");
+  assert.doesNotMatch(processingExitMessage(importedProcessingContext("uploaded", { kind: "content_check", status: "processing" })), /email/i);
+  assert.equal(importedProcessingContext("uploaded", null), "saved_idle");
+  assert.equal(importedProcessingContext("processing", { kind: "deadspace_cut", status: "processing" }), "saved_match");
+  assert.equal(importedProcessingContext(null, null), "import");
 });
