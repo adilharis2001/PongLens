@@ -114,8 +114,10 @@ test(
 
       await t.test("never-reported lanes stay unknown and queued work is not proof of life", () => {
         resetFixture();
-        const result = status(`insert into jobs(id,user_id,status,kind,progress,updated_at)
-          values('${JOB}','${OWNER}','queued','deadspace_cut',0,now());`);
+        const result = status(`insert into jobs(id,user_id,status,kind,progress,updated_at,options)
+          values
+            ('${JOB}','${OWNER}','queued','deadspace_cut',50,now(),'{"edited":true}'),
+            ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1','${OWNER}','processing','deadspace_cut',20,now(),'{}');`);
         assert.deepEqual(
           { main: result.main, fast: result.fast, hand: result.hand },
           { main: "unknown", fast: "unknown", hand: "unknown" },
@@ -152,6 +154,15 @@ test(
           { main: result.main, fast: result.fast, hand: result.hand },
           { main: "unavailable", fast: "unavailable", hand: "unavailable" },
         );
+      });
+
+      await t.test("a recent queued-row edit is not worker progress", () => {
+        resetFixture();
+        const result = status(`insert into worker_pulse(worker_id,lane,host,beat_at)
+          values('mac:main','main','mac',now()-interval '1 hour');
+          insert into jobs(id,user_id,status,kind,progress,updated_at,options)
+          values('${JOB}','${OWNER}','queued','deadspace_cut',50,now(),'{"edited":true}');`);
+        assert.equal(result.main, "unavailable");
       });
 
       await t.test("only a fresh drain is maintenance and release refusal is unavailable", () => {
@@ -193,8 +204,23 @@ test(
         assert.equal(beyondEdge.main, "unavailable");
       });
 
+      await t.test("lesson and unknown jobs cannot mask a stale main worker", () => {
+        for (const [index, kind] of ["lesson_video", "future_job"].entries()) {
+          resetFixture();
+          const result = status(`insert into worker_pulse(worker_id,lane,host,beat_at)
+            values('mac:main','main','mac',now()-interval '1 hour');
+            insert into jobs(id,user_id,status,kind,progress,updated_at)
+            values('cccccccc-cccc-4ccc-8ccc-${String(index + 1).padStart(12, "0")}',
+              '${OWNER}','processing','${kind}',20,now());`);
+          assert.equal(result.main, "unavailable", `${kind} is not handled by the main match worker`);
+        }
+      });
+
       await t.test("default, fast-switch, vertical-reel and hand routes match enqueue_job", () => {
         const cases = [
+          { kind: "match_reprocess", options: {}, switch: "main", lane: "main" },
+          { kind: "placement_generate", options: {}, switch: "main", lane: "main" },
+          { kind: "placement_retry", options: {}, switch: "main", lane: "main" },
           { kind: "content_check", options: {}, switch: "main", lane: "main" },
           { kind: "youtube_import", options: {}, switch: "main", lane: "main" },
           { kind: "deadspace_cut", options: {}, switch: "main", lane: "main" },
@@ -207,6 +233,8 @@ test(
         for (const [index, c] of cases.entries()) {
           resetFixture();
           const result = status(`update app_config set value='${c.switch}' where key='reclip_lane';
+            insert into worker_pulse(worker_id,lane,host,beat_at)
+            values('mac:${c.lane}','${c.lane}','mac',now()-interval '1 hour');
             insert into jobs(id,user_id,status,kind,progress,updated_at,options)
             values('bbbbbbbb-bbbb-4bbb-8bbb-${String(index + 1).padStart(12, "0")}','${OWNER}',
               'processing','${c.kind}',20,now(),'${JSON.stringify(c.options)}');`);
@@ -327,6 +355,10 @@ test(
           /permission denied for function processing_service_status/,
         );
         assert.throws(
+          () => sql("set role anon; select my_match_processing_feedback('{}'::uuid[]);"),
+          /permission denied for function my_match_processing_feedback/,
+        );
+        assert.throws(
           () => sql("set role service_role; select processing_service_status();"),
           /permission denied for function processing_service_status/,
         );
@@ -334,6 +366,19 @@ test(
           () => sql("set role authenticated; select processing_lane_status('main');"),
           /permission denied for function processing_lane_status/,
         );
+      });
+
+      await t.test("the recurring recent-work lookup can use its partial updated-at index", () => {
+        const plan = sql(`set enable_seqscan=off;
+          explain (format json,costs off)
+          select 1 from public.jobs j
+          where j.status in ('processing','done','failed')
+            and j.progress>0
+            and j.updated_at>=now()-interval '180 seconds'
+            and j.kind in ('match_reprocess','placement_generate','placement_retry',
+              'hand_cut','reclip','reel','content_check','deadspace_cut','youtube_import')
+          limit 1;`);
+        assert.match(plan, /jobs_processing_availability_recent_idx/);
       });
     } finally {
       sql(`drop database if exists ${database} with (force)`, "postgres");

@@ -2,6 +2,10 @@
 -- Raw pulse identity, job ownership, release paths and worker errors stay private.
 begin;
 
+create index jobs_processing_availability_recent_idx
+  on public.jobs(updated_at desc)
+  where status in ('processing','done','failed') and progress>0;
+
 create function public.processing_lane_status(p_lane text) returns text
 language sql
 stable
@@ -14,13 +18,28 @@ as $$
     where p.host='mac' and p.lane=p_lane
     order by p.beat_at desc
     limit 1
-  ), recent_work as (
-    select exists (
+  )
+  select case
+    when p_lane not in ('main','fast','hand') then 'unknown'
+    when l.beat_at >= now()-interval '90 seconds'
+      and l.stage='release_invalid' then 'unavailable'
+    when l.beat_at >= now()-interval '90 seconds'
+      and l.stage='drained' then 'maintenance'
+    when l.beat_at >= now()-interval '90 seconds' then 'available'
+    -- A lane that has never reported remains unknown. Recent job movement
+    -- can prove that a previously observed lane is still working, but it
+    -- cannot prove which process owns work on a machine that has never spoken.
+    when l.beat_at is null then 'unknown'
+    when exists (
       select 1
       from public.jobs j
       where j.status in ('processing','done','failed')
         and j.progress > 0
         and j.updated_at >= now()-interval '180 seconds'
+        -- These are the exact kinds accepted by process_job. A lesson recap
+        -- or a future row in jobs must not make the match worker look alive.
+        and j.kind in ('match_reprocess','placement_generate','placement_retry',
+          'hand_cut','reclip','reel','content_check','deadspace_cut','youtube_import')
         and case
           when j.kind='hand_cut' then 'hand'
           when j.kind='reclip'
@@ -30,20 +49,10 @@ as $$
           )='fast' then 'fast' else 'main' end
           else 'main'
         end=p_lane
-    ) as present
-  )
-  select case
-    when p_lane not in ('main','fast','hand') then 'unknown'
-    when l.beat_at >= now()-interval '90 seconds'
-      and l.stage='release_invalid' then 'unavailable'
-    when l.beat_at >= now()-interval '90 seconds'
-      and l.stage='drained' then 'maintenance'
-    when l.beat_at >= now()-interval '90 seconds' then 'available'
-    when w.present then 'available'
-    when l.beat_at is not null then 'unavailable'
-    else 'unknown'
+    ) then 'available'
+    else 'unavailable'
   end
-  from recent_work w
+  from (select 1) seed
   left join latest l on true;
 $$;
 
