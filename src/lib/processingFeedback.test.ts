@@ -48,7 +48,7 @@ test("an offline service delays queued work even before a worker is assigned", (
 
 test("the live worker stage uses calm player language", () => {
   const cases: [string, string][] = [
-    ["content_check", "Checking video"],
+    ["content_check", "Processing your match"],
     ["download", "Preparing video"],
     ["ball", "Finding the ball"],
     ["points", "Finding the points"],
@@ -66,6 +66,12 @@ test("a silent worker delays an active processing request without inventing a ti
     processingStageLabel(feedback({ worker_state: "silent" })),
     "Processing is delayed",
   );
+});
+
+test("a standalone upload check does not pretend match processing was requested", () => {
+  for (const job_status of ["queued", "processing"]) {
+    assert.equal(processingStageLabel(feedback({ job_kind: "content_check", job_status })), null);
+  }
 });
 
 

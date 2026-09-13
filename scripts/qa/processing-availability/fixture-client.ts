@@ -5,7 +5,7 @@ export const jobId = "33333333-3333-4333-8333-333333333333";
 export const fixture = { main: "unavailable", fast: "available", hand: "available", kind: "deadspace_cut", jobStatus: "queued", matchStatus: "processing", estimate: "range" };
 export function estimate() {
   const now = Date.now();
-  return { state: fixture.estimate, observed_at: new Date(now).toISOString(), expires_at: new Date(now + (fixture.estimate === "stale" ? -1000 : 90000)).toISOString(), ready_earliest_at: new Date(now + 20 * 60000).toISOString(), ready_latest_at: new Date(now + 45 * 60000).toISOString(), start_earliest_at: new Date(now + 5 * 60000).toISOString(), start_latest_at: new Date(now + 15 * 60000).toISOString(), reason: "metadata_unknown", basis: "recent_baseline_20260913" };
+  return { ready_scope: fixture.kind === "deadspace_cut" ? "match" : undefined, state: fixture.estimate, observed_at: new Date(now).toISOString(), expires_at: new Date(now + (fixture.estimate === "stale" ? -1000 : 90000)).toISOString(), ready_earliest_at: new Date(now + 20 * 60000).toISOString(), ready_latest_at: new Date(now + 45 * 60000).toISOString(), start_earliest_at: new Date(now + 5 * 60000).toISOString(), start_latest_at: new Date(now + 15 * 60000).toISOString(), reason: "metadata_unknown", basis: "recent_baseline_20260913" };
 }
 function overview() {
   const now = new Date().toISOString();

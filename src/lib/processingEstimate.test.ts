@@ -4,6 +4,7 @@ import { formatProcessingEstimate } from "./processingEstimate.ts";
 
 const now = Date.parse("2026-09-13T06:00:00Z");
 const estimate = {
+  ready_scope: "match",
   state: "range", observed_at: "2026-09-13T06:00:00Z", expires_at: "2026-09-13T06:01:30Z",
   ready_earliest_at: "2026-09-13T06:22:12Z", ready_latest_at: "2026-09-13T06:43:18Z",
   start_earliest_at: "2026-09-13T06:05:10Z", start_latest_at: "2026-09-13T06:12:10Z",
@@ -26,11 +27,17 @@ test("outage, unknown capacity, terminal jobs and stale data never show a clock"
   assert.equal(formatProcessingEstimate(estimate, { ...context, now: now + 91_000 }), null);
 });
 
-test("unknown workload reports only queue wait and does not pretend to know ready time", () => {
+test("a queue-only estimate never becomes a customer completion promise", () => {
   const result = formatProcessingEstimate({ ...estimate, state: "queue_only", ready_earliest_at: null,
     ready_latest_at: null, reason: "metadata_unknown" }, context);
-  assert.equal(result?.summary, "Estimated wait before processing: about 5–15 minutes.");
-  assert.equal(result?.detail, "Processing time will be estimated after the video check.");
+  assert.equal(result, null);
+});
+
+test("a short preliminary-job estimate is never labelled match ready", () => {
+  for (const ready_scope of [undefined, "content_check", "queue"]) {
+    assert.equal(formatProcessingEstimate({ ...estimate, ready_scope,
+      ready_earliest_at: "2026-09-13T06:00:07Z", ready_latest_at: "2026-09-13T06:00:48Z" }, context), null);
+  }
 });
 
 test("overrun never renews a one-minute countdown", () => {

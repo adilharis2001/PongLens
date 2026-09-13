@@ -40,13 +40,13 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     }
 
     var stageLabel: String? {
+        guard jobKind != "content_check" else { return nil }
         guard jobStatus == "queued" || jobStatus == "processing" else { return nil }
-        let checking = jobKind == "content_check"
-        if workerState == "silent" { return checking ? "Video check is delayed" : "Processing is delayed" }
-        if jobStatus == "queued" { return checking ? "Waiting to check video" : "Waiting to process" }
+        if workerState == "silent" { return "Processing is delayed" }
+        if jobStatus == "queued" { return "Waiting to process" }
         guard workerState == "fresh" else { return nil }
         switch stage {
-        case "content_check": return "Checking video"
+        case "content_check": return "Processing your match"
         case "camera_check": return "Checking the camera view"
         case "download", "trim": return "Preparing video"
         case "import": return "Importing video"
@@ -54,7 +54,7 @@ struct MatchProcessingFeedback: Decodable, Hashable {
         case "points", "bodies": return "Finding the points"
         case "cut": return "Removing dead time"
         case "publish": return "Preparing your match"
-        default: return checking ? "Checking video" : "Processing your match"
+        default: return "Processing your match"
         }
     }
 

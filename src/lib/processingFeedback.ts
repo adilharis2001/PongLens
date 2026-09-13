@@ -18,15 +18,15 @@ export interface ProcessingFeedback {
 }
 
 export function processingStageLabel(feedback: ProcessingFeedback | null): string | null {
+  if (feedback?.job_kind === "content_check") return null;
   if (!feedback || !["queued", "processing"].includes(feedback.job_status ?? "")) return null;
-  const checking = feedback.job_kind === "content_check";
   if (feedback.service_state === "maintenance") return "Paused for maintenance";
-  if (feedback.service_state === "unavailable") return checking ? "Video check is delayed" : "Processing is delayed";
-  if (feedback.worker_state === "silent") return checking ? "Video check is delayed" : "Processing is delayed";
-  if (feedback.job_status === "queued") return checking ? "Waiting to check video" : "Waiting to process";
+  if (feedback.service_state === "unavailable") return "Processing is delayed";
+  if (feedback.worker_state === "silent") return "Processing is delayed";
+  if (feedback.job_status === "queued") return "Waiting to process";
   if (feedback.worker_state !== "fresh") return null;
   const stages: Record<string, string> = {
-    content_check: "Checking video",
+    content_check: "Processing your match",
     camera_check: "Checking the camera view",
     download: "Preparing video",
     import: "Importing video",
@@ -37,7 +37,7 @@ export function processingStageLabel(feedback: ProcessingFeedback | null): strin
     cut: "Removing dead time",
     publish: "Preparing your match",
   };
-  return stages[feedback.stage ?? ""] ?? (checking ? "Checking video" : "Processing your match");
+  return stages[feedback.stage ?? ""] ?? "Processing your match";
 }
 
 export function cameraViewWarning(

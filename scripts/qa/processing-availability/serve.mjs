@@ -30,4 +30,4 @@ createServer((req, res) => {
   else if (path === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css); }
   else if (/^\/media\/[a-zA-Z0-9_.-]+\.woff2$/.test(path)) { res.setHeader("Content-Type", "font/woff2"); try { res.end(readFileSync(resolve(repo, ".next/static", path.slice(1)))); } catch { res.writeHead(404); res.end(); } }
   else { res.setHeader("Content-Type", "text/html"); res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; media-src 'self' blob:"); res.end('<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Processing availability preview</title><link rel="stylesheet" href="/style.css"></head><body style="background:#09090d;color:#fafafa"><div id="root"></div><script src="/bundle.js"></script></body></html>'); }
-}).listen(8774, "127.0.0.1", () => console.log("Preview: http://127.0.0.1:8774 (local fixtures, no production requests)"));
+}).listen(Number(process.env.PORT ?? 8774), "127.0.0.1", () => console.log("Local fixture server ready"));

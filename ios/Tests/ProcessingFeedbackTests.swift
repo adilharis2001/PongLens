@@ -92,7 +92,7 @@ func runProcessingFeedbackChecks() {
 
     suite("processing stages use the same player language as web") {
         let cases: [(String, String)] = [
-            ("content_check", "Checking video"),
+            ("content_check", "Processing your match"),
             ("camera_check", "Checking the camera view"),
             ("download", "Preparing video"),
             ("import", "Importing video"),
@@ -148,12 +148,12 @@ func runProcessingFeedbackChecks() {
         """)
 
         eq(queued?.stageLabel, Optional("Waiting to process"), "queued processing says it is waiting")
-        eq(queuedCheck?.stageLabel, Optional("Waiting to check video"), "queued content check names the check")
+        eq(queuedCheck?.stageLabel, nil, "standalone check is not a processing request")
         eq(silent?.stageLabel, Optional("Processing is delayed"), "silent processing says it is delayed")
-        eq(silentCheck?.stageLabel, Optional("Video check is delayed"), "silent content check names the delay")
+        eq(silentCheck?.stageLabel, nil, "standalone check does not imply a delayed match")
         eq(missing?.stageLabel, nil, "missing worker evidence does not invent a live stage")
         eq(unknownStage?.stageLabel, Optional("Processing your match"), "unknown processing stage has a calm fallback")
-        eq(unknownCheckStage?.stageLabel, Optional("Checking video"), "unknown check stage has a check fallback")
+        eq(unknownCheckStage?.stageLabel, nil, "internal check stage stays internal")
         eq(done?.stageLabel, nil, "terminal jobs have no processing label")
         eq(failed?.stageLabel, nil, "failed jobs have no processing label")
     }

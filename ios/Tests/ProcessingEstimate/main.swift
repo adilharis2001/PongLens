@@ -2,6 +2,7 @@ import Foundation
 
 let now = ISO8601DateFormatter().date(from: "2026-09-13T06:00:00Z")!
 var fixture: [String: Any] = [
+    "ready_scope": "match",
     "state": "range", "observed_at": "2026-09-13T06:00:00Z", "expires_at": "2026-09-13T06:01:30Z",
     "ready_earliest_at": "2026-09-13T06:22:12Z", "ready_latest_at": "2026-09-13T06:43:18Z",
     "start_earliest_at": "2026-09-13T06:05:10Z", "start_latest_at": "2026-09-13T06:12:10Z",
@@ -25,8 +26,13 @@ check(value.message(jobStatus: "queued", serviceState: "available", now: now.add
 fixture["state"] = "queue_only"
 fixture["reason"] = "metadata_unknown"
 let queue = try decoded(fixture).message(jobStatus: "queued", serviceState: "available", now: now)
-check(queue?.summary == "Estimated wait before processing: about 5–15 minutes.", "Queue wait distinct from ready")
-check(queue?.detail == "Processing time will be estimated after the video check.", "Unknown workload caveat")
+check(queue == nil, "Queue-only estimates stay internal")
+var preliminary = fixture
+preliminary["state"] = "range"
+preliminary.removeValue(forKey: "ready_scope")
+preliminary["ready_latest_at"] = "2026-09-13T06:00:48Z"
+check(try decoded(preliminary).message(jobStatus: "queued", serviceState: "available", now: now) == nil,
+    "A video-check duration cannot claim match readiness")
 fixture["start_earliest_at"] = "2026-09-13T05:58:00Z"
 fixture["start_latest_at"] = "2026-09-13T05:59:00Z"
 check(try decoded(fixture).message(jobStatus: "queued", serviceState: "available", now: now) == nil, "Expired queue range does not renew countdown")

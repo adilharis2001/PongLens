@@ -1,6 +1,7 @@
 import Foundation
 
 struct ProcessingEstimate: Decodable, Hashable {
+    let readyScope: String?
     let state: String?
     let observedAt: String?
     let expiresAt: String?
@@ -11,6 +12,7 @@ struct ProcessingEstimate: Decodable, Hashable {
     let basis: String?
     let reason: String?
     enum CodingKeys: String, CodingKey {
+        case readyScope = "ready_scope"
         case state, basis, reason
         case observedAt = "observed_at", expiresAt = "expires_at"
         case readyEarliestAt = "ready_earliest_at", readyLatestAt = "ready_latest_at"
@@ -18,6 +20,7 @@ struct ProcessingEstimate: Decodable, Hashable {
     }
     struct Message { let summary: String; let detail: String }
     func message(jobStatus: String?, serviceState: String?, now: Date = Date()) -> Message? {
+        guard readyScope == "match", state != "queue_only" else { return nil }
         guard serviceState == "available", jobStatus == "queued" || jobStatus == "processing" else { return nil }
         let iso = ISO8601DateFormatter()
         func date(_ text: String?) -> Date? {

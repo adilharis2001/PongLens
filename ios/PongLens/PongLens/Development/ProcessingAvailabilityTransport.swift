@@ -39,7 +39,7 @@ nonisolated enum AvailabilityQAData {
     static func matchObject(ready: Bool = false) -> [String: Any] {
         ["id": matchID.uuidString, "user_id": ownerID.uuidString, "job_id": jobID.uuidString,
          "opponent_name": "Alex", "match_type": "match", "played_at": "2026-09-13T12:00:00Z",
-         "status": ready ? "ready" : argument("--qa-availability-context") == "saved_idle" ? "uploaded" : "processing",
+         "status": ready ? "ready" : ["saved_idle", "saved_video"].contains(argument("--qa-availability-context") ?? "") ? "uploaded" : "processing",
          "duration_s": 1240, "raw_path": "qa/owned-recording.mp4", "user_side": "near",
          "first_server": "user", "clip_pads": ["pre": 1, "post": 1],
          "created_at": "2026-09-13T12:00:00Z", "points": [["count": 0]]]
@@ -63,6 +63,7 @@ nonisolated enum AvailabilityQAData {
             "start_earliest_at": stamp(300), "start_latest_at": stamp(900),
             "ready_earliest_at": stamp(1200), "ready_latest_at": stamp(2700), "basis": "qa_fixture"]
         if variant == "queue-only" { value["reason"] = "metadata_unknown" }
+        if kind == "deadspace_cut" { value["ready_scope"] = "match" }
         return value
     }
     static var feedback: [String: Any] {
@@ -134,6 +135,19 @@ nonisolated enum AvailabilityQAData {
                 autoRefreshToken: false, emitLocalSessionAsInitialSession: true), global: .init(session: urlSession)))
     }
 
+    private static func bodyData(_ request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open(); defer { stream.close() }
+        var data = Data(), bytes = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&bytes, maxLength: bytes.count)
+            if count <= 0 { break }
+            data.append(contentsOf: bytes.prefix(count))
+        }
+        return data
+    }
+
     /// Only named reads receive synthetic data. No request ever leaves URLProtocol.
     static func response(_ request: URLRequest) -> (Int, Any) {
         guard let url = request.url else { return (403, ["code": "qa_denied"]) }
@@ -141,6 +155,22 @@ nonisolated enum AvailabilityQAData {
         let local = url.host == "127.0.0.1" && url.port == 54322
         let path = url.path
         guard local else { return (403, ["code": "qa_external_request_denied"]) }
+        if argument("--qa-upload-recovery") != nil, method == "POST",
+           let data = bodyData(request), let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if path == "/api/upload-url", body["action"] as? String == "complete",
+               body["uploadId"] as? String == "qa-no-real-upload" {
+                // The server registered successfully, but the completion
+                // response was lost. The real queue must reconcile by key.
+                return (503, ["code": "unavailable"])
+            }
+            if path == "/api/process", let key = body["requestId"] as? String,
+               body["matchId"] as? String == matchID.uuidString {
+                precondition(body["trimStartS"] as? Double == 12 && body["trimEndS"] as? Double == 100)
+                print("Upload intent QA request \(key)")
+                return argument("--qa-upload-recovery") == "pending"
+                    ? (503, ["code": "unavailable"]) : (200, ["job_id": jobID.uuidString])
+            }
+        }
         if path == "/api/media-url", method == "POST" { return (200, ["url": NSNull()]) }
         if path.hasPrefix("/api/thumb/"), method == "GET" { return (404, ["code": "qa_no_thumbnail"]) }
         if path.hasPrefix("/api/match-issues/"), method == "GET" {
@@ -159,6 +189,15 @@ nonisolated enum AvailabilityQAData {
         guard method == "GET" || method == "HEAD" else { return (403, ["code": "qa_write_denied"]) }
         switch path {
         case "/rest/v1/matches":
+            if argument("--qa-upload-recovery") == "registration-missing",
+               URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "raw_path" }) == true {
+                return (200, [])
+            }
+            if argument("--qa-upload-recovery") == "lookup-pending",
+               URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "raw_path" }) == true,
+               !AvailabilityUploadConnection.shared.restored {
+                return (503, ["code": "qa_network_offline"])
+            }
             let single = request.value(forHTTPHeaderField: "Accept")?.contains("vnd.pgrst.object") == true
             return (200, single ? matchObject() : libraryMatches)
         case "/rest/v1/jobs":
@@ -169,6 +208,14 @@ nonisolated enum AvailabilityQAData {
         default: return (403, ["code": "qa_unexpected_read"])
         }
     }
+}
+
+nonisolated final class AvailabilityUploadConnection: @unchecked Sendable {
+    static let shared = AvailabilityUploadConnection()
+    private let lock = NSLock()
+    private var value = false
+    var restored: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    func restore() { lock.lock(); value = true; lock.unlock() }
 }
 
 nonisolated final class AvailabilityQAAuthStorage: AuthLocalStorage, @unchecked Sendable {

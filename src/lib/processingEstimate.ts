@@ -1,5 +1,6 @@
 /** Presentation only. All workload and queue arithmetic belongs to the server. */
 export interface ProcessingEstimate {
+  ready_scope?: "match";
   state: "range" | "queue_only" | "unknown" | "overdue";
   observed_at: string;
   expires_at: string;
@@ -17,6 +18,7 @@ export function formatProcessingEstimate(value: unknown, context: {
   if (context.serviceState !== "available" || !["queued", "processing"].includes(context.jobStatus ?? "")
       || !value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
+  if (row.ready_scope !== "match" || row.state === "queue_only") return null;
   const now = context.now ?? Date.now();
   const date = (v: unknown) => typeof v === "string" ? Date.parse(v) : NaN;
   const observed = date(row.observed_at), expires = date(row.expires_at);

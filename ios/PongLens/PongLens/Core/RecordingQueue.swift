@@ -79,6 +79,8 @@ struct QueuedRecording: Codable, Identifiable, Equatable {
     var attempts: Int = 0
     var errorMessage: String?
     var matchId: UUID?
+    var processingRequest: UploadProcessingRequest?
+    var registrationRetryAt: Date?
     var savedToPhotos = false
     /// Recordings from one session (a 45-minute roll) share metadata edits.
     var sessionId: UUID
@@ -93,13 +95,15 @@ final class RecordingQueue: NSObject {
     var items: [QueuedRecording] = []
     /// Recordings still on their way up (any state before done/failed).
     var active: [QueuedRecording] {
-        items.filter { $0.state != .done }
+        items.filter { $0.state != .done || $0.processingRequest?.isPending == true }
     }
 
     /// Set while the metadata sheet is open for a session: completion holds
     /// so a fast upload doesn't register with half-typed fields.
     private var metadataHolds: Set<UUID> = []
     private var backgroundCompletionHandler: (() -> Void)?
+    @ObservationIgnored private var processingRetryTask: Task<Void, Never>?
+    private var processingRequestsInFlight: Set<UUID> = []
 
     @ObservationIgnored private lazy var session: URLSession = {
         let config = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
@@ -110,6 +114,13 @@ final class RecordingQueue: NSObject {
     }()
 
     private var directory: URL {
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessingAvailabilityFixture.isEnabled {
+            let path = FileManager.default.temporaryDirectory.appendingPathComponent("upload-intent-qa", isDirectory: true)
+            try? FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+            return path
+        }
+        #endif
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("recordings", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
@@ -140,6 +151,9 @@ final class RecordingQueue: NSObject {
            let saved = try? JSONDecoder().decode([QueuedRecording].self, from: data) {
             items = saved
         }
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessingAvailabilityFixture.isEnabled { return }
+        #endif
         // Quiet notifications: delivered to the notification center without
         // an authorization prompt, so "your match is up" never costs a dialog.
         UNUserNotificationCenter.current().requestAuthorization(
@@ -372,6 +386,7 @@ final class RecordingQueue: NSObject {
         // The metadata sheet is still open for this session — let it close
         // (or the app suspend) before the register write freezes the fields.
         guard !metadataHolds.contains(item.sessionId) else { return }
+        guard item.registrationRetryAt == nil || item.registrationRetryAt! <= Date() else { return }
         update(id) { $0.state = .finishing }
         do {
             struct Part: Encodable {
@@ -442,48 +457,8 @@ final class RecordingQueue: NSObject {
                         .execute()
                 }
             }
-            var processingJobID: String?
-            var processingErrorCode: String?
-            if item.processOn, let matchId {
-                struct ProcessReq: Encodable {
-                    let matchId: String
-                    let points = true
-                    let placement: Bool
-                    let strictness = "normal"
-                    // The warm-up cut. Omitted entirely when the owner kept
-                    // the whole video, so an untrimmed job's options stay
-                    // exactly as they were before this existed.
-                    let trimStartS: Double?
-                    let trimEndS: Double?
-                }
-                struct ProcessRes: Decodable { let job_id: String? }
-                do {
-                    let result: ProcessRes = try await API.post(
-                        "api/process",
-                        ProcessReq(
-                            matchId: matchId.uuidString.lowercased(),
-                            placement: item.placementOn,
-                            trimStartS: item.trimStartS,
-                            trimEndS: item.trimEndS
-                        )
-                    )
-                    processingJobID = result.job_id
-                } catch let APIError.http(_, code) {
-                    processingErrorCode = code
-                } catch { processingErrorCode = "unavailable" }
-            }
-            update(id) {
-                $0.state = .done
-                $0.matchId = matchId
-            }
-            cleanup(id, keepOriginal: false)
-            NotificationCenter.default.post(name: .plUploadRegistered, object: nil)
-            notify(
-                title: "Match uploaded",
-                body: UploadProcessingStatus(requested: item.processOn,
-                                             jobID: processingJobID,
-                                             errorCode: processingErrorCode).message
-            )
+            guard let matchId else { throw APIError.http(503, "registration_pending") }
+            try await finishRegistration(id, matchID: matchId)
         } catch {
             // The likeliest reason a complete fails is that it already
             // succeeded. The app dies between the server registering the
@@ -496,46 +471,144 @@ final class RecordingQueue: NSObject {
             // eight attempts — a false "upload failed" that copies the
             // footage to Photos for a match already sitting in the library.
             // Ask before assuming.
-            if let landed = await registeredMatchId(for: item) {
-                update(id) {
-                    $0.state = .done
-                    $0.matchId = landed
+            var confirmedAbsent = false
+            do {
+                if let landed = try await registeredMatchId(for: item) {
+                    try await finishRegistration(id, matchID: landed)
+                    return
+                } else {
+                    confirmedAbsent = true
                 }
-                cleanup(id, keepOriginal: false)
-                // No notification: this match arrived long ago and the
-                // person has already been told about it once.
-                NotificationCenter.default.post(name: .plUploadRegistered, object: nil)
+            } catch {
+                // An unavailable lookup or failed durable write is uncertain,
+                // not proof of failure. Keep the media and retry reconciliation.
+            }
+            if confirmedAbsent && item.attempts >= 7 {
+                // Completion can consume the multipart upload before database
+                // registration fails. With no match to recover, offer the
+                // existing manual retry, which starts a fresh multipart upload.
+                fail(id, message: "The video could not be saved to your library. Tap Retry to upload it again.")
                 return
             }
             update(id) {
                 $0.state = .uploading
-                $0.attempts += 1
+                $0.attempts = min($0.attempts + 1, 30)
+                $0.registrationRetryAt = Date().addingTimeInterval(min(300, 5 * pow(2, Double(min($0.attempts, 6)))))
             }
-            if let current = items.first(where: { $0.id == id }), current.attempts >= 8 {
-                fail(id, message: "The upload kept failing. The footage is safe on this phone.")
-            }
+            // All parts are already uploaded. There may be no more URLSession
+            // callbacks, so reconnect/foreground must drive reconciliation.
+            resumeProcessingRequests()
         }
     }
 
-    /// Did this recording already register? Every match carries the name of
-    /// the file it came from, and a recording's name is a fresh UUID per
-    /// session, so one lookup answers it exactly. RLS scopes the read to the
-    /// caller, so this can only ever find their own match.
+    /// Did this exact upload already register? Match its persisted storage
+    /// path, not the filename, which players can reuse across uploads.
+    /// RLS scopes the lookup to the signed-in owner's matches.
     ///
-    /// A lookup that itself fails returns nil, which means "cannot say" and
-    /// leaves the normal retry alone — the wrong answer to guess here is
-    /// "already landed", because that discards the local footage.
-    private func registeredMatchId(for item: QueuedRecording) async -> UUID? {
+    /// nil proves no owned row exists; an unavailable lookup throws so that
+    /// uncertainty cannot become a permanent upload failure.
+    private func registeredMatchId(for item: QueuedRecording) async throws -> UUID? {
         struct Row: Decodable { let id: UUID }
-        let name = item.originalName ?? item.fileName
-        let rows: [Row]? = try? await supa
+        guard let key = item.key else { return nil }
+        guard let owner = supa.auth.currentUser?.id,
+              key.lowercased().hasPrefix(owner.uuidString.lowercased() + "/") else {
+            throw APIError.http(401, "not_signed_in")
+        }
+        let rows: [Row] = try await supa
             .from("matches")
             .select("id")
-            .eq("original_name", value: name)
+            .eq("raw_path", value: "r2://ponglens-raw/\(key)")
             .limit(1)
             .execute()
             .value
-        return rows?.first?.id
+        guard supa.auth.currentUser?.id == owner else {
+            throw APIError.http(401, "not_signed_in")
+        }
+        return rows.first?.id
+    }
+
+    private func finishRegistration(_ id: UUID, matchID: UUID) async throws {
+        guard let item = items.first(where: { $0.id == id }) else { return }
+        let owner = try await supa.auth.session.user.id
+        guard item.key?.lowercased().hasPrefix(owner.uuidString.lowercased() + "/") == true else {
+            throw APIError.http(401, "not_signed_in")
+        }
+        update(id) {
+            $0.matchId = matchID
+            if $0.processOn && $0.processingRequest == nil {
+                $0.processingRequest = UploadProcessingRequest(ownerID: owner, matchID: matchID,
+                    placement: $0.placementOn, trimStartS: $0.trimStartS, trimEndS: $0.trimEndS)
+            }
+            $0.state = .done
+        }
+        // Unlike best-effort upload progress, this write MUST succeed before
+        // making a spending request or deleting the local upload copy.
+        try JSONEncoder().encode(items).write(to: manifestURL, options: .atomic)
+        cleanup(id, keepOriginal: false)
+        NotificationCenter.default.post(name: .plUploadRegistered, object: nil)
+        await sendProcessingRequest(id)
+        if let current = items.first(where: { $0.id == id }) {
+            notify(title: "Match uploaded", body: current.processingRequest?.isPending == true
+                ? "Your video is saved. The processing request will retry when the app reconnects."
+                : UploadProcessingStatus(requested: item.processOn,
+                    jobID: current.processingRequest?.jobID?.uuidString,
+                    errorCode: current.processingRequest?.errorCode).message)
+        }
+        resumeProcessingRequests()
+    }
+
+    private func sendProcessingRequest(_ id: UUID) async {
+        guard let intent = items.first(where: { $0.id == id })?.processingRequest,
+              intent.isDue(), supa.auth.currentUser?.id == intent.ownerID,
+              !processingRequestsInFlight.contains(id) else { return }
+        processingRequestsInFlight.insert(id)
+        defer { processingRequestsInFlight.remove(id) }
+        struct Request: Encodable {
+            let requestId: UUID
+            let matchId: UUID
+            let points = true
+            let placement: Bool
+            let strictness = "normal"
+            let trimStartS: Double?
+            let trimEndS: Double?
+        }
+        struct Response: Decodable { let job_id: UUID }
+        do {
+            // If the earlier persist failed, do not send with an identity
+            // that could disappear on restart.
+            try JSONEncoder().encode(items).write(to: manifestURL, options: .atomic)
+            let response: Response = try await API.post("api/process", Request(requestId: intent.id,
+                matchId: intent.matchID, placement: intent.placement,
+                trimStartS: intent.trimStartS, trimEndS: intent.trimEndS))
+            update(id) { $0.processingRequest?.accepted(jobID: response.job_id) }
+            NotificationCenter.default.post(name: .plUploadRegistered, object: nil)
+        } catch let APIError.http(status, code) {
+            update(id) { $0.processingRequest?.failed(httpStatus: status, code: code) }
+        } catch {
+            update(id) { $0.processingRequest?.failed(httpStatus: nil, code: "unavailable") }
+        }
+    }
+
+    /// The phone resumes persisted intent, never historical done uploads.
+    /// Server receipts make replay safe after a lost reply or app death.
+    func resumeProcessingRequests() {
+        guard processingRetryTask == nil else { return }
+        processingRetryTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.processingRetryTask = nil }
+            while !Task.isCancelled {
+                guard let owner = supa.auth.currentUser?.id else { return }
+                let pending = self.items.filter { $0.processingRequest?.isPending == true
+                    && $0.processingRequest?.ownerID == owner }
+                let registrations = self.items.filter { $0.state == .uploading
+                    && $0.partCount > 0 && $0.etags.count >= $0.partCount
+                    && $0.key?.lowercased().hasPrefix(owner.uuidString.lowercased() + "/") == true }
+                guard !pending.isEmpty || !registrations.isEmpty else { return }
+                for item in registrations { await self.finishIfComplete(item.id) }
+                for item in pending { await self.sendProcessingRequest(item.id) }
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
     }
 
     private func fail(_ id: UUID, message: String) {
@@ -567,6 +640,7 @@ final class RecordingQueue: NSObject {
         update(id) {
             $0.state = .preparing
             $0.attempts = 0
+            $0.registrationRetryAt = nil
             $0.errorMessage = nil
             // A fresh multipart: the old one may have been aborted server-side.
             $0.key = nil
@@ -636,7 +710,7 @@ final class RecordingQueue: NSObject {
     }
 
     func clearFinished() {
-        items.removeAll { $0.state == .done }
+        items.removeAll { $0.state == .done && $0.processingRequest?.isPending != true }
         persist()
     }
 
@@ -646,6 +720,7 @@ final class RecordingQueue: NSObject {
     /// were dead, reconcile with R2 (list-parts is the truth for what
     /// landed), and re-enqueue only the gaps.
     private func recover() async {
+        resumeProcessingRequests()
         let tasks = await session.allTasks
         let live = Set(tasks.compactMap(\.taskDescription))
         for item in items {

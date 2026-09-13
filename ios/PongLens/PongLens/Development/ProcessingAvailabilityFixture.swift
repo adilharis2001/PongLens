@@ -45,6 +45,8 @@ enum ProcessingAvailabilityFixture {
 }
 
 struct ProcessingAvailabilityFixtureView: View {
+    @State private var uploadDetailsOpen = false
+    @State private var uploadDraft = RecordingMetadata(opponent: "Alex", venue: "QA Club")
     @State private var app = ProcessingAvailabilityFixture.makeAppState()
     @State private var library = LibraryStore()
     @State private var router = Router()
@@ -67,6 +69,12 @@ struct ProcessingAvailabilityFixtureView: View {
                         case "home", "matches": MainTabView()
                         case "match": NavigationStack { MatchDetailScreen(match: AvailabilityQAData.match()) }
                         case "upload": UploadScreen()
+                        case "upload-details":
+                            UploadScreen().sheet(isPresented: $uploadDetailsOpen) {
+                                MatchDetailsSheet(sessionId: AvailabilityUploadQA.sessionID,
+                                    draft: $uploadDraft, recentOpponents: ["Alex"], recentVenues: ["QA Club"],
+                                    processOn: false, placementOn: false)
+                            }
                         case "export":
                             MainTabView()
                                 .sheet(isPresented: $exportOpen) {
@@ -101,11 +109,35 @@ struct ProcessingAvailabilityFixtureView: View {
             await library.load()
             router.tab = ProcessingAvailabilityFixture.argument("--qa-availability-screen") == "home" ? .home : .matches
             journal.loaded = true
+            if ProcessingAvailabilityFixture.argument("--qa-availability-screen") == "upload-details" {
+                RecordingQueue.shared.items = [AvailabilityUploadQA.item(finishing: false)]
+                uploadDetailsOpen = true
+            }
+            if let phase = ProcessingAvailabilityFixture.argument("--qa-upload-recovery") {
+                if phase == "pending" || phase == "lookup-pending" || phase == "registration-missing" {
+                    var item = AvailabilityUploadQA.item(finishing: true)
+                    if phase == "registration-missing" { item.attempts = 7 }
+                    RecordingQueue.shared.items = [item]
+                    RecordingQueue.shared.releaseCompletion(sessionId: AvailabilityUploadQA.sessionID)
+                } else {
+                    let item = RecordingQueue.shared.items.first!
+                    precondition(item.processingRequest?.isPending == true)
+                    print("Upload intent QA restored \(item.processingRequest!.id)")
+                    RecordingQueue.shared.resumeProcessingRequests()
+                }
+            }
             ready = true
             exportOpen = ProcessingAvailabilityFixture.argument("--qa-availability-screen") == "export"
             ProcessingServiceStore.shared.start()
         }
         .onDisappear { ProcessingServiceStore.shared.stop() }
+        .onChange(of: RecordingQueue.shared.items) { _, items in
+            guard let item = items.first else { return }
+            print("Upload intent QA state=\(item.state) process=\(item.processOn) type=\(item.metadata.matchType ?? "unset") pending=\(item.processingRequest?.isPending == true) accepted=\(item.processingRequest?.jobID != nil)")
+            if ProcessingAvailabilityFixture.argument("--qa-upload-recovery") == "lookup-pending", item.attempts > 0 {
+                AvailabilityUploadConnection.shared.restore()
+            }
+        }
     }
 
     private var componentPreview: some View {
@@ -132,6 +164,25 @@ struct ProcessingAvailabilityFixtureView: View {
                 .padding(20)
             }
         }
+    }
+}
+
+enum AvailabilityUploadQA {
+    static let sessionID = UUID(uuidString: "77777777-7777-4777-8777-777777777777")!
+    static func item(finishing: Bool) -> QueuedRecording {
+        var item = QueuedRecording(id: UUID(uuidString: "88888888-8888-4888-8888-888888888888")!,
+            fileName: "no-real-media.mov", state: .uploading, durationS: 1065,
+            capturedAtMs: 1_789_286_400_000, totalBytes: 100_000_000,
+            uploadedBytes: finishing ? 100_000_000 : 37_000_000, sessionId: sessionID)
+        item.metadata = RecordingMetadata(opponent: "Alex", venue: "QA Club")
+        item.processOn = finishing
+        if finishing {
+            item.key = AvailabilityQAData.ownerID.uuidString.lowercased() + "/qa-upload-intent.mov"
+            item.uploadId = "qa-no-real-upload"
+            item.partCount = 1; item.etags = [1: "qa-etag"]
+            item.trimStartS = 12; item.trimEndS = 100
+        }
+        return item
     }
 }
 
