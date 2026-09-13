@@ -8,6 +8,8 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     let jobKind: String?
     let stage: String?
     let workerState: String?
+    let serviceState: String?
+    let lane: String?
     let checkedAtString: String?
     let windowStartS: Double?
     let windowEndS: Double?
@@ -15,7 +17,7 @@ struct MatchProcessingFeedback: Decodable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case matchId = "match_id", jobId = "job_id", jobStatus = "job_status"
-        case jobKind = "job_kind", stage, workerState = "worker_state"
+        case jobKind = "job_kind", stage, workerState = "worker_state", serviceState = "service_state", lane
         case checkedAtString = "checked_at", windowStartS = "window_start_s"
         case windowEndS = "window_end_s", cameraCheck = "camera_check"
     }

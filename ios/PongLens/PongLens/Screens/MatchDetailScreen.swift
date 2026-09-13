@@ -1275,7 +1275,7 @@ struct MatchDetailScreen: View {
                 Spacer()
                 if current.status != .ready {
                     StatusChip(
-                        status: model.jobRunning ? .processing : current.chipStatus
+                        status: processingAvailabilityNotice != nil && (model.jobRunning || current.status == .processing) ? .queued : model.jobRunning ? .processing : current.chipStatus
                     )
                 }
                 // tracksServe too, not just "has winners": a match that was
@@ -1475,21 +1475,13 @@ struct MatchDetailScreen: View {
     @ViewBuilder
     private func rawSection(proxy: ScrollViewProxy) -> some View {
         if model.jobRunning || current.status == .processing {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(model.processingFeedback?.stageLabel ?? "Processing")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                if let warning = model.processingFeedback?.cameraWarning(trimStart: trimStart, trimEnd: trimEnd ?? .infinity) {
-                    Text(warning).font(.plBody).foregroundStyle(PL.warningText)
-                }
-                ProgressView(value: Double(min(100, max(4, model.job?.progress ?? 0))) / 100)
-                    .tint(PL.cyan)
-                Text("You can leave this page. We email you when the match is ready.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .plCard()
+            MatchProcessingCard(
+                notice: processingAvailabilityNotice,
+                stageLabel: model.processingFeedback?.stageLabel,
+                warning: model.processingFeedback?.cameraWarning(trimStart: trimStart, trimEnd: trimEnd ?? .infinity),
+                progress: model.job?.progress,
+                sendsReadyEmail: (model.processingFeedback?.jobKind ?? model.job?.kind) == "deadspace_cut"
+            )
         } else if sourceGone {
             VStack(alignment: .leading, spacing: 10) {
                 Text(model.job?.userMessage ?? "This video couldn't be processed.")
@@ -1523,6 +1515,17 @@ struct MatchDetailScreen: View {
         // Notes were the invisible half of the raw player: its note button
         // saved a real match note, and this page had nowhere to show it.
         overallNotesSection
+    }
+
+    private var processingAvailabilityNotice: ProcessingAvailabilityNotice? {
+        guard isOwner else { return nil }
+        return ProcessingServiceStore.shared.matchNotice(
+            matchStatus: current.status.rawValue,
+            jobKind: model.processingFeedback?.jobKind ?? model.job?.kind,
+            jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
+            lane: model.processingFeedback?.lane,
+            videoSaved: current.rawPath != nil
+        )
     }
 
 
@@ -1577,7 +1580,10 @@ struct MatchDetailScreen: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20).padding(.bottom, 20)
             }
-            if model.processingFeedback?.jobKind == "content_check", let label = model.processingFeedback?.stageLabel {
+            if let notice = processingAvailabilityNotice {
+                ProcessingAvailabilityNoticeView(notice: notice)
+                    .padding(.horizontal, 20).padding(.bottom, 20)
+            } else if model.processingFeedback?.jobKind == "content_check", let label = model.processingFeedback?.stageLabel {
                 Text(label).font(.plBody).foregroundStyle(PL.text400)
                     .padding(.horizontal, 20).padding(.bottom, 20)
             }

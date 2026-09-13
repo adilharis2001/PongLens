@@ -17,6 +17,23 @@ final class LibraryStore {
         !activeJobs.isEmpty || matches.contains { $0.status == .processing }
     }
 
+    @MainActor func availabilityNotice(for match: MatchRow) -> ProcessingAvailabilityNotice? {
+        guard match.userId == supa.auth.currentUser?.id else { return nil }
+        let feedback = processingFeedback[match.id]
+        let live = liveJob(for: match)
+        return ProcessingServiceStore.shared.matchNotice(
+            matchStatus: match.status.rawValue,
+            jobKind: feedback?.jobKind ?? live?.kind,
+            jobStatus: feedback?.jobStatus ?? live?.status,
+            lane: feedback?.lane,
+            videoSaved: match.rawPath != nil
+        )
+    }
+
+    @MainActor func processingLabel(for match: MatchRow) -> String? {
+        availabilityNotice(for: match)?.title ?? processingFeedback[match.id]?.stageLabel
+    }
+
     /// The queued or running job working a match, even before the match row
     /// links it — commerce mode writes the row first and the worker attaches
     /// job_id later. Mirrors the web's liveJobFor. activeJobs already holds
@@ -28,7 +45,7 @@ final class LibraryStore {
         }
         let id = match.id.uuidString.lowercased()
         return activeJobs.first {
-            $0.kind == "deadspace_cut"
+            ($0.kind == "deadspace_cut" || $0.kind == "hand_cut" || $0.kind == "youtube_import")
                 && $0.options?.matchId?.lowercased() == id
         }
     }
@@ -81,6 +98,7 @@ final class LibraryStore {
                 .execute().value
             processingFeedback = Dictionary((feedback ?? []).map { ($0.matchId, $0) }, uniquingKeysWith: { _, last in last })
         } catch {
+            processingFeedback = [:]
             #if DEBUG
             lastError = String(describing: error)
             #else

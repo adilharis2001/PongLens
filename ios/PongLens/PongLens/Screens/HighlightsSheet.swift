@@ -223,6 +223,7 @@ struct HighlightsShareSheet: View {
     static var detentHeight: CGFloat { 470 }
 
     var body: some View {
+        ScrollView {
         PLChooserSheet(title: "Share this highlight") {
             AutomaticHighlightActions(
                 match: match,
@@ -233,6 +234,8 @@ struct HighlightsShareSheet: View {
                 onPlay: {}
             )
         }
+        }
+        .scrollBounceBehavior(.basedOnSize)
     }
 }
 
@@ -259,6 +262,9 @@ private struct AutomaticHighlightActions: View {
 
     var body: some View {
         Group {
+            if let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                ProcessingAvailabilityNoticeView(notice: notice)
+            }
             ForEach(
                 automaticHighlightActions(
                     includePlay: includePlay, sharingEnabled: sharingOn
@@ -332,7 +338,11 @@ private struct AutomaticHighlightActions: View {
             ActivityView(items: [url]).presentationDetents([.medium])
         }
         .sheet(isPresented: $instagramOpen) {
+            ScrollView {
             PLChooserSheet(title: "Instagram") {
+                if let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                    ProcessingAvailabilityNoticeView(notice: notice)
+                }
                 shareRow(
                     action: "story",
                     title: "Story",
@@ -346,6 +356,8 @@ private struct AutomaticHighlightActions: View {
                     destination: .reel
                 )
             }
+            }
+            .scrollBounceBehavior(.basedOnSize)
             .presentationDetents([.height(300)])
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)

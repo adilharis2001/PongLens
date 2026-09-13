@@ -258,13 +258,18 @@ struct HomeScreen: View {
             .plCard(padding: 40)
         } else if processingCount > 0 {
             VStack(alignment: .leading, spacing: 10) {
+                if let affected = ownMatches.first(where: { (library.liveJob(for: $0) != nil || $0.status == .processing) && library.availabilityNotice(for: $0) != nil }),
+                   let notice = library.availabilityNotice(for: affected) {
+                    ProcessingAvailabilityNoticeView(notice: processingCount == 1 ? notice : ProcessingAvailabilityNotice(title: notice.title, body: availabilityNotice(.unavailable, context: .queuedWork)!.body))
+                } else {
                 StatusChip(status: .processing)
                 Text(processingCount == 1 ? (ownMatches.first(where: { library.liveJob(for: $0) != nil || $0.status == .processing }).flatMap { library.processingFeedback[$0.id]?.stageLabel } ?? "Your match is processing") : "\(processingCount) matches are processing")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
-                Text("We’ll email you when your match is ready.")
+                Text(processingHasReadyEmail ? "We’ll email you when your match is ready." : "You can leave this page and return to your match later.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
+                }
                 if let ready = latestReady {
                     NavigationLink(value: ready) {
                         HStack(spacing: 4) {
@@ -673,7 +678,7 @@ struct HomeScreen: View {
                 Text("\(PGDate.shortDate(match?.playedAt ?? reel.updatedAt)) · ")
                     .foregroundStyle(PL.text500)
                 if reel.rendering {
-                    Text("Rendering…").foregroundStyle(PL.warningText)
+                    Text(ProcessingServiceStore.shared.notice(lane: processingServiceLane(kind: "reel", clipLane: ProcessingServiceStore.shared.clipLane, scope: reel.scope), context: .export) == nil ? "Rendering…" : "Waiting for video exports to resume.").foregroundStyle(PL.warningText)
                 } else if reel.status == "failed" {
                     Text("Failed").foregroundStyle(PL.dangerText)
                 } else if let seconds = reel.durationS {
@@ -745,6 +750,16 @@ struct HomeScreen: View {
         return "Continue"
     }
 
+    private var processingHasReadyEmail: Bool {
+        guard processingCount == 1 else { return false }
+        return ownMatches.contains { match in
+            if library.liveJob(for: match)?.kind == "deadspace_cut" { return true }
+            let feedback = library.processingFeedback[match.id]
+            return feedback?.jobKind == "deadspace_cut"
+                && (feedback?.jobStatus == "queued" || feedback?.jobStatus == "processing")
+        }
+    }
+
     private var recentMatches: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -769,7 +784,8 @@ struct HomeScreen: View {
                             match: match,
                             score: scores.scores[match.id],
                             liveJob: library.liveJob(for: match),
-                            processingLabel: library.processingFeedback[match.id]?.stageLabel
+                            processingLabel: library.processingLabel(for: match),
+                            processingUnavailable: library.availabilityNotice(for: match) != nil
                         )
                     }
                     .buttonStyle(.plain)
