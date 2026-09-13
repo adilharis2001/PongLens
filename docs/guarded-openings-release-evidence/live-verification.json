@@ -1,26 +1,26 @@
 {
-  "verified_at": "2026-09-13T03:58:52.828889+00:00",
+  "verified_at": "2026-09-13T04:03:27.703487+00:00",
   "release_id": "caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92",
   "source_commit": "6aebfd66",
   "lanes": {
     "main": {
       "pid": 21074,
-      "job_id": "4e685076-d833-4449-a8e6-1d2153a1f65c",
-      "stage": "camera_check",
-      "beat_at": "2026-09-13 03:58:51.639696+00:00"
+      "job_id": "c9f83f33-6b1e-4c39-a4f8-4228186aed7b",
+      "stage": "ball",
+      "beat_at": "2026-09-13 04:03:12.612892+00:00"
     },
     "fast": {
       "pid": 21076,
       "job_id": null,
       "stage": null,
-      "beat_at": "2026-09-13 03:58:51.567210+00:00"
+      "beat_at": "2026-09-13 04:03:23.955056+00:00"
     }
   },
-  "monitor_at": "2026-09-13 03:58:04.607576+00:00",
+  "monitor_at": "2026-09-13 04:02:53.375842+00:00",
   "monitor_fresh": true,
   "hand_pid_unchanged": 55060,
   "queue_counts": [
-    2,
+    1,
     0
   ],
   "startup_pauses_removed": true,

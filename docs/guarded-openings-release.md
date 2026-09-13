@@ -25,4 +25,4 @@ This release adds the owner-reviewed opening trim to the combined rally and uplo
 | Source publication | Status |
 | --- | --- |
 | Local source | Committed and built from 6aebfd66; release branch/worktree retained |
-| Public GitHub | Automatic approval review rejected git push to public adilharis2001/PongLens despite verified ownership; separate user permission requested asynchronously. No public push or main merge occurred; this does not block the completed Mac worker deployment |
+| Public GitHub | Adil explicitly approved public GitHub publication on 2026-09-13. Publish codex/guarded-openings-release to the verified adilharis2001/PongLens repository; keep this captured worker release branch separate from main. Production already runs the verified package independently of GitHub publication |

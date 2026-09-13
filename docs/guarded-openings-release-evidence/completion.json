@@ -10,5 +10,5 @@
   },
   "full_web_build": "passed; existing warnings",
   "production": "active; verified",
-  "public_source_push": "blocked pending explicit permission"
+  "public_source_push": "explicitly approved by owner on 2026-09-13"
 }
