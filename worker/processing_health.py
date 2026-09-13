@@ -205,6 +205,14 @@ def main():
     connection = psycopg2.connect(database, connect_timeout=5,
         options='-c statement_timeout=10000 -c lock_timeout=2000')
     try:
+        # Estimate refresh is independent of health incidents and mail. A
+        # failed refresh expires naturally and must not stop either path.
+        try:
+            from queue_estimates import refresh as refresh_queue_estimates
+            refresh_queue_estimates(connection)
+        except Exception as exc:
+            connection.rollback()
+            log.warning('Queue estimate refresh unavailable: %s', type(exc).__name__)
         connection.autocommit = True
         flush_spool(database_sender(connection))
         connection.autocommit = False
