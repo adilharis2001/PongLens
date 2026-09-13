@@ -20,6 +20,7 @@ import {
   bounceLabelCopy,
   labelFor,
   courtTrajectory,
+  serveLanding,
   tablePathSegments,
   tableTrailAt,
   type BounceLabel,
@@ -648,6 +649,12 @@ function Court({
   );
   const trail = tableTrailAt(projectedTrack, t);
   const placed = card.bounces.filter((b) => b.u !== null && b.v !== null);
+  // Where the serve finished. Ringed rather than recoloured, so the dot
+  // underneath still says what the detector saw and the ring says what we
+  // made of it. A solid ring is the bounce-pair rule's own answer; a
+  // dashed one was worked out from V3's serve and is only as good as the
+  // end V3 named, which is the thing that fails.
+  const landing = useMemo(() => serveLanding(card), [card]);
   return (
     <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="w-full">
       <rect
@@ -712,6 +719,8 @@ function Court({
           (st) => Math.abs(st - b.t) < 0.02
         );
         const label = labelFor(labels, b.t);
+        const isLanding =
+          landing != null && Math.abs(landing.t - b.t) < 0.02;
         const selected =
           selectedT != null && Math.abs(selectedT - b.t) < 0.001;
         return (
@@ -725,6 +734,11 @@ function Court({
                 + `${b.u?.toFixed(2)}, ${b.v?.toFixed(2)} m · `
                 + `${b.onSurface ? "on the surface" : "off the surface"}`
                 + (isServe ? " · the serve" : "")
+                + (isLanding
+                    ? landing?.from === "pair"
+                      ? " · where the serve landed"
+                      : " · where the serve landed, worked out from V3's serve"
+                    : "")
                 + (label ? ` · you said: ${bounceLabelCopy(label)}` : "")}
             </title>
             {selected && (
@@ -735,6 +749,18 @@ function Court({
                 fill="none"
                 stroke="#f8fafc"
                 strokeWidth="1"
+              />
+            )}
+            {isLanding && (
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="7"
+                fill="none"
+                stroke={SERVE_BOUNCE}
+                strokeWidth={landing?.from === "pair" ? 1.8 : 1.2}
+                strokeDasharray={landing?.from === "pair" ? undefined : "2 2"}
+                opacity={landing?.from === "pair" ? 0.95 : 0.7}
               />
             )}
             {/* Hit area: a 3.5px dot is no tap target. */}

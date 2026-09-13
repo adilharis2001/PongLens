@@ -868,6 +868,65 @@ export function crossingDisputesServer(card: {
   return server !== half;
 }
 
+/** How far apart two readings of the same bounce may be and still be it. */
+const SAME_BOUNCE_S = 0.10;
+/** A serve's two bounces are about 0.4s apart; 1.6s is the pair rule's own
+ *  ceiling and nothing beyond it has ever been a serve's landing. */
+const LANDING_WINDOW_S = 1.6;
+
+/**
+ * Where the serve LANDED — its second bounce, on the receiver's half.
+ *
+ * Two sources, and they are not equally good, so the caller is told which
+ * one answered.
+ *
+ * `pair` — the bounce-pair rule found both bounces itself. It never
+ * consults V3's reading of which end served, so it cannot inherit that
+ * mistake, and it is the answer wherever it exists. Adil judged 24 of
+ * these by eye on 2026-09-13 and went 0 for 5 on the cases where a derived
+ * landing DISAGREED with this one: where the pair rule speaks, it wins.
+ *
+ * `derived` — the pair rule was silent, or was describing a different
+ * flight, so the landing is worked out from V3's serve instead: the first
+ * bounce on the table, on the other half, after V3's own. That covers
+ * another 36% of V3 serves, and on the end-on cameras it is nearly all of
+ * them. It is marked separately because it is only as good as the end V3
+ * named — every failure Adil found in this group was a wrong server read,
+ * not a wrong landing.
+ *
+ * Nothing here needs reprocessing. Every field it reads is already in each
+ * match's diagnosis bundle, so a match cut months ago gains its landings
+ * the moment the page asks for them.
+ */
+export function serveLanding(
+  card: MissCard
+): { t: number; from: "pair" | "derived" } | null {
+  const pair = card.serve_bounces;
+  const arrival = card.serve_arrival_s;
+  // On a bounce-pair match the pair IS the rule's own answer, whole. On a
+  // V3 match it was borrowed, so it only counts when its first bounce is
+  // the one V3 qualified — otherwise it describes a different flight and
+  // its landing is a statement about some other serve.
+  if (pair && pair.length === 2) {
+    const sameFlight =
+      card.serve_source !== "v3" ||
+      (arrival != null && Math.abs(pair[0] - arrival) < SAME_BOUNCE_S);
+    if (sameFlight) return { t: pair[1], from: "pair" };
+  }
+  const half = card.serve_half;
+  if (arrival == null || !half) return null;
+  const receiver = half === "near" ? "far" : "near";
+  for (const b of card.bounces) {
+    if (b.t <= arrival + 0.02) continue;
+    if (b.t > arrival + LANDING_WINDOW_S) break;
+    if (!b.onSurface || b.v === null) continue;
+    if ((b.v < TABLE_L_M / 2 ? "near" : "far") === receiver) {
+      return { t: b.t, from: "derived" };
+    }
+  }
+  return null;
+}
+
 export function refusedCards(data: ServeMissData | null): MissCard[] {
   if (!data) return [];
   return data.cards.filter((c) => c.serve_s === null || c.serve_s === undefined);
