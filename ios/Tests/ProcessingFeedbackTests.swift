@@ -15,6 +15,17 @@ private func decodeProcessingFeedback(_ json: String) -> MatchProcessingFeedback
 }
 
 func runProcessingFeedbackChecks() {
+    suite("malformed optional estimates preserve established feedback") {
+        for estimate in ["false", "{\"state\":123}", "{\"state\":\"range\",\"expires_at\":false}"] {
+            let decoded = decodeProcessingFeedback("""
+            {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"processing","job_kind":"deadspace_cut","worker_state":"fresh","service_state":"available","stage":"ball","camera_check":{"status":"changed","changes":[{"before_s":10,"after_s":20}]},"estimate":\(estimate)}
+            """)
+            check(decoded?.estimate == nil, "malformed estimate is omitted")
+            check(decoded?.stageLabel == "Finding the ball", "valid stage survives")
+            check(decoded?.serviceState == "available", "valid service survives")
+            check(decoded?.cameraWarning() == processingCameraWarning, "valid camera warning survives")
+        }
+    }
     suite("processing feedback decodes the RPC boundary") {
         let decoded = decodeProcessingFeedback("""
         {

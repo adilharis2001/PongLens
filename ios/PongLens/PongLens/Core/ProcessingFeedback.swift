@@ -72,3 +72,23 @@ struct MatchProcessingFeedback: Decodable, Hashable {
         return "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table."
     }
 }
+
+extension MatchProcessingFeedback {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        matchId = try values.decode(UUID.self, forKey: .matchId)
+        jobId = try values.decodeIfPresent(UUID.self, forKey: .jobId)
+        jobStatus = try values.decodeIfPresent(String.self, forKey: .jobStatus)
+        jobKind = try values.decodeIfPresent(String.self, forKey: .jobKind)
+        stage = try values.decodeIfPresent(String.self, forKey: .stage)
+        workerState = try values.decodeIfPresent(String.self, forKey: .workerState)
+        serviceState = try values.decodeIfPresent(String.self, forKey: .serviceState)
+        lane = try values.decodeIfPresent(String.self, forKey: .lane)
+        checkedAtString = try values.decodeIfPresent(String.self, forKey: .checkedAtString)
+        windowStartS = try values.decodeIfPresent(Double.self, forKey: .windowStartS)
+        windowEndS = try values.decodeIfPresent(Double.self, forKey: .windowEndS)
+        cameraCheck = try values.decodeIfPresent(CameraCheck.self, forKey: .cameraCheck)
+        // Advisory timing must not discard established processing or camera feedback.
+        estimate = try? values.decodeIfPresent(ProcessingEstimate.self, forKey: .estimate)
+    }
+}
