@@ -16,6 +16,8 @@ log = logging.getLogger(__name__)
 def managed(connection, job_id):
     """A captured row never falls back to the legacy sender, even if paused.
 
+    Enabled capture manages only the primary kind that the trigger captures;
+    legacy YouTube completions retain their existing sender.
     Missing migration retains the old behavior. Other database errors must
     propagate to the caller's nonfatal boundary, not trigger a duplicate.
     """
@@ -23,7 +25,10 @@ def managed(connection, job_id):
         with connection:
             with connection.cursor() as cur:
                 cur.execute('''select exists(select 1 from public.match_ready_deliveries where job_id=%s)
-                    or exists(select 1 from public.match_ready_delivery_control where singleton and enabled)''', (job_id,))
+                    or exists(select 1 from public.match_ready_delivery_control c
+                        cross join public.jobs j
+                        where c.singleton and c.enabled and j.id=%s and j.kind='deadspace_cut')''',
+                    (job_id, job_id))
                 return cur.fetchone()[0]
     except errors.UndefinedTable:
         return False

@@ -112,3 +112,24 @@ def test_failed_cost_write_does_not_retry_an_accepted_email(db, caplog):
     finally:
         connection.close()
         query(db, 'drop function public.record_cost_usage(jsonb)')
+
+
+def test_legacy_youtube_completion_still_sends_when_capture_enabled(db):
+    job = complete(db, kind='youtube_import')
+    response = mock.Mock(status_code=200)
+    response.json.return_value = {'id': 'legacy-youtube-ready'}
+    with (
+        mock.patch.object(worker, 'get_job_original_name', return_value='Imported match'),
+        mock.patch.object(worker, 'get_job_match_id', return_value='sample-match'),
+        mock.patch.object(worker, 'get_user_email', return_value='player@example.test'),
+        mock.patch.object(worker, 'address_suppressed', return_value=False),
+        mock.patch.object(worker.requests, 'post', return_value=response) as post,
+        mock.patch.object(worker, 'COST_METER', mock.Mock()),
+    ):
+        worker.notify_job_done(db, job, 'user')
+    assert post.call_count == 1
+    sent = post.call_args.kwargs['json']
+    assert sent['to'] == ['player@example.test']
+    assert sent['subject'] == 'Your PongLens match is ready'
+    assert '/match/sample-match' in sent['text']
+    assert query(db, 'select * from public.match_ready_deliveries') == []

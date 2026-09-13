@@ -103,6 +103,14 @@ def test_only_new_primary_completion_is_captured_once(db):
     assert delivery.managed(db, job)
 
 
+def test_enabled_control_manages_uncaptured_primary_but_not_legacy_youtube(db):
+    primary = complete(db, enabled=False)
+    youtube = complete(db, kind='youtube_import')
+    assert query(db, 'select * from public.match_ready_deliveries') == []
+    assert delivery.managed(db, primary)
+    assert not delivery.managed(db, youtube)
+
+
 def test_completion_and_capture_commit_or_rollback_together(db):
     query(db, 'update public.match_ready_delivery_control set enabled=true')
     query(db, 'begin')
