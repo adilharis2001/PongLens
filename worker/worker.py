@@ -831,7 +831,8 @@ def send_email(
     return send_email_payload(payload, idempotency_key=idempotency_key, cost_meter=cost_meter)
 
 
-def send_email_payload(payload, *, idempotency_key=None, cost_meter=None):
+def send_email_payload(payload, *, idempotency_key=None, cost_meter=None,
+                       require_provider_id=False):
     """Send an already-rendered payload unchanged, including across retries."""
     if not RESEND_API_KEY:
         raise RuntimeError("Email delivery unavailable")
@@ -854,9 +855,16 @@ def send_email_payload(payload, *, idempotency_key=None, cost_meter=None):
     if r.status_code >= 400:
         raise RuntimeError(f"Resend {r.status_code}: {r.text[:300]}")
     try:
-        message_id = str(r.json().get("id") or uuid.uuid4())
+        message_id = r.json().get("id")
     except (ValueError, AttributeError):
-        message_id = str(uuid.uuid4())
+        message_id = None
+    if require_provider_id and (
+        not isinstance(message_id, str) or not message_id.strip()
+    ):
+        raise RuntimeError("Provider did not confirm a message ID")
+    # Legacy callers retain their existing accounting fallback. A durable
+    # delivery must remain pending until the provider confirms acceptance.
+    message_id = str(message_id or uuid.uuid4())
     meter = cost_meter or COST_METER
     meter.record([
         meter.email_event(
@@ -1043,9 +1051,13 @@ def match_ready_payload(conn, job_id, user_id):
 def retry_match_ready(conn, job_id=None):
     if not RESEND_API_KEY:
         return False  # Do not start the deduplication clock without a transport.
+    # The monitor imports this module without worker.connect(). Keep its
+    # accounting bound to its own connection, leaving any active job alone.
+    meter = CostMeter(conn, logger=log)
     return match_ready_delivery.deliver_one(
         conn, match_ready_payload,
-        lambda payload, key: send_email_payload(payload, idempotency_key=key),
+        lambda payload, key: send_email_payload(
+            payload, idempotency_key=key, cost_meter=meter, require_provider_id=True),
         address_suppressed, job_id=job_id)
 
 
