@@ -6,12 +6,26 @@
 <h2>Mobile web · 393 × 660</h2><div class="grid">
 <figure><img src="/review-images/web-home-unavailable-393x660.png"><figcaption>Home: saved automatic match</figcaption></figure>
 <figure><img src="/review-images/web-upload-unavailable-393x660.png"><figcaption>Before upload: no saved-file promise</figcaption></figure>
+<figure><img src="/review-images/web-upload-inflight-393x660.png"><figcaption>Upload in progress: keep this page open</figcaption></figure>
+<figure><img src="/review-images/web-upload-saved-393x660.png"><figcaption>Upload saved, processing not yet requested</figcaption></figure>
+<figure><img src="/review-images/web-upload-queued-393x660.png"><figcaption>Upload saved and queued: safe to leave</figcaption></figure>
 <figure><img src="/review-images/web-import-unavailable-393x660.png"><figcaption>Before YouTube import</figcaption></figure>
 <figure><img src="/review-images/web-match-estimate-393x660.png"><figcaption>Healthy processing: rough estimate</figcaption></figure>
 <figure><img src="/review-images/web-library-estimate-393x660.png"><figcaption>Library: compact estimate</figcaption></figure>
 <figure><img src="/review-images/web-export-unavailable-393x660.png"><figcaption>Export sheet: existing files stay available</figcaption></figure>
 </div>
+<h2>Native iOS · iPhone 17 Pro simulator</h2><div class="grid">
+<figure><img src="/review-images/ios-home-unavailable.png"><figcaption>Home: saved automatic match</figcaption></figure>
+<figure><img src="/review-images/ios-match-unavailable.png"><figcaption>Match: outage notice preserves camera advice</figcaption></figure>
+<figure><img src="/review-images/ios-upload-unavailable.png"><figcaption>Upload: no saved-file promise</figcaption></figure>
+<figure><img src="/review-images/ios-match-estimate.png"><figcaption>Healthy processing: rough estimate</figcaption></figure>
+<figure><img src="/review-images/ios-match-maintenance.png"><figcaption>Planned maintenance</figcaption></figure>
+<figure><img src="/review-images/ios-match-unknown.png"><figcaption>Unknown status: ordinary waiting screen</figcaption></figure>
+<figure><img src="/review-images/ios-hand-unavailable.png"><figcaption>Manual point clips: no extra email promise</figcaption></figure>
+<figure><img src="/review-images/ios-export-unavailable.png"><figcaption>Export: downloads remain available</figcaption></figure>
+<figure><img src="/review-images/ios-match-overdue.png"><figcaption>Estimate exceeded: no misleading countdown</figcaption></figure>
+</div>
 <h2>Desktop web · 1280 × 800</h2>
 <figure><img src="/review-images/web-match-unavailable-1280x800.png"><figcaption>Saved-match processing screen. The empty video placeholder belongs to the synthetic preview, not the change.</figcaption></figure>
-<h2>Verification</h2><table><tr><th>Check</th><th>Status</th></tr><tr><td>Web availability states</td><td>Rendered on desktop and 393 × 660 mobile: match, Home, library, before upload and before import</td></tr><tr><td>Web clip tools and export sheet</td><td>Actual components rendered; saved video playback uses no real account data</td></tr><tr><td>Native iOS</td><td>Build and core tests pass; full-screen visual checks still in progress</td></tr><tr><td>Customer emails</td><td>No new outage/recovery emails; accepted-send retry and cost-failure regressions pass</td></tr><tr><td>Release</td><td>Not published or activated; final review and screenshot approval required</td></tr></table>
+<h2>Verification</h2><table><tr><th>Check</th><th>Status</th></tr><tr><td>Web availability states</td><td>Desktop and 393 × 660 mobile renders; actual upload form exercised through upload, saved and queued states with fake transfer events</td></tr><tr><td>Web clip tools and export sheet</td><td>Actual components rendered; no real account data or video processing</td></tr><tr><td>Native iOS</td><td>Build and 1,127 core checks passed; actual Home, Matches, Match, Upload and Export screens captured in an isolated simulator</td></tr><tr><td>Remaining device check</td><td>Native in-flight recording transfer and background/resume have not been exercised end to end</td></tr><tr><td>Customer emails</td><td>No new outage/recovery emails; retry regressions and legacy YouTube mail preservation passed</td></tr><tr><td>Release</td><td>Not published or activated; screenshot approval required</td></tr></table>
 <p><a href="/">Interactive component preview</a></p></main></html>
