@@ -298,6 +298,33 @@ export function UploadView({
     return map;
   }, [rows, match.user_side]);
 
+  /* Has the rotation lost its anchor?
+  
+     A game ends at 11. If none ever closed and the running score is deep
+     past that, the boundaries were never marked — and the ITTF rotation
+     switches to ONE serve each at 10-10, so from there on it simply
+     alternates every point. It is no longer counting anything out; it is
+     flipping a coin in step.
+  
+     Measured on Julian, 13 Sep: one unclosed game reading 26-38, and the
+     server it reported disagreed with the detector on 17 points. Asking
+     the ball to arbitrate — a bounce, a net crossing, a bounce on the
+     other half within half a second is a serve and names its own end —
+     put the DETECTOR right on 12 of them and the rotation right on 2. So
+     the accuracy figure on that match was measuring the ruler's drift.
+  
+     Every one of those 17 came from the computed rotation. Not one came
+     from a server the owner had set by hand, which is the other half of
+     the same evidence. */
+  const rotationAnchored = useMemo(() => {
+    const visible = rows.filter((r) => !r.deleted);
+    const score = computeMatchScore(visible as unknown as Point[]);
+    if (score.confirmedCount === 0) return false;
+    if (score.games.length > 0) return true;
+    // One game still open: trustworthy until 10-10, guesswork after it.
+    return score.current.you < 11 && score.current.them < 11;
+  }, [rows]);
+
   /* V3's read of the server against the one the scoring counts out. Both
      answers have to exist for a card to be asked: a card with no V3 half,
      a rotation that never anchored on a known first server, or a match
@@ -313,12 +340,14 @@ export function UploadView({
             return {
               serveSource: m?.serve_source,
               serveHalf: m?.serve_half,
-              rotationServer: serving.get(r.id)?.server ?? null,
+              rotationServer: rotationAnchored
+                ? serving.get(r.id)?.server ?? null
+                : null,
               sideThisGame: sideByPoint.get(r.id) ?? null,
             };
           })
       ),
-    [rows, serveMisses, serving, sideByPoint]
+    [rows, serveMisses, serving, sideByPoint, rotationAnchored]
   );
 
   const signCut = useCallback(async () => {
@@ -574,7 +603,11 @@ export function UploadView({
           />
         </dl>
 
-        <DetectorCounts assembly={assembly} serverRead={serverRead} />
+        <DetectorCounts
+          assembly={assembly}
+          serverRead={serverRead}
+          rotationAnchored={rotationAnchored}
+        />
         <RuleScore summary={readingSummary} />
 
         <p className="mt-4 text-sm text-zinc-500">
@@ -1185,11 +1218,15 @@ function RuleScore({ summary }: { summary: ReadingSummary | null }) {
 function DetectorCounts({
   assembly,
   serverRead,
+  rotationAnchored,
 }: {
   assembly: ReturnType<typeof readAssembly>;
   /** How often V3 named the same server as the scoring rotation, and on
    *  how many cards the question could be asked at all. */
   serverRead: { agree: number; compared: number };
+  /** False when no game ever closed and the score ran past 11, which puts
+   *  the rotation into permanent deuce where it alternates every point. */
+  rotationAnchored: boolean;
 }) {
   const endOn = assembly.route === "end-on";
   const has =
@@ -1259,6 +1296,16 @@ function DetectorCounts({
           its qualifying bounce landed on — against the server your scoring
           counts out. Asked only on the cards where both have an answer, so
           a card V3 refused is missing from it rather than counted wrong.
+        </p>
+      )}
+
+      {!rotationAnchored && assembly.serves !== null && (
+        <p className="mt-2 text-sm text-amber-300">
+          No serve prediction accuracy on this match, because there is
+          nothing to measure it against. No game has been closed and the
+          score has run past 11, so the rotation is in permanent deuce and
+          is alternating the server every point rather than counting it
+          out. Mark the game ends in Keep score and the figure comes back.
         </p>
       )}
     </div>

@@ -1,0 +1,10 @@
+import { readFileSync } from "node:fs";
+import { computeMatchScore } from "/Users/adil/Desktop/Projects/PongLens/src/app/match/[id]/gameScore.ts";
+const pts = JSON.parse(readFileSync("points.json", "utf8"));
+const visible = pts.filter((p: { deleted: boolean }) => !p.deleted);
+const s = computeMatchScore(visible);
+console.log("closed games:", s.games.length);
+console.log("games you / them:", s.gamesYou, "/", s.gamesThem);
+console.log("confirmed points:", s.confirmedCount);
+console.log("CURRENT game score:", JSON.stringify(s.current));
+console.log("boundaries found:", s.boundaryAfter.size);
