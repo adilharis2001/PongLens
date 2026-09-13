@@ -11,7 +11,7 @@ const bundle = await build({
   entryPoints: [resolve(here, "fixture.tsx")], bundle: true, write: false,
   format: "iife", platform: "browser", jsx: "automatic", logLevel: "warning",
   define: { "process.env.NODE_ENV": '"development"' },
-  alias: { "@": resolve(repo, "src"), "@/lib/supabase/client": resolve(here, "fixture-client.ts") },
+  alias: { "@": resolve(repo, "src"), "@/lib/supabase/client": resolve(here, "fixture-client.ts"), "@uppy/core": resolve(here, "fixture-upload.ts"), "@uppy/aws-s3": resolve(here, "fixture-upload.ts") },
   plugins: [{ name: "fixture-next-router", setup(b) {
     b.onResolve({ filter: /^next\/(navigation|link)$/ }, (args) => ({ path: args.path, namespace: "fixture" }));
     b.onLoad({ filter: /.*/, namespace: "fixture" }, (args) => ({ contents: args.path.endsWith("navigation")

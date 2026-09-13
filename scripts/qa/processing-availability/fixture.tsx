@@ -11,11 +11,17 @@ import { MatchView } from "@/app/match/[id]/MatchView";
 import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 import { fixture, match, job, owner, matchId, jobId } from "./fixture-client";
 import type { Match, Point } from "@/lib/types";
+import { finishPreviewUpload } from "./fixture-upload";
 
 // Deny real actions in this isolated preview, including API calls from imported screens.
-window.fetch = async (input) => {
+window.fetch = async (input, init) => {
   // A synthetic queued response exercises the actual import form without submitting a URL.
   if (input === "/api/import-url") return new Response(JSON.stringify({ jobId, options: { points: true, auto_process: true, placement: false } }), { status: 200, headers: { "Content-Type": "application/json" } });
+  if (input === "/api/upload-url") {
+    const request = JSON.parse(String(init?.body ?? "{}"));
+    return new Response(JSON.stringify(request.action === "complete" ? { matchId } : { bucket: "preview", key: "preview.mp4", uploadId: "preview", parts: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  if (input === "/api/process") return new Response(JSON.stringify({ job_id: jobId }), { status: 200, headers: { "Content-Type": "application/json" } });
   return new Response(JSON.stringify({ error: "Preview only", data: [], url: null }), { status: 400, headers: { "Content-Type": "application/json" } });
 };
 
@@ -30,6 +36,7 @@ function Preview() {
       <label>Job <select value={fixture.kind} onChange={(e) => update("kind", e.target.value)}>{["deadspace_cut", "hand_cut", "content_check", "youtube_import"].map((s) => <option key={s}>{s}</option>)}</select></label>{" "}
       <label>Match <select value={fixture.matchStatus} onChange={(e) => { update("jobStatus", e.target.value === "uploaded" ? "done" : "queued"); update("matchStatus", e.target.value); }}>{["processing", "uploaded"].map((s) => <option key={s}>{s}</option>)}</select></label>
       {" "}<label>Estimate <select value={fixture.estimate} onChange={(e) => update("estimate", e.target.value)}>{["range", "queue_only", "unknown", "overdue", "stale"].map((s) => <option key={s}>{s}</option>)}</select></label>
+      {screen === "upload" && <button className="ml-3 underline" onClick={() => void finishPreviewUpload()}>Finish simulated upload</button>}
     </aside>
     <main key={`${screen}-${revision}`} className="mx-auto max-w-3xl px-4 py-6 sm:px-6" aria-label="Application preview">
       {screen === "match" ? <RawMatchView match={match() as unknown as Match} rawUrl={null} isOwner commerceEnabled minutesBalance={300} initialJob={job()} handCutEnabled initialNotes={[]} noteAuthors={[]} userId={owner} />

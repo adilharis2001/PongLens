@@ -17,6 +17,7 @@ export function createClient() {
   function query(data: unknown) {
     const builder: Record<string, unknown> = {};
     for (const key of ["select", "eq", "neq", "in", "is", "not", "or", "gt", "gte", "lt", "order", "limit", "range", "abortSignal"]) builder[key] = () => builder;
+    builder.update = builder.insert = () => query(data); // Synthetic only; never persists anything.
     builder.maybeSingle = builder.single = () => Promise.resolve({ data: Array.isArray(data) ? data[0] ?? null : data, error: null });
     builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data, error: null }).then(resolve);
     return builder;
