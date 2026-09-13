@@ -9,8 +9,9 @@ struct ImportedVideoStatusView: View {
     @State private var needsMinutes = false
     @State private var processingStarted = false
     @State private var error: String?
-    @State private var activeKind: String? = "youtube_import"
-    @State private var activeStatus: String? = "queued"
+    @State private var observation = ImportedProcessingObservation()
+    private var activeKind: String? { observation.kind }
+    private var activeStatus: String? { observation.status }
     @State private var estimate: ProcessingEstimate?
     struct Imported: Decodable {
         let id: UUID
@@ -39,7 +40,8 @@ struct ImportedVideoStatusView: View {
                     struct Res: Decodable { let job_id: String? }
                     do {
                         let result: Res = try await API.post("api/process", Req(matchId: imported.id.uuidString.lowercased()))
-                        guard result.job_id != nil else { throw URLError(.badServerResponse) }
+                        try observation.processingRequested(jobID: result.job_id)
+                        estimate = nil
                         needsMinutes = false
                         processingStarted = true
                         error = nil
@@ -51,7 +53,7 @@ struct ImportedVideoStatusView: View {
             }
             if let error { Text(error).font(.plBody).foregroundStyle(PL.warningText) }
         }
-        .task(id: jobID) {
+        .task(id: observation.taskID(importJobID: jobID)) {
             while !Task.isCancelled {
                 do {
                     if try await check() { return }
@@ -65,13 +67,13 @@ struct ImportedVideoStatusView: View {
         struct Job: Decodable { let status: String; let user_message: String?; let result_path: String? }
         let jobs: [Job] = try await supa.from("jobs").select("status,user_message,result_path")
             .eq("id", value: jobID).execute().value
-        activeStatus = jobs.first?.status
+        observation.status = jobs.first?.status
         if jobs.first?.status == "failed" {
             error = jobs.first?.user_message ?? "The import could not finish. Please try again."
             return true
         }
         guard jobs.first?.status == "done" else {
-            activeKind = "youtube_import"
+            observation.kind = "youtube_import"
             await refreshEstimate(jobID)
             return false
         }
@@ -88,8 +90,8 @@ struct ImportedVideoStatusView: View {
             .in("status", values: ["queued", "processing"]).order("created_at", ascending: false).limit(10).execute().value
         let selected = active.first { $0.kind == "deadspace_cut" || $0.kind == "hand_cut" }
             ?? active.first { $0.kind == "content_check" }
-        activeKind = selected?.kind
-        activeStatus = match.status == "ready" || match.status == "failed" ? "done" : selected?.status
+        observation.kind = selected?.kind
+        observation.status = match.status == "ready" || match.status == "failed" ? "done" : selected?.status
         struct Balance: Decodable { let minutes_balance: Double }
         let balances: [Balance] = try await supa.rpc("my_processing_state").execute().value
         guard let balance = balances.first else { return false }
