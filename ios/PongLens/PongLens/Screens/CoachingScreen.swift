@@ -264,8 +264,7 @@ struct CoachingScreen: View {
                 choice = picked
                 chooserOpen = false
             }
-            .presentationDetents([.height(330)])
-            .presentationBackground(PL.surface)
+            .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $composerOpen) {

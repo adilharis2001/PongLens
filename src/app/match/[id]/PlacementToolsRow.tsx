@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useId, useReducer, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useReducer, useRef } from "react";
+import { BottomSheet, SHEET_PRIMARY_BUTTON } from "@/components/BottomSheet";
 import {
   placementRequestUiTransition,
   type PlacementRequestUiState,
@@ -28,9 +28,7 @@ export function PlacementToolsRow({
     placementRequestUiTransition,
     INITIAL_REQUEST_UI_STATE,
   );
-  const titleId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
   const openedOnce = useRef(false);
   const acknowledgementId = requestUi.acknowledgement?.id;
 
@@ -39,22 +37,11 @@ export function PlacementToolsRow({
     clearError();
   }, [clearError]);
 
+  // The sheet handles Escape, scroll-lock and its own focus; the row only
+  // remembers that it has opened, to hand focus back afterwards.
   useEffect(() => {
-    if (!requestUi.sheetOpen) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    openedOnce.current = true;
-    closeRef.current?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [close, requestUi.sheetOpen]);
+    if (requestUi.sheetOpen) openedOnce.current = true;
+  }, [requestUi.sheetOpen]);
 
   useEffect(() => {
     if (!requestUi.sheetOpen && openedOnce.current) {
@@ -103,79 +90,41 @@ export function PlacementToolsRow({
         </span>
       </button>
 
-      {requestUi.sheetOpen
-        ? createPortal(
-            <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-              <button
-                type="button"
-                aria-label="Close placement maps sheet"
-                onClick={close}
-                className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
-              />
-              <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <h2 id={titleId} className="text-base font-semibold">
-                      {controller.view.sheetTitle}
-                    </h2>
-                    <p className="mt-1 text-sm text-zinc-400">
-                      {controller.view.sheetBody}
-                    </p>
-                  </div>
-                  <button
-                    ref={closeRef}
-                    type="button"
-                    onClick={close}
-                    aria-label="Close"
-                    className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      aria-hidden="true"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        d="M6 6l12 12M18 6L6 18"
-                      />
-                    </svg>
-                  </button>
-                </div>
-
-                {controller.view.actionKind && (
-                  <button
-                    type="button"
-                    disabled={controller.submitting}
-                    onClick={() => {
-                      void controller.requestAction().then((accepted) => {
-                        dispatchRequestUi({
-                          type: accepted ? "started" : "failed",
-                        });
-                      });
-                    }}
-                    className="glow-cta mt-5 w-full rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-50"
-                  >
-                    {controller.submitting
-                      ? "Starting…"
-                      : controller.view.actionLabel}
-                  </button>
-                )}
-                <p
-                  aria-live="polite"
-                  className={`text-sm text-red-300 ${
-                    controller.error ? "mt-3" : ""
-                  }`}
-                >
-                  {controller.error}
-                </p>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      <BottomSheet
+        open={requestUi.sheetOpen}
+        portal
+        title={controller.view.sheetTitle}
+        subtitle={controller.view.sheetBody}
+        onClose={close}
+        closeLabel="Close placement maps sheet"
+      >
+        {controller.view.actionKind && (
+          <button
+            type="button"
+            disabled={controller.submitting}
+            onClick={() => {
+              void controller.requestAction().then((accepted) => {
+                dispatchRequestUi({
+                  type: accepted ? "started" : "failed",
+                });
+              });
+            }}
+            className={`${SHEET_PRIMARY_BUTTON} mt-5 disabled:cursor-wait`}
+          >
+            {controller.submitting
+              ? "Starting…"
+              : controller.view.actionLabel}
+          </button>
+        )}
+        <p
+          aria-live="polite"
+          className={`text-sm text-red-300 ${
+            controller.error ? "mt-3" : ""
+          }`}
+        >
+          {controller.error}
+        </p>
+      </BottomSheet>
 
       {requestUi.acknowledgement && (
         <div

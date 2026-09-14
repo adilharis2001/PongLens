@@ -159,8 +159,7 @@ struct CoachTabView: View {
                 }
             }
             // Three entry choices, including the imported video recap.
-            .presentationDetents([.height(348)])
-            .presentationBackground(PL.surface)
+            .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $router.composeWrite) { request in

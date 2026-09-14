@@ -16,10 +16,6 @@ struct ShareHighlightsSheet: View {
     let match: MatchRow
     let starredCount: Int
 
-    static var detentHeight: CGFloat {
-        InstagramShare.isAvailable(.reel) ? 420 : 330
-    }
-
     @Environment(\.dismiss) private var dismiss
     @State private var model = StoryShareModel()
     @State private var shareItem: URL?
@@ -31,53 +27,48 @@ struct ShareHighlightsSheet: View {
 
     var body: some View {
         PLChooserSheet(title: "Share your highlights") {
-            if sharingOn, InstagramShare.isAvailable(.reel) {
+            Section {
+                if sharingOn, InstagramShare.isAvailable(.reel) {
+                    PLChooserRow(
+                        icon: "camera.aperture",
+                        title: model.busy ? "Preparing…" : "Instagram Reel",
+                        detail: model.busy
+                            ? model.progressLine
+                            : "Your starred rallies, back to back. "
+                                + "Opens Instagram ready to post.",
+                        pending: starredCount == 0,
+                        busy: model.busy
+                    ) {
+                        Task { await run(to: .reel) }
+                    }
+                }
+
                 PLChooserRow(
-                    icon: "camera.aperture",
-                    title: model.busy ? "Preparing…" : "Instagram Reel",
-                    detail: model.busy
-                        ? model.progressLine
-                        : "Your starred rallies, back to back. "
-                            + "Opens Instagram ready to post.",
-                    pending: starredCount == 0,
-                    busy: model.busy
+                    icon: "square.and.arrow.down",
+                    title: "Save the video",
+                    detail: starredCount > 0
+                        ? "Your starred rallies as one vertical video, "
+                            + "to save or send anywhere."
+                        : "Star points to share them.",
+                    pending: starredCount == 0 || model.busy
                 ) {
-                    Task { await run(to: .reel) }
+                    Task { await run(to: nil) }
                 }
             }
 
-            PLChooserRow(
-                icon: "square.and.arrow.down",
-                title: "Save the video",
-                detail: starredCount > 0
-                    ? "Your starred rallies as one vertical video, "
-                        + "to save or send anywhere."
-                    : "Star points to share them.",
-                pending: starredCount == 0 || model.busy
-            ) {
-                Task { await run(to: nil) }
+            Section {
+                Toggle("Include names", isOn: $showNames)
+                Toggle("Include score", isOn: $showScore)
+                Toggle("Include logo", isOn: $showLogo)
             }
 
-            Toggle("Include names", isOn: $showNames)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
-                .padding(.top, 4)
-            Toggle("Include score", isOn: $showScore)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
-            Toggle("Include logo", isOn: $showLogo)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
-
             if let message = model.errorMessage {
-                Text(message)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
+                Section {
+                    Text(message)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.dangerText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .sheet(item: $shareItem) { url in

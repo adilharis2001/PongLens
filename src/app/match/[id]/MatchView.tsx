@@ -81,6 +81,7 @@ import {
   type MatchServer,
 } from "./serving";
 import type { Side } from "./sides";
+import { BottomSheet } from "@/components/BottomSheet";
 import {
   userConfirmedFirstServer,
   userFirstServerUpdate,
@@ -4657,48 +4658,24 @@ export function MatchView({
       {/* "Your side" change sheet, from the Tools row. Same PickSide as the
           first-open banner, against the cut video; picking writes user_side
           (handleSetUserSide == PlayerTagging's chooseSide) and closes. */}
-      {isOwner && sideSheetOpen && (
-        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={() => setSideSheetOpen(false)}
-            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
-          />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">Which player are you?</h2>
-              <button
-                type="button"
-                onClick={() => setSideSheetOpen(false)}
-                aria-label="Close"
-                className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            </div>
-            <div className="mt-4">
-              <PickSide
-                src={cutPreviewUrl}
-                atSeconds={60}
-                selected={userSide}
-                onPick={(s) => {
-                  void handleSetUserSide(s);
-                  setSideSheetOpen(false);
-                }}
-              />
-            </div>
+      {isOwner && (
+        <BottomSheet
+          open={sideSheetOpen}
+          title="Which player are you?"
+          onClose={() => setSideSheetOpen(false)}
+        >
+          <div className="mt-4">
+            <PickSide
+              src={cutPreviewUrl}
+              atSeconds={60}
+              selected={userSide}
+              onPick={(s) => {
+                void handleSetUserSide(s);
+                setSideSheetOpen(false);
+              }}
+            />
           </div>
-        </div>
+        </BottomSheet>
       )}
 
       {/* undo snackbar for structural edits (deletes, timing, splits) */}

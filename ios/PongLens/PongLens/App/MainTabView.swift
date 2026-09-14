@@ -227,11 +227,9 @@ struct MainTabView: View {
                 newMatchChoice = choice
                 router.newMatchOpen = false
             }
-            // Three rows now, not two. A detent left at the old height cuts
-            // the last row in half, which reads as a bug rather than as
-            // something to scroll.
-            .presentationDetents([.height(336)])
-            .presentationBackground(PL.surface)
+            // The chooser is a Form now, so it scrolls if it ever has to;
+            // no fixed height to keep in step with the number of rows.
+            .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
         // Raised only by the gate above. The manual "How to record"

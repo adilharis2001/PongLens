@@ -66,8 +66,7 @@ struct StarredScreen: View {
                 starredCount: store.groups
                     .first { $0.matchId == match.id }?.points.count ?? 0
             )
-            .presentationDetents([.height(ShareHighlightsSheet.detentHeight)])
-            .presentationBackground(PL.surface)
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
         .fullScreenCover(item: $openIndex) { start in

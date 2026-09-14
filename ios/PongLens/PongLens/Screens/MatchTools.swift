@@ -108,8 +108,6 @@ struct ToolsSection: View {
                     DispatchQueue.main.async { onOpenPlayer() }
                 }
             )
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $coachOpen) {
             CoachInviteSheet(match: match)
@@ -119,7 +117,6 @@ struct ToolsSection: View {
         .sheet(isPresented: $exportOpen) {
             ExportSheet(match: match, starredCount: starredCount)
                 .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $detailsOpen) {
@@ -134,7 +131,6 @@ struct ToolsSection: View {
                 onRowChanged()
             }
             .presentationDetents([.medium])
-            .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $placementOpen) {
@@ -333,33 +329,17 @@ struct ShareLinksSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        PLSheetScaffold(title: "Share a link") {
             Form {
                 Section {
                     ForEach(targets, id: \.self) { option in
-                        Button {
+                        PLChoiceRow(
+                            title: targetTitle(option),
+                            detail: targetDetail(option),
+                            selected: target == option
+                        ) {
                             target = option
-                        } label: {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(targetTitle(option))
-                                        .font(.plRowTitle)
-                                        .foregroundStyle(PL.text100)
-                                    Text(targetDetail(option))
-                                        .font(.plCaption)
-                                        .foregroundStyle(PL.text500)
-                                }
-                                Spacer()
-                                Image(systemName: target == option
-                                      ? "checkmark.circle.fill"
-                                      : "circle")
-                                    .foregroundStyle(
-                                        target == option ? PL.cyan : PL.text600
-                                    )
-                            }
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
                     }
                 } footer: {
                     Text(scopeFooter)
@@ -405,11 +385,15 @@ struct ShareLinksSheet: View {
                     }
                 } else if !starredEmpty {
                     Section {
-                        Button(creating ? "Creating…" : "Create the link") {
+                        PLSheetActionRow(
+                            label: creating ? "Creating…" : "Create the link",
+                            disabled: creating
+                        ) {
                             Task { await mint() }
                         }
-                        .disabled(creating)
-                        if let errorMessage {
+                    }
+                    if let errorMessage {
+                        Section {
                             Text(errorMessage)
                                 .font(.plCaption)
                                 .foregroundStyle(PL.dangerText)
@@ -417,7 +401,6 @@ struct ShareLinksSheet: View {
                     }
                 }
             }
-            .tint(PL.cyan)
             .onChange(of: showScore) { _, _ in
                 // The route is idempotent and applies the choice on the
                 // reuse path, so this updates the link already out there
@@ -425,16 +408,7 @@ struct ShareLinksSheet: View {
                 guard target != .starred, links[target] != nil else { return }
                 Task { await mint() }
             }
-            .navigationTitle("Share a link")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .fontWeight(.semibold)
-                }
-            }
         }
-        .preferredColorScheme(.dark)
         .onChange(of: target) { _, _ in
             // The QR belongs to the link on screen, so a switch closes it.
             showQR = false
@@ -533,7 +507,7 @@ struct PlacementRequestSheet: View {
     private var status: String { match.placementStatus ?? "not_requested" }
 
     var body: some View {
-        NavigationStack {
+        PLSheetScaffold(title: "Placement maps") {
             Form {
                 Section {
                     if started {
@@ -551,10 +525,12 @@ struct PlacementRequestSheet: View {
                                 .foregroundStyle(PL.text300)
                         }
                     } else if let actionLabel {
-                        Button(submitting ? "Starting…" : actionLabel) {
+                        PLSheetActionRow(
+                            label: submitting ? "Starting…" : actionLabel,
+                            disabled: submitting
+                        ) {
                             Task { await request() }
                         }
-                        .disabled(submitting)
                     }
                     if let errorMessage {
                         Text(errorMessage)
@@ -565,17 +541,7 @@ struct PlacementRequestSheet: View {
                     Text(body_)
                 }
             }
-            .tint(PL.cyan)
-            .navigationTitle("Placement maps")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .fontWeight(.semibold)
-                }
-            }
         }
-        .preferredColorScheme(.dark)
     }
 
     /// A run is already in flight; the sheet reports rather than offers.
@@ -693,7 +659,7 @@ struct CoachInviteSheet: View {
     @State private var showQR = false
 
     var body: some View {
-        NavigationStack {
+        PLSheetScaffold(title: "Share with coach") {
             Form {
                 if loaded && !coaches.isEmpty {
                     Section {
@@ -715,20 +681,16 @@ struct CoachInviteSheet: View {
                     Section {
                         ForEach(pending) { invite in
                             HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(invite.name ?? CoachingStore.unnamedInvite)
-                                        .foregroundStyle(
-                                            invite.name == nil ? PL.text500 : PL.text100
-                                        )
-                                    Text(invite.covers
-                                         ? "Gets \(invite.access) when they accept"
-                                         : invite.queued
+                                PLRowLabel(
+                                    title: invite.name ?? CoachingStore.unnamedInvite,
+                                    detail: invite.covers
+                                        ? "Gets \(invite.access) when they accept"
+                                        : invite.queued
                                             ? "Gets this match when they accept"
-                                            : "Hasn't opened the link yet")
-                                        .font(.plCaption)
-                                        .foregroundStyle(PL.text500)
-                                }
-                                Spacer()
+                                            : "Hasn't opened the link yet",
+                                    dimmed: invite.name == nil
+                                )
+                                Spacer(minLength: 8)
                                 if busyCoach == invite.id {
                                     ProgressView().tint(PL.cyan)
                                 } else if !invite.covers {
@@ -823,14 +785,17 @@ struct CoachInviteSheet: View {
                     )
 
                     Section {
-                        Text("For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
-                            .font(.plBody)
-                            .foregroundStyle(PL.text400)
-                        Button(creating ? "Creating…" : "Create invite link") {
+                        PLSheetActionRow(
+                            label: creating ? "Creating…" : "Create invite link",
+                            disabled: creating
+                        ) {
                             Task { await create() }
                         }
-                        .disabled(creating)
-                        if let errorMessage {
+                    } footer: {
+                        Text("For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
+                    }
+                    if let errorMessage {
+                        Section {
                             Text(errorMessage)
                                 .font(.plCaption)
                                 .foregroundStyle(PL.dangerText)
@@ -838,17 +803,7 @@ struct CoachInviteSheet: View {
                     }
                 }
             }
-            .tint(PL.cyan)
-            .navigationTitle("Share with coach")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .fontWeight(.semibold)
-                }
-            }
         }
-        .preferredColorScheme(.dark)
         .task { await load() }
         .task {
             guard let uid = app.userId, !starter.loaded else { return }
@@ -884,20 +839,17 @@ struct CoachInviteSheet: View {
     @ViewBuilder
     private func coachRow(_ coach: ConnectedCoach) -> some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(coach.name)
-                    .foregroundStyle(PL.text100)
-                Text(coach.allMatches
-                     ? "Sees all your matches"
-                     : coach.matchLinkId != nil
+            PLRowLabel(
+                title: coach.name,
+                detail: coach.allMatches
+                    ? "Sees all your matches"
+                    : coach.matchLinkId != nil
                         ? "Has this match"
                         : coach.otherMatches > 0
                             ? "Has \(coach.otherMatches) other match\(coach.otherMatches == 1 ? "" : "es")"
-                            : "Doesn't have this match")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-            }
-            Spacer()
+                            : "Doesn't have this match"
+            )
+            Spacer(minLength: 8)
             if coach.allMatches {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(PL.cyan)
@@ -1098,32 +1050,27 @@ struct ExportSheet: View {
     @State private var busy: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Export")
-                .font(.plCardTitle)
-                .foregroundStyle(PL.text100)
-
-            Toggle("Include score", isOn: $showScore)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
-
-            exportRow(
-                "Full match",
-                subtitle: showScore ? "Whole match, with scoreboard" : "The playtime video",
-                scope: "full"
-            )
-            exportRow(
-                "Starred points",
-                subtitle: starredCount > 0 ? "Your starred rallies, in order" : "Star points to export them",
-                scope: "starred",
-                disabled: starredCount == 0
-            )
-            rawRow
-            Spacer()
+        PLSheetScaffold(title: "Export") {
+            Form {
+                Section {
+                    Toggle("Include score", isOn: $showScore)
+                }
+                Section {
+                    exportRow(
+                        "Full match",
+                        subtitle: showScore ? "Whole match, with scoreboard" : "The playtime video",
+                        scope: "full"
+                    )
+                    exportRow(
+                        "Starred points",
+                        subtitle: starredCount > 0 ? "Your starred rallies, in order" : "Star points to export them",
+                        scope: "starred",
+                        disabled: starredCount == 0
+                    )
+                    rawRow
+                }
+            }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .task {
             await loadReels()
         }
@@ -1134,43 +1081,31 @@ struct ExportSheet: View {
     ) -> some View {
         let status = reels[scope]
         return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.plRowTitle).foregroundStyle(disabled ? PL.text500 : PL.text100)
-                Text(statusLine(status) ?? subtitle)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-            }
-            Spacer()
+            PLRowLabel(
+                title: title, detail: statusLine(status) ?? subtitle, dimmed: disabled
+            )
+            Spacer(minLength: 8)
             if status == "ready" {
-                Button("Download") {
+                PLRowAction("Download") {
                     Task { await download(scope: scope) }
                 }
-                .buttonStyle(PLCyanGhostButtonStyle())
             } else if status == "queued" || status == "rendering" {
                 Text("Rendering…")
                     .font(.plCaption)
                     .foregroundStyle(PL.warningText)
             } else {
-                Button(busy == scope ? "…" : "Create") {
+                PLRowAction(busy == scope ? "…" : "Create", disabled: disabled || busy != nil) {
                     Task { await create(scope: scope) }
                 }
-                .buttonStyle(PLSecondaryButtonStyle())
-                .disabled(disabled || busy != nil)
             }
         }
-        .plInnerRow()
     }
 
     private var rawRow: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Raw match").font(.plRowTitle).foregroundStyle(PL.text100)
-                Text("Your original upload, uncut")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-            }
-            Spacer()
-            Button("Download") {
+            PLRowLabel(title: "Raw match", detail: "Your original upload, uncut")
+            Spacer(minLength: 8)
+            PLRowAction("Download") {
                 Task {
                     struct Req: Encodable {
                         let matchId: String
@@ -1187,9 +1122,7 @@ struct ExportSheet: View {
                     if let url = res?.url.flatMap(URL.init) { openURL(url) }
                 }
             }
-            .buttonStyle(PLSecondaryButtonStyle())
         }
-        .plInnerRow()
     }
 
     private func statusLine(_ status: String?) -> String? {
@@ -1275,7 +1208,12 @@ struct MatchDetailsEditor: View {
     }
 
     var body: some View {
-        NavigationStack {
+        PLSheetScaffold(
+            title: "Match details",
+            doneLabel: saving ? "Saving…" : "Done",
+            doneDisabled: saving,
+            onDone: { Task { await save() } }
+        ) {
             Form {
                 Section {
                     entryRow(
@@ -1294,21 +1232,8 @@ struct MatchDetailsEditor: View {
                     }
                 }
             }
-            .tint(PL.cyan)
-            .navigationTitle("Match details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Saving…" : "Done") {
-                        Task { await save() }
-                    }
-                    .fontWeight(.semibold)
-                    .disabled(saving)
-                }
-            }
             .plKeyboardDismiss()
         }
-        .preferredColorScheme(.dark)
     }
 
     /// A field you can type into, with the recent answers one tap away
@@ -1363,32 +1288,28 @@ struct YourSideSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
     @State private var saving = false
+    /// Which row is being written, so only that one shows the spinner.
+    @State private var savingSide: String?
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Which player are you?")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text("So your labels and placement maps come out right.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
+        PLSheetScaffold(title: "Which player are you?") {
+            Form {
+                Section {
+                    sideRow("Bottom of video", side: "near")
+                    sideRow("Top of video", side: "far")
+                } footer: {
+                    Text("So your labels and placement maps come out right.")
+                }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.plBody)
+                            .foregroundStyle(PL.warningText)
+                    }
+                }
             }
-
-            HStack(spacing: 10) {
-                sideButton("Bottom of video", side: "near")
-                sideButton("Top of video", side: "far")
-            }
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.plBody)
-                    .foregroundStyle(PL.warningText)
-            }
-            Spacer()
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The web's chooseSide, column for column (MatchView
@@ -1455,27 +1376,19 @@ struct YourSideSheet: View {
         dismiss()
     }
 
-    private func sideButton(_ label: String, side: String) -> some View {
-        let active = match.userSide == side
-        return Button {
+    /// The side already on the row is marked; tapping the other writes
+    /// it and closes. The share sheet's choice row, so the two questions
+    /// the match page asks look like the same kind of question.
+    private func sideRow(_ label: String, side: String) -> some View {
+        PLChoiceRow(
+            title: label,
+            selected: match.userSide == side,
+            busy: saving && savingSide == side,
+            disabled: saving
+        ) {
+            savingSide = side
             Task { await save(side) }
-        } label: {
-            Text(label)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(active ? PL.cyan : PL.text300)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(
-                    active ? PL.cyan.opacity(0.12) : PL.ink.opacity(0.4),
-                    in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                        .strokeBorder(active ? PL.cyan.opacity(0.7) : PL.edge, lineWidth: 1)
-                )
         }
-        .buttonStyle(.plain)
-        .disabled(saving)
     }
 }
 
@@ -1543,7 +1456,6 @@ struct RawToolsSection: View {
         .sheet(isPresented: $exportOpen) {
             RawExportSheet(match: match)
                 .presentationDetents([.medium])
-                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
     }
@@ -1598,39 +1510,29 @@ struct RawExportSheet: View {
     @State private var busy = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Export")
-                .font(.plCardTitle)
-                .foregroundStyle(PL.text100)
-            Text("Point clips and rendered videos appear here after processing.")
-                .font(.plBody)
-                .foregroundStyle(PL.text400)
-
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Original video")
-                        .font(.plRowTitle)
-                        .foregroundStyle(available == false ? PL.text500 : PL.text100)
-                    Text(available == false
-                         ? "No longer stored"
-                         : "Your upload, as recorded")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                }
-                Spacer()
-                if available != false {
-                    Button(busy ? "…" : "Download") {
-                        Task { await download() }
+        PLSheetScaffold(title: "Export") {
+            Form {
+                Section {
+                    HStack(spacing: 12) {
+                        PLRowLabel(
+                            title: "Original video",
+                            detail: available == false
+                                ? "No longer stored"
+                                : "Your upload, as recorded",
+                            dimmed: available == false
+                        )
+                        Spacer(minLength: 8)
+                        if available != false {
+                            PLRowAction(busy ? "…" : "Download", disabled: available != true || busy) {
+                                Task { await download() }
+                            }
+                        }
                     }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                    .disabled(available != true || busy)
+                } footer: {
+                    Text("Point clips and rendered videos appear here after processing.")
                 }
             }
-            .plInnerRow()
-            Spacer()
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .task { await probe() }
     }
 

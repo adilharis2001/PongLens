@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { Tag } from "@/lib/types";
+import { BottomSheet } from "@/components/BottomSheet";
 
 /**
  * Point tags (035): short labels on individual points, the owner's own
@@ -112,34 +112,19 @@ export function TagPicker({
   //
   // `inline` is for the opposite caller: one that is already a full-screen
   // layer above <body>'s stack, where the portal lands BEHIND it.
-  const sheet = (
-    <div
-      className={
-        inline
-          ? "absolute inset-0 z-20 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center sm:p-4"
-          : "fixed inset-0 z-[70] flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
-      }
+  //
+  // The keyboard goes to the search field, not the close button, so the
+  // sheet's own focus is off.
+  return (
+    <BottomSheet
+      open
+      portal={!inline}
+      inline={inline}
+      title={`Tags · ${pointLabel}`}
+      onClose={onClose}
+      widthClass="sm:max-w-md"
+      autoFocusClose={false}
     >
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={onClose}
-        className="absolute inset-0 cursor-default"
-      />
-      <div className="relative w-full rounded-t-2xl border border-edge bg-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:max-w-md sm:rounded-2xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-zinc-200">
-            Tags · {pointLabel}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-edge bg-surface px-3.5 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-          >
-            Done
-          </button>
-        </div>
-
         <input
           ref={inputRef}
           type="text"
@@ -206,11 +191,8 @@ export function TagPicker({
             </p>
           )}
         </div>
-      </div>
-    </div>
+    </BottomSheet>
   );
-
-  return inline ? sheet : createPortal(sheet, document.body);
 }
 
 /**

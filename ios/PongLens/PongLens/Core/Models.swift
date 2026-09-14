@@ -60,10 +60,6 @@ func automaticHighlightActions(
     return actions
 }
 
-func automaticHighlightsSheetHeight(hasActions: Bool) -> Double {
-    hasActions ? 570 : 250
-}
-
 struct AutomaticHighlightsRequestView: Hashable {
     let title: String
     let body: String

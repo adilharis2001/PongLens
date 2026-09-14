@@ -229,8 +229,7 @@ struct PointDetailScreen: View {
         .sheet(isPresented: $shareSheetOpen) {
             if let point {
                 SharePointSheet(match: match, point: point, pad: pad, points: points)
-                .presentationDetents([.height(SharePointSheet.detentHeight)])
-                .presentationBackground(PL.surface)
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
         }
@@ -240,7 +239,6 @@ struct PointDetailScreen: View {
                     point: point, match: match, tagsStore: tagsStore, userId: app.userId
                 )
                 .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
             }
         }
@@ -1088,57 +1086,60 @@ struct TagPickerSheet: View {
     @State private var newLabel = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Tag this point")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(PL.textBody)
+        PLSheetScaffold(title: "Tag this point") {
+            Form {
+                Section {
+                    HStack(spacing: 8) {
+                        TextField("New tag", text: $newLabel)
+                            .onSubmit { create() }
+                        PLRowAction(
+                            "Add",
+                            disabled: newLabel.trimmingCharacters(in: .whitespaces).isEmpty
+                        ) { create() }
+                    }
+                }
 
-            HStack(spacing: 8) {
-                TextField("New tag", text: $newLabel)
-                    .plField()
-                    .onSubmit { create() }
-                Button("Add") { create() }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                    .disabled(newLabel.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-
-            if tagsStore.vocab.isEmpty {
-                Text("No tags yet. Add one above and it stays in your vocabulary for every match.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text500)
-            } else {
-                ScrollView {
-                    FlowLayout(spacing: 8) {
-                        ForEach(tagsStore.vocab) { tag in
-                            let applied = tagsStore.tags(for: point.id).contains(tag)
-                            Button(tag.label) {
-                                guard let userId else { return }
-                                Task {
-                                    await tagsStore.toggle(pointId: point.id, tag: tag, userId: userId)
+                Section {
+                    if tagsStore.vocab.isEmpty {
+                        Text("No tags yet. Add one above and it stays in your vocabulary for every match.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text500)
+                    } else {
+                        // Chips keep their own shape: a tag is a small
+                        // thing you can have several of on one line, and
+                        // a row each would make ten tags a long list.
+                        FlowLayout(spacing: 8) {
+                            ForEach(tagsStore.vocab) { tag in
+                                let applied = tagsStore.tags(for: point.id).contains(tag)
+                                Button(tag.label) {
+                                    guard let userId else { return }
+                                    Task {
+                                        await tagsStore.toggle(pointId: point.id, tag: tag, userId: userId)
+                                    }
                                 }
-                            }
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(applied ? PL.cyan : PL.text300)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(
-                                applied ? PL.cyan.opacity(0.15) : PL.ink.opacity(0.4), in: Capsule()
-                            )
-                            .overlay(
-                                Capsule().strokeBorder(
-                                    applied ? PL.cyan.opacity(0.6) : PL.edge, lineWidth: 1
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(applied ? PL.cyan : PL.text300)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(
+                                    applied ? PL.cyan.opacity(0.15) : PL.ink.opacity(0.4), in: Capsule()
                                 )
-                            )
-                            .buttonStyle(.plain)
+                                .overlay(
+                                    Capsule().strokeBorder(
+                                        applied ? PL.cyan.opacity(0.6) : PL.edge, lineWidth: 1
+                                    )
+                                )
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
                     }
                 }
             }
-            Spacer(minLength: 0)
+            .plKeyboardDismiss()
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .plKeyboardDismiss()
     }
 
     private func create() {

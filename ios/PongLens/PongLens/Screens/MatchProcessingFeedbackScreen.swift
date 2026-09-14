@@ -15,6 +15,10 @@ import SwiftUI
 /// video it asks about is on the page underneath, so the sheet carries
 /// none. A notification about a request deep-links to a page holding the
 /// same panel, so the review can be read without the match page under it.
+///
+/// The panel is a run of Form sections, and both homes put it in a Form:
+/// the sheet's, and the page's, drawn over the arena. One form, one look,
+/// wherever it is read.
 struct MatchIssuePanel: View {
     @Bindable var model: MatchIssueModel
     /// Whether the original upload is still stored; nil until known. Only
@@ -22,69 +26,92 @@ struct MatchIssuePanel: View {
     var hasOriginal: Bool? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let confirmation = model.confirmation {
-                Text(confirmation).font(.plBody).foregroundStyle(PL.text300)
-                    .accessibilityAddTraits(.updatesFrequently)
+        // What has already happened: a request just sent, minutes already
+        // returned, a request still being looked at.
+        if model.confirmation != nil
+            || model.state?.automaticRefundMessage != nil
+            || model.state?.activeIssue != nil {
+            Section {
+                if let confirmation = model.confirmation {
+                    Text(confirmation).font(.plBody).foregroundStyle(PL.text300)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+                if let state = model.state {
+                    if let receipt = state.automaticRefundMessage {
+                        Text(receipt).font(.plBody).foregroundStyle(PL.text300)
+                    }
+                    if let issue = state.activeIssue {
+                        status(issue, state: state)
+                    }
+                }
             }
-            if let state = model.state {
-                if let receipt = state.automaticRefundMessage {
-                    Text(receipt).font(.plBody).foregroundStyle(PL.text300)
-                }
-                if let issue = state.activeIssue {
-                    status(issue, state: state)
-                }
-                if !state.choices.isEmpty {
-                    // A coach, or an owner whose match is not ready, has one
-                    // thing to say and no choice to make: the note is the
-                    // whole form.
-                    if state.choices != [.problem] {
-                        VStack(spacing: 8) {
-                            ForEach(state.choices) { choice in
-                                choiceRow(choice, minutes: state.refundableMinutes)
+        }
+        if let state = model.state {
+            if !state.choices.isEmpty {
+                // A coach, or an owner whose match is not ready, has one
+                // thing to say and no choice to make: the note is the
+                // whole form.
+                if state.choices != [.problem] {
+                    Section {
+                        ForEach(state.choices) { choice in
+                            PLChoiceRow(
+                                title: choice.label(minutes: state.refundableMinutes),
+                                detail: choice.detail,
+                                selected: model.selectedChoice == choice,
+                                disabled: model.busy
+                            ) {
+                                model.choice = choice
+                                model.confirmation = nil
                             }
                         }
-                    } else if state.isOwnerCut, hasOriginal == false {
-                        // The one reason a processed match has no remedy
-                        // that the owner can do nothing about; said plainly
-                        // so the missing "Try processing again" is not a
-                        // mystery. "No longer stored", never "expired".
+                    }
+                } else if state.isOwnerCut, hasOriginal == false {
+                    // The one reason a processed match has no remedy
+                    // that the owner can do nothing about; said plainly
+                    // so the missing "Try processing again" is not a
+                    // mystery. "No longer stored", never "expired".
+                    Section {
                         Text("The original video is no longer stored, so this match cannot be processed again.")
                             .font(.plBody).foregroundStyle(PL.text300)
                     }
-                    // The note is part of the form from the start, optional
-                    // beside a request and required for a report, so the
-                    // sheet reads as one form rather than rows and a button.
-                    let reportOnly = state.choices == [.problem]
-                    noteField(reportOnly: reportOnly, cut: state.isOwnerCut)
-                    Button { Task { await model.submit() } } label: {
-                        Text(model.busy ? "Sending…" : reportOnly ? "Send report" : "Send request")
-                            .frame(maxWidth: .infinity, minHeight: 28)
+                }
+                // The note is part of the form from the start, optional
+                // beside a request and required for a report, so the
+                // sheet reads as one form rather than rows and a button.
+                let reportOnly = state.choices == [.problem]
+                noteSection(reportOnly: reportOnly, cut: state.isOwnerCut)
+                Section {
+                    PLSheetActionRow(
+                        label: model.busy ? "Sending…" : reportOnly ? "Send report" : "Send request",
+                        disabled: !model.canSubmit
+                    ) {
+                        Task { await model.submit() }
                     }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    .disabled(!model.canSubmit)
                 }
-                if !state.events.isEmpty {
-                    history(state.events)
-                }
-            } else if model.loadError == nil {
+            }
+            if !state.events.isEmpty {
+                history(state.events)
+            }
+        } else if model.loadError == nil {
+            Section {
                 ProgressView("Loading…").font(.plBody).tint(PL.cyan)
             }
-            if let error = model.error {
+        }
+        if let error = model.error {
+            Section {
                 Text(error).font(.plBody).foregroundStyle(PL.warningText)
-            }
-            if let error = model.loadError {
-                Text(error).font(.plBody).foregroundStyle(PL.warningText)
-                Button { Task { await model.load() } } label: {
-                    Text("Try again").frame(maxWidth: .infinity, minHeight: 28)
-                }
-                .buttonStyle(PLSecondaryButtonStyle())
-                .disabled(model.busy)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        if let error = model.loadError {
+            Section {
+                Text(error).font(.plBody).foregroundStyle(PL.warningText)
+                Button("Try again") { Task { await model.load() } }
+                    .disabled(model.busy)
+            }
+        }
     }
 
+    @ViewBuilder
     private func status(_ issue: MatchIssue, state: MatchIssueState) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if let label = state.statusLabel {
@@ -99,93 +126,36 @@ struct MatchIssuePanel: View {
             if let note = issue.playerNote, !note.isEmpty, note != state.statusMessage {
                 Text(note).font(.plBody).foregroundStyle(PL.text300)
             }
-            if state.canCancel {
-                Button { Task { await model.cancel() } } label: {
-                    Text("Cancel request").frame(maxWidth: .infinity, minHeight: 28)
-                }
-                .buttonStyle(PLSecondaryButtonStyle())
+        }
+        if state.canCancel {
+            Button("Cancel request") { Task { await model.cancel() } }
+                .foregroundStyle(PL.text300)
                 .disabled(model.busy)
-                .padding(.top, 6)
-            }
         }
-    }
-
-    /// The app's choose-one row (onboarding's level picker): a rounded
-    /// field, lit in the accent with a checkmark when chosen. Not the
-    /// capsule button style, which turns two lines of text into an oval.
-    private func choiceRow(_ choice: MatchIssueChoice, minutes: Int?) -> some View {
-        let active = model.selectedChoice == choice
-        return Button {
-            model.choice = choice
-            model.confirmation = nil
-        } label: {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(choice.label(minutes: minutes))
-                        .font(.plRowTitle)
-                        .foregroundStyle(active ? PL.cyan : PL.text100)
-                    Text(choice.detail)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text400)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .multilineTextAlignment(.leading)
-                Spacer(minLength: 8)
-                // A radio mark on every row, so both read as a choice
-                // before either is picked.
-                Image(systemName: active ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(active ? PL.cyan : PL.text600)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(
-                active ? PL.cyan.opacity(0.08) : PL.ink.opacity(0.4),
-                in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                    .strokeBorder(active ? PL.cyan.opacity(0.7) : PL.edge, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(model.busy)
-        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     /// A report needs words (the server refuses an empty one); a remedy
     /// request does not, so only the request says "optional".
-    private func noteField(reportOnly: Bool, cut: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(reportOnly
-                 ? (cut ? "What went wrong?" : "What happened?")
-                 : "What went wrong? (optional)")
-                .font(.plBody).foregroundStyle(PL.text300)
+    private func noteSection(reportOnly: Bool, cut: Bool) -> some View {
+        Section {
             TextField(
                 cut ? "Rallies that were missed, or cut at the wrong time." : "Tell us what went wrong.",
                 text: $model.message, axis: .vertical
             )
             .lineLimit(3...8)
-            .font(.plBody)
-            .foregroundStyle(PL.text100)
-            .padding(12)
-            .background(PL.ink, in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                    .strokeBorder(PL.edge, lineWidth: 1)
-            )
             .disabled(model.busy)
             .onChange(of: model.message) { _, value in
                 if value.count > 1000 { model.message = String(value.prefix(1000)) }
             }
+        } header: {
+            Text(reportOnly
+                 ? (cut ? "What went wrong?" : "What happened?")
+                 : "What went wrong? (optional)")
         }
     }
 
     private func history(_ events: [MatchIssueEvent]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Rectangle().fill(PL.edge).frame(height: 1)
-            Text("History").font(.plRowTitle).foregroundStyle(PL.text200)
+        Section {
             ForEach(events) { event in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(event.label).font(.plBody).foregroundStyle(PL.text300)
@@ -198,28 +168,25 @@ struct MatchIssuePanel: View {
                     }
                 }
             }
+        } header: {
+            Text("History")
         }
     }
 }
 
-/// The sheet the Processing row raises. Same chrome as Your side: a card
-/// title, then the content, on the surface colour.
+/// The sheet the Processing row raises, dressed like every other sheet
+/// off the Tools list.
 struct MatchProcessingSheet: View {
     let model: MatchIssueModel
     let hasOriginal: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Processing")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
+        PLSheetScaffold(title: "Processing") {
+            Form {
                 MatchIssuePanel(model: model, hasOriginal: hasOriginal)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .plKeyboardDismiss()
         }
-        .plKeyboardDismiss()
         .task { await model.load() }
     }
 }
@@ -243,45 +210,52 @@ struct MatchProcessingFeedbackScreen: View {
     var body: some View {
         ZStack {
             ArenaBackground()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Same route back control as FeedbackScreen and Starred.
-                    Button { dismiss() } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Back")
+            // The panel is Form sections, so the page is a Form too: the
+            // same cells the sheet shows, drawn over the arena, with the
+            // page's own header as a clear first row.
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Same route back control as FeedbackScreen and Starred.
+                        Button { dismiss() } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Back")
+                            }
                         }
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle())
+                        .buttonStyle(PLSecondaryButtonStyle())
 
-                    Text("Processing")
-                        .font(.plPageTitle)
-                        .tracking(-0.6)
-                        .foregroundStyle(PL.textBody)
+                        Text("Processing")
+                            .font(.plPageTitle)
+                            .tracking(-0.6)
+                            .foregroundStyle(PL.textBody)
 
-                    if let match {
-                        let parts = MatchTitle.parts(for: match)
-                        HStack(spacing: 12) {
-                            MatchThumb(matchId: match.id)
-                                .frame(width: 80, height: 48)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(parts.primary).font(.plBody).foregroundStyle(PL.text100)
-                                Text(parts.secondary).font(.plCaption).foregroundStyle(PL.text500)
+                        if let match {
+                            let parts = MatchTitle.parts(for: match)
+                            HStack(spacing: 12) {
+                                MatchThumb(matchId: match.id)
+                                    .frame(width: 80, height: 48)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(parts.primary).font(.plBody).foregroundStyle(PL.text100)
+                                    Text(parts.secondary).font(.plCaption).foregroundStyle(PL.text500)
+                                }
                             }
                         }
                     }
-
-                    MatchIssuePanel(
-                        model: model,
-                        hasOriginal: match.map { $0.rawPath?.hasPrefix("r2://ponglens-raw/") == true }
-                    )
-                    .plCard()
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
                 }
-                .padding(20)
-                .padding(.bottom, 60)
+
+                MatchIssuePanel(
+                    model: model,
+                    hasOriginal: match.map { $0.rawPath?.hasPrefix("r2://ponglens-raw/") == true }
+                )
             }
+            .scrollContentBackground(.hidden)
+            .tint(PL.cyan)
             .plKeyboardDismiss()
             .refreshable { await model.load() }
         }
@@ -356,7 +330,6 @@ struct ProcessingToolRow: View {
         .sheet(isPresented: $open) {
             MatchProcessingSheet(model: model, hasOriginal: match.rawPath?.hasPrefix("r2://ponglens-raw/") == true)
                 .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
     }

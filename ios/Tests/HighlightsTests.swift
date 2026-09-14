@@ -17,14 +17,6 @@ func runAutomaticHighlightsChecks() {
             == [.play, .shareLink, .saveVideo],
         "the sharing switch hides Instagram but keeps links and saving"
     )
-    check(
-        automaticHighlightsSheetHeight(hasActions: true) == 570,
-        "the ready Highlights sheet makes room for playback and sharing"
-    )
-    check(
-        automaticHighlightsSheetHeight(hasActions: false) == 250,
-        "non-ready Highlights states stay compact"
-    )
     let json = """
     {
       "status":"ready",
@@ -143,10 +135,18 @@ func runAutomaticHighlightsChecks() {
             contentsOfFile: "../PongLens/PongLens/Screens/MatchTools.swift",
             encoding: .utf8
         )
-        check(sheet.contains("frame(maxWidth: .infinity, minHeight: 28)"),
-              "the native score action fills the form width")
-        check(sheet.contains("buttonStyle(PLPrimaryButtonStyle())"),
-              "the native score action reuses the approved primary button")
+        let scaffold = try String(
+            contentsOfFile: "../PongLens/PongLens/DesignSystem/SheetScaffold.swift",
+            encoding: .utf8
+        )
+        // The sheet's one action is the shared sheet button, and that
+        // button is the approved primary, drawn the full width of the form.
+        check(sheet.contains("PLSheetActionRow("),
+              "the native score action is the shared sheet action row")
+        check(scaffold.contains("frame(maxWidth: .infinity, minHeight: 28)"),
+              "the sheet action row fills the form width")
+        check(scaffold.contains("buttonStyle(PLPrimaryButtonStyle())"),
+              "the sheet action row reuses the approved primary button")
         check(sheet.contains("DispatchQueue.main.async { onScore() }"),
               "the sheet dismisses into the existing scorekeeper")
         check(tools.contains("DispatchQueue.main.async { onOpenPlayer() }"),

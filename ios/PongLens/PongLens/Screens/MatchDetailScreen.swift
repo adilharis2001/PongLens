@@ -1014,13 +1014,11 @@ struct MatchDetailScreen: View {
                 point: point, match: current, tagsStore: tagsStore, userId: app.userId
             )
             .presentationDetents([.medium, .large])
-            .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $filtersOpen) {
             PointFilterSheet(winner: $winnerFilter, only: $onlyFilter, coachView: !isOwner)
                 .presentationDetents([.medium])
-                .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $shareOpen) {
@@ -1030,7 +1028,6 @@ struct MatchDetailScreen: View {
                 processed: current.status == .ready
             )
             .presentationDetents([.medium, .large])
-            .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
         // Edit details in the menu opens the same editor the Tools card
@@ -1947,35 +1944,30 @@ struct PointFilterSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            SectionHeading("Winner")
-            segmentRow(WinnerFilter.allCases, selection: $winner, label: winnerLabel)
-            SectionHeading("Only")
-            segmentRow(OnlyFilter.allCases, selection: $only, label: \.rawValue)
-            Spacer()
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func segmentRow<T: CaseIterable & Hashable>(
-        _ options: T.AllCases, selection: Binding<T>, label: @escaping (T) -> String
-    ) -> some View {
-        HStack(spacing: 8) {
-            ForEach(Array(options), id: \.self) { option in
-                let active = selection.wrappedValue == option
-                Button(label(option)) {
-                    selection.wrappedValue = option
+        // Titled after the button that opens it. Two segmented controls,
+        // the coach sheet's own picker, one question each.
+        PLSheetScaffold(title: "Filter points") {
+            Form {
+                Section {
+                    Picker("Winner", selection: $winner) {
+                        ForEach(WinnerFilter.allCases, id: \.self) { option in
+                            Text(winnerLabel(option)).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Winner")
                 }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(active ? PL.cyan : PL.text500)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(active ? PL.cyan.opacity(0.15) : .clear, in: Capsule())
-                .overlay(
-                    Capsule().strokeBorder(active ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1)
-                )
-                .buttonStyle(.plain)
+                Section {
+                    Picker("Only", selection: $only) {
+                        ForEach(OnlyFilter.allCases, id: \.self) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Only")
+                }
             }
         }
     }

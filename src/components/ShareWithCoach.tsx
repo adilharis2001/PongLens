@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ShareQR } from "@/components/ShareQR";
+import { BottomSheet } from "@/components/BottomSheet";
 import { UNNAMED_INVITE, nameCoachInvite } from "@/lib/coaches/nameInvite";
 import {
   InviteStarterPack,
@@ -380,51 +381,21 @@ export function ShareWithCoachSheet({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        aria-label="Close share sheet"
-        onClick={onClose}
-        className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
-      />
-      {/* A bottom sheet on a phone, a centred card from sm up, and from
-          lg a TWO-COLUMN card — because on a desktop the one-column
-          version is a tall thin ribbon you scroll for a while, which is
-          a mobile layout wearing a desktop's clothes (Adil, 2026-09-04,
-          twice). Who already has this match on the left, the new invite
-          on the right, so the whole sheet fits a laptop window without
-          scrolling. Two columns only when the left one has something in
-          it; a lone invite form spread across 900px is worse than a
-          narrow one. In every case it must be shorter than the window:
-          it had no height cap at all until the head start ran off the
-          bottom of the screen. */}
-      <div
-        className={`absolute inset-x-0 bottom-0 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-t-2xl border border-edge bg-surface p-5 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-3rem)] sm:w-full sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:p-6 ${
-          twoUp ? "sm:max-w-lg lg:max-w-4xl" : "sm:max-w-lg"
-        }`}
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">
-            {title ?? "Share with coach"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
-        </div>
+    // A bottom sheet on a phone, a centred card from sm up, and from lg a
+    // TWO-COLUMN card — because on a desktop the one-column version is a
+    // tall thin ribbon you scroll for a while, which is a mobile layout
+    // wearing a desktop's clothes (Adil, 2026-09-04, twice). Who already
+    // has this match on the left, the new invite on the right, so the
+    // whole sheet fits a laptop window without scrolling. Two columns
+    // only when the left one has something in it; a lone invite form
+    // spread across 900px is worse than a narrow one.
+    <BottomSheet
+      open
+      title={title ?? "Share with coach"}
+      onClose={onClose}
+      closeLabel="Close share sheet"
+      widthClass={twoUp ? "sm:max-w-lg lg:max-w-4xl" : "sm:max-w-lg"}
+    >
         <div
           className={
             twoUp ? "lg:grid lg:grid-cols-2 lg:items-start lg:gap-7" : undefined
@@ -789,8 +760,7 @@ export function ShareWithCoachSheet({
             {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
           </div>
         </div>
-      </div>
-    </div>
+    </BottomSheet>
   );
 }
 

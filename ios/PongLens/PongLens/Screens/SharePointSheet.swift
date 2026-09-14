@@ -22,16 +22,6 @@ struct SharePointSheet: View {
     /// match page already draws from, so this adds no third copy.
     var points: [MatchPoint] = []
 
-    /// How tall to present this sheet.
-    ///
-    /// The Instagram row is absent on a phone without Instagram, and a
-    /// fixed height sized for three rows leaves a third of the sheet empty
-    /// on those phones — which reads as something failing to load rather
-    /// than as a row that was never offered.
-    static var detentHeight: CGFloat {
-        InstagramShare.isAvailable() ? 490 : 390
-    }
-
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
     @State private var model = StoryShareModel()
@@ -81,66 +71,62 @@ struct SharePointSheet: View {
 
     var body: some View {
         PLChooserSheet(title: "Share this point") {
-            if sharingOn, InstagramShare.isAvailable(destination ?? .story) {
-                PLChooserRow(
-                    icon: "camera.aperture",
-                    title: instagramTitle,
-                    detail: instagramDetail,
-                    pending: !hasClip || destination == nil,
-                    busy: model.busy
-                ) {
-                    if let d = destination {
-                        Task { await runShare(to: d) }
+            Section {
+                if sharingOn, InstagramShare.isAvailable(destination ?? .story) {
+                    PLChooserRow(
+                        icon: "camera.aperture",
+                        title: instagramTitle,
+                        detail: instagramDetail,
+                        pending: !hasClip || destination == nil,
+                        busy: model.busy
+                    ) {
+                        if let d = destination {
+                            Task { await runShare(to: d) }
+                        }
                     }
                 }
-            }
 
-            // While the Instagram row is working this one goes flat rather
-            // than spinning too, so only the row being acted on animates.
-            PLChooserRow(
-                icon: "square.and.arrow.down",
-                title: "Save the video",
-                detail: hasClip
-                    ? "This rally as a vertical clip, to save or send anywhere."
-                    : "This rally has no video yet.",
-                pending: !hasClip || model.busy
-            ) {
-                Task { await runShare(to: nil) }
-            }
+                // While the Instagram row is working this one goes flat
+                // rather than spinning too, so only the row being acted on
+                // animates.
+                PLChooserRow(
+                    icon: "square.and.arrow.down",
+                    title: "Save the video",
+                    detail: hasClip
+                        ? "This rally as a vertical clip, to save or send anywhere."
+                        : "This rally has no video yet.",
+                    pending: !hasClip || model.busy
+                ) {
+                    Task { await runShare(to: nil) }
+                }
 
-            PLChooserRow(
-                icon: "link",
-                title: "Share a link",
-                detail: "Anyone with the link can watch this rally.",
-                busy: model.mintingLink
-            ) {
-                Task { shareItem = await model.mintLink(match: match, point: point) }
+                PLChooserRow(
+                    icon: "link",
+                    title: "Share a link",
+                    detail: "Anyone with the link can watch this rally.",
+                    busy: model.mintingLink
+                ) {
+                    Task { shareItem = await model.mintLink(match: match, point: point) }
+                }
             }
 
             // What the frame carries. Both apply to the rendered video —
             // handed to Instagram or saved — never to the link. On a match
             // with no confirmed score the score never prints regardless:
             // 0-0 over a rally that was really 8-6 is worse than nothing.
-            Toggle("Include names", isOn: $showNames)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
-                .padding(.top, 4)
-            Toggle("Include score", isOn: $showScore)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
-            Toggle("Include logo", isOn: $showLogo)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
+            Section {
+                Toggle("Include names", isOn: $showNames)
+                Toggle("Include score", isOn: $showScore)
+                Toggle("Include logo", isOn: $showLogo)
+            }
 
             if let message = model.errorMessage {
-                Text(message)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
+                Section {
+                    Text(message)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.dangerText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .sheet(item: $shareItem) { url in

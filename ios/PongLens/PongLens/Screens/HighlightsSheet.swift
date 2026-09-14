@@ -19,7 +19,8 @@ struct HighlightsSheet: View {
     var body: some View {
         Group {
             if let requestView {
-                NavigationStack {
+                // Nothing to play yet: the one thing to do, and why.
+                PLSheetScaffold(title: requestView.title) {
                     Form {
                         Section {
                             if requestView.running {
@@ -30,19 +31,17 @@ struct HighlightsSheet: View {
                                         .foregroundStyle(PL.text300)
                                 }
                             } else if let actionLabel = requestView.actionLabel {
-                                Button {
+                                PLSheetActionRow(
+                                    label: submitting ? "Starting…" : actionLabel,
+                                    disabled: submitting
+                                ) {
                                     if requestView.action == .score {
                                         dismiss()
                                         DispatchQueue.main.async { onScore() }
                                     } else {
                                         Task { await requestUpdate() }
                                     }
-                                } label: {
-                                    Text(submitting ? "Starting…" : actionLabel)
-                                        .frame(maxWidth: .infinity, minHeight: 28)
                                 }
-                                .buttonStyle(PLPrimaryButtonStyle())
-                                .disabled(submitting)
                             }
                             if let errorMessage {
                                 Text(errorMessage)
@@ -53,39 +52,29 @@ struct HighlightsSheet: View {
                             Text(requestView.body)
                         }
                     }
-                    .tint(PL.cyan)
-                    .navigationTitle(requestView.title)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { dismiss() }
-                                .fontWeight(.semibold)
-                        }
-                    }
                 }
-                .preferredColorScheme(.dark)
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    PLChooserSheet(title: "Highlights") {
-                        switch response?.status {
-                        case "ready":
-                            if hasActions {
-                                AutomaticHighlightActions(
-                                    match: match,
-                                    starredCount: model.visible.filter(\.starred).count,
-                                    scored: scored,
-                                    includePlay: true,
-                                    playDetail: response?.summary ?? "",
-                                    onPlay: { playing = true }
-                                )
-                            } else {
-                                stateText("Highlights unavailable")
-                            }
-                        case "empty", "unavailable":
-                            stateText("No highlight rallies")
-                        case "failed":
-                            stateText("Highlights unavailable")
-                        default:
+                PLChooserSheet(title: "Highlights") {
+                    switch response?.status {
+                    case "ready":
+                        if hasActions {
+                            AutomaticHighlightActions(
+                                match: match,
+                                starredCount: model.visible.filter(\.starred).count,
+                                scored: scored,
+                                includePlay: true,
+                                playDetail: response?.summary ?? "",
+                                onPlay: { playing = true }
+                            )
+                        } else {
+                            Section { stateText("Highlights unavailable") }
+                        }
+                    case "empty", "unavailable":
+                        Section { stateText("No highlight rallies") }
+                    case "failed":
+                        Section { stateText("Highlights unavailable") }
+                    default:
+                        Section {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small).tint(PL.text300)
                                 stateText("Preparing highlights")
@@ -93,10 +82,10 @@ struct HighlightsSheet: View {
                         }
                     }
                 }
-                .scrollBounceBehavior(.basedOnSize)
             }
         }
         .presentationDetents(detents)
+        .presentationDragIndicator(.visible)
         .task(id: match.id) { await loadUntilSettled() }
         .fullScreenCover(isPresented: $playing) {
             if let response, let url = response.url, let manifest = response.manifest {
@@ -117,10 +106,12 @@ struct HighlightsSheet: View {
     }
 
     private var detents: Set<PresentationDetent> {
-        if requestView != nil { return [.medium] }
-        if hasActions && verticalSizeClass == .compact { return [.large] }
-        let height = automaticHighlightsSheetHeight(hasActions: hasActions)
-        return [.height(CGFloat(height))]
+        if hasActions {
+            // Four rows and three switches are more than half a screen,
+            // so the sheet can grow — and sideways it has to.
+            return verticalSizeClass == .compact ? [.large] : [.medium, .large]
+        }
+        return [.medium]
     }
 
     private func stateText(_ value: String) -> some View {
@@ -210,8 +201,7 @@ private struct HighlightsTakeover: View {
                 starredCount: model.visible.filter(\.starred).count,
                 scored: scored
             )
-                .presentationDetents([.height(HighlightsShareSheet.detentHeight)])
-                .presentationBackground(PL.surface)
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
     }
@@ -223,8 +213,6 @@ struct HighlightsShareSheet: View {
     let match: MatchRow
     let starredCount: Int
     let scored: Bool
-
-    static var detentHeight: CGFloat { 470 }
 
     var body: some View {
         PLChooserSheet(title: "Share this highlight") {
@@ -263,73 +251,68 @@ private struct AutomaticHighlightActions: View {
 
     var body: some View {
         Group {
-            ForEach(
-                automaticHighlightActions(
-                    includePlay: includePlay, sharingEnabled: sharingOn
-                ),
-                id: \.self
-            ) { action in
-                switch action {
-                case .play:
-                    PLChooserRow(
-                        icon: "play.fill",
-                        title: "Play highlights",
-                        detail: playDetail,
-                        pending: busyAction != nil,
-                        action: onPlay
-                    )
-                case .instagram:
-                    PLChooserRow(
-                        icon: "camera.aperture",
-                        title: "Instagram",
-                        detail: "Share as a Story or Reel.",
-                        pending: busyAction != nil
-                    ) {
-                        instagramOpen = true
+            Section {
+                ForEach(
+                    automaticHighlightActions(
+                        includePlay: includePlay, sharingEnabled: sharingOn
+                    ),
+                    id: \.self
+                ) { action in
+                    switch action {
+                    case .play:
+                        PLChooserRow(
+                            icon: "play.fill",
+                            title: "Play highlights",
+                            detail: playDetail,
+                            pending: busyAction != nil,
+                            action: onPlay
+                        )
+                    case .instagram:
+                        PLChooserRow(
+                            icon: "camera.aperture",
+                            title: "Instagram",
+                            detail: "Share as a Story or Reel.",
+                            pending: busyAction != nil
+                        ) {
+                            instagramOpen = true
+                        }
+                    case .shareLink:
+                        PLChooserRow(
+                            icon: "link",
+                            title: "Share a link",
+                            detail: "Anyone with the link can watch. You can revoke it anytime from your account.",
+                            pending: busyAction != nil
+                        ) {
+                            linkOpen = true
+                        }
+                    case .saveVideo:
+                        shareRow(
+                            action: "save",
+                            title: "Save the video",
+                            detail: "The full highlight as one video, to save or send anywhere.",
+                            destination: nil
+                        )
                     }
-                case .shareLink:
-                    PLChooserRow(
-                        icon: "link",
-                        title: "Share a link",
-                        detail: "Anyone with the link can watch. You can revoke it anytime from your account.",
-                        pending: busyAction != nil
-                    ) {
-                        linkOpen = true
-                    }
-                case .saveVideo:
-                    shareRow(
-                        action: "save",
-                        title: "Save the video",
-                        detail: "The full highlight as one video, to save or send anywhere.",
-                        destination: nil
-                    )
                 }
             }
 
-            Text("Video appearance")
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .padding(.top, 4)
-            Text("For Instagram and saved videos.")
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
-
-            Toggle("Include names", isOn: $showNames)
-                .font(.plBody).foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
-            Toggle("Include score", isOn: $showScore)
-                .font(.plBody).foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
-            Toggle("Include logo", isOn: $showLogo)
-                .font(.plBody).foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
+            Section {
+                Toggle("Include names", isOn: $showNames)
+                Toggle("Include score", isOn: $showScore)
+                Toggle("Include logo", isOn: $showLogo)
+            } header: {
+                Text("Video appearance")
+            } footer: {
+                Text("For Instagram and saved videos.")
+            }
 
             if let message = model.errorMessage {
-                Text(message)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
+                Section {
+                    Text(message)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.dangerText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .sheet(item: $shareItem) { url in
@@ -350,8 +333,7 @@ private struct AutomaticHighlightActions: View {
                     destination: .reel
                 )
             }
-            .presentationDetents([.height(300)])
-            .presentationBackground(PL.surface)
+            .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $linkOpen) {
@@ -364,7 +346,6 @@ private struct AutomaticHighlightActions: View {
                 highlightsReady: true
             )
             .presentationDetents([.medium, .large])
-            .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
         .task { sharingOn = await StoryShareModel.sharingEnabled() }

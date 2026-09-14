@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ShareQR } from "@/components/ShareQR";
+import { BottomSheet, SHEET_PRIMARY_BUTTON } from "@/components/BottomSheet";
+import { Switch } from "@/components/Switch";
 import { TagGlyph } from "@/app/match/[id]/Tags";
 
 /** Which link a row creates: the context link, the starred set, or one
@@ -217,46 +219,19 @@ export function ShareSheet({
   );
 
   return (
-    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        aria-label="Close share sheet"
-        onClick={onClose}
-        className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
-      />
-      <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {naming && (
-              <button
-                type="button"
-                onClick={() => setNaming(null)}
-                aria-label="Back"
-                className="-ml-1 rounded-full p-1 text-zinc-400 transition-colors hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15 5l-7 7 7 7"
-                  />
-                </svg>
-              </button>
-            )}
-            <h2 className="text-base font-semibold">Share a link</h2>
-          </div>
+    <BottomSheet
+      open
+      title="Share a link"
+      subtitle="Anyone with the link can watch. Revoke it anytime from your account."
+      onClose={onClose}
+      closeLabel="Close share sheet"
+      leading={
+        naming && (
           <button
             type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
+            onClick={() => setNaming(null)}
+            aria-label="Back"
+            className="-ml-1 mt-0.5 rounded-full p-1 text-zinc-400 transition-colors hover:text-white"
           >
             <svg
               viewBox="0 0 24 24"
@@ -266,15 +241,16 @@ export function ShareSheet({
               strokeWidth="2"
               aria-hidden="true"
             >
-              <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 5l-7 7 7 7"
+              />
             </svg>
           </button>
-        </div>
-        <p className="mt-1 text-sm text-zinc-400">
-          Anyone with the link can watch. Revoke it anytime from your
-          account.
-        </p>
-
+        )
+      }
+    >
         {naming && (
           <div className="mt-4 space-y-3">
             <input
@@ -302,7 +278,7 @@ export function ShareSheet({
                 same question. */}
             {((naming === "link" && !pointId) || naming === "highlights") &&
               scored && (
-                <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-edge bg-surface-2/40 px-4 py-3">
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-edge bg-surface-2/40 px-4 py-3">
                   <span className="min-w-0">
                     <span className="block text-sm font-semibold text-zinc-100">
                       Include score and stats
@@ -312,19 +288,18 @@ export function ShareSheet({
                       the placement maps.
                     </span>
                   </span>
-                  <input
-                    type="checkbox"
-                    checked={showScore}
-                    onChange={() => setShowScore((v) => !v)}
-                    className="h-5 w-5 shrink-0 accent-cyan-glow"
+                  <Switch
+                    on={showScore}
+                    onChange={setShowScore}
+                    label="Include score and stats"
                   />
-                </label>
+                </div>
               )}
             <button
               type="button"
               disabled={busy !== null}
               onClick={() => void shareLink(naming)}
-              className="glow-cta block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink disabled:opacity-60"
+              className={SHEET_PRIMARY_BUTTON}
             >
               {busy !== null ? "Creating link…" : copied ? "Copied" : "Share"}
             </button>
@@ -502,7 +477,6 @@ export function ShareSheet({
           </>
         )}
         {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
-      </div>
-    </div>
+    </BottomSheet>
   );
 }

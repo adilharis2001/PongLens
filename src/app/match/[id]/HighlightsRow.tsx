@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BottomSheet, SHEET_PRIMARY_BUTTON } from "@/components/BottomSheet";
 import { downloadReel } from "@/lib/download";
 import { TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import {
@@ -41,9 +41,7 @@ export function HighlightsRow({
   const [error, setError] = useState("");
   const [refreshSequence, setRefreshSequence] = useState(0);
   const [acknowledgement, setAcknowledgement] = useState(false);
-  const titleId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
   const requestSheetVisible = highlightRequestSheetIsVisible(sheetOpen, state);
 
   useEffect(() => {
@@ -84,22 +82,15 @@ export function HighlightsRow({
     setError("");
   }, []);
 
+  // The sheet handles Escape, scroll-lock and its own focus; the row only
+  // has to take the focus back when the sheet goes.
   useEffect(() => {
     if (!requestSheetVisible) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    const previousOverflow = document.body.style.overflow;
     const trigger = triggerRef.current;
-    document.body.style.overflow = "hidden";
-    closeRef.current?.focus();
     return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
       trigger?.focus({ preventScroll: true });
     };
-  }, [close, requestSheetVisible]);
+  }, [requestSheetVisible]);
 
   useEffect(() => {
     if (!acknowledgement) return;
@@ -223,87 +214,49 @@ export function HighlightsRow({
         </span>
       </button>
 
-      {requestSheetVisible && requestView
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[70]"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby={titleId}
-            >
-              <button
-                type="button"
-                aria-label="Close highlights sheet"
-                onClick={close}
-                className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
+      {requestView && (
+        <BottomSheet
+          open={requestSheetVisible}
+          portal
+          title={requestView.sheetTitle}
+          subtitle={requestView.body}
+          onClose={close}
+          closeLabel="Close highlights sheet"
+        >
+          {requestView.shouldPoll && (
+            <div className="mt-5 flex items-center gap-3 text-sm text-zinc-300">
+              <span
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
               />
-              <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <h2 id={titleId} className="text-base font-semibold">
-                      {requestView.sheetTitle}
-                    </h2>
-                    <p className="mt-1 text-sm text-zinc-400">
-                      {requestView.body}
-                    </p>
-                  </div>
-                  <button
-                    ref={closeRef}
-                    type="button"
-                    onClick={close}
-                    aria-label="Close"
-                    className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      aria-hidden="true"
-                    >
-                      <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </button>
-                </div>
-
-                {requestView.shouldPoll && (
-                  <div className="mt-5 flex items-center gap-3 text-sm text-zinc-300">
-                    <span
-                      aria-hidden="true"
-                      className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
-                    />
-                    {requestView.rowSummary}
-                  </div>
-                )}
-                {requestView.actionLabel && (
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={() => {
-                      if (requestView.actionKind === "score") {
-                        close();
-                        onScore();
-                        return;
-                      }
-                      void requestUpdate();
-                    }}
-                    className="glow-cta mt-5 min-h-11 w-full rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-50"
-                  >
-                    {submitting ? "Starting…" : requestView.actionLabel}
-                  </button>
-                )}
-                <p
-                  aria-live="polite"
-                  className={`text-sm text-red-300 ${error ? "mt-3" : ""}`}
-                >
-                  {error}
-                </p>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+              {requestView.rowSummary}
+            </div>
+          )}
+          {requestView.actionLabel && (
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                if (requestView.actionKind === "score") {
+                  close();
+                  onScore();
+                  return;
+                }
+                void requestUpdate();
+              }}
+              className={`${SHEET_PRIMARY_BUTTON} mt-5 disabled:cursor-wait`}
+            >
+              {submitting ? "Starting…" : requestView.actionLabel}
+            </button>
+          )}
+          <p
+            aria-live="polite"
+            className={`text-sm text-red-300 ${error ? "mt-3" : ""}`}
+          >
+            {error}
+          </p>
+        </BottomSheet>
+      )}
 
       {acknowledgement && (
         <div

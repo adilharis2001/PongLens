@@ -52,37 +52,35 @@ extension View {
 // MARK: - Chooser sheet
 
 /// The half-sheet a create button opens when there is more than one way
-/// to make the thing. Title, then rows, and nothing else — the choice is
-/// the whole screen.
+/// to make the thing. Rows, and nothing else — the choice is the whole
+/// screen.
+///
+/// Dressed exactly like every other sheet (`PLSheetScaffold`): the rows
+/// sit in a grouped Form under an inline title and a Done. It used to
+/// draw a bold page title of its own on the surface colour, which put a
+/// second look on the same Tools list — tap Highlights and get one kind
+/// of sheet, tap Share a link and get another. Callers that add settings
+/// under the rows wrap them in their own `Section`; bare rows fall into
+/// one group on their own.
+///
+/// Present it at `.medium` (or `[.medium, .large]` when there is more
+/// than a screen's worth): the Form scrolls, so a fixed height that used
+/// to clip the last row in half is no longer a thing to tune.
 struct PLChooserSheet<Content: View>: View {
     let title: String
     @ViewBuilder var rows: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.plPageTitle)
-                .tracking(-0.6)
-                .foregroundStyle(PL.textBody)
-                .padding(.bottom, 4)
-            rows()
+        PLSheetScaffold(title: title) {
+            Form { rows() }
         }
-        // Pinned to the top. A detent shorter than the rows used to
-        // centre the overflow, which ate the top padding and put the
-        // title back on the grabber; now the overflow clips at the
-        // bottom, where it is seen and the height gets fixed.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The sheet's grabber sits in the top 20pt; the title used to
-        // start right under it and read as touching (Adil, 2026-09-02).
-        .padding(.horizontal, 20)
-        .padding(.top, 36)
-        .padding(.bottom, 20)
     }
 }
 
 /// One option on a chooser sheet. Each row carries a line naming the
 /// situation it suits rather than leaning on its verb alone: the reader is
-/// picking between two circumstances, not two words.
+/// picking between two circumstances, not two words. A Form row: the icon
+/// in a cyan disc, the words, a chevron.
 struct PLChooserRow: View {
     let icon: String
     let title: String
@@ -110,21 +108,11 @@ struct PLChooserRow: View {
     private var row: some View {
         HStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 20))
+                .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(PL.cyan)
-                .frame(width: 44, height: 44)
-                .background(PL.cyan.opacity(0.1), in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                Text(detail)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text400)
-                    // A detail that runs to two lines must grow the row
-                    // rather than be cut off at the first.
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+                .frame(width: 36, height: 36)
+                .background(PL.cyan.opacity(0.12), in: Circle())
+            PLRowLabel(title: title, detail: detail)
             Spacer(minLength: 8)
             if busy {
                 ProgressView()
@@ -137,7 +125,7 @@ struct PLChooserRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .plInnerRow(padding: 14)
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 }

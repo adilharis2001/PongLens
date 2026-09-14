@@ -640,8 +640,7 @@ struct PlayerTakeover: View {
         }
         .sheet(item: $sharePoint) { point in
             SharePointSheet(match: match, point: point, pad: pad, points: points)
-                .presentationDetents([.height(SharePointSheet.detentHeight)])
-                .presentationBackground(PL.surface)
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: Binding(

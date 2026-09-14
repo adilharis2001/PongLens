@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { downloadReel, triggerDownload } from "@/lib/download";
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
+import { BottomSheet } from "@/components/BottomSheet";
+import { Switch } from "@/components/Switch";
 
 /**
  * The Export affordance on the match page (owner + cut_t0 matches only).
@@ -80,36 +82,6 @@ export function ToolRowChevron() {
  * row, which sends a link rather than 36 MB of video.
  */
 
-/** The app's cyan switch, label-less (the row already names it). */
-function Switch({
-  on,
-  onToggle,
-  label,
-}: {
-  on: boolean;
-  onToggle: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={onToggle}
-      className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${
-        on ? "border-cyan-glow/60 bg-cyan-glow/30" : "border-edge bg-surface-2"
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 h-[1.125rem] w-[1.125rem] rounded-full transition-all ${
-          on ? "left-5 bg-cyan-glow" : "left-0.5 bg-zinc-500"
-        }`}
-      />
-    </button>
-  );
-}
-
 /** Compact download-icon action (plain passthrough downloads). */
 function DownloadAction({
   onClick,
@@ -175,7 +147,7 @@ function RenderAction({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="shrink-0 rounded-full bg-cyan-glow px-3.5 py-1.5 text-xs font-semibold text-ink transition-opacity disabled:opacity-50"
+      className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink transition-opacity disabled:opacity-50"
     >
       {label}
     </button>
@@ -490,39 +462,13 @@ export function ReelRow({
         </span>
       </button>
 
-      {open && (
-        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            aria-label="Close export sheet"
-            onClick={() => setOpen(false)}
-            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
-          />
-          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">Export</h2>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close"
-                className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            </div>
-            <p className="mt-1 text-sm text-zinc-400">
-              Download or share this match.
-            </p>
-
+      <BottomSheet
+        open={open}
+        title="Export"
+        subtitle="Download or share this match."
+        onClose={() => setOpen(false)}
+        closeLabel="Close export sheet"
+      >
             {/* One score choice governs every rendered video. */}
             {canScore && (
               <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-4 py-3">
@@ -536,7 +482,7 @@ export function ReelRow({
                 </div>
                 <Switch
                   on={showScore}
-                  onToggle={() => setShowScore((v) => !v)}
+                  onChange={setShowScore}
                   label="Include score"
                 />
               </div>
@@ -661,9 +607,7 @@ export function ReelRow({
             </div>
 
             {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-          </div>
-        </div>
-      )}
+      </BottomSheet>
     </div>
   );
 }
@@ -743,39 +687,13 @@ export function RawExportRow({ matchId }: { matchId: string }) {
         </span>
       </button>
 
-      {open && (
-        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            aria-label="Close export sheet"
-            onClick={() => setOpen(false)}
-            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
-          />
-          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">Export</h2>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close"
-                className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            </div>
-            <p className="mt-1 text-sm text-zinc-400">
-              Point clips and rendered videos appear here after processing.
-            </p>
-
+      <BottomSheet
+        open={open}
+        title="Export"
+        subtitle="Point clips and rendered videos appear here after processing."
+        onClose={() => setOpen(false)}
+        closeLabel="Close export sheet"
+      >
             <div className="mt-4 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
               <ExportRow
                 title="Original video"
@@ -797,9 +715,7 @@ export function RawExportRow({ matchId }: { matchId: string }) {
             </div>
 
             {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-          </div>
-        </div>
-      )}
+      </BottomSheet>
     </div>
   );
 }
