@@ -58,7 +58,9 @@ export default async function StudentPage({
     null;
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    // New entry floats, so the column needs the same bottom clearance the
+    // Journal's floating button gets.
+    <AppShell avatarUrl={avatarUrl} hasFab>
       <StudentView
         userId={user.id}
         initialStudent={student}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { SectionLabel } from "../../CoachHub";
 import { LessonVideosSection } from "../../LessonVideosSection";
+import { FabButton } from "@/components/Fab";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -650,45 +651,34 @@ export function StudentView({
         ← Students
       </Link>
 
-      {/* Who, whether they are on PongLens, and the one action: New entry.
-          The invite is not a button here; for a student who is not on
-          PongLens yet it is the open panel directly beneath, so a second
-          control for it would be a duplicate (Adil, 2026-09-05). Full
-          width on a phone, content width on a laptop, per the approved
-          baseline. */}
-      <div className="mt-4 sm:flex sm:items-end sm:justify-between sm:gap-6">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            {student.display_name}
-          </h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            {student.player_id ? "On PongLens" : "Not on PongLens yet"}
-          </p>
-        </div>
-        <div className="mt-4 flex flex-col gap-2 sm:mt-0 sm:shrink-0 sm:flex-row sm:items-center">
-          <button
-            type="button"
-            onClick={() => (composerOpen ? closeComposer() : setComposerOpen(true))}
-            className="glow-cta flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-cyan-glow px-5 text-sm font-semibold text-ink sm:min-h-0 sm:w-auto sm:py-2"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"
-              />
-            </svg>
-            New entry
-          </button>
-        </div>
+      {/* Who, and whether they are on PongLens. No button up here: New
+          entry floats at the bottom corner like every other create action
+          in the app (Adil, 2026-09-14), and the invite is not a button
+          either — for a student who is not on PongLens yet it is the open
+          panel directly beneath, so a control for it would be a duplicate
+          (Adil, 2026-09-05). */}
+      <div className="mt-4 min-w-0">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          {student.display_name}
+        </h1>
+        <p className="mt-1 text-sm text-zinc-500">
+          {student.player_id ? "On PongLens" : "Not on PongLens yet"}
+        </p>
       </div>
+
+      {/* The composer opens under the header, which from further down the
+          page is a screen above; go to it. Gone while the composer is up:
+          it would float over Save entry, offering the thing already
+          open (the Journal's editor covers its button the same way). */}
+      {!composerOpen && (
+        <FabButton
+          label="New entry"
+          onClick={() => {
+            setComposerOpen(true);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        />
+      )}
 
       {notice && <p className="mt-3 text-sm text-cyan-glow">{notice}</p>}
 

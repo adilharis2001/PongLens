@@ -46,6 +46,20 @@ struct CoachStudentScreen: View {
                 content(student)
             }
         }
+        // The one action floats, the way it does on every other screen
+        // that creates something (Home, Matches, Journal, Coaching). It
+        // used to be a full-width button under the name, the only page
+        // in the app with one (Adil, 2026-09-14).
+        .overlay(alignment: .bottomTrailing) {
+            if let student {
+                PLFab(label: "New entry", systemImage: "plus") {
+                    router.newEntryStudent = student
+                    router.newEntryOpen = true
+                }
+                .padding(.trailing, 20)
+                .padding(.bottom, 16)
+            }
+        }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $inviteOpen) {
             StudentInviteSheet(student: student)
@@ -153,14 +167,12 @@ struct CoachStudentScreen: View {
                 }
                 .buttonStyle(PLSecondaryButtonStyle())
 
-                // Who, whether they are on PongLens, and the one action:
-                // New entry. The invite is not a button here; for a student
-                // who is not on PongLens yet it is the card directly
-                // beneath, so a second control would be a duplicate
-                // (Adil, 2026-09-05). Full width, the way every action
-                // button on a phone is here; the label is sized first so
-                // the hit area grows with the visible button (baseline
-                // 2026-09-05).
+                // Who, and whether they are on PongLens. No button up
+                // here: New entry floats at the bottom corner like every
+                // other create action, and the invite is not a button
+                // either — for a student who is not on PongLens yet it is
+                // the card directly beneath, so a control for it would be
+                // a duplicate (Adil, 2026-09-05).
                 VStack(alignment: .leading, spacing: 4) {
                     Text(student.displayName)
                         .font(.plPageTitle)
@@ -170,15 +182,6 @@ struct CoachStudentScreen: View {
                         .font(.plBody)
                         .foregroundStyle(PL.text500)
                 }
-
-                Button {
-                    router.newEntryStudent = student
-                    router.newEntryOpen = true
-                } label: {
-                    Label("New entry", systemImage: "square.and.pencil")
-                        .frame(maxWidth: .infinity, minHeight: 28)
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
 
                 // The invite, open from the start while there is nobody at
                 // the other end: what the link does, what goes with it, and
@@ -331,7 +334,8 @@ struct CoachStudentScreen: View {
                 }
             }
             .padding(20)
-            .padding(.bottom, 60)
+            // Room under the last card for the floating button.
+            .padding(.bottom, 100)
         }
     }
 }
