@@ -228,6 +228,13 @@ try {
                 assert.equal(scored.length,1,'the new half is scored by the same tap');
                 assert.equal(scored[0].patch.scored_at_cut_s,null,'a hand-cut half takes no tap-derived ending, so its whole tail stays playable');
                 assert.equal(await f.page.evaluate(()=>document.querySelector('video').paused),false,'answering again never stops the footage');
+                // THE ROTATION MOVES WITH THE CUT. Fixture point 2 is the
+                // uploader's second serve, so the half that comes out of it
+                // is the opponent's first: the switch must say so without
+                // anybody touching it. Only after a WINNER — a let keeps the
+                // server and does not advance the rotation, so a card first
+                // answered Skip has nothing to shift.
+                if(winner) await f.page.getByRole('switch',{name:'Alex serves. Press to give the serve to you.',exact:true}).waitFor();
                 if(scenario==='early-second-again') {
                   // A third rally works by repetition, not by a third
                   // control: the new half arms in turn while footage runs.
