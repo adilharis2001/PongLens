@@ -60,7 +60,7 @@ import { ScoreBug } from "./ScoreBug";
 import { GesturesButton } from "./GesturesSheet";
 import { hintEligible, markHintDone, markHintShown } from "./gestureHints";
 import { tapZone } from "./tapZone";
-import type { MatchServer, ServeInfo } from "./serving";
+import { computeServing, type MatchServer, type ServeInfo } from "./serving";
 import { InsertPoint } from "./InsertPoint";
 import {
   gapWorthOffering,
@@ -410,6 +410,10 @@ const TAIL_WATCH_S = 3.5;
  *  after the deciding shot, so cutting AT it would clip the next serve. */
 const SPLIT_LEAD_S = 0.6;
 
+/** The stand-in for the point a split would create, used only to ask the
+ *  rotation who would serve it. Never written anywhere. */
+const GHOST_POINT_ID = "__armed_second_half__";
+
 /** A long name on a winner pad reads better broken over two lines than
  *  truncated on one: the first line still says who it is. Inline rather
  *  than a utility class, the way this file's other geometry is — a stale
@@ -514,6 +518,16 @@ type UndoEntry =
  * only true in score/play — watch mode has no stops and should follow the
  * picture. A run that STARTED at or after the previous rally's end (chevron,
  * chip, answer-advance) never holds: you are watching the new one.
+ *
+ * That last test is written against the previous rally, and on ordinary
+ * neighbours landing on one means landing after the other has finished. It
+ * is not true of the two halves of a SPLIT card: the second half's padded
+ * start sits a third of a second before the first half's padded end, so
+ * jumping straight to it starts a run that is still "before the previous
+ * rally ended" and the hold dragged the target back onto the half you did
+ * not ask for — its number under the ring, its server on the switch, and
+ * its rally under the next winner tap. So a run that started on THIS rally
+ * settles it too: you are watching the one you jumped to.
  */
 function targetAt(
   ps: Point[],
@@ -540,6 +554,7 @@ function targetAt(
   const rEnd = rallyEnd(prev, pad);
   if (stop === null || rEnd === null || t >= stop) return cur;
   if (runStart === null || runStart >= rEnd) return cur;
+  if (cur.cut_t0 !== null && runStart >= Number(cur.cut_t0) - 0.05) return cur;
   return prev;
 }
 
@@ -2803,9 +2818,54 @@ export const Player = forwardRef<
   // visible serve-rotation stutter on every tight gap.
   const currentRallyId =
     targetId ?? points.find((p) => p.cut_t0 !== null)?.id ?? null;
-  const server = currentRallyId
-    ? (serving.get(currentRallyId)?.server ?? null)
-    : null;
+
+  /**
+   * WHO SERVES THE RALLY BEING ASKED ABOUT.
+   *
+   * While the second answer is armed the whole pad has pivoted to the
+   * rally inside the card — the hint says so, both buttons wear "2nd" —
+   * and the serve switch was the one thing still describing the card
+   * already answered. A fused card holds a serve change half the time, so
+   * that reading is wrong as often as it is right, and it corrects itself
+   * a second later when the cut lands, which is worse than either.
+   *
+   * There is no row to ask about yet, so ask the rotation what it would
+   * say about a point inserted here. Same walk, same two-serve blocks,
+   * same deuce, same lets, same overrides, same game boundaries — none of
+   * the rule is restated, which is the only way this can stay true when
+   * the rule changes.
+   */
+  const armedServer = useMemo(() => {
+    if (!splitArm) return null;
+    const i = points.findIndex((p) => p.id === splitArm.pointId);
+    if (i < 0) return null;
+    const ghost: Point = {
+      ...points[i],
+      id: GHOST_POINT_ID,
+      is_let: false,
+      confirmed_winner: null,
+      server_override: null,
+      game_end_override: null,
+    };
+    const rows = [...points.slice(0, i + 1), ghost, ...points.slice(i + 1)];
+    return computeServing(rows, firstServer).get(GHOST_POINT_ID)?.server ?? null;
+  }, [splitArm, points, firstServer]);
+  const armedServerRef = useRef(armedServer);
+  armedServerRef.current = armedServer;
+  /**
+   * The answer survives the round trip that creates its point. Without
+   * this the switch snaps back to the answered card for the few hundred
+   * milliseconds the cut takes, then forward again — the same flicker,
+   * just shorter.
+   */
+  const [armHold, setArmHold] = useState<MatchServer | null>(null);
+
+  const server = splitArm
+    ? armedServer
+    : (armHold ??
+      (currentRallyId ? (serving.get(currentRallyId)?.server ?? null) : null));
+  /** The switch is a statement, not a control, until its point exists. */
+  const serverPending = splitArm !== null || armHold !== null;
 
   // Flank chevron availability: hidden on the first-point side (nothing
   // before) and the last-point side (nothing after).
@@ -4043,7 +4103,9 @@ export const Player = forwardRef<
       // Disarm first: the tap is spent, and the tail it owns is about to be
       // rebuilt around the child. A second tap during the round trip must
       // not cut the same card twice.
+      const heldServer = armedServerRef.current;
       clearSplitArm();
+      setArmHold(heldServer);
       setModifyBusy(true);
       const { ok, created, unsplits } = await runSplitPlan({
         point: A,
@@ -4052,6 +4114,7 @@ export const Player = forwardRef<
         onChild: onSplit,
       });
       setModifyBusy(false);
+      setArmHold(null);
       const child = created[0] ?? null;
       if (!ok || !child) {
         if (unsplits.length > 0) {
@@ -6865,23 +6928,30 @@ export const Player = forwardRef<
                 role="switch"
                 aria-checked={server === "opponent"}
                 onClick={() => setServerTo(server === "user" ? "opponent" : "user")}
+                disabled={serverPending}
                 aria-label={
-                  server === "user"
-                    ? `${youLabel === "Me" ? "You serve" : `${youLabel} serves`}. Press to give the serve to ${themLabel}.`
-                    : `${themLabel} serves. Press to give the serve to ${youLabel === "Me" ? "you" : youLabel}.`
+                  serverPending
+                    ? server === "user"
+                      ? `${youLabel === "Me" ? "You serve" : `${youLabel} serves`} the next one.`
+                      : `${themLabel} serves the next one.`
+                    : server === "user"
+                      ? `${youLabel === "Me" ? "You serve" : `${youLabel} serves`}. Press to give the serve to ${themLabel}.`
+                      : `${themLabel} serves. Press to give the serve to ${youLabel === "Me" ? "you" : youLabel}.`
                 }
-                className="flex shrink-0 items-center gap-2.5 rounded-lg py-0.5 pl-1.5 pr-1"
+                className={`flex shrink-0 items-center gap-2.5 rounded-lg py-0.5 pl-1.5 pr-1 ${
+                  serverPending ? "opacity-70" : ""
+                }`}
               >
                 <span
                   className={`max-w-[9rem] truncate text-sm font-semibold ${
                     server === "user" ? "text-cyan-glow" : "text-magenta-soft"
                   }`}
                 >
-                  {server === "user"
+                  {(server === "user"
                     ? youLabel === "Me"
                       ? "You serve"
                       : `${youLabel} serves`
-                    : `${themLabel} serves`}
+                    : `${themLabel} serves`) + (serverPending ? " next" : "")}
                 </span>
                 <span
                   aria-hidden="true"

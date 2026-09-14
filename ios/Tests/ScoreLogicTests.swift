@@ -704,6 +704,27 @@ func runAllChecks() {
         eq(targetAt(tight, at: 19.4, pad: NORMAL, ends: EndOptions.off, hold: false, runStart: 12, firedId: nil)?.id,
            tight[1].id, "watch mode follows the picture")
 
+        // THE TWO HALVES OF A SPLIT CARD. Their padded spans overlap by a
+        // third of a second each way, so the second half's start sits
+        // BEFORE the first half's rally ends — the one shape where "the run
+        // started after the previous rally" cannot tell a deliberate jump
+        // from natural playback. Jumping to the second half must land on
+        // the second half; playing into it from the first must not.
+        let halves = [
+            mkPoint(1, winner: .opponent, cutT0: 9, t0: 10, t1: 11.9,
+                    tightEnd: true, edited: true),
+            mkPoint(2, cutT0: 11.6, t0: 11.9, t1: 16,
+                    tightStart: true, edited: true),
+        ]
+        let halfHold = { (t: Double, runStart: Double?) in
+            targetAt(halves, at: t, pad: NORMAL, ends: EndOptions.off,
+                     hold: true, runStart: runStart, firedId: nil)?.id
+        }
+        eq(halfHold(11.7, 11.6), halves[1].id,
+           "jumping to the second half lands on the second half")
+        eq(halfHold(11.7, 9), halves[0].id,
+           "playing into the overlap still holds the half being watched")
+
         // An ANSWERED previous rally holds to its clip end, not the beat.
         let answered = [
             mkPoint(1, winner: .user, cutT0: 10, t0: 100, t1: 108), // padded end 20.6

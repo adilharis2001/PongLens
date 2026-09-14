@@ -301,6 +301,10 @@ struct PlayerTakeover: View {
     /// A cut is in flight. One tap, one cut: a second tap landing during the
     /// round trip must not cut the same card again.
     @State var splitBusy = false
+    /// The armed answer's server, held while the round trip that creates
+    /// its point is in flight. Without it the switch snaps back to the
+    /// answered card for those few hundred milliseconds and forward again.
+    @State var armHoldServer: Winner?
     @State var startHereDismissed = false
 
     // Setup sheet: names as well as the first server.
@@ -553,6 +557,40 @@ struct PlayerTakeover: View {
 
     var serving: [UUID: ServeInfo] {
         computeServing(points, firstServer: firstServer)
+    }
+
+    /// WHO SERVES THE RALLY BEING ASKED ABOUT.
+    ///
+    /// While the second answer is armed the whole pad has pivoted to the
+    /// rally inside the card — the hint says so, both buttons wear "2nd" —
+    /// and the serve switch was the one thing still describing the card
+    /// already answered. A fused card holds a serve change half the time,
+    /// so that reading is wrong as often as it is right, and it corrects
+    /// itself a second later when the cut lands, which is worse than
+    /// either.
+    ///
+    /// There is no row to ask about yet, so ask the rotation what it would
+    /// say about a point inserted here. Same walk, same two-serve blocks,
+    /// same deuce, same lets, same overrides, same game boundaries — none
+    /// of the rule is restated here, which is the only way this stays true
+    /// when the rule changes.
+    var armedServer: Winner? {
+        guard let armed = splitArm,
+              let i = points.firstIndex(where: { $0.id == armed.pointId })
+        else { return nil }
+        // Built as a rotation INPUT rather than a MatchPoint: the stand-in
+        // needs an id of its own and a point's id is immutable, which is
+        // the right way round — nothing here can be mistaken for a row.
+        let ghostId = UUID()
+        var inputs = points.map(\.serveInput)
+        inputs.insert(
+            ServeInput(
+                id: ghostId, serverOverride: nil, isLet: false,
+                confirmedWinner: nil, gameEndOverride: nil
+            ),
+            at: i + 1
+        )
+        return computeServingInputs(inputs, firstServer: firstServer)[ghostId]?.server
     }
 
     var runningScore: MatchScore {
@@ -2143,11 +2181,19 @@ struct PlayerTakeover: View {
     /// to track, or the rotation has nothing to say yet.
     @ViewBuilder
     func serveSwitch(_ info: ServeInfo?) -> some View {
-        if tracksServe, let server = info?.server {
+        // While a second answer is armed — and across the round trip that
+        // turns it into a point — this shows the rally being ASKED about,
+        // not the card already answered, and says so rather than inviting
+        // a press: the point it describes does not exist yet.
+        let pending = splitArm != nil || armHoldServer != nil
+        let shown = pending ? (splitArm != nil ? armedServer : armHoldServer)
+                            : info?.server
+        if tracksServe, let server = shown {
             let them = server == .opponent
             let tint = them ? PL.magentaSoft : PL.cyan
             let name = match.opponentName
             Button {
+                guard !pending else { return }
                 flipServer(to: them ? .user : .opponent)
             } label: {
                 HStack(spacing: 10) {
@@ -2157,8 +2203,8 @@ struct PlayerTakeover: View {
                     // row that must always be readable — wrapped to two
                     // lines to make room. Cap it and let it truncate.
                     Text(them
-                         ? "\(name ?? "They") serve\(name == nil ? "" : "s")"
-                         : "You serve")
+                         ? "\(name ?? "They") serve\(name == nil ? "" : "s")\(pending ? " next" : "")"
+                         : "You serve\(pending ? " next" : "")")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(tint)
                         .lineLimit(1)
@@ -2183,10 +2229,14 @@ struct PlayerTakeover: View {
             .buttonStyle(.plain)
             // The switch keeps its 44pt; only the words give way.
             .fixedSize(horizontal: false, vertical: true)
-            .disabled(displayTarget == nil || app.userId != match.userId)
-            .accessibilityLabel(them
-                ? "\(name ?? "They") serve. Press to give the serve to you."
-                : "You serve. Press to give the serve to \(name ?? "them").")
+            .opacity(pending ? 0.7 : 1)
+            .disabled(pending || displayTarget == nil || app.userId != match.userId)
+            .accessibilityLabel(
+                pending
+                    ? (them ? "\(name ?? "They") serve the next one."
+                            : "You serve the next one.")
+                    : (them ? "\(name ?? "They") serve. Press to give the serve to you."
+                            : "You serve. Press to give the serve to \(name ?? "them")."))
         }
     }
 
@@ -3264,7 +3314,9 @@ struct PlayerTakeover: View {
         // Disarm first: the tap is spent, and the tail it owns is about to
         // be rebuilt around the new half. A second tap during the round trip
         // must not cut the same card twice.
+        let heldServer = armedServer
         clearSplitArm()
+        armHoldServer = heldServer
         endPausedId = nil
         splitBusy = true
         Task {
@@ -3272,6 +3324,7 @@ struct PlayerTakeover: View {
                 parent, pad: pad, cutTimes: [armed.atCut]
             )
             splitBusy = false
+            armHoldServer = nil
             guard let made = created.first else {
                 showToast("Couldn't split that card. Try again.")
                 return

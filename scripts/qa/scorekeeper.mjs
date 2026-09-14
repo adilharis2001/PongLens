@@ -181,6 +181,12 @@ try {
             else assert.ok(Math.abs(await f.page.evaluate(()=>document.querySelector('video').currentTime)-2)<.05,'correction stays on current point');
           } else {
             await nudge.waitFor();
+            // ARMED, BEFORE ANY CUT EXISTS: the switch describes the rally
+            // being asked about, not the card just answered. Fixture point
+            // 2 is the uploader's second serve, so the rally inside it is
+            // the opponent's — and the switch says so at the tap, not a
+            // second later when the cut lands.
+            if(winner) await f.page.getByRole('switch',{name:'Alex serves the next one.',exact:true}).waitFor();
             const state=await f.page.evaluate(()=>{const v=document.querySelector('video');return {paused:v.paused,t:v.currentTime};});
             assert.equal(state.paused,false,'early outcome keeps playing while Split/No is offered');
             assert.ok(state.t>=at&&state.t<at+2,'early outcome does not seek away');
@@ -235,6 +241,16 @@ try {
                 // server and does not advance the rotation, so a card first
                 // answered Skip has nothing to shift.
                 if(winner) await f.page.getByRole('switch',{name:'Alex serves. Press to give the serve to you.',exact:true}).waitFor();
+                if(scenario==='early-second-winner') {
+                  // A CARD THAT WAS SPLIT, revisited. Both halves must read
+                  // their own server from the rotation, not the card's old
+                  // one — this is the half of the complaint that is about
+                  // cards already cut rather than the moment of cutting.
+                  await f.selectPoint(2,{start:9});
+                  await f.page.getByRole('switch',{name:'You serve. Press to give the serve to Alex.',exact:true}).waitFor();
+                  await f.selectPoint(3,{start:11.6});
+                  await f.page.getByRole('switch',{name:'Alex serves. Press to give the serve to you.',exact:true}).waitFor();
+                }
                 if(scenario==='early-second-again') {
                   // A third rally works by repetition, not by a third
                   // control: the new half arms in turn while footage runs.

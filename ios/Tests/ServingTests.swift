@@ -139,6 +139,41 @@ func runServingParityChecks() {
         splitServers(cards: 4, splitting: 3, first: .opponent) == "TTUUT",
         "and it holds from the other first server"
     )
+
+    // ARMED, BEFORE THE CUT EXISTS. The pad asks the rotation who would
+    // serve a point inserted after the card just answered, so the switch
+    // can say it at the tap rather than a second later. Same question, so
+    // the same answer: the half's own server in the sequences above.
+    check(
+        armedServer(cards: 4, after: 1, first: .user) == .opponent,
+        "the rally inside a block's second serve belongs to the other side"
+    )
+    check(
+        armedServer(cards: 4, after: 0, first: .user) == .user,
+        "the rally inside a block's first serve is the same server's second"
+    )
+}
+
+/// Who the rotation would give a point inserted after card `after` — the
+/// question the pad asks while a second answer is armed.
+private func armedServer(
+    cards: Int, after: Int, first: Winner
+) -> Winner? {
+    var inputs = (0..<cards).map { _ in
+        ServeInput(
+            id: UUID(), serverOverride: nil, isLet: false,
+            confirmedWinner: nil, gameEndOverride: nil
+        )
+    }
+    let ghostId = UUID()
+    inputs.insert(
+        ServeInput(
+            id: ghostId, serverOverride: nil, isLet: false,
+            confirmedWinner: nil, gameEndOverride: nil
+        ),
+        at: after + 1
+    )
+    return computeServingInputs(inputs, firstServer: first)[ghostId]?.server
 }
 
 /// The served-by sequence after card `splitting` is cut in two, built the

@@ -161,6 +161,16 @@ func targetAt(
         : effectiveEnd(prev, pad, ends)
     guard let stop, let rEnd = rallyEnd(prev, pad), t < stop else { return cur }
     guard let runStart, runStart < rEnd else { return cur }
+    // A run that started on THIS rally settles it: you are watching the one
+    // you jumped to. The test above is written against the PREVIOUS rally,
+    // and on ordinary neighbours landing on one means landing after the
+    // other has finished — but not on the two halves of a SPLIT card, whose
+    // padded spans overlap by a third of a second. Jumping straight to the
+    // second half started a run that still read as "before the first half
+    // ended", and the hold dragged the target back onto the half nobody
+    // asked for: its number under the ring, its server on the switch, and
+    // its rally under the next winner tap.
+    if let start = cur.cutT0, runStart >= start - 0.05 { return cur }
     return prev
 }
 
