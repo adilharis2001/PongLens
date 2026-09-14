@@ -80,6 +80,8 @@ extension PlayerTakeover {
                                     .tracking(0.6)
                                     .textCase(.uppercase)
                                     .foregroundStyle(PL.text500)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
                             }
                         }
                         Spacer()
@@ -314,10 +316,12 @@ extension PlayerTakeover {
             Text(label)
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.6)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
+                .padding(.horizontal, 6)
                 .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: PL.rField, style: .continuous)

@@ -410,6 +410,18 @@ const TAIL_WATCH_S = 3.5;
  *  after the deciding shot, so cutting AT it would clip the next serve. */
 const SPLIT_LEAD_S = 0.6;
 
+/** A long name on a winner pad reads better broken over two lines than
+ *  truncated on one: the first line still says who it is. Inline rather
+ *  than a utility class, the way this file's other geometry is — a stale
+ *  dev stylesheet cannot drop it (see the Tailwind memory). */
+const CLAMP_TWO: React.CSSProperties = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+  overflowWrap: "anywhere",
+};
+
 type Mode = "watch" | "score";
 type Phase = "play" | "summary" | "review";
 
@@ -7764,7 +7776,7 @@ export const Player = forwardRef<
                       : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow"
                   }`}
                 >
-                  <span className="block truncate">{youLabel}</span>
+                  <span className="block" style={CLAMP_TWO}>{youLabel}</span>
                 </button>
               </div>
               <div className="relative min-w-0 flex-1">
@@ -7789,7 +7801,7 @@ export const Player = forwardRef<
                       : "border-magenta-glow/30 bg-magenta-glow/5 text-magenta-soft"
                   }`}
                 >
-                  <span className="block truncate">{themLabel}</span>
+                  <span className="block" style={CLAMP_TWO}>{themLabel}</span>
                 </button>
                 {whyAvailable && (
                   <WhyPill
@@ -8143,7 +8155,7 @@ export const Player = forwardRef<
                 }}
                 className="h-12 min-w-0 flex-1 rounded-xl border border-cyan-glow/40 bg-cyan-glow/10 px-2 text-base font-bold text-cyan-glow transition-colors hover:bg-cyan-glow/15"
               >
-                <span className="block truncate">{youLabel}</span>
+                <span className="block" style={CLAMP_TWO}>{youLabel}</span>
               </button>
               <button
                 type="button"
@@ -8158,7 +8170,7 @@ export const Player = forwardRef<
                 }}
                 className="h-12 min-w-0 flex-1 rounded-xl border border-magenta-glow/40 bg-magenta-glow/10 px-2 text-base font-bold text-magenta-soft transition-colors hover:bg-magenta-glow/15"
               >
-                <span className="block truncate">{themLabel}</span>
+                <span className="block" style={CLAMP_TWO}>{themLabel}</span>
               </button>
             </div>
             <button
@@ -8258,7 +8270,7 @@ export const Player = forwardRef<
                             : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow hover:bg-cyan-glow/10"
                         }`}
                       >
-                        <span className="block truncate">{youLabel}</span>
+                        <span className="block" style={CLAMP_TWO}>{youLabel}</span>
                       </button>
                       <button
                         type="button"
@@ -8275,7 +8287,7 @@ export const Player = forwardRef<
                             : "border-magenta-glow/30 bg-magenta-glow/5 text-magenta-soft hover:bg-magenta-glow/10"
                         }`}
                       >
-                        <span className="block truncate">{themLabel}</span>
+                        <span className="block" style={CLAMP_TWO}>{themLabel}</span>
                       </button>
                     </div>
                   </div>

@@ -1299,7 +1299,10 @@ struct PlayerTakeover: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(PL.text100)
                 .lineLimit(1)
-                .frame(minWidth: 44, alignment: .leading)
+                .truncationMode(.tail)
+                // Capped as well as floored: this bug sits over the footage,
+                // and an unbounded name stretched it across the picture.
+                .frame(minWidth: 44, maxWidth: 120, alignment: .leading)
             ForEach(Array(games.enumerated()), id: \.offset) { _, points in
                 Text("\(points)")
                     .font(.system(size: 11, weight: .semibold))
@@ -1721,13 +1724,19 @@ struct PlayerTakeover: View {
                 // the lit ring on the strip below already says which
                 // point this is, and a number here repeated it.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    // One line, always. This is the number the whole screen
+                    // exists to show, so it takes its width before anything
+                    // else on the row is measured.
                     (Text("\(score.current.you)").foregroundColor(PL.cyan)
                         + Text(" - ").foregroundColor(PL.text600)
                         + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
                         .font(.system(size: 32, weight: .bold))
                         .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize()
                     gamesPill(score)
                 }
+                .layoutPriority(1)
                 Spacer(minLength: 8)
                 serveSwitch(serveInfo)
             }
@@ -1898,7 +1907,9 @@ struct PlayerTakeover: View {
                 + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
                 .font(.system(size: 20, weight: .bold))
                 .monospacedDigit()
+                .lineLimit(1)
                 .fixedSize()
+                .layoutPriority(1)
             gamesPill(score)
             // Beside the score, not at the far end: in landscape this bar
             // also carries the point strip, and the serve belongs with
@@ -2140,13 +2151,19 @@ struct PlayerTakeover: View {
                 flipServer(to: them ? .user : .opponent)
             } label: {
                 HStack(spacing: 10) {
+                    // A name can be any length, and this sentence carries
+                    // it. Fixed-size here meant the label took whatever
+                    // width it wanted and the SCORE — the one thing on this
+                    // row that must always be readable — wrapped to two
+                    // lines to make room. Cap it and let it truncate.
                     Text(them
                          ? "\(name ?? "They") serve\(name == nil ? "" : "s")"
                          : "You serve")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(tint)
                         .lineLimit(1)
-                        .fixedSize()
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 150, alignment: .trailing)
                     ZStack(alignment: .leading) {
                         Capsule()
                             .fill(tint.opacity(0.25))
@@ -2164,7 +2181,8 @@ struct PlayerTakeover: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .fixedSize()
+            // The switch keeps its 44pt; only the words give way.
+            .fixedSize(horizontal: false, vertical: true)
             .disabled(displayTarget == nil || app.userId != match.userId)
             .accessibilityLabel(them
                 ? "\(name ?? "They") serve. Press to give the serve to you."
@@ -2732,11 +2750,15 @@ struct PlayerTakeover: View {
     ) -> some View {
         let armed = splitArm != nil && phase == .play
         return Button(action: action) {
+            // A long name reads better broken over two lines than shrunk to
+            // a truncated one: the first line still says who it is.
             Text(label)
                 .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.5)
+                .padding(.horizontal, 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background {
                     RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
