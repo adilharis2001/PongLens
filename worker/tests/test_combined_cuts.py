@@ -60,8 +60,20 @@ def test_isolated_cleanup_crossings_do_not_undo_a_net_ending():
     # A stopped ball can be passed back later. Unlike the live exchange in
     # Yu Yu Lin, these crossings are not a rapid continuing exchange.
     seq=dict(first=12.17,last=12.30,n_bounces=2,half='far',
-             bounces=[{'t':12.17},{'t':12.30}],net_motion={'t':11.83})
+             bounces=[{'t':12.17},{'t':12.30}],net_motion={'t':11.83,'u':-.13})
     context=dict(crossings=[11.90,12.66,13.70],bounces=[12.17,12.30],
+                 body_T=[],body_p=[],sequences=[seq],candidate_features=[],
+                 motifs=[],long_bounces=[],cards_gap4=[])
+    result=C.propose(context,[dict(idx=2,t0=9.48,t1=15.97,serve_s=10.19)])
+    assert [[c['t0'],c['t1']] for c in result['cards']]==[[9.48,13.12]]
+
+
+def test_in_table_net_contact_is_outside_surgical_fix_scope():
+    # Some genuine net endings include quick ball returns. Do not extend
+    # those while fixing an off-table contact misidentified as a net event.
+    seq=dict(first=12.17,last=12.30,n_bounces=2,half='far',
+             bounces=[{'t':12.17},{'t':12.30}],net_motion={'t':11.83,'u':.67})
+    context=dict(crossings=[11.90,12.87,13.30],bounces=[12.17,12.30],
                  body_T=[],body_p=[],sequences=[seq],candidate_features=[],
                  motifs=[],long_bounces=[],cards_gap4=[])
     result=C.propose(context,[dict(idx=2,t0=9.48,t1=15.97,serve_s=10.19)])
