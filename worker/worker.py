@@ -4941,6 +4941,8 @@ def run_points_subprocess(
             cmd.append("--serve-anchor")
         if rally_end:
             cmd.append("--rally-end")
+            if options.get("reviewed_net_splits") is True:
+                cmd.append("--reviewed-net-splits")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
              "pipeline=%s%s)…",
              strictness, bool(options.get("placement")), pipeline,
@@ -8662,6 +8664,8 @@ def process_job(conn, msg) -> None:
             # costs thirty small updates rather than one per log line.
             body_settings = processing_outcome.configuration(
                 options, lambda key: get_config(conn, key))
+            if options.get("reviewed_net_splits") is True:
+                body_settings["reviewed_net_splits"] = True
             route = str(body_settings["requested_pipeline"]) + (":placement" if options.get("placement") else ":no-placement")
             _record_video_profile(local_input, route, camera_offset_s)
             release_id, body_model = processing_outcome.release_identity()

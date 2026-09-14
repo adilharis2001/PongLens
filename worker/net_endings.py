@@ -1,4 +1,4 @@
-"""Reviewed net-associated dead-ball tails, never a new split or a score.
+"""Reviewed dead-ball tails and opt-in verified restarts, never a score.
 
 Camera near/far is defined by the named table corners. A homography of an
 image observation is a heuristic, not a measured physical net collision.
@@ -10,6 +10,7 @@ import numpy as np
 import points_v2 as V
 
 METHOD_VERSION = 'net-endings-v1'
+SPLIT_VERSION = 'net-splits-v1'
 
 
 def _event_times(values):
@@ -112,10 +113,12 @@ def _eligible(sequence):
                 (m['absorbed'] or (m['reversed'] and abs(m['out_wps'])<abs(m['in_wps']))))
 
 
-def _proposal(card, sequences, crossings, serves):
+def _proposal(card, sequences, crossings, serves, *, low_bounce_splits=False):
     """Frozen first-proposal selection, including split candidates as vetoes."""
     for seq in sequences:
-        if not (card['t0']<=seq['first'] and seq['last']<=card['t1'] and _eligible(seq)):
+        eligible = _eligible(seq)
+        if not (card['t0']<=seq['first'] and seq['last']<=card['t1'] and
+                (eligible or (low_bounce_splits and seq['n_bounces']>=3))):
             continue
         first = seq['first']; confirmed = seq['bounces'][1]['t']
         if first < max(card['t0']+1,(card.get('serve_s') or card['t0'])+.8):
@@ -133,9 +136,46 @@ def _proposal(card, sequences, crossings, serves):
                 continue
             if not any(serve+.15<t<=min(serve+2.5,card['t1']) for t in later_cross):
                 continue
-            return dict(kind='split',sequence=seq,confirmed=confirmed,end=end)
-        return dict(kind='ending',sequence=seq,confirmed=confirmed,end=end)
+            return dict(kind='split',sequence=seq,confirmed=confirmed,end=end,
+                        restart=right,serve=serve)
+        if eligible:
+            return dict(kind='ending',sequence=seq,confirmed=confirmed,end=end)
     return None
+
+
+def split_cards(cards, sequences, crossings, serves):
+    """Separate reviewed dead-ball episodes from verified later serves.
+
+    This opt-in rule does not relax body continuation joins. It retains the
+    original outer bounds and checks each suffix so a third point survives.
+    """
+    crossings, serves = _event_times(crossings), _event_times(serves)
+    out = []; terminals = {}; decisions = []
+    for original in cards:
+        current = dict(original)
+        while True:
+            p = _proposal(current,sequences,crossings,serves,low_bounce_splits=True)
+            if (not p or p['kind']!='split' or
+                    p['end']-current['t0']<V.MIN_CARD_S or
+                    current['t1']-p['restart']<V.MIN_CARD_S):
+                break
+            left = dict(current,t1=p['end'])
+            if left.get('end_evidence_s') is not None:
+                left['end_evidence_s'] = min(left['end_evidence_s'],p['end'])
+            terminals[left['t0']] = dict(p,kind='ending')
+            decisions.append(dict(original_t0=original['t0'],original_t1=original['t1'],
+                                  end_s=p['end'],restart_s=p['restart'],serve_s=p['serve'],
+                                  confirmed_s=p['confirmed'],bounce_count=p['sequence']['n_bounces']))
+            out.append(left)
+            current = dict(current,t0=p['restart'],serve_s=p['serve'])
+            # An observed end from the first point cannot stop the new one.
+            if (current.get('end_evidence_s') is not None and
+                    current['end_evidence_s']<current['t0']):
+                current['end_evidence_s'] = None
+        out.append(current)
+    return out,terminals,dict(method_version=SPLIT_VERSION,status='used',
+                              input_cards=len(cards),output_cards=len(out),
+                              added_cards=len(decisions),decisions=decisions)
 
 
 def refine_endings(cards, sequences, crossings, serves):
@@ -161,7 +201,7 @@ def refine_endings(cards, sequences, crossings, serves):
                     split_proposals_preserved=split_vetoes)
 
 
-def predict_winner(card,sequences,crossings,serves):
+def predict_winner(card,sequences,crossings,serves, *, terminal=None):
     """Independent research prediction; never receive or change a user score.
 
     A terminal-event hypothesis is retained even when it cannot represent
@@ -171,10 +211,15 @@ def predict_winner(card,sequences,crossings,serves):
     result = dict(method='net_low_bounces',method_version=METHOD_VERSION,
                   status='abstained',winner_side=None,reason='no_terminal_net_sequence',
                   evaluated_t0=float(card['t0']),evaluated_t1=float(card['t1']),evidence={})
-    p = _proposal(card,sequences,crossings,serves)
+    p = terminal if terminal is not None else _proposal(card,sequences,crossings,serves)
+    if terminal is not None:
+        result['method_version'] = SPLIT_VERSION
     if not p or p['kind']!='ending':
         return result
     seq = p['sequence']; net = seq['net_motion']; confirmed = p['confirmed']
+    if not _eligible(seq):
+        result['reason'] = 'net_motion_unavailable' if net is None else 'net_motion_unconfirmed'
+        return result
     winner = 'far' if seq['half']=='near' else 'near'
     result['evidence'] = dict(terminal_event_winner_side=winner,
                               first_bounce_s=seq['first'],confirming_bounce_s=confirmed,
@@ -193,7 +238,7 @@ def predict_winner(card,sequences,crossings,serves):
     return result
 
 
-def process_cards(cards,evidence,corners,width,serves):
+def process_cards(cards,evidence,corners,width,serves, *, reviewed_splits=False):
     """Optional postprocessing fails open without replacing body assembly."""
     try:
         track = getattr(evidence,'track',None)
@@ -203,8 +248,14 @@ def process_cards(cards,evidence,corners,width,serves):
             return [dict(c) for c in cards],predictions,dict(status='unavailable',reason=reason,trimmed=0)
         cross = list(evidence.cross)
         sequences = extract_sequences(track,corners,evidence.fps,width,cross)
-        predictions = [predict_winner(c,sequences,cross,serves) for c in cards]
-        out,info = refine_endings(cards,sequences,cross,serves)
+        working = cards; terminals = {}; split_info = None
+        if reviewed_splits:
+            working,terminals,split_info = split_cards(cards,sequences,cross,serves)
+        predictions = [predict_winner(c,sequences,cross,serves,terminal=terminals.get(c['t0']))
+                       for c in working]
+        out,info = refine_endings(working,sequences,cross,serves)
+        if split_info is not None:
+            info['reviewed_splits'] = split_info
         return out,predictions,dict(info,status='used')
     except Exception as exc:
         predictions = [dict(predict_winner(c,[],[],[]),status='error',

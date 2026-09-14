@@ -3055,7 +3055,8 @@ def cmd_points(args):
                     body_cards, private_predictions, net_info = net_endings.process_cards(
                         body_cards, v2_E,
                         calib["corners_px"] if calib is not None else None,
-                        meta["width"], v3_serves or [])
+                        meta["width"], v3_serves or [],
+                        reviewed_splits=bool(getattr(args, "reviewed_net_splits", False)))
                     winner_predictions_by_start = {
                         int(c["t0"] * fps): prediction
                         for c, prediction in zip(body_cards, private_predictions)
@@ -3065,6 +3066,14 @@ def cmd_points(args):
                                       "both_share": body_info["both_share"], "cards": len(body_cards)}
                 processing["body_model"] = body_info["model"]
                 processing['rally_policy'] = body_info.get('rally_policy')
+                if getattr(args, "reviewed_net_splits", False):
+                    split_info = (processing.get('net_endings') or {}).get('reviewed_splits')
+                    split_info = split_info or dict(method_version='net-splits-v1',
+                                                     status='not_applied',added_cards=0)
+                    processing['rally_policy'] = dict(processing['rally_policy'] or {},
+                                                      reviewed_splits=split_info)
+                    processing['body']['reviewed_splits'] = {
+                        k:v for k,v in split_info.items() if k!='decisions'}
                 processing["edges"].update(
                     anchor_requested=bool(getattr(args, "serve_anchor", False)),
                     close_requested=bool(getattr(args, "rally_end", False)),
@@ -3585,6 +3594,8 @@ def main():
                         "serve opens where production opens any serve card, "
                         "HEAD_LEAD before the contact (app_config."
                         "body_serve_anchor)")
+    p.add_argument("--reviewed-net-splits", action="store_true",
+                   help="Opt-in reviewed low-bounce endings followed by verified restarts")
     p.add_argument("--rally-end", action="store_true",
                    help="with --pipeline bodies: a body card closes when the "
                         "ball went dead, or failing that when it was last "

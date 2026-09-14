@@ -10,6 +10,7 @@ log = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
 METHOD = "net_low_bounces"
 METHOD_VERSION = "net-endings-v1"
+SUPPORTED_METHOD_VERSIONS = (METHOD_VERSION, "net-splits-v1")
 SIDECAR = "point_winner_predictions.json"
 
 
@@ -55,7 +56,7 @@ def load_predictions(outdir, points):
             idx = row["idx"]
             if type(idx) is not int or idx not in by_idx or idx in validated:
                 raise ValueError("invalid point identity")
-            if row.get("method") != METHOD or row.get("method_version") != METHOD_VERSION:
+            if row.get("method") != METHOD or row.get("method_version") not in SUPPORTED_METHOD_VERSIONS:
                 raise ValueError("unsupported method")
             status, side = row["status"], row["winner_side"]
             if status not in ("predicted", "abstained", "error"):
@@ -73,7 +74,7 @@ def load_predictions(outdir, points):
             evidence = row["evidence"]
             if not isinstance(evidence, dict) or len(_canonical(evidence).encode()) > 32768:
                 raise ValueError("invalid evidence")
-            validated[idx] = dict(idx=idx, method=METHOD, method_version=METHOD_VERSION,
+            validated[idx] = dict(idx=idx, method=METHOD, method_version=row["method_version"],
                                   status=status, winner_side=side, reason=reason,
                                   evaluated_t0=a, evaluated_t1=b, published_t0=pa,
                                   published_t1=pb, evidence=evidence)
