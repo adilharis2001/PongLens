@@ -1311,27 +1311,39 @@ export const Player = forwardRef<
   // that tail ends. Cleared when it plays out (we advance then), or as soon
   // as the playhead leaves the clip by any other route.
   const playTailRef = useRef<{ id: string; end: number } | null>(null);
-  // The "this might be two points" offer, on the clip just answered.
-  // atCut is where a split would land (the detected gap, else the playhead
-  // at the time of the offer); certain=true only with gap evidence.
-  const [splitNudge, setSplitNudge] = useState<{
+  /**
+   * THE SECOND ANSWER, ARMED on the card just answered.
+   *
+   * A fused clip holds another rally, and the way to say so is to answer
+   * again: while this is set, the two winner buttons stop meaning "who won
+   * this card" and mean "who won the rally that just finished". The tap
+   * cuts the card at `atCut` and scores the new half, so a split costs the
+   * same one tap the answer would have cost anyway — and saying nothing
+   * costs none, which matters because most flagged cards hold one point.
+   *
+   * atCut is where the cut lands (the detected gap, else a beat before the
+   * FIRST answer, which is where that rally ended); certain=true only with
+   * gap evidence. Three rallies work by repeating: the new half arms in
+   * turn while footage remains.
+   */
+  const [splitArm, setSplitArm] = useState<{
     pointId: string;
     atCut: number;
     certain: boolean;
   } | null>(null);
-  // Ref twin for media callbacks. The offer stays with the answered card
+  // Ref twin for media callbacks. The arm stays with the answered card
   // while its remaining footage plays; it never interrupts playback.
-  const splitNudgeRef = useRef<typeof splitNudge>(null);
-  splitNudgeRef.current = splitNudge;
-  const clearSplitNudge = useCallback(() => {
-    if (splitNudgeRef.current && playTailRef.current?.id === splitNudgeRef.current.pointId) {
+  const splitArmRef = useRef<typeof splitArm>(null);
+  splitArmRef.current = splitArm;
+  const clearSplitArm = useCallback(() => {
+    if (splitArmRef.current && playTailRef.current?.id === splitArmRef.current.pointId) {
       playTailRef.current = null;
-      if (endPauseFiredRef.current === splitNudgeRef.current.pointId) {
+      if (endPauseFiredRef.current === splitArmRef.current.pointId) {
         endPauseFiredRef.current = null;
       }
     }
-    splitNudgeRef.current = null;
-    setSplitNudge(null);
+    splitArmRef.current = null;
+    setSplitArm(null);
   }, []);
   // Analysis panel (score mode): the point whose detail is being recorded,
   // and the shared "Saved" line its questions report through.
@@ -1375,14 +1387,14 @@ export const Player = forwardRef<
       command: Promise<ScorerCommandResult>
     ) => {
       const actionId = ++scorerActionId.current;
-      clearSplitNudge();
+      clearSplitArm();
       const owner = scorerSessionEffects.current.capture();
       const receipt = command.catch<ScorerCommandResult>(() => ({ failed: true })).then((result) => {
         if (isScorerFailure(result)) {
           if (scorerSessionEffects.current.sameSession(owner)) {
             showToast("Couldn't save. Tap again.");
-            if (scorerActionId.current === actionId && splitNudgeRef.current?.pointId === pointId) {
-              clearSplitNudge();
+            if (scorerActionId.current === actionId && splitArmRef.current?.pointId === pointId) {
+              clearSplitArm();
             }
           }
           return null;
@@ -1402,7 +1414,7 @@ export const Player = forwardRef<
         );
       });
     },
-    [showToast, clearSplitNudge]
+    [showToast, clearSplitArm]
   );
   // Modify modal: the point it was opened for (null = closed), and an
   // in-flight guard for the split/join orchestration round-trips.
@@ -1486,7 +1498,7 @@ export const Player = forwardRef<
     if (open) return;
     setHint(null);
     setScoreHint(false);
-    setSplitNudge(null);
+    setSplitArm(null);
     if (hintTimer.current) {
       window.clearTimeout(hintTimer.current);
       hintTimer.current = null;
@@ -2047,7 +2059,7 @@ export const Player = forwardRef<
 
   const seekTo = useCallback(
     (t: number) => {
-      clearSplitNudge();
+      clearSplitArm();
       scorerSessionEffects.current.navigate();
       scorePlaybackRun.current.invalidate();
       const clamped = Math.max(0, t);
@@ -2072,7 +2084,7 @@ export const Player = forwardRef<
       if (v && v.readyState >= 1) v.currentTime = clamped;
       else pendingSeek.current = clamped;
     },
-    [detourPointOf, enterDetour, exitDetour, clearSplitNudge]
+    [detourPointOf, enterDetour, exitDetour, clearSplitArm]
   );
 
   const playNow = useCallback(() => {
@@ -2309,7 +2321,7 @@ export const Player = forwardRef<
           playTailRef.current = null;
           const tp = ps.find((x) => x.id === tail.id);
           if (tp) {
-            clearSplitNudge();
+            clearSplitArm();
             advanceRef.current(tp);
             return;
           }
@@ -2398,7 +2410,7 @@ export const Player = forwardRef<
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
-    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow, observeScorePlayback, clearSplitNudge]
+    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow, observeScorePlayback, clearSplitArm]
   );
 
   /**
@@ -2461,7 +2473,7 @@ export const Player = forwardRef<
         playTailRef.current = null;
         const tp = pointsRef.current.find((x) => x.id === tail.id);
         if (tp) {
-          clearSplitNudge();
+          clearSplitArm();
           advanceRef.current(tp);
           return;
         }
@@ -2491,7 +2503,7 @@ export const Player = forwardRef<
         }
       }
     },
-    [phase, pinEndPause, clearSplitNudge]
+    [phase, pinEndPause, clearSplitArm]
   );
 
   /**
@@ -2829,7 +2841,7 @@ export const Player = forwardRef<
   modeRef.current = mode;
 
   const openTakeover = useCallback((m: Mode) => {
-    clearSplitNudge();
+    clearSplitArm();
     scorerSessionEffects.current.open();
     scorerUndoInFlight.current = null;
     if (modeRef.current === null) {
@@ -2866,13 +2878,13 @@ export const Player = forwardRef<
           detourPrimedRef.current = false;
         });
     }
-  }, [clearSplitNudge]);
+  }, [clearSplitArm]);
 
   // popstate (browser/OS Back or our own history.back) closes the takeover.
   useEffect(() => {
     if (!open) return;
     const onPop = () => {
-      clearSplitNudge();
+      clearSplitArm();
       scorerSessionEffects.current.close();
       modeRef.current = null;
       pauseBoth();
@@ -2900,7 +2912,7 @@ export const Player = forwardRef<
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [open, pinEndPause, pauseBoth, exitDetour, videoUrl, setPhase, clearSplitNudge]);
+  }, [open, pinEndPause, pauseBoth, exitDetour, videoUrl, setPhase, clearSplitArm]);
 
   const exit = useCallback(() => {
     scorerSessionEffects.current.close();
@@ -3950,20 +3962,24 @@ export const Player = forwardRef<
   });
 
   /**
-   * Offer the split on a clip that was answered with a rally's worth of
-   * footage still to run — the shape of a clip the cutter fused.
+   * Arm the second answer on a clip that was answered with a rally's worth
+   * of footage still to run — the shape of a clip the cutter fused.
    *
    * The trigger is REMAINING SECONDS, not a fraction of the clip: what
    * decides whether a second rally can be hiding is how much unwatched
-   * footage is left, and a percentage would nudge on every quick answer to
+   * footage is left, and a percentage would arm on every quick answer to
    * a short point while missing a late answer on a long one.
    *
    * The bounce data sharpens it where it exists (an actual quiet stretch
    * places the cut and firms up the wording) but is never required — the
-   * offer stands on the timing alone, worded as a question.
+   * arm stands on the timing alone, worded as a question.
+   *
+   * `answeredAt` is the playhead at the tap that armed it, passed in by the
+   * callers that have already awaited a round trip: the cut belongs a beat
+   * before the rally ENDED, not a beat before the write came back.
    */
-  const offerSplitIfEarly = useCallback((p: Point) => {
-    clearSplitNudge();
+  const armSecondAnswer = useCallback((p: Point, answeredAt?: number) => {
+    clearSplitArm();
     if (!onSplit || p.cut_t0 === null || p.t0 === null || p.t1 === null) return false;
     const now = nowT(0);
     const own = paddedEnd(p, padRef.current);
@@ -3971,17 +3987,129 @@ export const Player = forwardRef<
     const gap = fusedSplitCut(p, padRef.current);
     // Without gap evidence, cut a beat before where they answered — the tap
     // always lands after the deciding shot (same lead the pad's Split uses).
-    const atCut = gap ?? Math.max(Number(p.cut_t0) + 0.4, now - SPLIT_LEAD_S);
+    const atCut =
+      gap ?? Math.max(Number(p.cut_t0) + 0.4, (answeredAt ?? now) - SPLIT_LEAD_S);
     // Use the full card, not the ending observation just saved by the tap:
-    // the unseen footage is precisely what this offer asks about.
+    // the unseen footage is precisely what this arm asks about.
     playTailRef.current = { id: p.id, end: own };
     endPauseFiredRef.current = p.id;
-    const offer = { pointId: p.id, atCut, certain: gap !== null };
-    splitNudgeRef.current = offer;
-    setSplitNudge(offer);
+    const armed = { pointId: p.id, atCut, certain: gap !== null };
+    splitArmRef.current = armed;
+    setSplitArm(armed);
     playNow();
     return true;
-  }, [onSplit, clearSplitNudge, playNow]);
+  }, [onSplit, clearSplitArm, playNow]);
+
+  /**
+   * THE SECOND ANSWER: the armed card holds another rally and this is who
+   * won it. One tap does the whole thing — cut the card at the arm's mark,
+   * score the new half, and carry on into whatever is left of the footage.
+   *
+   * The cut is NOT confirmed on a timeline first. That was the old Split
+   * pill's job and it cost a modal, a look and two more taps; here the mark
+   * is either a real quiet stretch the detector found or a beat before the
+   * first answer, both of which are where the rally ended. Undo is one
+   * entry and it puts the card back exactly as it was.
+   *
+   * Scoring lands on the CHILD because the child is the half that was never
+   * answered: the parent keeps the answer it already has, and the parent's
+   * own Undo entry is left alone.
+   */
+  const answerSecondPoint = useCallback(
+    async (side: "user" | "opponent", thenWhy = false) => {
+      const armed = splitArmRef.current;
+      if (!armed || !onSplit || modifyBusy) return;
+      const A = pointsRef.current.find((x) => x.id === armed.pointId);
+      if (!A || A.deleted || A.cut_t0 === null) return;
+      // The playhead at the tap, before a round trip moves it: this rally
+      // ended here, so it is both the child's ending observation and the
+      // mark a THIRD rally would be cut at.
+      const at = nowT(0);
+      const prevWinner = A.confirmed_winner;
+      const prevSkipped = A.is_let;
+      const rootCutT0 = Number(A.cut_t0);
+      // Disarm first: the tap is spent, and the tail it owns is about to be
+      // rebuilt around the child. A second tap during the round trip must
+      // not cut the same card twice.
+      clearSplitArm();
+      setModifyBusy(true);
+      const { ok, created, unsplits } = await runSplitPlan({
+        point: A,
+        pad: padRef.current,
+        cutTimes: [armed.atCut],
+        onChild: onSplit,
+      });
+      setModifyBusy(false);
+      const child = created[0] ?? null;
+      if (!ok || !child) {
+        if (unsplits.length > 0) {
+          setUndoStack((s) => [
+            ...s,
+            {
+              type: "modify-split",
+              unsplits,
+              rootId: A.id,
+              rootPrevWinner: prevWinner,
+              rootPrevSkipped: prevSkipped,
+              rootCutT0,
+            },
+          ]);
+        }
+        showToast("Couldn't split that card. Try again.");
+        return;
+      }
+      // One entry for the whole gesture: undoing puts the two halves back
+      // together, which takes the second answer with it.
+      setUndoStack((s) => [
+        ...s,
+        {
+          type: "modify-split",
+          unsplits,
+          rootId: A.id,
+          rootPrevWinner: prevWinner,
+          rootPrevSkipped: prevSkipped,
+          rootCutT0,
+        },
+      ]);
+      // No ending observation: a hand-cut half is `edited`, and the scorer
+      // drops a tap-derived ending on an edited card (scorerState.winner).
+      // Its playback end is the card's own padded end either way, which is
+      // exactly what leaves a THIRD rally's footage in place below.
+      void onSetWinner(child, side)
+        .catch(() => ({ failed: true }) as ScorerCommandResult)
+        .then((result) => {
+          if (isScorerFailure(result)) showToast("Couldn't save. Tap again.");
+        });
+      showFlash(`Split · ${side === "user" ? youLabel : themLabel}`);
+      if (thenWhy) {
+        pauseBoth();
+        pinEndPause(null);
+        setWhyPoint({ ...child, confirmed_winner: side, is_let: false });
+        return;
+      }
+      // Carry on exactly as an ordinary answer does: a third rally inside
+      // what is left arms the child in turn, otherwise this moves on.
+      pinEndPause(null);
+      if (!armSecondAnswer(child, at)) advanceFrom(child);
+    },
+    [
+      onSplit,
+      modifyBusy,
+      nowT,
+      clearSplitArm,
+      onSetWinner,
+      showFlash,
+      showToast,
+      youLabel,
+      themLabel,
+      pauseBoth,
+      pinEndPause,
+      armSecondAnswer,
+      advanceFrom,
+    ]
+  );
+  const answerSecondRef = useRef(answerSecondPoint);
+  answerSecondRef.current = answerSecondPoint;
 
   /** Light the pad's Game-ended control for a just-answered point (only
    *  offered while a 'continue' override holds the game open). A glow on
@@ -4077,6 +4205,18 @@ export const Player = forwardRef<
 
   const tapSide = useCallback(
     (side: "user" | "opponent", opts?: { thenWhy?: boolean }) => {
+      // ARMED: the card just answered has another rally in it, and this tap
+      // says who won THAT one. It acts on the armed card by id rather than
+      // on whatever the playhead currently resolves to — the resolver flips
+      // to the next rally's padded span mid-tail on a tight cut, and this
+      // answer belongs to the card the footage came from.
+      if (splitArmRef.current && phase === "play") {
+        lastScoreTapRef.current = Date.now();
+        markHintDone("score");
+        setScoreHint(false);
+        void answerSecondRef.current(side, opts?.thenWhy === true);
+        return;
+      }
       const p = resolveTargetPoint();
       if (!p) return;
       lastScoreTapRef.current = Date.now();
@@ -4161,7 +4301,7 @@ export const Player = forwardRef<
       // the user put it).
       if (!hadOutcome && next !== null) {
         pinEndPause(null);
-        if (!offerSplitIfEarly(p)) advanceFrom(p);
+        if (!armSecondAnswer(p)) advanceFrom(p);
       } else if (endPausedRef.current === p.id) {
         // Corrections while paused-at-end release the pin so playback
         // controls behave normally, but stay in place.
@@ -4177,7 +4317,7 @@ export const Player = forwardRef<
       advanceFrom,
       pinEndPause,
       showEndedPill,
-      offerSplitIfEarly,
+      armSecondAnswer,
     ]
   );
 
@@ -4185,7 +4325,7 @@ export const Player = forwardRef<
     const p = resolveTargetPoint();
     if (!p) return;
     if (p.is_let) {
-      clearSplitNudge();
+      clearSplitArm();
       // Already skipped — the press means "move on". Never a silent no-op.
       const ps = pointsRef.current;
       const next = ps.find(
@@ -4215,7 +4355,7 @@ export const Player = forwardRef<
       return;
     }
     pinEndPause(null);
-    if (!offerSplitIfEarly(p)) jumpAfter(p);
+    if (!armSecondAnswer(p)) jumpAfter(p);
   }, [
     resolveTargetPoint,
     onSetSkipped,
@@ -4226,8 +4366,8 @@ export const Player = forwardRef<
     playNow,
     indexById,
     pinEndPause,
-    clearSplitNudge,
-    offerSplitIfEarly,
+    clearSplitArm,
+    armSecondAnswer,
     jumpAfter,
   ]);
 
@@ -4297,13 +4437,23 @@ export const Player = forwardRef<
   // undo — is unchanged; see performSplit.)
 
   // Open the Modify modal for the rally on screen (the pad's Modify button).
+  //
+  // While a second answer is armed it opens on the ARMED card, with the
+  // mark that answer would have cut at already placed: the same escape
+  // hatch the old Split pill was, without a pill of its own. Someone who
+  // wants to see the cut before it lands has it one button away.
   const tapModify = useCallback(() => {
-    const p = resolveTargetPoint();
+    const armed = splitArmRef.current;
+    const armedPoint = armed
+      ? (pointsRef.current.find((x) => x.id === armed.pointId) ?? null)
+      : null;
+    const p = armedPoint ?? resolveTargetPoint();
     if (!p) return;
     pauseBoth();
-    setModifyInitialCut(null);
+    clearSplitArm();
+    setModifyInitialCut(armedPoint ? armed!.atCut : null);
     setModifyPoint(p);
-  }, [resolveTargetPoint]);
+  }, [resolveTargetPoint, pauseBoth, clearSplitArm]);
 
   const closeModify = useCallback(() => {
     if (modifyBusy) return;
@@ -4982,7 +5132,7 @@ export const Player = forwardRef<
   const undo = useCallback(() => {
     const e = undoStack[undoStack.length - 1];
     if (!e) return;
-    clearSplitNudge();
+    clearSplitArm();
     if (e.type === "tap") {
       if (scorerUndoInFlight.current !== null) return;
       scorerUndoInFlight.current = e.actionId;
@@ -5154,7 +5304,7 @@ export const Player = forwardRef<
     onUnsplit,
     onAdjustTiming,
     onRestoreScorer,
-    clearSplitNudge,
+    clearSplitArm,
     onSetWinner,
     onSetSkipped,
     onSetGameOverride,
@@ -5476,10 +5626,14 @@ export const Player = forwardRef<
   }, [score]);
 
   const target = displayTarget;
+  // While a second answer is armed the two buttons are asking a NEW
+  // question, so neither shows the card's existing answer: a lit button
+  // under "tap who won the second one" contradicts the sentence above it.
+  const secondArmed = phase === "play" && splitArm !== null;
   const litYou =
-    !!target && !target.is_let && target.confirmed_winner === "user";
+    !secondArmed && !!target && !target.is_let && target.confirmed_winner === "user";
   const litThem =
-    !!target && !target.is_let && target.confirmed_winner === "opponent";
+    !secondArmed && !!target && !target.is_let && target.confirmed_winner === "opponent";
   const canTap = !!target;
   // Whether the rally on screen already carries a serve-start label (089).
   const serveStartMarked =
@@ -5614,7 +5768,7 @@ export const Player = forwardRef<
               // clip was playing out: retire the tail and any pending
               // nudge auto-advance. (The advance's own seek lands here too,
               // harmlessly — both are already null by then.)
-              clearSplitNudge();
+              clearSplitArm();
               playTailRef.current = null;
               observeScorePlayback(e.currentTarget);
             }}
@@ -5628,7 +5782,7 @@ export const Player = forwardRef<
               pinEndPause(null);
               // Starting/resuming this offered tail keeps its question.
               // Navigation and tail completion retire it before leaving.
-              if (playTailRef.current?.id !== splitNudgeRef.current?.pointId) clearSplitNudge();
+              if (playTailRef.current?.id !== splitArmRef.current?.pointId) clearSplitArm();
               // A play() that lands mid-hold keeps the held rate, whichever
               // side is being held.
               e.currentTarget.playbackRate =
@@ -5703,7 +5857,7 @@ export const Player = forwardRef<
             // Loading the same ongoing run into its required clip is not
             // navigation. Preserve the offer through that internal seek.
             if (!detourHandoffSeekRef.current) {
-              clearSplitNudge();
+              clearSplitArm();
               playTailRef.current = null;
             }
             detourHandoffSeekRef.current = false;
@@ -5717,7 +5871,7 @@ export const Player = forwardRef<
             setPaused(false);
             lastPlayAtRef.current = Date.now();
             pinEndPause(null);
-            if (playTailRef.current?.id !== splitNudgeRef.current?.pointId) clearSplitNudge();
+            if (playTailRef.current?.id !== splitArmRef.current?.pointId) clearSplitArm();
             e.currentTarget.playbackRate =
               gesture.current.holding && holdRateRef.current !== null
                 ? holdRateRef.current
@@ -7363,14 +7517,19 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* Early first outcomes offer a split while the rest of the
-                answered card continues playing. */}
-            {phase === "play" && splitNudge && (
+            {/* ARMED: the card just answered still has footage running, and
+                the winner buttons are now asking about the rally inside it.
+                Text only. The answer is the buttons themselves, and the
+                pad already carries Modify one row down for the rare cut
+                that wants placing by hand — while this is up, Modify opens
+                on this very mark. Calm, not amber: nothing is wrong, a
+                question is being asked. */}
+            {phase === "play" && splitArm && (
               <div
-                className={`ks-fade flex items-center gap-2 rounded-xl border border-amber-400/40 px-3 py-2 ${
+                className={`ks-fade flex items-center gap-2 rounded-xl border border-edge px-3 py-2 ${
                   padOverlay
                     ? "pointer-events-auto absolute z-10 bg-ink/85 backdrop-blur-sm"
-                    : "shrink-0 bg-amber-400/5"
+                    : "shrink-0 bg-surface"
                 }`}
                 // Centred and width-capped in the edge layout: a compact
                 // toast under the top bands, not a band of its own.
@@ -7385,54 +7544,29 @@ export const Player = forwardRef<
                     : undefined
                 }
               >
-                {/* Name the point whose footage the split would change. */}
-                <span className="min-w-0 flex-1 text-[11px] leading-snug text-amber-200/90">
-                  <span className="font-semibold">
-                    Point {(indexById.get(splitNudge.pointId) ?? 0) + 1}
-                  </span>
-                  {splitNudge.certain
-                    ? " looks like two points."
-                    : " — two points in there?"}
+                {/* Name the card, because the arm outlives the rally: the
+                    footage plays on and "this clip" would be pointing at
+                    the wrong one by the time anyone reads it. */}
+                <span className="min-w-0 flex-1 text-[11px] leading-snug text-zinc-300">
+                  <span className="font-semibold text-white">
+                    Point {(indexById.get(splitArm.pointId) ?? 0) + 1}
+                  </span>{" "}
+                  {splitArm.certain
+                    ? "looks like two points."
+                    : "might be two points."}{" "}
+                  Tap who won the second one.
                 </span>
+                {/* The old way, kept on purpose. Answering again is faster
+                    and it is what the sentence asks for, but someone who
+                    would rather SEE the cut before it lands should not have
+                    to know that Modify is the door to it. Same destination:
+                    the editor, opened on this mark. */}
                 <button
                   type="button"
-                  onClick={() => {
-                    const p = pointsRef.current.find(
-                      (x) => x.id === splitNudge.pointId
-                    );
-                    clearSplitNudge();
-                    // Splitting outright here proved confusing — the cut
-                    // lands sight-unseen. Open the Modify sheet instead,
-                    // with the suggested cut seeded as its split marker:
-                    // the user SEES where the split goes, adjusts it on
-                    // the scrub timeline, and confirms.
-                    if (p) {
-                      pauseBoth();
-                      setModifyInitialCut(splitNudge.atCut);
-                      setModifyPoint(p);
-                    }
-                  }}
-                  className="shrink-0 rounded-full border border-amber-400/50 px-3 py-1 text-[11px] font-semibold text-amber-200 transition-colors hover:bg-amber-400/10"
+                  onClick={tapModify}
+                  className="shrink-0 rounded-full border border-cyan-glow/50 px-3 py-1 text-[11px] font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/10"
                 >
                   Split
-                </button>
-                {/* "No" rather than a bare dismiss: answering the question
-                    also answers what to do next. If there is only one point
-                    in the clip then the rest of it is the walk-back, and
-                    waiting through it is time you did not need to spend. */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const p = pointsRef.current.find(
-                      (x) => x.id === splitNudge.pointId
-                    );
-                    clearSplitNudge();
-                    playTailRef.current = null;
-                    if (p) jumpAfter(p);
-                  }}
-                  className="shrink-0 rounded-full border border-edge px-3 py-1 text-[11px] font-semibold text-zinc-300 transition-colors hover:bg-surface-2 hover:text-white"
-                >
-                  No
                 </button>
               </div>
             )}
@@ -7573,6 +7707,17 @@ export const Player = forwardRef<
               }
             >
               <div className="relative min-w-0 flex-1">
+                {/* The armed marker sits OUTSIDE the button on purpose: it
+                    must not join the button's accessible name, which is the
+                    player's name and nothing else. */}
+                {secondArmed && (
+                  <span
+                    aria-hidden
+                    className="ks-fade pointer-events-none absolute left-2 top-2 z-10 rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-1.5 py-px text-[10px] font-semibold text-cyan-glow/80"
+                  >
+                    2nd
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => tapSide("user")}
@@ -7590,6 +7735,14 @@ export const Player = forwardRef<
                 </button>
               </div>
               <div className="relative min-w-0 flex-1">
+                {secondArmed && (
+                  <span
+                    aria-hidden
+                    className="ks-fade pointer-events-none absolute left-2 top-2 z-10 rounded-full border border-magenta-glow/40 bg-magenta-glow/10 px-1.5 py-px text-[10px] font-semibold text-magenta-soft/80"
+                  >
+                    2nd
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => tapSide("opponent")}

@@ -159,6 +159,101 @@ final class ScorekeeperQAFixtureTests: XCTestCase {
         XCTAssertEqual(snapshot.events.map(\.phase), [.unexpected])
     }
 
+    // MARK: - Answering a card twice
+
+    func testCutValidatorAcceptsTheTwoCutCallsAndRefusesEverythingElse() throws {
+        let split = try ScorekeeperQARequestValidator.validateCut(rpc(
+            "split_point",
+            body: ["p_id": firstPoint.uuidString.lowercased(),
+                   "at_t": 4.4, "child_cut_t0": 4.1]
+        ))
+        XCTAssertEqual(
+            split, .split(parent: firstPoint, atT: 4.4, childCutT0: 4.1)
+        )
+
+        // An unknown card, a stray key and a wrong type are each refused, so
+        // the cut path cannot become a way to write anything else.
+        XCTAssertThrowsError(try ScorekeeperQARequestValidator.validateCut(rpc(
+            "split_point",
+            body: ["p_id": UUID().uuidString.lowercased(),
+                   "at_t": 4.4, "child_cut_t0": 4.1]
+        )))
+        XCTAssertThrowsError(try ScorekeeperQARequestValidator.validateCut(rpc(
+            "split_point",
+            body: ["p_id": firstPoint.uuidString.lowercased(),
+                   "at_t": 4.4, "child_cut_t0": 4.1, "deleted": true]
+        )))
+        XCTAssertThrowsError(try ScorekeeperQARequestValidator.validateCut(rpc(
+            "split_point",
+            body: ["p_id": firstPoint.uuidString.lowercased(),
+                   "at_t": "4.4", "child_cut_t0": 4.1]
+        )))
+        XCTAssertThrowsError(try ScorekeeperQARequestValidator.validateCut(rpc(
+            "merge_points", body: ["p_ids": []]
+        )))
+    }
+
+    func testSplitMovesTheParentsEndAndMintsTheHalfThatGetsScored() throws {
+        let store = ScorekeeperQAStore(
+            delayMilliseconds: 0,
+            failureOrdinal: nil,
+            eventsURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+        )
+        let second = UUID(uuidString: "33333333-3333-4333-8333-000000000002")!
+
+        // Point 2 runs 10 to 16 in source seconds, cut-anchored at 9.
+        let body = try XCTUnwrap(store.applyCut(
+            .split(parent: second, atT: 11.9, childCutT0: 11.6)
+        ))
+        let child = try JSONDecoder().decode(MatchPoint.self, from: body)
+
+        XCTAssertEqual(child.t0, 11.9, "the new half starts where the cut fell")
+        XCTAssertEqual(child.t1, 16, "and keeps the card's own end")
+        XCTAssertEqual(child.cutT0, 11.6)
+        XCTAssertEqual(child.edited, true)
+        XCTAssertEqual(child.tightStart, true)
+        XCTAssertNil(child.confirmedWinner, "it is the half still unanswered")
+
+        // The half only exists once it is minted, and scoring it is then a
+        // legal write — that pairing is what makes one tap able to do both.
+        XCTAssertNoThrow(try ScorekeeperQARequestValidator.validate(request(
+            pointID: child.id,
+            body: [
+                "confirmed_winner": "user",
+                "is_let": false,
+                "scored_at_cut_s": NSNull(),
+            ]
+        )))
+
+        // A cut outside the card's own window is refused, the way the real
+        // function's window check refuses it.
+        XCTAssertNil(store.applyCut(
+            .split(parent: second, atT: 99, childCutT0: 20)
+        ))
+
+        // And Undo puts the two halves back together.
+        XCTAssertNotNil(store.applyCut(.unsplit(
+            parent: second, child: child.id, parentT1: 16,
+            tightEnd: false, edited: false
+        )))
+        XCTAssertEqual(store.snapshot().cutCount, 2)
+        XCTAssertNil(
+            store.snapshot().remote[child.id],
+            "the rejoined half stops existing, and its answer goes with it"
+        )
+    }
+
+    private func rpc(_ name: String, body: [String: Any]) throws -> URLRequest {
+        var request = URLRequest(
+            url: URL(string: "http://127.0.0.1:54321/rest/v1/rpc/\(name)")!
+        )
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return request
+    }
+
     private func request(pointID: UUID, body: [String: Any]) throws -> URLRequest {
         var request = URLRequest(
             url: URL(string: "http://127.0.0.1:54321/rest/v1/points?id=eq.\(pointID.uuidString.lowercased())")!

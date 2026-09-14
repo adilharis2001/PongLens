@@ -189,15 +189,31 @@ final class CustomReasonsStore {
     }
 }
 
+/// One split_point call, and everything it takes to reverse it. The web's
+/// UnsplitRecord, carrying the child row as well because iOS scores it.
+struct SplitChild {
+    let parentId: UUID
+    let child: MatchPoint
+    let prevT1: Double
+    let prevTightEnd: Bool
+    let prevEdited: Bool
+}
+
 // MARK: - Modify (split / join / adjust) — modifyOps.ts port
 
 extension MatchDetailModel {
     /// Split ONE point into segments at the given CUT-video marker times.
     /// Markers map to source at_t through the span anchor; split_point runs
     /// sequentially down the tail. Children are born edited with tight ends.
-    func runSplit(_ point: MatchPoint, pad: ClipPad, cutTimes: [Double]) async -> Bool {
+    ///
+    /// Returns the rows it created, newest last, so a caller can go on to
+    /// score one of them or reverse the cut. Empty means nothing was split.
+    @discardableResult
+    func runSplit(
+        _ point: MatchPoint, pad: ClipPad, cutTimes: [Double]
+    ) async -> [SplitChild] {
         guard let cutT0 = point.cutT0, let t0 = point.t0, let t1 = point.t1 else {
-            return false
+            return []
         }
         let eff = effectivePad(pad, tightStart: point.tightStart, tightEnd: point.tightEnd)
         let anchor = max(0, t0 - eff.pre)
@@ -211,9 +227,14 @@ extension MatchDetailModel {
             ats.append(v)
             floor = v + SPLIT_EDGE_S
         }
-        guard !ats.isEmpty else { return false }
+        guard !ats.isEmpty else { return [] }
 
+        var created: [SplitChild] = []
         var parentId = point.id
+        // Every child is born with the ORIGINAL parent's end, so reversing a
+        // cut restores the exact row split_point changed.
+        var prevTightEnd = point.tightEnd
+        var prevEdited = point.edited
         for at in ats {
             let childCutT0 = ((cutT0 + (at - min(pad.pre, TIGHT_PAD)) - anchor) * 100).rounded() / 100
             struct Params: Encodable {
@@ -235,12 +256,56 @@ extension MatchDetailModel {
                     points[i].tightEnd = true
                 }
                 points.append(child)
+                created.append(SplitChild(
+                    parentId: parentId, child: child, prevT1: t1,
+                    prevTightEnd: prevTightEnd, prevEdited: prevEdited
+                ))
                 parentId = child.id
+                prevTightEnd = point.tightEnd
+                prevEdited = true
             } catch {
-                return false
+                return created
             }
         }
         Task { await recutOnDevice(matchId: point.matchId, pad: pad) }
+        return created
+    }
+
+    /// Reverse one split_point call: hard-delete the child and put the
+    /// parent's end back, atomically (unsplit_point, migration 026).
+    func runUnsplit(
+        parentId: UUID, childId: UUID, prevT1: Double,
+        prevTightEnd: Bool, prevEdited: Bool, matchId: UUID, pad: ClipPad
+    ) async -> Bool {
+        struct Params: Encodable {
+            let p_parent: String
+            let p_child: String
+            let parent_t1: Double
+            let parent_tight_end: Bool
+            let parent_edited: Bool
+        }
+        do {
+            try await supa
+                .rpc("unsplit_point", params: Params(
+                    p_parent: parentId.uuidString.lowercased(),
+                    p_child: childId.uuidString.lowercased(),
+                    parent_t1: prevT1,
+                    parent_tight_end: prevTightEnd,
+                    parent_edited: prevEdited
+                ))
+                .execute()
+        } catch {
+            return false
+        }
+        if let i = points.firstIndex(where: { $0.id == parentId }) {
+            points[i].t1 = prevT1
+            points[i].tightEnd = prevTightEnd
+            // Growing t1 back re-fires the edited trigger, and the reclip
+            // below regenerates the clip to the restored extent.
+            points[i].edited = true
+        }
+        points.removeAll { $0.id == childId }
+        Task { await recutOnDevice(matchId: matchId, pad: pad) }
         return true
     }
 

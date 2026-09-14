@@ -35,6 +35,53 @@ nonisolated enum ScorekeeperQAIDs {
     static let points = (1...3).map {
         UUID(uuidString: String(format: "33333333-3333-4333-8333-%012d", $0))!
     }
+
+    // Halves minted by a split during the run. A card answered twice becomes
+    // two rows and the scorer writes to the new one, so the allowlist has to
+    // grow with it — by MINTING only. A request can never introduce an id,
+    // which is what keeps "every other target is refused" true.
+    private static let mintLock = NSLock()
+    private static var minted: [UUID] = []
+
+    static func mintChild() -> UUID {
+        mintLock.lock()
+        defer { mintLock.unlock() }
+        let id = UUID(uuidString: String(
+            format: "44444444-4444-4444-8444-%012d", minted.count + 1
+        ))!
+        minted.append(id)
+        return id
+    }
+
+    static func isKnownPoint(_ id: UUID) -> Bool {
+        if points.contains(id) { return true }
+        mintLock.lock()
+        defer { mintLock.unlock() }
+        return minted.contains(id)
+    }
+}
+
+/// One card as the fixture's synthetic database holds it. Only the timing
+/// fields a cut touches; outcomes live in the store's `remote`.
+nonisolated struct ScorekeeperQACard: Equatable, Sendable {
+    var idx: Int
+    var t0: Double
+    var t1: Double
+    var cutT0: Double
+    var tightStart: Bool
+    var tightEnd: Bool
+    var edited: Bool
+}
+
+/// The two cut calls the pad can make. Deliberately separate from the scorer
+/// write: they are a different verb on a different path, and reusing one
+/// validator for both would widen what a score request is allowed to be.
+nonisolated enum ScorekeeperQACut: Equatable, Sendable {
+    case split(parent: UUID, atT: Double, childCutT0: Double)
+    case unsplit(
+        parent: UUID, child: UUID, parentT1: Double,
+        tightEnd: Bool, edited: Bool
+    )
 }
 
 nonisolated struct ScorekeeperQAFields: Codable, Equatable, Sendable {
@@ -75,7 +122,7 @@ nonisolated enum ScorekeeperQARequestValidator {
               let value = filter.value,
               value.hasPrefix("eq."),
               let pointID = UUID(uuidString: String(value.dropFirst(3))),
-              ScorekeeperQAIDs.points.contains(pointID)
+              ScorekeeperQAIDs.isKnownPoint(pointID)
         else { throw ScorekeeperQAValidationError.unknownRequest }
 
         guard let body = try? bodyData(for: request),
@@ -124,6 +171,69 @@ nonisolated enum ScorekeeperQARequestValidator {
                 scoredAtCutS: scoredAt
             )
         )
+    }
+
+    /// The cut calls: split_point and its inverse. Same loopback host, port
+    /// and RPC path shape as the scorer write, same refusal for anything
+    /// else — a body with an unexpected key, a value of the wrong type or an
+    /// unknown card is not a cut and never reaches the store.
+    static func validateCut(_ request: URLRequest) throws -> ScorekeeperQACut {
+        guard request.httpMethod == "POST",
+              let url = request.url,
+              url.scheme == "http",
+              url.host == "127.0.0.1",
+              url.port == 54321,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              (components.queryItems ?? []).isEmpty,
+              let body = try? bodyData(for: request),
+              let object = try? JSONSerialization.jsonObject(with: body),
+              let fields = object as? [String: Any]
+        else { throw ScorekeeperQAValidationError.unknownRequest }
+
+        func number(_ key: String) -> Double? {
+            guard let value = fields[key] as? NSNumber,
+                  CFGetTypeID(value) != CFBooleanGetTypeID(),
+                  value.doubleValue.isFinite
+            else { return nil }
+            return value.doubleValue
+        }
+        func flag(_ key: String) -> Bool? {
+            guard let value = fields[key] as? NSNumber,
+                  CFGetTypeID(value) == CFBooleanGetTypeID() else { return nil }
+            return value.boolValue
+        }
+        func card(_ key: String) -> UUID? {
+            guard let raw = fields[key] as? String, let id = UUID(uuidString: raw),
+                  ScorekeeperQAIDs.isKnownPoint(id) else { return nil }
+            return id
+        }
+
+        switch url.path {
+        case "/rest/v1/rpc/split_point":
+            guard Set(fields.keys) == Set(["p_id", "at_t", "child_cut_t0"]),
+                  let parent = card("p_id"),
+                  let atT = number("at_t"),
+                  let childCutT0 = number("child_cut_t0")
+            else { throw ScorekeeperQAValidationError.invalidPayload }
+            return .split(parent: parent, atT: atT, childCutT0: childCutT0)
+        case "/rest/v1/rpc/unsplit_point":
+            guard Set(fields.keys) == Set([
+                    "p_parent", "p_child", "parent_t1",
+                    "parent_tight_end", "parent_edited",
+                  ]),
+                  let parent = card("p_parent"),
+                  let child = card("p_child"),
+                  let parentT1 = number("parent_t1"),
+                  let tightEnd = flag("parent_tight_end"),
+                  let edited = flag("parent_edited")
+            else { throw ScorekeeperQAValidationError.invalidPayload }
+            return .unsplit(
+                parent: parent, child: child, parentT1: parentT1,
+                tightEnd: tightEnd, edited: edited
+            )
+        default:
+            throw ScorekeeperQAValidationError.unknownRequest
+        }
     }
 
     /// URLSession represents a data-task body as a stream by the time a
@@ -231,6 +341,7 @@ nonisolated struct ScorekeeperQASnapshot: Sendable {
     let events: [ScorekeeperQAEvent]
     let unexpectedRequestCount: Int
     let eventLogError: String?
+    let cutCount: Int
 }
 
 nonisolated final class ScorekeeperQAStore: @unchecked Sendable {
@@ -243,6 +354,10 @@ nonisolated final class ScorekeeperQAStore: @unchecked Sendable {
     private var events: [ScorekeeperQAEvent] = []
     private var unexpectedRequestCount = 0
     private var eventLogError: String?
+    /// The synthetic timing rows a cut moves. Seeded with the three fixture
+    /// cards; a split rewrites one and adds another.
+    private var cards: [UUID: ScorekeeperQACard]
+    private var cutCount = 0
 
     init(delayMilliseconds: Int, failureOrdinal: Int?, eventsURL: URL) {
         self.delayMilliseconds = delayMilliseconds
@@ -255,6 +370,18 @@ nonisolated final class ScorekeeperQAStore: @unchecked Sendable {
                 scoredAtCutS: $0 == ScorekeeperQAIDs.points[0] ? 6 : nil
             ))
         })
+        cards = Dictionary(uniqueKeysWithValues:
+            ScorekeeperQAIDs.points.enumerated().map { index, id in
+                (id, ScorekeeperQACard(
+                    idx: index + 1,
+                    t0: Double(index * 9 + 1),
+                    t1: Double(index * 9 + 7),
+                    cutT0: Double(index * 9),
+                    tightStart: false,
+                    tightEnd: false,
+                    edited: false
+                ))
+            })
         do {
             try FileManager.default.createDirectory(
                 at: eventsURL.deletingLastPathComponent(),
@@ -329,6 +456,63 @@ nonisolated final class ScorekeeperQAStore: @unchecked Sendable {
         }
     }
 
+    /// Apply a cut and answer it the way Postgres would: split_point hands
+    /// back the new row, unsplit_point hands back nothing. Returns nil when
+    /// the request does not describe a legal cut, which answers 403 —
+    /// exactly what the real function's own window check would refuse.
+    func applyCut(_ cut: ScorekeeperQACut) -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        switch cut {
+        case .split(let parentID, let atT, let childCutT0):
+            guard var parent = cards[parentID],
+                  atT >= parent.t0 + 0.2, atT <= parent.t1 - 0.2
+            else { return nil }
+            let childID = ScorekeeperQAIDs.mintChild()
+            let child = ScorekeeperQACard(
+                idx: (cards.values.map(\.idx).max() ?? 0) + 1,
+                t0: atT, t1: parent.t1, cutT0: childCutT0,
+                tightStart: true, tightEnd: parent.tightEnd, edited: true
+            )
+            parent.t1 = atT
+            parent.tightEnd = true
+            parent.edited = true
+            cards[parentID] = parent
+            cards[childID] = child
+            remote[childID] = ScorekeeperQAFields(
+                confirmedWinner: nil, isLet: false, scoredAtCutS: nil
+            )
+            cutCount += 1
+            return try? JSONSerialization.data(withJSONObject: [
+                "id": childID.uuidString.lowercased(),
+                "match_id": ScorekeeperQAIDs.match.uuidString.lowercased(),
+                "idx": child.idx,
+                "t0": child.t0,
+                "t1": child.t1,
+                "cut_t0": child.cutT0,
+                "is_let": false,
+                "confirmed_winner": NSNull(),
+                "scored_at_cut_s": NSNull(),
+                "starred": false,
+                "deleted": false,
+                "edited": true,
+                "tight_start": child.tightStart,
+                "tight_end": child.tightEnd,
+            ])
+        case .unsplit(let parentID, let childID, let parentT1, let tightEnd, let edited):
+            guard var parent = cards[parentID], cards[childID] != nil
+            else { return nil }
+            parent.t1 = parentT1
+            parent.tightEnd = tightEnd
+            parent.edited = edited
+            cards[parentID] = parent
+            cards[childID] = nil
+            remote[childID] = nil
+            cutCount += 1
+            return Data("null".utf8)
+        }
+    }
+
     func snapshot() -> ScorekeeperQASnapshot {
         lock.lock()
         defer { lock.unlock() }
@@ -336,7 +520,8 @@ nonisolated final class ScorekeeperQAStore: @unchecked Sendable {
             remote: remote,
             events: events,
             unexpectedRequestCount: unexpectedRequestCount,
-            eventLogError: eventLogError
+            eventLogError: eventLogError,
+            cutCount: cutCount
         )
     }
 
@@ -394,6 +579,27 @@ nonisolated final class ScorekeeperQAURLProtocol: URLProtocol, @unchecked Sendab
 
     override func startLoading() {
         let store = ScorekeeperQAFixture.store
+        // Cuts are classified BEFORE the scorer path, so a legal split never
+        // counts as an unexpected request and the "nothing else is ever
+        // forwarded" tally keeps meaning what it says.
+        if let cut = try? ScorekeeperQARequestValidator.validateCut(request) {
+            guard let body = store.applyCut(cut) else {
+                respond(
+                    status: 403,
+                    data: Data(#"{"code":"qa_unexpected_request"}"#.utf8)
+                )
+                return
+            }
+            let work = DispatchWorkItem { [weak self] in
+                self?.respond(status: 200, data: body)
+            }
+            workItem = work
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(
+                deadline: .now() + .milliseconds(store.delayMilliseconds),
+                execute: work
+            )
+            return
+        }
         do {
             let transaction = try store.begin(request)
             let work = DispatchWorkItem { [weak self] in

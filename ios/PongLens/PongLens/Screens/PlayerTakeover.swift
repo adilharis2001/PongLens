@@ -81,7 +81,7 @@ struct GameBreak: Identifiable, Equatable {
 
 /// "That clip might be two points", offered on the clip just answered.
 /// `atCut` is where a split would land; `certain` only with gap evidence.
-struct SplitNudge: Equatable {
+struct SplitArm: Equatable {
     let pointId: UUID
     let atCut: Double
     let certain: Bool
@@ -297,7 +297,10 @@ struct PlayerTakeover: View {
 
     // Offers. Neither blocks an answer: the split decision stays with the
     // answered point while its remaining full padded card keeps playing.
-    @State var splitNudge: SplitNudge?
+    @State var splitArm: SplitArm?
+    /// A cut is in flight. One tap, one cut: a second tap landing during the
+    /// round trip must not cut the same card again.
+    @State var splitBusy = false
     @State var startHereDismissed = false
 
     // Setup sheet: names as well as the first server.
@@ -1734,7 +1737,7 @@ struct PlayerTakeover: View {
             chipStrip(targetId: target?.id)
 
             startHereOffer
-            splitNudgeOffer
+            splitArmHint
 
             // Controls: the web pad's full row.
             HStack(spacing: 6) {
@@ -1794,7 +1797,6 @@ struct PlayerTakeover: View {
             }
             .frame(maxHeight: .infinity)
 
-            serveStartControls()
         }
         .padding(14)
         .frame(maxHeight: .infinity)
@@ -1853,7 +1855,7 @@ struct PlayerTakeover: View {
                         // leave the moment they are answered.
                         VStack(spacing: 6) {
                             startHereOffer
-                            splitNudgeOffer
+                            splitArmHint
                         }
                         .padding(8)
                     }
@@ -2041,22 +2043,6 @@ struct PlayerTakeover: View {
                 if let target {
                     pushUndo(target)
                     Task { await model.toggleStar(target) }
-                }
-            }
-            // Admin only, same gate as the portrait control — the label is a
-            // research tool, not a product feature.
-            if canLabelServeStart, let target {
-                miniControl(
-                    target.serveStartAtCutS == nil ? "flag" : "flag.fill",
-                    label: "Serve", lit: target.serveStartAtCutS != nil, wide: true
-                ) {
-                    Task {
-                        await model.setServeStart(
-                            target, at: currentT, paused: player.rate == 0,
-                            rate: player.rate, source: "button"
-                        )
-                    }
-                    showFlash("Serve start")
                 }
             }
             miniControl(
@@ -2736,11 +2722,16 @@ struct PlayerTakeover: View {
     /// - Parameter solid: the landscape rail, where the tile sits on the
     ///   screen rather than over the footage. A tint at 6% over black is a
     ///   button you have to look for; over a real surface it is a button.
+    /// One of the two answers. While a second answer is armed the button is
+    /// asking a NEW question, so it drops the card's existing answer and
+    /// wears a small "2nd" instead: a lit button under "tap who won the
+    /// second one" contradicts the sentence above it.
     func winnerButton(
         _ label: String, tint: Color, selected: Bool, enabled: Bool = true,
         solid: Bool = false, action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        let armed = splitArm != nil && phase == .play
+        return Button(action: action) {
             Text(label)
                 .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(tint)
@@ -2752,14 +2743,29 @@ struct PlayerTakeover: View {
                         .fill(solid ? PL.surface2 : Color.clear)
                         .overlay(
                             RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                                .fill(tint.opacity(selected ? 0.28 : 0.06))
+                                .fill(tint.opacity(selected && !armed ? 0.28 : 0.06))
                         )
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                        .strokeBorder(tint.opacity(selected ? 0.9 : 0.35), lineWidth: selected ? 2 : 1)
+                        .strokeBorder(
+                            tint.opacity(selected && !armed ? 0.9 : 0.35),
+                            lineWidth: selected && !armed ? 2 : 1
+                        )
                 )
-                .shadow(color: selected ? tint.opacity(0.45) : .clear, radius: 14)
+                .overlay(alignment: .topLeading) {
+                    if armed {
+                        Text("2nd")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(tint.opacity(0.8))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(tint.opacity(0.1), in: Capsule())
+                            .overlay(Capsule().strokeBorder(tint.opacity(0.4), lineWidth: 1))
+                            .padding(8)
+                    }
+                }
+                .shadow(color: selected && !armed ? tint.opacity(0.45) : .clear, radius: 14)
                 .opacity(enabled ? 1 : 0.4)
         }
         .buttonStyle(.plain)
@@ -2924,7 +2930,7 @@ struct PlayerTakeover: View {
     ) {
         // A new score action supersedes any decision raised by the previous
         // one, even when the new write later fails.
-        clearSplitNudge()
+        clearSplitArm()
         nextScoreActionId += 1
         let entry = PendingScoreUndo(
             actionId: nextScoreActionId,
@@ -2937,13 +2943,13 @@ struct PlayerTakeover: View {
         Task {
             guard await command.value == nil,
                   scorerSessionEffects.sameSession(owner) else { return }
-            if scoreFailureClearsSplitNudge(
+            if scoreFailureClearsSplitArm(
                 failedActionId: entry.actionId,
                 latestActionId: nextScoreActionId,
                 failedPointId: entry.pointId,
-                nudgePointId: splitNudge?.pointId
+                armPointId: splitArm?.pointId
             ) {
-                clearSplitNudge()
+                clearSplitArm()
             }
             undoStack.removeAll { step in
                 if case .score(let candidate) = step {
@@ -2959,6 +2965,15 @@ struct PlayerTakeover: View {
     /// tile's corner: it scores the same side the button around it would,
     /// then holds the advance and opens the one-question overlay.
     func tapWinner(_ side: Winner, thenWhy: Bool = false) {
+        // ARMED: the card just answered has another rally in it, and this
+        // tap says who won THAT one. It acts on the armed card by id rather
+        // than on whatever the playhead resolves to — the target flips to
+        // the next rally's padded span mid-tail on a tight cut, and this
+        // answer belongs to the card the footage came from.
+        if let armed = splitArm, phase == .play, !splitBusy {
+            answerSecondPoint(armed, side, thenWhy: thenWhy)
+            return
+        }
         guard let target = tapTarget else { return }
         lastScoreTapAt = Date()
         firstHintShown = true
@@ -3032,8 +3047,8 @@ struct PlayerTakeover: View {
             .winner(side), for: target, hadOutcome: hadOutcome,
             now: currentT, pad: pad
         ) {
-        case .offerSplitWhilePlaying(let atCut, let certain, let tailEnd):
-            offerSplitWhilePlaying(
+        case .armSecondAnswer(let atCut, let certain, let tailEnd):
+            armSecondAnswer(
                 target, atCut: atCut, certain: certain, tailEnd: tailEnd
             )
         case .continueExistingFlow:
@@ -3047,7 +3062,7 @@ struct PlayerTakeover: View {
         guard let target = tapTarget else { return }
         // Pressing the action again resolves any decision it raised. The
         // last point has no navigation call below to clear it for us.
-        clearSplitNudge()
+        clearSplitArm()
         if target.isLet {
             // Already skipped — the press means "move on". Never a silent
             // no-op, and never an undo entry either: nothing changed.
@@ -3076,8 +3091,8 @@ struct PlayerTakeover: View {
             .skip, for: target, hadOutcome: hadOutcome,
             now: currentT, pad: pad
         ) {
-        case .offerSplitWhilePlaying(let atCut, let certain, let tailEnd):
-            offerSplitWhilePlaying(
+        case .armSecondAnswer(let atCut, let certain, let tailEnd):
+            armSecondAnswer(
                 target, atCut: atCut, certain: certain, tailEnd: tailEnd
             )
         case .continueExistingFlow:
@@ -3147,7 +3162,7 @@ struct PlayerTakeover: View {
         endPausedId = nil
         endPauseBlockedId = nil
         playTail = nil
-        splitNudge = nil
+        splitArm = nil
         if let landing = outcome.landing {
             seek(to: landing)
         }
@@ -3182,29 +3197,110 @@ struct PlayerTakeover: View {
     /// decides whether its unseen footage is a second rally. Split pauses and
     /// opens Modify at the seed; No moves on immediately; reaching the tail
     /// advances through the existing path.
-    func offerSplitWhilePlaying(
+    func armSecondAnswer(
         _ p: MatchPoint, atCut: Double, certain: Bool, tailEnd: Double
     ) {
         playTail = PlayTail(id: p.id, end: tailEnd)
         endPauseBlockedId = p.id
         endPausedId = nil
-        splitNudge = SplitNudge(pointId: p.id, atCut: atCut, certain: certain)
+        splitArm = SplitArm(pointId: p.id, atCut: atCut, certain: certain)
         play()
     }
 
-    /// Retire the visible offer and only the automatic tail advance it owns.
+    /// THE SECOND ANSWER: the armed card holds another rally and this is
+    /// who won it. One tap does the whole thing — cut the card at the arm's
+    /// mark, score the new half, and carry on into whatever footage is left.
+    ///
+    /// The cut is not confirmed on a timeline first. That is what Split is
+    /// still there for; here the mark is either a quiet stretch the detector
+    /// found or a beat before the first answer, both of which are where that
+    /// rally ended. Undo is one entry and it puts the card back as it was.
+    ///
+    /// The new half is the one scored: the parent keeps the answer it
+    /// already has, and its own Undo entry is left alone.
+    func answerSecondPoint(_ armed: SplitArm, _ side: Winner, thenWhy: Bool) {
+        guard let parent = points.first(where: { $0.id == armed.pointId }),
+              !parent.deleted
+        else { return }
+        lastScoreTapAt = Date()
+        firstHintShown = true
+        retireHint(.score)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        // Disarm first: the tap is spent, and the tail it owns is about to
+        // be rebuilt around the new half. A second tap during the round trip
+        // must not cut the same card twice.
+        clearSplitArm()
+        endPausedId = nil
+        splitBusy = true
+        Task {
+            let created = await model.runSplit(
+                parent, pad: pad, cutTimes: [armed.atCut]
+            )
+            splitBusy = false
+            guard let made = created.first else {
+                showToast("Couldn't split that card. Try again.")
+                return
+            }
+            let child = made.child
+            undoStack.append(.existing(.split(
+                parentId: made.parentId, childId: child.id, prevT1: made.prevT1,
+                prevTightEnd: made.prevTightEnd, prevEdited: made.prevEdited,
+                cutT0: parent.cutT0
+            )))
+            // No ending observation: a hand-cut half is `edited`, and the
+            // scorer drops a tap-derived ending on an edited card. Its
+            // playback end is the card's own padded end either way, which is
+            // exactly what leaves a THIRD rally's footage in place below.
+            let command = model.queueWinner(
+                child, side, scoredAt: nil,
+                observationTiming: ScorerTimingGuard(child), force: true
+            )
+            let owner = scorerSessionEffects.capture()
+            Task {
+                guard await command.value == nil,
+                      scorerSessionEffects.sameSession(owner) else { return }
+                showToast("Couldn't save. Tap again.")
+            }
+            showFlash("Split · \(side == .user ? "Me" : (match.opponentName ?? "Them"))")
+            if thenWhy {
+                pauseForInteraction()
+                var scored = child
+                scored.confirmedWinner = side
+                scored.isLet = false
+                whyPoint = scored
+                return
+            }
+            // Carry on exactly as an ordinary answer does: a third rally in
+            // what is left arms the new half in turn, otherwise this moves on.
+            switch scoreOutcomeDecision(
+                .winner(side), for: child, hadOutcome: false,
+                now: currentT, pad: pad
+            ) {
+            case .armSecondAnswer(let atCut, let certain, let tailEnd):
+                armSecondAnswer(
+                    child, atCut: atCut, certain: certain, tailEnd: tailEnd
+                )
+            case .continueExistingFlow:
+                advance(from: child)
+            case .stay:
+                break
+            }
+        }
+    }
+
+    /// Retire the visible question and only the automatic tail advance it owns.
     /// This containment matters when a correction or failed save makes the
     /// point unanswered again while the old tail is still playing.
-    func clearSplitNudge() {
-        let nudgePointId = splitNudge?.pointId
-        if splitNudgeOwnsPlayTail(
-            nudgePointId: nudgePointId,
+    func clearSplitArm() {
+        let armPointId = splitArm?.pointId
+        if splitArmOwnsPlayTail(
+            armPointId: armPointId,
             tailPointId: playTail?.id
         ) {
             playTail = nil
-            if endPauseBlockedId == nudgePointId { endPauseBlockedId = nil }
+            if endPauseBlockedId == armPointId { endPauseBlockedId = nil }
         }
-        splitNudge = nil
+        splitArm = nil
     }
 
     func showEndedNudge(_ pointId: UUID) {
@@ -3259,7 +3355,7 @@ struct PlayerTakeover: View {
 
     func undo() {
         guard !scoreUndoInFlight, let step = undoStack.popLast() else { return }
-        clearSplitNudge()
+        clearSplitArm()
         switch step {
         case .score(let pending):
             let originalIndex = undoStack.count
@@ -3321,6 +3417,20 @@ struct PlayerTakeover: View {
                     }
                 }
                 freshBoundary = nil
+            case .split(let parentId, let childId, let prevT1,
+                        let prevTightEnd, let prevEdited, let cutT0):
+                // Rejoining the halves hard-deletes the second one, so the
+                // answer that created it goes with it. Replaying from the
+                // parent's start is the clearest possible "that is undone".
+                Task {
+                    let ok = await model.runUnsplit(
+                        parentId: parentId, childId: childId, prevT1: prevT1,
+                        prevTightEnd: prevTightEnd, prevEdited: prevEdited,
+                        matchId: match.id, pad: pad
+                    )
+                    if !ok { showToast("Couldn't undo the split. Try again.") }
+                }
+                replay(at: cutT0)
             case .bulkDelete(let ids, let cutT0):
                 Task {
                     for id in ids {
@@ -3596,15 +3706,15 @@ struct PlayerTakeover: View {
         // would have done had the answer come at the boundary.
         if let tail = playTail, t >= tail.end {
             playTail = nil
-            splitNudge = nil
+            splitArm = nil
             if let p = points.first(where: { $0.id == tail.id }) { jumpAfter(p) }
             return
         }
         // An offered tail owns playback until the full padded card ends.
         // Do not let a saved winner timestamp or an overlapping neighbour's
         // boundary introduce a pause while that decision is still visible.
-        if splitNudgeOwnsPlayTail(
-            nudgePointId: splitNudge?.pointId,
+        if splitArmOwnsPlayTail(
+            armPointId: splitArm?.pointId,
             tailPointId: playTail?.id
         ) { return }
 
@@ -3770,11 +3880,11 @@ struct PlayerTakeover: View {
         // Manual resume and a natural cut-to-own-clip handoff are still the
         // same playback run. Preserve only an offer that owns this tail;
         // every stale or detached offer is retired.
-        if !splitNudgeOwnsPlayTail(
-            nudgePointId: splitNudge?.pointId,
+        if !splitArmOwnsPlayTail(
+            armPointId: splitArm?.pointId,
             tailPointId: playTail?.id
         ) {
-            clearSplitNudge()
+            clearSplitArm()
         }
         scorePlaybackRun.invalidate()
         lastPlayAt = Date()
@@ -3787,7 +3897,7 @@ struct PlayerTakeover: View {
     }
 
     func seek(to seconds: Double) {
-        clearSplitNudge()
+        clearSplitArm()
         scorerSessionEffects.navigate()
         scorePlaybackRun.invalidate()
         scoreSeekGeneration += 1
@@ -3905,12 +4015,12 @@ struct PlayerTakeover: View {
         // surface's would have.
         if let tail = playTail, t >= tail.end {
             playTail = nil
-            splitNudge = nil
+            splitArm = nil
             if let tp = points.first(where: { $0.id == tail.id }) { jumpAfter(tp) }
             return
         }
-        if splitNudgeOwnsPlayTail(
-            nudgePointId: splitNudge?.pointId,
+        if splitArmOwnsPlayTail(
+            armPointId: splitArm?.pointId,
             tailPointId: playTail?.id
         ) { return }
         var stop = isUnscored(p)

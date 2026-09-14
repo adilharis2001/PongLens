@@ -354,7 +354,7 @@ func runAllChecks() {
     suite("first outcome offers a split while its full tail plays") {
         // paddedEnd = 16.6, so answering at 12.0 leaves 4.6 seconds.
         let p = mkPoint(1, cutT0: 10, t0: 100, t1: 104)
-        let expected = ScoreOutcomeDecision.offerSplitWhilePlaying(
+        let expected = ScoreOutcomeDecision.armSecondAnswer(
             atCut: 11.4, certain: false, tailEnd: 16.6
         )
 
@@ -396,7 +396,7 @@ func runAllChecks() {
         eq(scoreOutcomeDecision(
             .winner(.user), for: fused, hadOutcome: false,
             now: 12.0, pad: NORMAL
-        ), .offerSplitWhilePlaying(atCut: 14.5, certain: true, tailEnd: 22.6),
+        ), .armSecondAnswer(atCut: 14.5, certain: true, tailEnd: 22.6),
            "gap evidence seeds the existing Modify split and firms the nudge")
     }
 
@@ -404,31 +404,31 @@ func runAllChecks() {
         let point = UUID(uuidString: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")!
         let other = UUID(uuidString: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")!
 
-        check(scoreFailureClearsSplitNudge(
+        check(scoreFailureClearsSplitArm(
             failedActionId: 4, latestActionId: 4,
-            failedPointId: point, nudgePointId: point
+            failedPointId: point, armPointId: point
         ), "the latest failed answer clears its own split decision")
-        check(!scoreFailureClearsSplitNudge(
+        check(!scoreFailureClearsSplitArm(
             failedActionId: 3, latestActionId: 4,
-            failedPointId: point, nudgePointId: point
+            failedPointId: point, armPointId: point
         ), "an older delayed failure cannot clear a newer decision on the same point")
-        check(!scoreFailureClearsSplitNudge(
+        check(!scoreFailureClearsSplitArm(
             failedActionId: 4, latestActionId: 4,
-            failedPointId: point, nudgePointId: other
+            failedPointId: point, armPointId: other
         ), "a failed answer cannot clear another point's decision")
-        check(!scoreFailureClearsSplitNudge(
+        check(!scoreFailureClearsSplitArm(
             failedActionId: 4, latestActionId: 4,
-            failedPointId: point, nudgePointId: nil
+            failedPointId: point, armPointId: nil
         ), "a failure with no visible decision is contained")
 
-        check(splitNudgeOwnsPlayTail(
-            nudgePointId: point, tailPointId: point
+        check(splitArmOwnsPlayTail(
+            armPointId: point, tailPointId: point
         ), "a matching decision owns the tail it must preserve or cancel together")
-        check(!splitNudgeOwnsPlayTail(
-            nudgePointId: point, tailPointId: other
+        check(!splitArmOwnsPlayTail(
+            armPointId: point, tailPointId: other
         ), "a decision cannot preserve or cancel another point's tail")
-        check(!splitNudgeOwnsPlayTail(
-            nudgePointId: nil, tailPointId: point
+        check(!splitArmOwnsPlayTail(
+            armPointId: nil, tailPointId: point
         ), "no decision never owns an ordinary tail")
     }
 

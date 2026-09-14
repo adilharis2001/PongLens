@@ -1117,7 +1117,7 @@ struct ModifySheet: View {
         failed = false
         let plan = segments
         let landing = landingAfter(point)
-        let ok = await model.runSplit(point, pad: pad, cutTimes: markers)
+        let ok = !(await model.runSplit(point, pad: pad, cutTimes: markers)).isEmpty
         if ok {
             // The root plus its children, in timeline order, are exactly the
             // visible points inside the old span.

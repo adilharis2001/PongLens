@@ -208,7 +208,11 @@ enum ScoreOutcomeAction: Equatable {
 }
 
 enum ScoreOutcomeDecision: Equatable {
-    case offerSplitWhilePlaying(atCut: Double, certain: Bool, tailEnd: Double)
+    /// Keep the card playing and ARM the second answer on it: while this
+    /// stands, the winner buttons mean "who won the rally that just
+    /// finished", so a fused clip is split by answering again rather than
+    /// through an editor. `atCut` is where that cut lands.
+    case armSecondAnswer(atCut: Double, certain: Bool, tailEnd: Double)
     case continueExistingFlow
     case stay
 }
@@ -232,7 +236,7 @@ func scoreOutcomeDecision(
     switch action {
     case .winner, .skip:
         let gap = fusedSplitCut(p, pad)
-        return .offerSplitWhilePlaying(
+        return .armSecondAnswer(
             atCut: gap ?? max(cutT0 + 0.4, now - SPLIT_LEAD_S),
             certain: gap != nil,
             tailEnd: end
@@ -241,23 +245,23 @@ func scoreOutcomeDecision(
 }
 
 /// A delayed failed write may retire only the decision created by that same
-/// action. Without both identities, an older failure can dismiss a newer
-/// prompt on the same point.
-func scoreFailureClearsSplitNudge(
+/// action. Without both identities, an older failure can disarm a newer
+/// question on the same point.
+func scoreFailureClearsSplitArm(
     failedActionId: Int, latestActionId: Int,
-    failedPointId: UUID, nudgePointId: UUID?
+    failedPointId: UUID, armPointId: UUID?
 ) -> Bool {
-    failedActionId == latestActionId && failedPointId == nudgePointId
+    failedActionId == latestActionId && failedPointId == armPointId
 }
 
 /// Retiring a split offer also retires the automatic advance only when both
 /// belong to the same point. An ordinary tail, or another point's tail, is
 /// independent state and must keep running.
-func splitNudgeOwnsPlayTail(
-    nudgePointId: UUID?, tailPointId: UUID?
+func splitArmOwnsPlayTail(
+    armPointId: UUID?, tailPointId: UUID?
 ) -> Bool {
-    guard let nudgePointId, let tailPointId else { return false }
-    return nudgePointId == tailPointId
+    guard let armPointId, let tailPointId else { return false }
+    return armPointId == tailPointId
 }
 
 /// The web's advanceFrom, as a decision. `now` is the playhead at the
@@ -518,4 +522,11 @@ enum ScoreUndo: Equatable {
     case override(pointId: UUID, previous: GameEndOverride?, previousWinner: Winner?)
     /// "Match starts here" swept the earlier points away.
     case bulkDelete(pointIds: [UUID], cutT0: Double?)
+    /// A card answered twice: the second answer cut it in two and scored the
+    /// new half. Undoing rejoins them, which takes that answer with it —
+    /// one entry for one gesture, because that is how it was made.
+    case split(
+        parentId: UUID, childId: UUID, prevT1: Double,
+        prevTightEnd: Bool, prevEdited: Bool, cutT0: Double?
+    )
 }

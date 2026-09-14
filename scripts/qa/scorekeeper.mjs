@@ -14,8 +14,14 @@ const results=[];
 async function fixture(viewport, scenario) {
   const page=await browser.newPage({viewport});
   page.setDefaultTimeout(15000);
-  const writes=[], errors=[];
+  const writes=[], errors=[], splits=[], unsplits=[];
   let failNext=false, holdNext=false, releaseSave=null;
+  // Synthetic rows for the split machinery: split_point moves the parent's
+  // end and hands back the tail as a new row, which is the whole contract
+  // the pad depends on. Seeded with the fixture's own point 2.
+  const rows=new Map([['33333333-3333-4333-8333-000000000002',
+    {id:'33333333-3333-4333-8333-000000000002',idx:2,t0:10,t1:16,cut_t0:9,tight_start:false,tight_end:false}]]);
+  let nextIdx=3;
   page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/*',async route=>{
     const request=route.request(), url=new URL(request.url());
@@ -31,6 +37,31 @@ async function fixture(viewport, scenario) {
       return route.fulfill({json:{url:origin+'/fixture.mp4',available:true}});
     }
     if(url.port==='3218') {
+      if(url.pathname==='/rest/v1/rpc/split_point') {
+        const body=request.postDataJSON();
+        splits.push(body);
+        const parent=rows.get(body.p_id);
+        assert.ok(parent,'split_point targets a known row');
+        const child={id:`44444444-4444-4444-8444-${String(splits.length).padStart(12,'0')}`,
+          match_id:'22222222-2222-4222-8222-222222222222',idx:++nextIdx,
+          t0:body.at_t,t1:parent.t1,cut_t0:body.child_cut_t0,clip_path:'fixture-cut.mp4',
+          server:'user',server_override:null,is_let:false,placement:null,suggestion:null,
+          confirmed_winner:null,scored_at_cut_s:null,rally_end_cut_s:null,confirmed_how:null,
+          starred:false,deleted:false,edited:true,tight_start:true,tight_end:parent.tight_end,
+          game_end_override:null,game_winner_override:null,side_change_dismissed:false};
+        rows.set(child.id,{id:child.id,idx:child.idx,t0:child.t0,t1:child.t1,cut_t0:child.cut_t0,
+          tight_start:true,tight_end:parent.tight_end});
+        parent.t1=body.at_t;
+        return route.fulfill({json:child});
+      }
+      if(url.pathname==='/rest/v1/rpc/unsplit_point') {
+        const body=request.postDataJSON();
+        unsplits.push(body);
+        const parent=rows.get(body.p_parent);
+        if(parent) parent.t1=body.parent_t1;
+        rows.delete(body.p_child);
+        return route.fulfill({json:null});
+      }
       if(url.pathname==='/rest/v1/rpc/merge_points') {
         assert.equal(request.method(),'POST');
         assert.deepEqual(request.postDataJSON().p_ids,[1,2].map(i=>`33333333-3333-4333-8333-${String(i).padStart(12,'0')}`));
@@ -65,13 +96,13 @@ async function fixture(viewport, scenario) {
     },start);
     if(paused) await page.evaluate(()=>document.querySelector('video').pause());
   }
-  return {page,writes,errors,selectPoint,fail:()=>{failNext=true;},hold:()=>{holdNext=true;},release:()=>releaseSave?.()};
+  return {page,writes,errors,splits,unsplits,selectPoint,fail:()=>{failNext=true;},hold:()=>{holdNext=true;},release:()=>releaseSave?.()};
 }
 
 try {
   for(const [surface,viewport] of [['desktop',{width:1440,height:900}],['mobile',{width:393,height:660}]]) {
     const regressions=['correction','clear','skip','paused-first-answer','live-first-answer','scrubbed-first-answer','auto-paused-first-answer','failed-clear','failed-undo','immediate-undo','undo-then-correction','undo-after-close','undo-after-reopen','undo-after-navigation','undo-after-pause','join-then-score','backward-join-then-score','missing-own-clip','scorekeeper-full-card','scorekeeper-tap-stop'];
-    const earlyScenarios=['early-winner-me','early-winner-opponent','early-skip','early-live-winner','early-live-skip','early-live-winner-tap-stop','early-let-key','early-skip-key','early-skip-no','early-winner-no','early-skip-split','early-winner-split','early-skip-undo','early-skip-failure','early-winner-failure','early-skip-delayed-failure','early-skip-reopen','late-skip','threshold-skip','early-correction','early-skip-navigation','early-skip-resume'];
+    const earlyScenarios=['early-winner-me','early-winner-opponent','early-skip','early-live-winner','early-live-skip','early-live-winner-tap-stop','early-let-key','early-skip-key','early-second-winner','early-second-skip','early-second-again','early-second-undo','early-armed-modify','early-skip-undo','early-skip-failure','early-winner-failure','early-skip-delayed-failure','early-skip-reopen','late-skip','threshold-skip','early-correction','early-skip-navigation','early-skip-resume'];
     const scenarios=['reference','early-reference'].includes(process.env.QA_SCENARIO)
       ? [process.env.QA_SCENARIO]
       : [...regressions,...earlyScenarios,'early-handoff'].filter(name=>!process.env.QA_SCENARIO||process.env.QA_SCENARIO===name||(process.env.QA_SCENARIO==='early'&&(earlyScenarios.includes(name)||name==='early-handoff')));
@@ -105,8 +136,12 @@ try {
           const correction=scenario==='early-correction';
           const live=scenario.startsWith('early-live-');
           const late=scenario==='late-skip'||scenario==='threshold-skip';
+          // The armed scenarios answer from further into the card, so the
+          // mark the second answer cuts at lands inside the point's own
+          // window rather than clamped onto its first legal frame.
+          const second=scenario.startsWith('early-second')||scenario==='early-armed-modify';
           await f.selectPoint(correction?1:2,{paused:!live});
-          const at=correction?2:scenario==='threshold-skip'?13.5:late?15:10;
+          const at=correction?2:scenario==='threshold-skip'?13.5:late?15:second?12.5:10;
           if(live) {
             await f.page.waitForFunction(()=>document.querySelector('video').currentTime>=10);
           } else {
@@ -115,7 +150,7 @@ try {
           }
           if(scenario.endsWith('failure')) f.fail();
           if(scenario==='early-skip-delayed-failure') f.hold();
-          const winner=scenario.includes('winner')||scenario==='early-reference';
+          const winner=scenario.includes('winner')||scenario==='early-armed-modify'||scenario==='early-reference';
           if(scenario==='early-let-key'||scenario==='early-skip-key') await f.page.keyboard.press(scenario==='early-let-key'?'l':'k');
           else if(winner) await f.page.locator('#full-video-card').getByRole('button',{name:scenario==='early-winner-me'?'Me':'Alex',exact:true}).click();
           else await f.page.getByRole('button',{name:/^Skip\s*let$/}).click();
@@ -148,18 +183,54 @@ try {
             await nudge.waitFor();
             const state=await f.page.evaluate(()=>{const v=document.querySelector('video');return {paused:v.paused,t:v.currentTime};});
             assert.equal(state.paused,false,'early outcome keeps playing while Split/No is offered');
-            assert.ok(state.t>=10&&state.t<12,'early outcome does not seek away');
+            assert.ok(state.t>=at&&state.t<at+2,'early outcome does not seek away');
             await f.page.waitForTimeout(350);
             assert.ok(await f.page.evaluate(()=>document.querySelector('video').currentTime)>state.t+.15,'footage continues while deciding');
-            if(scenario.endsWith('-no')) {
-              await f.page.getByRole('button',{name:'No',exact:true}).click();
-              await f.page.waitForFunction(()=>{const v=document.querySelector('video');return !v.paused&&v.currentTime>=18;});
-              assert.equal(await nudge.count(),0,'No retires offer and advances');
-            } else if(scenario.endsWith('-split')) {
-              await f.page.getByRole('button',{name:'Split',exact:true}).click();
-              await f.page.getByRole('heading',{name:'Modify point',exact:true}).waitFor();
-              assert.equal(await f.page.evaluate(()=>document.querySelector('video').paused),true,'Split editor opens paused');
-              assert.equal(await nudge.count(),0,'offer retires when editor opens');
+            if(second) {
+              // THE SECOND ANSWER. While the arm is up the winner buttons
+              // mean "who won the rally that just finished": one tap cuts
+              // the card at the arm's mark and scores the new half, with no
+              // editor in the way. Modify stays the way to place a cut by
+              // hand, and while armed it opens on that same mark.
+              const cards=()=>f.page.getByRole('button',{name:/^Go to point \d+,/}).count();
+              assert.equal(await cards(),3,'three cards before the second answer');
+              if(scenario==='early-armed-modify') {
+                // Both doors to the editor: the hint's own Split pill, kept
+                // for anyone who would rather see the cut before it lands.
+                await f.page.getByRole('button',{name:'Split',exact:true}).click();
+                await f.page.getByRole('heading',{name:'Modify point',exact:true}).waitFor();
+                assert.equal(await f.page.evaluate(()=>document.querySelector('video').paused),true,'Modify opens paused while armed');
+                assert.equal(await nudge.count(),0,'the arm retires when the editor opens');
+                assert.deepEqual(f.splits,[],'opening the editor cuts nothing by itself');
+              } else {
+                assert.equal(await f.page.getByRole('button',{name:'Split',exact:true}).count(),1,'the explicit Split route stays on offer beside the buttons');
+                await f.page.locator('#full-video-card').getByRole('button',{name:'Me',exact:true}).click();
+                await f.page.getByRole('button',{name:'Go to point 3, Me won',exact:true}).waitFor();
+                assert.equal(await cards(),4,'the second answer adds a card');
+                assert.equal(f.splits.length,1,'one cut, from one tap');
+                assert.equal(f.splits[0].p_id,'33333333-3333-4333-8333-000000000002','the cut lands on the armed card');
+                assert.ok(Math.abs(f.splits[0].at_t-11.9)<.01,`cut a beat before the first answer, got ${f.splits[0].at_t}`);
+                assert.ok(Math.abs(f.splits[0].child_cut_t0-11.6)<.01,`child keeps the tight-split anchor, got ${f.splits[0].child_cut_t0}`);
+                const scored=f.writes.filter(w=>w.patch.confirmed_winner==='user');
+                assert.equal(scored.length,1,'the new half is scored by the same tap');
+                assert.equal(scored[0].patch.scored_at_cut_s,null,'a hand-cut half takes no tap-derived ending, so its whole tail stays playable');
+                assert.equal(await f.page.evaluate(()=>document.querySelector('video').paused),false,'answering again never stops the footage');
+                if(scenario==='early-second-again') {
+                  // A third rally works by repetition, not by a third
+                  // control: the new half arms in turn while footage runs.
+                  const again=f.page.getByText(/Point 3.*two points/);
+                  await again.waitFor();
+                  await f.page.locator('#full-video-card').getByRole('button',{name:'Alex',exact:true}).click();
+                  await f.page.getByRole('button',{name:'Go to point 4, Alex won',exact:true}).waitFor();
+                  assert.equal(f.splits.length,2,'the second cut comes from the second armed tap');
+                  assert.equal(await cards(),5,'one card became three');
+                } else if(scenario==='early-second-undo') {
+                  await f.page.getByRole('button',{name:'Undo last tap',exact:true}).click();
+                  await f.page.waitForFunction(()=>document.querySelectorAll('[aria-label^="Go to point"]').length===3);
+                  assert.equal(f.unsplits.length,1,'Undo puts the halves back together');
+                  assert.equal(f.unsplits[0].parent_t1,16,"the card's own end comes back");
+                }
+              }
             } else if(scenario.endsWith('-undo')) {
               await f.page.getByRole('button',{name:'Undo last tap',exact:true}).click();
               await f.page.waitForFunction(()=>document.querySelector('video').currentTime<10);
