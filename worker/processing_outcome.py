@@ -147,6 +147,7 @@ class ProcessingRun:
     edges: dict = field(default_factory=dict)
     match_id: str | None = None
     output_ready_at: str | None = None
+    policies: dict = field(default_factory=dict)
 
     def record(self):
         return {'schema': 1, 'attempt_key': self.attempt_key, 'job_id': self.job_id,
@@ -156,6 +157,7 @@ class ProcessingRun:
                 'reason_code': self.reason_code, 'started_at': self.started_at,
                 'finished_at': self.finished_at, 'match_id': self.match_id,
                 'details': {'settings': self.settings, 'body': self.body, 'edges': self.edges,
+                            'policies': self.policies,
                             'output_ready_at': self.output_ready_at}}
 
     def attach(self, path):
@@ -167,11 +169,26 @@ class ProcessingRun:
         self.body = self.body or child.get('body') or {}
         self.edges = self.edges or child.get('edges') or {}
         self.body_model = child.get('body_model') or self.body_model
+        policy_names = ('combined_cuts', 'whole_clip_cleanup', 'net_endings')
+        self.policies = {
+            name: {key: child[name][key] for key in
+                   ('method_version', 'status', 'added_cards', 'removed_cards')
+                   if key in child[name]}
+            for name in policy_names if isinstance(child.get(name), dict)
+        }
+        unmet = next((name for name in ('combined_cuts', 'whole_clip_cleanup')
+                      if self.settings.get(name) is True and
+                      self.policies.get(name, {}).get('status') != 'used'), None)
         error = next((x for x in (self.body, self.edges) if x.get('status') == 'error'), None)
         if error:
             self.status, self.reason_code = 'degraded', error.get('reason_code', 'processing_exception')
         elif self.settings.get('config_errors'):
             self.status, self.reason_code = 'degraded', 'config_read_failed'
+        elif unmet:
+            state = self.policies.get(unmet, {}).get('status')
+            suffix = ('exception' if state == 'error' else
+                      'not_applied' if state == 'not_applied' else 'outcome_missing')
+            self.status, self.reason_code = 'degraded', unmet + '_' + suffix
         elif self.requested_pipeline == 'bodies':
             if self.body.get('status') == 'used' and self.delivered_pipeline == 'bodies':
                 self.status, self.reason_code = 'used', None
@@ -187,8 +204,9 @@ class ProcessingRun:
         match['processing'] = {**self.record(), 'body': self.body, 'edges': self.edges}
         # Preserve the selected assembler's bounded rule provenance when
         # attaching parent health/publication metadata, including retries.
-        if isinstance(child.get('rally_policy'), dict):
-            match['processing']['rally_policy'] = child['rally_policy']
+        for name in ('rally_policy', *policy_names):
+            if isinstance(child.get(name), dict):
+                match['processing'][name] = child[name]
         atomic_json(path, match)
         return self.record()
 

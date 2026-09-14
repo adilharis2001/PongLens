@@ -4945,6 +4945,8 @@ def run_points_subprocess(
                 cmd.append("--reviewed-net-splits")
             if serve_anchor and options.get("combined_cuts") is True:
                 cmd.append("--combined-cuts")
+                if options.get("whole_clip_cleanup") is True:
+                    cmd.append("--whole-clip-cleanup")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
              "pipeline=%s%s)…",
              strictness, bool(options.get("placement")), pipeline,
@@ -8670,6 +8672,8 @@ def process_job(conn, msg) -> None:
                 body_settings["reviewed_net_splits"] = True
             if options.get("combined_cuts") is True:
                 body_settings["combined_cuts"] = True
+                if options.get("whole_clip_cleanup") is True:
+                    body_settings["whole_clip_cleanup"] = True
             route = str(body_settings["requested_pipeline"]) + (":placement" if options.get("placement") else ":no-placement")
             _record_video_profile(local_input, route, camera_offset_s)
             release_id, body_model = processing_outcome.release_identity()

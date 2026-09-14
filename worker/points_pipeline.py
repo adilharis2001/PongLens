@@ -181,6 +181,16 @@ def _runs(mask, tick):
     return out
 
 
+def final_body_notes(notes, points):
+    """Keep the admin's parsed totals aligned with the actual exported cards."""
+    import re
+    count = len(points)
+    stamped = sum(p.get('serve_s') is not None for p in points)
+    prefix = f'points bodies: {count} cards, {stamped} with a serve'
+    return [re.sub(r'^points bodies: \d+ cards, \d+ with a serve', prefix, note)
+            for note in notes]
+
+
 def write_evidence_dump(path, E, cards, calib, meta, fps, route, rate, notes,
                         serves_v3=None):
     """Every signal the assembler saw, in source seconds, for a review page.
@@ -3146,6 +3156,32 @@ def cmd_points(args):
                          f"{body_why}")
             print(f"points bodies unavailable ({body_why}) — keeping {kept}")
 
+    # Whole-component cleanup cannot change any retained start/end or the
+    # original evidence. Run before export so numbering, clocks, placement
+    # and private prediction rows are all generated from the retained cards.
+    if getattr(args, 'whole_clip_cleanup', False):
+        import whole_clip_cleanup
+        cleanup_info = dict(method_version=whole_clip_cleanup.METHOD_VERSION,
+                            status='not_applied', removed_cards=0,
+                            reason='combined_policy_not_used')
+        if (pipeline_used == 'bodies' and v2_cards and calib is not None and
+                (processing.get('combined_cuts') or {}).get('status') == 'used' and
+                getattr(args, 'cut_mode', 'spans') == 'plays'):
+            # Identical to the ordinary exporter below, including frame truncation.
+            head, tail = SEGMENT_PADS[args.strictness]
+            cleanup_segments = play_cut_segments(
+                [(max(0., int(c['t0']*fps)/fps-clip_pre),
+                  min(dur, int(c['t1']*fps)/fps+clip_post)) for c in v2_cards],
+                dur, head, tail)
+            v2_cards, cleanup_info = whole_clip_cleanup.process_cards(
+                v2_cards, cleanup_segments, v2_E, calib['corners_px'],
+                meta['width'], players, v3_serves)
+            processing['body']['cards'] = len(v2_cards)
+        processing['whole_clip_cleanup'] = cleanup_info
+
+    if pipeline_used == 'bodies' and v2_cards is not None:
+        notes = final_body_notes(notes, v2_cards)
+
     # 2e. The assembler's evidence, written now that the cards are FINAL.
     #
     # It used to be written the moment the ball side finished, which was
@@ -3546,6 +3582,10 @@ def cmd_points(args):
         f"{story_crop['camera']})"
         if story_crop else f"none — {story_note}"))
 
+    if pipeline_used == 'bodies':
+        notes = final_body_notes(notes, points)
+        processing['body']['cards'] = len(points)
+
     match_json = {
         "version": 3,          # v3: dual-server, confidence-scored shots
         # which card assembly cut this match — the provenance that makes
@@ -3626,6 +3666,8 @@ def main():
                         "body_serve_anchor)")
     p.add_argument("--combined-cuts", action="store_true",
                    help="Use the reviewed combined attempt policy (requires body edges and calibration)")
+    p.add_argument("--whole-clip-cleanup", action="store_true",
+                   help="Opt-in whole-component cleanup after combined cuts; retains original rally edges")
     p.add_argument("--reviewed-net-splits", action="store_true",
                    help="Opt-in reviewed low-bounce endings followed by verified restarts")
     p.add_argument("--rally-end", action="store_true",

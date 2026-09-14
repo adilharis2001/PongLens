@@ -1,6 +1,6 @@
 # Combined cuts worker candidate
 
-The reviewed combined policy now runs before the real worker exporter, with only three preparation-only prefixes removed from the reviewed proposal. Nine cached full-recording replays preserve every other reviewed window within 0.03 seconds of frame rounding, and disabling the option reproduces all previous exported point records exactly. This branch is a local release candidate; three corrected examples still need owner review before deployment.
+The reviewed combined policy now runs before the real worker exporter, with only three preparation-only prefixes removed from the reviewed proposal. All three final owner corrections are accepted. Read [current reconciliation](RECONCILIATION.md) for integration with whole-clip cleanup and the publication fix; the counts below describe the inherited combined-only candidate, not a deployed release.
 
 | Recording | Previous cards | Candidate |
 | --- | ---: | ---: |
@@ -39,7 +39,7 @@ The reviewed combined policy now runs before the real worker exporter, with only
 | Review UI | Desktop1280×720 and mobile393×660; three updated clips stop at their final endpoints; separate feedback saves after reload. |
 | Limits | Yilin has no usable cached video/tracking and is not verified. The previously accepted missed short service fault in Julian3 remains bundled. |
 | Owner feedback | Chris44 was explicitly accepted; an earlier visual suspicion is not treated as a confirmed missed point. The three preparation-only prefixes are the only changed visual decisions. |
-| Remaining | Owner reviews corrected3, then reconcile against current live worker revision before merge/build. Validate sealed bundle imports, offline side-change inference and integrity; activate and reprocess selected matches using the explicit option. Do not roll back newer unrelated worker work. |
+| Remaining | Owner review is complete; see RECONCILIATION.md for the current tests and remaining package/activation gates. Do not roll back newer unrelated worker work. |
 
 Review: http://127.0.0.1:61927/ponglens-combined-worker-review/
 

@@ -512,7 +512,7 @@ class Evidence:
     (cmd_points) already has the detections, the calibration and the gate.
     """
 
-    def __init__(self, cand, corners_px, gate_bbox, fps, duration, width):
+    def __init__(self, cand, corners_px, gate_bbox, fps, duration, width, *, track=None):
         self.duration = float(duration)
         self.fps = fps
         scale = width / 1920.0
@@ -521,7 +521,9 @@ class Evidence:
         self.calibrated = self.shape is not None
         self.geometric = True     # phase 1: only called with a quad
 
-        track = build_track(cand, scale)
+        # A separate cleanup opinion can derive evidence without replacing
+        # the original track or patching this module's global builder.
+        track = build_track(cand, scale) if track is None else dict(track)
         self.track = track
         H = homography_from_corners(corners_px)
         bnc = bounces(track, scale)

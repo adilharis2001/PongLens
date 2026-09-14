@@ -56,6 +56,40 @@ def test_publication_keeps_rally_policy_and_measured_card_clock(tmp_path):
         assert published['cut_segment_offsets'] == [71.814]
 
 
+def test_publication_and_retry_keep_applied_combined_cleanup_records(tmp_path):
+    policies = {'combined_cuts': {'status':'used','added_cards':3},
+                'whole_clip_cleanup': {'status':'used','removed_cards':2},
+                'net_endings': {'status':'used'}}
+    path=tmp_path/'match.json'
+    path.write_text(json.dumps({'pipeline':'bodies','points':[{'t0':2,'t1':9}],
+        'processing':dict(body={'status':'used'}, **policies)}))
+    for _ in range(2):
+        run=outcome.ProcessingRun('job:1','job','bodies',
+            {'combined_cuts':True,'whole_clip_cleanup':True})
+        record=run.attach(path)
+        assert record['status']=='used'
+        final=json.loads(path.read_text())
+        for key, value in policies.items():
+            assert final['processing'][key]==value
+        assert record['details']['policies']['whole_clip_cleanup']['removed_cards']==2
+        assert final['points']==[{'t0':2,'t1':9}]
+
+
+@pytest.mark.parametrize('name', ['combined_cuts','whole_clip_cleanup'])
+@pytest.mark.parametrize('status', ['error','not_applied',None])
+def test_requested_policy_failure_cannot_report_full_success(tmp_path,name,status):
+    processing={'body':{'status':'used'}}
+    if status is not None:
+        processing[name]={'status':status,'reason':'ValueError'}
+    path=tmp_path/'match.json'
+    path.write_text(json.dumps({'pipeline':'bodies','processing':processing,'points':[1]}))
+    run=outcome.ProcessingRun('job:1','job','bodies',{name:True})
+    record=run.attach(path)
+    assert record['status']=='degraded'
+    assert record['reason_code'].startswith(name+'_')
+    assert record['delivered_pipeline']=='bodies'
+
+
 def test_v3_error_does_not_hide_successful_body_assembly(tmp_path):
     run = outcome.ProcessingRun('job:1', 'job', 'bodies', {}, 'release-a', 'v2')
     path = tmp_path / 'match.json'

@@ -69,3 +69,13 @@ def test_combined_cuts_require_literal_opt_in_and_both_edges(
           pipeline=pipeline,players_json=players,serve_anchor=anchor,rally_end=end)
     expected=option is True and anchor and end and pipeline=='bodies' and players is not None
     assert ('--combined-cuts' in run.call_args.args[0])==expected
+
+
+@pytest.mark.parametrize('option', [None, False, True, 'true', 1])
+@pytest.mark.parametrize('combined', [True, False])
+def test_cleanup_is_explicit_and_requires_combined_policy(command_builder,tmp_path,option,combined):
+    build,run=command_builder
+    build('input.mp4','ball.json',str(tmp_path),
+          {'whole_clip_cleanup':option,'combined_cuts':combined},
+          pipeline='bodies',players_json='players.json',serve_anchor=True,rally_end=True)
+    assert ('--whole-clip-cleanup' in run.call_args.args[0]) == (option is True and combined)
