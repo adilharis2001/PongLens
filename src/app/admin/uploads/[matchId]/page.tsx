@@ -217,15 +217,15 @@ export default async function AdminUploadPage({
           }))}
           cardLabels={((cardLabelsRes.data ?? []) as {
             point_id: string;
-            server_end: string | null;
-            winner_end: string | null;
+            server_ends: (string | null)[] | null;
+            winner_ends: (string | null)[] | null;
             splits: (number | string)[] | null;
             join_next: boolean;
           }[]).map((l) => ({
             pointId: l.point_id,
             label: {
-              serverEnd: asEnd(l.server_end),
-              winnerEnd: asEnd(l.winner_end),
+              serverEnds: (l.server_ends ?? []).map(asEnd),
+              winnerEnds: (l.winner_ends ?? []).map(asEnd),
               splits: normaliseSplits((l.splits ?? []).map(Number)),
               joinNext: !!l.join_next,
             },

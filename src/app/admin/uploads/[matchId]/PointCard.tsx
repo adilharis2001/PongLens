@@ -84,6 +84,7 @@ export function PointCard({
   labelContext,
   unmarked = 0,
   hasNext = false,
+  continuesFromPrev = false,
 }: {
   row: UploadPointRow;
   serve: ServeInfo | null;
@@ -139,10 +140,12 @@ export function PointCard({
     detectedServerEnd: EndName | null;
     rotationServerEnd: EndName | null;
     ownerWinnerEnd: EndName | null;
-    score: CardScore | null;
+    scores: CardScore[] | null;
   } | null;
   unmarked?: number;
   hasNext?: boolean;
+  /** The card before this one runs into it. */
+  continuesFromPrev?: boolean;
 }) {
   const [openMiss, setOpenMiss] = useState(false);
   // A phone expands the analysis inside the card, so the split button has
@@ -262,7 +265,10 @@ export function PointCard({
               // arithmetic over a scoring that can itself have lost its
               // anchor, which is exactly what happened on Julian on 13
               // Sep — 17 disagreements, and the ball put V3 right on 12.
-              const called = label?.serverEnd ?? null;
+              // The FIRST point in the card: V3 read the serve at the
+              // card's start, so that is the only one of its points its
+              // reading can be right or wrong about.
+              const called = label?.serverEnds?.[0] ?? null;
               const disagrees = called
                 ? called !== miss.serve_half
                 : who !== null && serve?.server != null && who !== serve.server;
@@ -383,12 +389,14 @@ export function PointCard({
                     detectedServerEnd={labelContext?.detectedServerEnd ?? null}
                     rotationServerEnd={labelContext?.rotationServerEnd ?? null}
                     ownerWinnerEnd={labelContext?.ownerWinnerEnd ?? null}
-                    score={labelContext?.score ?? null}
+                    scores={labelContext?.scores ?? null}
                     unmarked={unmarked}
                     cardT0={row.t0}
                     cardT1={row.t1}
                     playhead={miss && missData ? playhead : undefined}
                     hasNext={hasNext}
+                    cardNumber={row.displayNo ?? 0}
+                    continuesFromPrev={continuesFromPrev}
                   />
                 </div>
               )}

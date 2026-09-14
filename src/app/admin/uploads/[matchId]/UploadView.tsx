@@ -402,14 +402,31 @@ export function UploadView({
       labelScoreByPoint(
         rows
           .filter((r) => !r.deleted)
-          .map((r) => ({
-            id: r.id,
-            is_let: r.is_let,
-            gameEndOverride: r.game_end_override,
-            winnerEnd:
-              cardLabels.get(r.id)?.winnerEnd ??
-              endForPerson(r.confirmed_winner, sideByPoint.get(r.id) ?? null),
-          }))
+          .map((r) => {
+            const l = cardLabels.get(r.id);
+            const owner = endForPerson(
+              r.confirmed_winner,
+              sideByPoint.get(r.id) ?? null
+            );
+            const segments = (l?.splits.length ?? 0) + 1;
+            return {
+              id: r.id,
+              is_let: r.is_let,
+              gameEndOverride: r.game_end_override,
+              // A card nobody has cut still has the owner's own answer
+              // standing behind it. Once it is cut, the owner's single
+              // answer describes none of its points, so only what has
+              // actually been filed counts.
+              winnerEnds:
+                segments === 1
+                  ? [l?.winnerEnds[0] ?? owner]
+                  : Array.from({ length: segments }, (_, i) =>
+                      l?.winnerEnds[i] ?? null
+                    ),
+              segments,
+              joinNext: l?.joinNext ?? false,
+            };
+          })
       ),
     [rows, cardLabels, sideByPoint]
   );
@@ -432,7 +449,7 @@ export function UploadView({
           ? endForPerson(serving.get(row.id)?.server ?? null, side)
           : null,
         ownerWinnerEnd: endForPerson(row.confirmed_winner, side),
-        score: labelScore.byPoint.get(row.id) ?? null,
+        scores: labelScore.bySegment.get(row.id) ?? null,
       };
     },
     [sideByPoint, serveMisses, serving, rotationAnchored, labelScore]
@@ -443,6 +460,19 @@ export function UploadView({
     const visible = rows.filter((r) => !r.deleted);
     return new Set(visible.slice(0, -1).map((r) => r.id));
   }, [rows]);
+
+  /* Cards whose PREVIOUS card is marked as running into them. Their first
+     point began there, so its serve was asked there and is not asked
+     again here — the one place a label has to look at its neighbour. */
+  const continuedInto = useMemo(() => {
+    const visible = rows.filter((r) => !r.deleted);
+    const out = new Set<string>();
+    visible.forEach((r, i) => {
+      const prev = i > 0 ? visible[i - 1] : null;
+      if (prev && cardLabels.get(prev.id)?.joinNext) out.add(r.id);
+    });
+    return out;
+  }, [rows, cardLabels]);
 
   const signCut = useCallback(async () => {
     const res = await fetch("/api/admin/media-url", {
@@ -829,6 +859,7 @@ export function UploadView({
                   labelContext={labelContextFor(row)}
                   unmarked={labelScore.unmarked}
                   hasNext={hasNextCard.has(row.id)}
+                  continuesFromPrev={continuedInto.has(row.id)}
                 />
               ))}
             </ul>
@@ -865,6 +896,9 @@ export function UploadView({
                   }
                   unmarked={labelScore.unmarked}
                   hasNext={selectedId ? hasNextCard.has(selectedId) : false}
+                  continuesFromPrev={
+                    selectedId ? continuedInto.has(selectedId) : false
+                  }
                   sideThisGame={
                     selectedId ? sideByPoint.get(selectedId) ?? null : null
                   }
@@ -924,6 +958,7 @@ function CardPane({
   labelContext,
   unmarked,
   hasNext,
+  continuesFromPrev,
   sideThisGame,
 }: {
   row: UploadPointRow | null;
@@ -950,10 +985,13 @@ function CardPane({
     detectedServerEnd: EndName | null;
     rotationServerEnd: EndName | null;
     ownerWinnerEnd: EndName | null;
-    score: CardScore | null;
+    scores: CardScore[] | null;
   } | null;
   unmarked: number;
   hasNext: boolean;
+  /** The card before this one runs into it, so this card's first point
+   *  began there and its serve was asked there. */
+  continuesFromPrev: boolean;
   /** The uploader's end for THIS card's game, so an end can name a player. */
   sideThisGame: string | null;
 }) {
@@ -1022,12 +1060,14 @@ function CardPane({
       detectedServerEnd={labelContext?.detectedServerEnd ?? null}
       rotationServerEnd={labelContext?.rotationServerEnd ?? null}
       ownerWinnerEnd={labelContext?.ownerWinnerEnd ?? null}
-      score={labelContext?.score ?? null}
+      scores={labelContext?.scores ?? null}
       unmarked={unmarked}
       cardT0={row.t0}
       cardT1={row.t1}
       playhead={playhead}
       hasNext={hasNext}
+      cardNumber={row.displayNo ?? 0}
+      continuesFromPrev={continuesFromPrev}
     />
   ) : null;
 
