@@ -13,9 +13,15 @@ import { createClient } from "@/lib/supabase/client";
  * done or the coach hides it.
  *
  * "Create your account" is already done by definition; starting at
- * 1 of 8 reads better than starting at zero. Paid reviews and the videos
+ * 1 of 9 reads better than starting at zero. Paid reviews and the videos
  * come last on purpose: a coach who only wants notes on their students
  * should never feel the marketplace is the point.
+ *
+ * Nine here and nine on the phone, but not the same nine. The app drops
+ * "Offer paid reviews" (the marketplace is off there) and adds "Record an
+ * audio lesson", which the web has no door for on purpose: recording
+ * someone talk for an hour is a phone job, which is why the New lesson
+ * chooser here offers two ways in where the phone offers three.
  *
  * Dismissal lives in auth user_metadata (coach_first_steps_dismissed),
  * beside the player checklist's flag.
@@ -33,6 +39,10 @@ export interface CoachFirstStepsState {
   /** A match a student shared, if one exists. */
   sharedMatchId: string | null;
   hasPage: boolean;
+  /** A lesson video of this coach's that produced a recap. `edit` holding
+   *  something is what the rest of the product already means by "has a
+   *  recap", so this asks the rows the same question they ask themselves. */
+  hasRecap: boolean;
   /** user_metadata.coach_tutorial_started, set the first time a chapter plays. */
   watched: boolean;
 }
@@ -73,6 +83,11 @@ export function CoachFirstSteps({ state }: { state: CoachFirstStepsState }) {
       href: state.sharedMatchId
         ? `/match/${state.sharedMatchId}`
         : "/learn/review-student-match?audience=coach",
+    },
+    {
+      label: "Make a lesson recap",
+      done: state.hasRecap,
+      href: "/coaching/videos",
     },
     {
       label: "Offer paid reviews",

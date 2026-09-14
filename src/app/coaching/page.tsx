@@ -70,22 +70,31 @@ export default async function CoachingPage() {
   // same way the dashboard's is). Only asked for on the coaching side.
   let firstSteps: CoachFirstStepsState | null = null;
   if (workspace === "coach") {
-    const [studentsRes, invitesRes, entriesRes, sharedRes] = await Promise.all([
-      supabase
-        .from("coach_students")
-        .select("id, player_id")
-        .eq("coach_id", user.id)
-        .is("archived_at", null)
-        .order("created_at", { ascending: true })
-        .limit(50),
-      supabase.from("coach_student_invites").select("id").limit(1),
-      supabase
-        .from("coach_entries")
-        .select("shared_at")
-        .eq("coach_id", user.id)
-        .limit(100),
-      supabase.from("matches").select("id").neq("user_id", user.id).limit(1),
-    ]);
+    const [studentsRes, invitesRes, entriesRes, sharedRes, recapRes] =
+      await Promise.all([
+        supabase
+          .from("coach_students")
+          .select("id, player_id")
+          .eq("coach_id", user.id)
+          .is("archived_at", null)
+          .order("created_at", { ascending: true })
+          .limit(50),
+        supabase.from("coach_student_invites").select("id").limit(1),
+        supabase
+          .from("coach_entries")
+          .select("shared_at")
+          .eq("coach_id", user.id)
+          .limit(100),
+        supabase.from("matches").select("id").neq("user_id", user.id).limit(1),
+        // A recap exists once a lesson video carries an edit, which is
+        // what every other surface means by "has a recap" too.
+        supabase
+          .from("lesson_videos")
+          .select("id")
+          .eq("owner_id", user.id)
+          .not("edit", "is", null)
+          .limit(1),
+      ]);
     const students = (studentsRes.data ?? []) as {
       id: string;
       player_id: string | null;
@@ -102,6 +111,7 @@ export default async function CoachingPage() {
       anyShared: entries.some((e) => e.shared_at !== null),
       sharedMatchId: (sharedRes.data?.[0] as { id: string } | undefined)?.id ?? null,
       hasPage: !!profile,
+      hasRecap: (recapRes.data?.length ?? 0) > 0,
       watched: tutorialWasStarted(user.user_metadata, "coach"),
     };
   }

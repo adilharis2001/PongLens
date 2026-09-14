@@ -94,6 +94,26 @@ struct StudentSharedLesson: Codable, Identifiable, Hashable {
     }
 }
 
+/// Coaching facts that live on the auth user rather than in a table.
+enum CoachFlags {
+    /// Set the first time a coach saves an entry they spoke rather than
+    /// typed.
+    ///
+    /// This is a flag and not a read of product state, which the rest of
+    /// the checklist manages without, because the state does not exist: a
+    /// recording is transcribed and only the words are kept, so a spoken
+    /// entry and a typed one are the same `lessons` row in every column.
+    /// The alternative was a marker column written down the recording
+    /// path on both platforms, which buys nothing here — it would not
+    /// backfill either, and nothing but this one row would ever read it.
+    ///
+    /// It does not backfill: a coach who recorded lessons before this
+    /// shipped sees the step unticked until they record another. The
+    /// checklist is for new coaches and goes away at five students, so
+    /// that costs the people it is written for nothing.
+    static let recordedLesson = "coach_recorded_lesson"
+}
+
 /// The coaching workspace's data: roster, entries, and the lesson rows
 /// behind them. Loaded when the workspace opens, refreshed after writes.
 /// Matches shared by students stay in LibraryStore — RLS already delivers
@@ -115,6 +135,12 @@ final class CoachWorkspaceStore {
     /// afterwards does not un-send it. Counted here rather than in the
     /// screen so the checklist never runs a query of its own.
     var inviteCount = 0
+    /// Lesson videos this coach has that produced a recap. `edit` holding
+    /// something is what both apps already mean by "has a recap", so the
+    /// count asks the same question the rows do. Home's first steps is the
+    /// only reader, and it is counted here for the same reason inviteCount
+    /// is: the checklist runs no queries of its own.
+    var recapCount = 0
     var loaded = false
     /// The roster query itself failed (offline, expired session). Screens
     /// say so rather than showing "No students yet." over a network error.
@@ -183,6 +209,13 @@ final class CoachWorkspaceStore {
             .select("id", head: true, count: .exact)
             .eq("coach_id", value: uid)
             .execute()
+        // Same shape, same reason: only the number matters.
+        async let recapsQ = try? await supa
+            .from("lesson_videos")
+            .select("id", head: true, count: .exact)
+            .eq("owner_id", value: uid)
+            .not("edit", operator: .is, value: AnyJSON.null)
+            .execute()
 
         let (s, e, l) = await (studentsQ, entriesQ, lessonsQ)
         fromStudents = (await sharedQ) ?? []
@@ -192,6 +225,7 @@ final class CoachWorkspaceStore {
         }
         loadFailed = false
         inviteCount = (await invitesQ)?.count ?? 0
+        recapCount = (await recapsQ)?.count ?? 0
         students = s
         entries = e ?? []
         lessons = Dictionary(uniqueKeysWithValues: (l ?? []).map { ($0.id, $0) })

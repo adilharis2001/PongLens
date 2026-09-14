@@ -131,7 +131,14 @@ struct CoachEntryComposer: View {
             LessonRecordScreen(
                 hideAuthorField: true,
                 saveAs: { transcript in
-                    await save(student: student, transcript: transcript, summarize: true)
+                    let saved = await save(
+                        student: student, transcript: transcript, summarize: true
+                    )
+                    // The only record that this entry was spoken. Once the
+                    // words are saved they look exactly like typed ones,
+                    // so Home's checklist has nothing else to read.
+                    if saved { await app.setMetadataFlag(CoachFlags.recordedLesson, true) }
+                    return saved
                 },
                 // Mirrors the player door's own test, read off the coach's
                 // pile instead of the player's: an entry backed by a

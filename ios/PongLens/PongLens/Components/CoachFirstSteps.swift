@@ -5,15 +5,23 @@ import SwiftUI
 /// actually done, so there is no step flag to keep in sync and nothing to
 /// tick off by hand: the product state IS the checklist.
 ///
-/// Seven steps here against the web's eight. "Offer paid reviews" is the
-/// marketplace, and the marketplace is off in the app
-/// (`AppConfig.coachMarketplace`), so every screen behind it renders
-/// nothing — the row would sit there taking taps and going nowhere, which
-/// is worse than a row that is absent. It comes back with the flag.
+/// Nine steps here, and nine on the web, but not the same nine.
 ///
-/// The count still reads "n of 7" rather than borrowing the web's eight,
-/// because a coach who finishes everything they can reach on a phone
-/// should see a finished list.
+/// "Offer paid reviews" is missing: that is the marketplace, the
+/// marketplace is off in the app (`AppConfig.coachMarketplace`), and every
+/// screen behind it renders nothing — the row would sit there taking taps
+/// and going nowhere, which is worse than a row that is absent. It comes
+/// back with the flag.
+///
+/// "Record an audio lesson" is the other direction, a step the phone has
+/// and the web does not. Recording someone talk for an hour is a phone
+/// job, so the web's New lesson chooser deliberately offers two ways in
+/// where this one offers three. Putting the row over there would point a
+/// coach at a door their browser does not have.
+///
+/// Each count reads against its own list rather than borrowing the
+/// other's, because a coach who finishes everything they can reach on a
+/// phone should see a finished list.
 struct CoachFirstSteps: View {
     /// A match one of this coach's students shared, if there is one. Home
     /// already works out which matches those are, and that rule is not
@@ -49,6 +57,13 @@ struct CoachFirstSteps: View {
         /// falls back to while it has nothing of its own to point at.
         case route(String)
         case tutorial
+        /// The recorder, on the oldest student — the same door the New
+        /// entry chooser opens, so a step and the chooser land in one
+        /// place.
+        case record(CoachStudentRow)
+        /// The lesson video screen, which leads with the import and lists
+        /// what is already there beneath it.
+        case recap
     }
 
     private struct Step {
@@ -77,6 +92,14 @@ struct CoachFirstSteps: View {
                 go: onStudent
             ),
             Step(label: "Write your first entry", done: !entries.isEmpty, go: onStudent),
+            // Beside writing, because it is the same job done the other
+            // way: an entry you speak instead of type. A coach standing at
+            // a table has both hands full, which is the whole point of it.
+            Step(
+                label: "Record an audio lesson",
+                done: app.metadataFlag(CoachFlags.recordedLesson),
+                go: workspace.firstStudent.map(Go.record) ?? .addStudent
+            ),
             Step(
                 label: "Share an entry with a student",
                 done: entries.contains { $0.sharedAt != nil },
@@ -86,6 +109,11 @@ struct CoachFirstSteps: View {
                 label: "Open a match a student shared",
                 done: sharedMatch != nil,
                 go: sharedMatch.map(Go.match) ?? .route("guide:review-student-match")
+            ),
+            Step(
+                label: "Make a lesson recap",
+                done: workspace.recapCount > 0,
+                go: .recap
             ),
             Step(
                 label: "Watch the tutorial videos",
@@ -198,6 +226,23 @@ struct CoachFirstSteps: View {
             case .tutorial:
                 NavigationLink(value: LearnVideosRoute(.coach)) { content }
                     .buttonStyle(.plain)
+            case .record(let student):
+                // Both of these raise the composer, which CoachTabView
+                // holds as a full-screen cover — the same handover the New
+                // entry chooser makes, minus the chooser.
+                Button {
+                    router.composeRecord = CoachComposerRequest(
+                        mode: .record, student: student
+                    )
+                } label: { content }
+                .buttonStyle(.plain)
+            case .recap:
+                Button {
+                    router.composeRecord = CoachComposerRequest(
+                        mode: .video, student: nil
+                    )
+                } label: { content }
+                .buttonStyle(.plain)
             case nil:
                 content
             }
