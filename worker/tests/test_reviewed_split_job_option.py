@@ -55,3 +55,17 @@ def test_reviewed_splits_require_literal_true_and_supported_body_pass(
         assert command[command.index("--pipeline") + 1] == "bodies"
         assert "--rally-end" in command
         assert command[command.index("--players") + 1] == players
+
+
+@pytest.mark.parametrize('option', [None, False, True, 'true', 1])
+@pytest.mark.parametrize('anchor,end,pipeline,players', [
+    (True,True,'bodies','players.json'), (False,True,'bodies','players.json'),
+    (True,False,'bodies','players.json'), (True,True,'v2',None),
+    (True,True,'bodies',None)])
+def test_combined_cuts_require_literal_opt_in_and_both_edges(
+        command_builder,tmp_path,option,anchor,end,pipeline,players):
+    build,run=command_builder
+    build('input.mp4','ball.json',str(tmp_path),{'combined_cuts':option},
+          pipeline=pipeline,players_json=players,serve_anchor=anchor,rally_end=end)
+    expected=option is True and anchor and end and pipeline=='bodies' and players is not None
+    assert ('--combined-cuts' in run.call_args.args[0])==expected

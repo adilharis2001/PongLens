@@ -3002,6 +3002,12 @@ def cmd_points(args):
                 # in are not table widths and its answer would mean nothing.
                 # A refusal is not a failure — the cards keep the edges the
                 # bodies gave them and the note says why.
+                combined_requested = bool(getattr(args, "combined_cuts", False))
+                combined_ready = (combined_requested and calib is not None
+                                  and getattr(args, "serve_anchor", False)
+                                  and getattr(args, "rally_end", False))
+                body_evidence = {} if combined_ready else None
+                v3 = {}
                 v3_serves, v3_dead, v3_why = None, None, None
                 want_edges = (getattr(args, "serve_anchor", False)
                               or getattr(args, "rally_end", False))
@@ -3013,7 +3019,8 @@ def cmd_points(args):
                         import serve_v3
                         v3 = serve_v3.detect(
                             body_corners, v2_E.track, v2_E.cross, players,
-                            fps, dur, width=meta["width"])
+                            fps, dur, width=meta["width"],
+                            include_restart_evidence=combined_ready)
                         v3_serves = [c for c, _a, _s in v3["serves"]]
                         # The contacts alone are what the assembler needs;
                         # the bundle keeps the arrival and the half too, so
@@ -3044,7 +3051,8 @@ def cmd_points(args):
                     # when V3 refuses — which is the case on exactly the
                     # matches production is worst on, the ones with no table.
                     anchor=bool(v3_serves) and getattr(args, "serve_anchor", False),
-                    close=getattr(args, "rally_end", False))
+                    close=getattr(args, "rally_end", False),
+                    evidence_out=body_evidence)
                 if not body_cards:
                     raise body_points.BodyPointsUnavailable(
                         "the body assembler produced no cards")
@@ -3056,7 +3064,29 @@ def cmd_points(args):
                         body_cards, v2_E,
                         calib["corners_px"] if calib is not None else None,
                         meta["width"], v3_serves or [],
-                        reviewed_splits=bool(getattr(args, "reviewed_net_splits", False)))
+                        reviewed_splits=bool(getattr(args, "reviewed_net_splits", False) or combined_ready))
+                    if combined_requested:
+                        import combined_cuts
+                        combined_info = dict(method_version=combined_cuts.METHOD_VERSION,
+                                             status='not_applied', added_cards=0,
+                                             reason='required_evidence_unavailable')
+                        if combined_ready and v3.get('restart_evidence'):
+                            try:
+                                gap4, _ = body_points.assemble(
+                                    players, body_corners, v2_E, dur,
+                                    first_ball_t0=first_ball_t0, v3_serves=v3_serves,
+                                    v3_dead=v3_dead, anchor=bool(v3_serves), close=True,
+                                    split_gap_s=4.0)
+                                gap4, _, _ = net_endings.process_cards(
+                                    gap4, v2_E, body_corners, meta['width'],
+                                    v3_serves or [], reviewed_splits=True)
+                                body_cards, private_predictions, combined_info = combined_cuts.process_cards(
+                                    body_cards, private_predictions, v2_E, body_corners,
+                                    meta['width'], v3_serves or [], v3['restart_evidence'],
+                                    body_evidence, gap4)
+                            except Exception as exc:
+                                combined_info.update(status='error', reason=type(exc).__name__)
+                        processing['combined_cuts'] = combined_info
                     winner_predictions_by_start = {
                         int(c["t0"] * fps): prediction
                         for c, prediction in zip(body_cards, private_predictions)
@@ -3594,6 +3624,8 @@ def main():
                         "serve opens where production opens any serve card, "
                         "HEAD_LEAD before the contact (app_config."
                         "body_serve_anchor)")
+    p.add_argument("--combined-cuts", action="store_true",
+                   help="Use the reviewed combined attempt policy (requires body edges and calibration)")
     p.add_argument("--reviewed-net-splits", action="store_true",
                    help="Opt-in reviewed low-bounce endings followed by verified restarts")
     p.add_argument("--rally-end", action="store_true",

@@ -300,9 +300,10 @@ def _pmin(T, p, a, b):
 
 
 def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None,
-           *, split_contacts=None):
+           *, split_contacts=None, split_gap_s=None):
     """What the ball has to say about a stretch the bodies found: four
     statements, none of which may invent a card."""
+    split_s = SPLIT_S if split_gap_s is None else float(split_gap_s)
     cr = np.asarray(sorted(float(x) for x in cross), float)
     bt = np.asarray(sorted(float(x) for x in bt_table), float)
     sv = sorted(float(x) for x in serves)
@@ -317,10 +318,10 @@ def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None,
             if not seen:
                 continue
         cuts = []
-        if SPLIT_S > 0 and len(inside) >= 2:
+        if split_s > 0 and len(inside) >= 2:
             last = inside[0]
             for x in inside[1:]:
-                if (x - last >= SPLIT_S and
+                if (x - last >= split_s and
                         (split_contacts is None or
                          min((abs(float(t)-x) for t in split_contacts), default=float('inf')) <= .5+1e-9)):
                     cuts.append(x)
@@ -573,7 +574,8 @@ def _ball_end(t0, t1, serve_s, ev, cr, runs, long_bt=None):
 
 
 def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=None,
-             v3_serves=None, v3_dead=None, anchor=False, close=False):
+             v3_serves=None, v3_dead=None, anchor=False, close=False,
+             split_gap_s=None, evidence_out=None):
     """The body cards for one match, or raise BodyPointsUnavailable.
 
     `v3_serves` and `v3_dead` come from the V3 serve detector. Complete
@@ -596,6 +598,8 @@ def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=
     if corners_px is None:
         raise BodyPointsUnavailable("no table corners and no stand-in quad")
     p, X = play_probability(T, raw, corners_px, cross, model)
+    if evidence_out is not None:
+        evidence_out.update(body_T=T.tolist(), body_p=p.tolist())
     segs = segments(T, p, X, model)
     if not segs:
         raise BodyPointsUnavailable("the decoder found no play at all")
@@ -613,7 +617,7 @@ def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=
         except (TypeError, ValueError):
             policy_ready = False
     refined = refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0,
-                     split_contacts=v3_serves if policy_ready else None)
+                     split_contacts=v3_serves if policy_ready else None, split_gap_s=split_gap_s)
     resolved = V2.resolve(refined)
     # The edges last, on settled cards: the anchor needs to know where the
     # card before it ends, and that is only true once the overlaps are gone.

@@ -4943,6 +4943,8 @@ def run_points_subprocess(
             cmd.append("--rally-end")
             if options.get("reviewed_net_splits") is True:
                 cmd.append("--reviewed-net-splits")
+            if serve_anchor and options.get("combined_cuts") is True:
+                cmd.append("--combined-cuts")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
              "pipeline=%s%s)…",
              strictness, bool(options.get("placement")), pipeline,
@@ -8666,6 +8668,8 @@ def process_job(conn, msg) -> None:
                 options, lambda key: get_config(conn, key))
             if options.get("reviewed_net_splits") is True:
                 body_settings["reviewed_net_splits"] = True
+            if options.get("combined_cuts") is True:
+                body_settings["combined_cuts"] = True
             route = str(body_settings["requested_pipeline"]) + (":placement" if options.get("placement") else ":no-placement")
             _record_video_profile(local_input, route, camera_offset_s)
             release_id, body_model = processing_outcome.release_identity()
