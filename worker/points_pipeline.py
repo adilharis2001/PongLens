@@ -2962,6 +2962,7 @@ def cmd_points(args):
     # portal can show both answers on every match. Fails open at every step:
     # any refusal or error leaves the cards the ball side built and says so
     # in the note.
+    winner_predictions_by_start = {}
     processing = {"schema": 1, "body": {"status": "not_requested"},
                   "edges": {"status": "not_requested"}}
     if getattr(args, "pipeline", "v1") == "bodies":
@@ -3047,6 +3048,19 @@ def cmd_points(args):
                 if not body_cards:
                     raise body_points.BodyPointsUnavailable(
                         "the body assembler produced no cards")
+                # End-only policy runs after all joins and guarded openings.
+                # Predictions stay private in a local sidecar, never match.json.
+                if getattr(args, "rally_end", False):
+                    import net_endings
+                    body_cards, private_predictions, net_info = net_endings.process_cards(
+                        body_cards, v2_E,
+                        calib["corners_px"] if calib is not None else None,
+                        meta["width"], v3_serves or [])
+                    winner_predictions_by_start = {
+                        int(c["t0"] * fps): prediction
+                        for c, prediction in zip(body_cards, private_predictions)
+                    }
+                    processing["net_endings"] = net_info
                 processing["body"] = {"status": "used", "samples": body_info["samples"],
                                       "both_share": body_info["both_share"], "cards": len(body_cards)}
                 processing["body_model"] = body_info["model"]
@@ -3336,6 +3350,8 @@ def cmd_points(args):
     side_name = {"near": "user", "far": "opponent"}   # assumption: the
     # uploader is the player nearer the camera (player ID is a later phase)
     points = []
+    private_prediction_rows = []
+    from net_endings import finalize_prediction
     for idx, (a, b, si) in enumerate(plays, start=1):
         t0, t1 = a / fps, b / fps
 
@@ -3465,8 +3481,16 @@ def cmd_points(args):
             "suggestion": suggestion,
             "placement": placement,
         })
+        private_prediction_rows.append(finalize_prediction(
+            winner_predictions_by_start.get(a), idx, t0, t1))
         print(f"point {idx:02d}: {t0:6.1f}-{t1:6.1f}s "
               f"suggest={suggestion['winner'] + '/' + suggestion['how'] if suggestion else None}")
+
+    # Worker-only artifact: the worker's upload loop uses an explicit allow-list.
+    # Never include these independent predictions in the owner match JSON.
+    private_path = os.path.join(args.outdir, "point_winner_predictions.json")
+    with open(private_path, "w") as fh:
+        json.dump({"schema_version": 1, "points": private_prediction_rows}, fh, allow_nan=False)
 
     calibration_block = ({"ok": True,
                           "table_corners_px": calib["corners_px"],
