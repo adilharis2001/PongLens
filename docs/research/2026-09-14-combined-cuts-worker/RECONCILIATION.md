@@ -2,7 +2,7 @@
 
 Both approved improvements now run together before the normal exporter, and the nine-recording replay removes exactly the four approved dead clips without changing any retained source interval.
 Publication now preserves applied-rule records and reports a requested rule that failed or did not run, rather than silently calling the complete request successful.
-This remains a local pilot candidate, not a deployed release; table-calibration rejection and the broad global ball filter are excluded.
+This is deployed as sealed release `44cfebbf…`; read `RELEASE.md` for exact identity and pilot status. Table-calibration rejection and the broad global ball filter are excluded.
 
 | Recording | Combined candidate | With cleanup | Approved exports removed |
 | --- | ---: | ---: | --- |
@@ -55,6 +55,6 @@ This remains a local pilot candidate, not a deployed release; table-calibration 
 | --- | --- |
 | Owner review | Complete for inherited final three corrections and all four cleanup removals |
 | Code integration / numerical replay | Implemented; independent review clear; fresh nine-replay checks pass including final admin totals, cut clocks, exact retained metadata and private predictions |
-| Packaging | Not yet sealed; verify complete combined source against live baseline, include new module, run actual offline inference including repeated side-change and post-inference integrity checks |
-| Activation | Not performed; drain safely, preserve signed rollback, verify exact main/fast/monitor release and resume without interrupting active jobs |
-| Account pilot | Not queued; explicitly enable both options and verify published `processing.combined_cuts.status` and `processing.whole_clip_cleanup.status` are `used`; preserve scored originals and reuse source assets |
+| Packaging | Sealed `44cfebbf…`, source `9e19096a`; all eight offline inference/import/linkage/parity checks passed, including repeated side changes and post-inference integrity; both staged lanes verified |
+| Activation | Fresh main/fast accepting new release and monitor verified at 21:25:37 UTC. No active jobs interrupted; whole signed b8 rollback retained. See `RELEASE.md`. |
+| Account pilot | See `RELEASE.md` for queue status; explicitly enable both options and verify published `processing.combined_cuts.status` and `processing.whole_clip_cleanup.status` are `used`; preserve scored originals and reuse source assets |

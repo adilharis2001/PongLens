@@ -1,12 +1,15 @@
 # PongLens — working notes
 
 **Combined release integration, 2026-09-14:** Read
-`docs/research/2026-09-14-combined-cuts-worker/RECONCILIATION.md` before packaging.
+`docs/research/2026-09-14-combined-cuts-worker/RELEASE.md` and
+`docs/research/2026-09-14-combined-cuts-worker/RECONCILIATION.md` before another release.
 All final owner reviews are complete. Combined rally rules and narrow whole-clip
 cleanup are integrated, with applied-policy provenance preserved by publication.
 Both options remain explicit pilot opt-ins; do not mistake installation for
 activation. No table fail-safe or global ball-filter rewrite is included.
-The root task owns packaging/activation; no release has been switched yet.
+Sealed `44cfebbf5c7075dd7bdab39024257ec5ecf246967a009ea15ba6ad8174e0e91d`
+is live on main/fast and the monitor, verified resumed at 21:25:37 UTC.
+Rollback is b8e07c89; owner-pilot queue and validation status is in RELEASE.md.
 
 Standards that were learned the expensive way. Each rule below cost a round
 of rework at least once, so the reasoning is kept with it: a rule you
