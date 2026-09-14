@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { MEDIA_BUCKET, presignGet, putObject } from "@/lib/r2";
+import { checkUploadAllowed, MEDIA_UPLOAD_RULES, refusalStatus } from "@/lib/quota";
 
 export const runtime = "nodejs";
 
@@ -63,6 +64,14 @@ export async function POST(req: Request) {
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const key = `sketch/${user.id}/${crypto.randomUUID()}${ext}`;
+
+  const refused = await checkUploadAllowed(supabase, bytes.byteLength, MEDIA_UPLOAD_RULES);
+  if (refused) {
+    return NextResponse.json(
+      { error: refused, resource: "storage" },
+      { status: refusalStatus(refused) },
+    );
+  }
 
   try {
     await putObject(MEDIA_BUCKET, key, bytes, mime);

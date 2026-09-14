@@ -1079,7 +1079,13 @@ function AttachmentManager({
   }
 
   async function remove(id: string) {
-    await createClient().from("review_attachments").delete().eq("id", id);
+    // The route removes the file before the row. Deleting the row here
+    // used to leave the file in the bucket and the bytes on the tally.
+    await fetch("/api/review-attachment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "delete", orderId, attachmentId: id }),
+    });
     onChanged();
   }
 

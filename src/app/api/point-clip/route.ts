@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { MEDIA_BUCKET, deleteObjects, headObject, presignPut } from "@/lib/r2";
+import { checkUploadAllowed, MEDIA_UPLOAD_RULES, refusalStatus } from "@/lib/quota";
 
 /**
  * POST /api/point-clip — a point's clip file cut on the phone (spec
@@ -67,6 +68,15 @@ export async function POST(req: Request) {
   const prefix = `points/${user.id}/${matchId}/`;
 
   if (action === "sign") {
+    // A re-cut clip is a few megabytes the phone has not measured yet, so
+    // the question is only whether the account is already full.
+    const refused = await checkUploadAllowed(supabase, 0, MEDIA_UPLOAD_RULES);
+    if (refused) {
+      return NextResponse.json(
+        { error: refused, resource: "storage" },
+        { status: refusalStatus(refused) },
+      );
+    }
     const key = `${prefix}${String(point.idx).padStart(2, "0")}-${randomBytes(4).toString("hex")}.mp4`;
     const url = await presignPut(MEDIA_BUCKET, key, 600);
     return NextResponse.json({ url, key });

@@ -72,6 +72,8 @@ struct LessonVideoScreen: View {
 
                     importControls
 
+                    StorageUsageLine()
+
                     if let error {
                         Text(
                             AllowanceLimit.isStorage(error)

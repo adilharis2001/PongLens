@@ -35,10 +35,42 @@ final class AccountStore {
     struct StorageState: Decodable {
         let storageLimitBytes: Int64?
         let usedBytes: Int64?
+        /// When the buckets were last measured for this account, and what
+        /// they held by kind. Nil until the first nightly measurement.
+        let snapshotAt: String?
+        let breakdown: [String: Int64]?
 
         enum CodingKeys: String, CodingKey {
             case storageLimitBytes = "storage_limit_bytes"
             case usedBytes = "used_bytes"
+            case snapshotAt = "snapshot_at"
+            case breakdown
+        }
+
+        struct BreakdownRow: Identifiable {
+            let id: String
+            let label: String
+            let bytes: Int64
+        }
+
+        /// Last night's measurement by kind, largest first, in the words
+        /// the web Account page uses. The keys are named by the web app's
+        /// storage inventory (lib/storage/inventory.ts); a key this list
+        /// does not know is left out rather than shown raw.
+        var breakdownRows: [BreakdownRow] {
+            let labels: [(String, String)] = [
+                ("match_original", "Match videos"),
+                ("match_cut", "Cut versions"),
+                ("match_clips", "Point clips and match data"),
+                ("lesson_video", "Lesson videos"),
+                ("reels", "Reels and highlights"),
+                ("notes_media", "Voice notes, sketches and photos"),
+                ("coach_media", "Coaching files"),
+            ]
+            return labels.compactMap { key, label -> BreakdownRow? in
+                guard let bytes = breakdown?[key], bytes > 0 else { return nil }
+                return BreakdownRow(id: key, label: label, bytes: bytes)
+            }.sorted { $0.bytes > $1.bytes }
         }
     }
 

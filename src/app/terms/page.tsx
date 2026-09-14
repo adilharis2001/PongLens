@@ -263,9 +263,10 @@ export default async function TermsPage() {
         <ul>
           <li>
             <strong>Your uploaded videos and cut videos:</strong> kept while
-            your account is active and the video is in your library. These
-            are what count toward your storage allowance. Deleting a video
-            removes it and frees the space.
+            your account is active and the video is in your library. They
+            count toward your storage allowance, as does everything else you
+            store: lesson videos, point clips, reels, voice notes and photos.
+            Deleting a video removes it and frees the space.
           </li>
           <li>
             <strong>Voice note audio:</strong> deleted 90 days after
@@ -275,7 +276,7 @@ export default async function TermsPage() {
           <li>
             <strong>Point clips and match data:</strong> kept while your
             account is active, so you can keep reviewing your matches. They
-            do not count toward your storage allowance.
+            count toward your storage allowance and go when the match does.
           </li>
         </ul>
         <p>

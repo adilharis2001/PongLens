@@ -475,8 +475,18 @@ final class CoachOrderStore {
 
     func removeAttachment(_ attachment: ReviewAttachmentRow) async {
         attachments.removeAll { $0.id == attachment.id }
-        _ = try? await supa.from("review_attachments").delete()
-            .eq("id", value: attachment.id.uuidString.lowercased()).execute()
+        struct DeleteReq: Encodable {
+            let action = "delete"
+            let orderId: String
+            let attachmentId: String
+        }
+        struct DeleteRes: Decodable { let ok: Bool? }
+        // The route removes the file, then the row. Deleting the row here
+        // used to leave the file in the bucket and its bytes on the tally.
+        let _: DeleteRes? = try? await API.post(
+            "api/review-attachment",
+            DeleteReq(orderId: idString, attachmentId: attachment.id.uuidString.lowercased())
+        )
     }
 
     // MARK: - Signed media (api/review-media)

@@ -3,6 +3,7 @@ import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { entryImageDeleteRequest } from "@/lib/journal/entryImage";
 import { createClient } from "@/lib/supabase/server";
 import { deleteObjects, MEDIA_BUCKET, putObject } from "@/lib/r2";
+import { checkUploadAllowed, MEDIA_UPLOAD_RULES, refusalStatus } from "@/lib/quota";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -145,6 +146,14 @@ export async function POST(req: Request) {
           "That photo doesn't look like it belongs in a training journal. Try play, equipment, a scoreboard, a drill, or your notes.",
       },
       { status: 422 }
+    );
+  }
+
+  const refused = await checkUploadAllowed(supabase, bytes.byteLength, MEDIA_UPLOAD_RULES);
+  if (refused) {
+    return NextResponse.json(
+      { error: refused, resource: "storage" },
+      { status: refusalStatus(refused) },
     );
   }
 

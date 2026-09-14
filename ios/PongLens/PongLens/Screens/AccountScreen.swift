@@ -458,7 +458,24 @@ struct AccountScreen: View {
                         .font(.plBody)
                         .foregroundStyle(PL.text500)
                 }
-                Text("Storage holds your match videos, so your playing history lives in one place instead of scattered across phones. Your uploads and their cut versions count toward the space. Point clips and notes don't.")
+                if let rows = store.storage?.breakdownRows, !rows.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(rows) { row in
+                            HStack {
+                                Text(row.label)
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.text400)
+                                Spacer()
+                                Text(String(format: "%.1f GB", Double(row.bytes) / 1_073_741_824))
+                                    .font(.plCaption)
+                                    .monospacedDigit()
+                                    .foregroundStyle(PL.text300)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                Text("Everything you store counts: match videos and their cut versions, lesson videos, point clips and reels, voice notes, sketches and photos. Deleting a match or a lesson video frees its space.")
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
                     .lineSpacing(3)

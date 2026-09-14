@@ -339,11 +339,15 @@ export type ListedObject = { key: string; size: number };
  */
 export async function listObjects(
   bucket: string,
-  prefix: string
+  prefix: string,
+  // The nightly storage measurement walks a whole bucket, which passed
+  // 17,000 objects in September 2026; everything else lists one match.
+  opts?: { maxPages?: number }
 ): Promise<ListedObject[]> {
   const objects: ListedObject[] = [];
   let token: string | undefined;
-  for (let page = 0; page < 20; page++) {
+  const maxPages = opts?.maxPages ?? 20;
+  for (let page = 0; page < maxPages; page++) {
     const url = new URL(`${endpoint()}/${bucket}`);
     url.searchParams.set("list-type", "2");
     url.searchParams.set("prefix", prefix);

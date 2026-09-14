@@ -695,6 +695,40 @@ cost a round each:
 
 ---
 
+## Storage: everything counts, measured nightly
+
+Since 2026-09-14 an account's storage number is everything it stores:
+originals, cut videos, lesson videos and recaps, point clips, reels, voice
+notes, sketches, photos and a coach's review files. 25 GB free; accounts
+tagged team or test in the admin players list get 100 GB
+(`app_config.team_storage_bytes`), and retagging moves the allowance. The
+audit and the decision are in
+`docs/superpowers/plans/2026-09-14-storage-everything-counts.md`.
+
+- **The ledger is a tally, not the truth.** `storage_ledger` drifts
+  whenever a write or delete forgets it (lesson cleanup, best-effort worker
+  bookings, `match.json` rewrites), and it had drifted 40 GB by the time
+  anyone measured. `/api/cron/storage-snapshot` lists both buckets every
+  night and writes `storage_snapshots`; used space is snapshot plus ledger
+  rows since the snapshot (`_storage_used_bytes`), so a missed booking
+  costs at most a day. Do not repair a wrong number by editing ledger rows;
+  press Measure now on `/admin`.
+- **A new prefix in a bucket must be taught to `src/lib/storage/inventory.ts`**
+  or it shows on the admin page as belonging to nobody. That is the
+  notification; do not fold it into the platform bucket.
+- **Every route that stores a file asks `checkUploadAllowed` before the
+  bytes move** (`MEDIA_UPLOAD_RULES` for anything that is not a match
+  upload) and refuses with `QUOTA_ERRORS.storage`, the sentence web and iOS
+  recovery already match. It then books the bytes. A new route without
+  both is not finished.
+- **Routes own deletion.** A row deleted straight through the API strands
+  its file in the bucket. Review attachments go through the route's delete
+  action from both apps; the row's trigger takes the bytes off the tally.
+- **The worker is untouched by all of this on purpose.** Its releases are
+  sealed; the snapshot absorbs what it forgets.
+
+---
+
 ## Retention
 
 **Nothing a live match references is ever deleted.** The original upload
