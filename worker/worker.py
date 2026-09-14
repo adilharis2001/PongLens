@@ -60,10 +60,11 @@ import requests
 from botocore.exceptions import ClientError
 
 if __package__:
-    from . import processing_outcome, cut_timeline, match_ready_delivery
+    from . import processing_outcome, cut_timeline, match_ready_delivery, point_winner_predictions
     from .upload_feedback import ProcessingTelemetry
 else:
     import processing_outcome
+    import point_winner_predictions
     import cut_timeline
     import match_ready_delivery
     from upload_feedback import ProcessingTelemetry
@@ -4361,6 +4362,26 @@ def insert_points(
     match_id: str,
     points: list[dict],
     prefix: str,
+    *,
+    prediction_rows=None,
+    prediction_provenance=None,
+) -> dict[int, dict]:
+    # Existing hand/legacy callers can retain their behavior. Automatic match
+    # publication always supplies a complete prediction attempt per card.
+    if prediction_rows is None:
+        return _insert_point_rows(conn, match_id, points, prefix)
+    with point_winner_predictions.atomic_point_writes(conn):
+        inserted = _insert_point_rows(conn, match_id, points, prefix)
+        point_winner_predictions.persist_predictions(
+            conn, inserted, prediction_rows, prediction_provenance)
+    return inserted
+
+
+def _insert_point_rows(
+    conn,
+    match_id: str,
+    points: list[dict],
+    prefix: str,
 ) -> dict[int, dict]:
     inserted = {}
     with conn.cursor() as cur:
@@ -5285,6 +5306,7 @@ def run_points_stage(
     *,
     attempt_key: str = "manual",
     cut_local_path: str | None = None,
+    processing_source_offset_s: float = 0.0,
     processing_run=None,
 ):
     """Break the original video into points. Failure here never fails the
@@ -5370,6 +5392,20 @@ def run_points_stage(
         points = match_json["points"]
         if not points:
             raise RuntimeError("points pipeline found no points")
+        # Private sidecar stays local: only its validated rows reach the DB,
+        # never owner-accessible match.json or a media upload.
+        prediction_rows = point_winner_predictions.load_predictions(outdir, points)
+        with conn.cursor() as cur:
+            cur.execute(
+                "select coalesce(m.raw_path,j.input_path) from public.matches m "
+                "join public.jobs j on j.id=%s where m.id=%s", (job_id, match_id))
+            source_row = cur.fetchone()
+        prediction_provenance = {
+            "job_id": str(job_id),
+            "source_identity": source_row[0] if source_row else None,
+            "source_offset_s": processing_source_offset_s,
+            "release_id": processing_outcome.release_identity()[0] or "unsealed",
+        }
         structure_evidence = run_match_structure_stage(
             blurball_out,
             os.path.join(outdir, "match.json"),
@@ -5473,6 +5509,8 @@ def run_points_stage(
             match_id,
             points,
             r2_prefix,
+            prediction_rows=prediction_rows,
+            prediction_provenance=prediction_provenance,
         )
         if structure_evidence is not None:
             persist_match_structure(
@@ -8758,6 +8796,7 @@ def process_job(conn, msg) -> None:
                 played_at=played_at,
                 attempt_key=attempt_key,
                 cut_local_path=result,
+                processing_source_offset_s=camera_offset_s,
                 processing_run=processing_run)
             if processing_run is not None:
                 processing_run.finished_at = processing_outcome.now()
