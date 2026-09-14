@@ -102,7 +102,7 @@ async function fixture(viewport, scenario) {
 try {
   for(const [surface,viewport] of [['desktop',{width:1440,height:900}],['mobile',{width:393,height:660}]]) {
     const regressions=['correction','clear','skip','paused-first-answer','live-first-answer','scrubbed-first-answer','auto-paused-first-answer','failed-clear','failed-undo','immediate-undo','undo-then-correction','undo-after-close','undo-after-reopen','undo-after-navigation','undo-after-pause','join-then-score','backward-join-then-score','missing-own-clip','scorekeeper-full-card','scorekeeper-tap-stop'];
-    const earlyScenarios=['early-winner-me','early-winner-opponent','early-skip','early-live-winner','early-live-skip','early-live-winner-tap-stop','early-let-key','early-skip-key','early-second-winner','early-second-skip','early-second-again','early-second-undo','early-armed-modify','early-skip-undo','early-skip-failure','early-winner-failure','early-skip-delayed-failure','early-skip-reopen','late-skip','threshold-skip','early-correction','early-skip-navigation','early-skip-resume'];
+    const earlyScenarios=['early-winner-me','early-winner-opponent','early-skip','early-live-winner','early-live-skip','early-live-winner-tap-stop','early-let-key','early-skip-key','early-second-winner','early-second-skip','early-second-winner-let','early-second-again','early-second-undo','early-armed-modify','early-skip-undo','early-skip-failure','early-winner-failure','early-skip-delayed-failure','early-skip-reopen','late-skip','threshold-skip','early-correction','early-skip-navigation','early-skip-resume'];
     const scenarios=['reference','early-reference'].includes(process.env.QA_SCENARIO)
       ? [process.env.QA_SCENARIO]
       : [...regressions,...earlyScenarios,'early-handoff'].filter(name=>!process.env.QA_SCENARIO||process.env.QA_SCENARIO===name||(process.env.QA_SCENARIO==='early'&&(earlyScenarios.includes(name)||name==='early-handoff')));
@@ -202,6 +202,19 @@ try {
                 assert.equal(await f.page.evaluate(()=>document.querySelector('video').paused),true,'Modify opens paused while armed');
                 assert.equal(await nudge.count(),0,'the arm retires when the editor opens');
                 assert.deepEqual(f.splits,[],'opening the editor cuts nothing by itself');
+              } else if(scenario==='early-second-winner-let') {
+                // Skip is the third answer to the same question: it must cut
+                // the card exactly as a winner does and make the new half the
+                // let, without stopping the footage the way it used to.
+                await f.page.getByRole('button',{name:/^Skip\s*let$/}).click();
+                await f.page.waitForFunction(()=>document.querySelectorAll('[aria-label^="Go to point"]').length===4);
+                assert.equal(f.splits.length,1,'a let in there cuts the card too');
+                assert.ok(Math.abs(f.splits[0].at_t-11.9)<.01,'and cuts it in the same place');
+                const lets=f.writes.filter(w=>w.patch.is_let===true);
+                assert.equal(lets.length,1,'one let, and it is not the card already answered');
+                assert.ok(lets[0].id.includes('44444444'),`the let lands on the new half, got ${lets[0].id}`);
+                assert.equal(lets[0].patch.confirmed_winner,null);
+                assert.equal(await f.page.evaluate(()=>document.querySelector('video').paused),false,'a let never stops the footage');
               } else {
                 assert.equal(await f.page.getByRole('button',{name:'Split',exact:true}).count(),1,'the explicit Split route stays on offer beside the buttons');
                 await f.page.locator('#full-video-card').getByRole('button',{name:'Me',exact:true}).click();

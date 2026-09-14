@@ -4016,7 +4016,7 @@ export const Player = forwardRef<
    * own Undo entry is left alone.
    */
   const answerSecondPoint = useCallback(
-    async (side: "user" | "opponent", thenWhy = false) => {
+    async (call: "user" | "opponent" | "skip", thenWhy = false) => {
       const armed = splitArmRef.current;
       if (!armed || !onSplit || modifyBusy) return;
       const A = pointsRef.current.find((x) => x.id === armed.pointId);
@@ -4075,22 +4075,37 @@ export const Player = forwardRef<
       // drops a tap-derived ending on an edited card (scorerState.winner).
       // Its playback end is the card's own padded end either way, which is
       // exactly what leaves a THIRD rally's footage in place below.
-      void onSetWinner(child, side)
+      //
+      // A let is one of the three answers to the same question, so it takes
+      // the same road: the card is cut and the new half is the let. Skip
+      // meaning something else while this is up would make the row of
+      // buttons under one sentence answer two different questions.
+      void (call === "skip"
+        ? onSetSkipped(child, true)
+        : onSetWinner(child, call)
+      )
         .catch(() => ({ failed: true }) as ScorerCommandResult)
         .then((result) => {
           if (isScorerFailure(result)) showToast("Couldn't save. Tap again.");
         });
-      showFlash(`Split · ${side === "user" ? youLabel : themLabel}`);
-      if (thenWhy) {
+      showFlash(
+        `Split · ${
+          call === "skip" ? "let" : call === "user" ? youLabel : themLabel
+        }`
+      );
+      if (thenWhy && call !== "skip") {
         pauseBoth();
         pinEndPause(null);
-        setWhyPoint({ ...child, confirmed_winner: side, is_let: false });
+        setWhyPoint({ ...child, confirmed_winner: call, is_let: false });
         return;
       }
       // Carry on exactly as an ordinary answer does: a third rally inside
       // what is left arms the child in turn, otherwise this moves on.
       pinEndPause(null);
-      if (!armSecondAnswer(child, at)) advanceFrom(child);
+      if (!armSecondAnswer(child, at)) {
+        if (call === "skip") jumpAfter(child);
+        else advanceFrom(child);
+      }
     },
     [
       onSplit,
@@ -4098,6 +4113,8 @@ export const Player = forwardRef<
       nowT,
       clearSplitArm,
       onSetWinner,
+      onSetSkipped,
+      jumpAfter,
       showFlash,
       showToast,
       youLabel,
@@ -4322,6 +4339,18 @@ export const Player = forwardRef<
   );
 
   const tapSkip = useCallback(() => {
+    // ARMED: the same question the winner buttons are answering, answered
+    // "that one was a let". Skip is one of the three things that can have
+    // happened in the rally just watched, so it goes down the same road —
+    // anything else and the row of buttons under one sentence would be
+    // answering two different questions.
+    if (splitArmRef.current && phase === "play") {
+      lastScoreTapRef.current = Date.now();
+      markHintDone("score");
+      setScoreHint(false);
+      void answerSecondRef.current("skip");
+      return;
+    }
     const p = resolveTargetPoint();
     if (!p) return;
     if (p.is_let) {
@@ -4369,6 +4398,7 @@ export const Player = forwardRef<
     clearSplitArm,
     armSecondAnswer,
     jumpAfter,
+    markHintDone,
   ]);
 
   // Delete ("dead space"): soft-remove the rally on screen — a mis-cut,
@@ -4379,6 +4409,8 @@ export const Player = forwardRef<
   const tapDelete = useCallback(() => {
     const p = resolveTargetPoint();
     if (!p) return;
+    // Removing the card retires the question about what else is inside it.
+    clearSplitArm();
     setUndoStack((s) => [
       ...s,
       {
@@ -4428,6 +4460,7 @@ export const Player = forwardRef<
     phase,
     seekTo,
     playNow,
+    clearSplitArm,
   ]);
 
   // ------------------------------------------------------ Modify modal

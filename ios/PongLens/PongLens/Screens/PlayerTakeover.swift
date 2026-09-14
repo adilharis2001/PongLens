@@ -2971,7 +2971,7 @@ struct PlayerTakeover: View {
         // the next rally's padded span mid-tail on a tight cut, and this
         // answer belongs to the card the footage came from.
         if let armed = splitArm, phase == .play, !splitBusy {
-            answerSecondPoint(armed, side, thenWhy: thenWhy)
+            answerSecondPoint(armed, .winner(side), thenWhy: thenWhy)
             return
         }
         guard let target = tapTarget else { return }
@@ -3059,11 +3059,20 @@ struct PlayerTakeover: View {
     }
 
     func tapSkip() {
+        // ARMED: the same question the winner buttons are answering, with
+        // "that one was a let" as the answer. This used to clear the arm on
+        // its way past, which ALSO released the tail the arm owned — so the
+        // footage stopped on a Skip and played on for a winner, under one
+        // sentence asking for one answer.
+        if let armed = splitArm, phase == .play, !splitBusy {
+            answerSecondPoint(armed, .skip)
+            return
+        }
         guard let target = tapTarget else { return }
-        // Pressing the action again resolves any decision it raised. The
-        // last point has no navigation call below to clear it for us.
-        clearSplitArm()
         if target.isLet {
+            // Pressing the action again resolves any decision it raised.
+            // The last point has no navigation call below to clear it.
+            clearSplitArm()
             // Already skipped — the press means "move on". Never a silent
             // no-op, and never an undo entry either: nothing changed.
             if let next = nextCutStart(points, after: target),
@@ -3104,6 +3113,8 @@ struct PlayerTakeover: View {
 
     func tapDelete() {
         guard let target = tapTarget else { return }
+        // Removing the card retires the question about what else is in it.
+        clearSplitArm()
         undoStack.append(.existing(.delete(pointId: target.id, cutT0: target.cutT0)))
         Task { await model.softDelete(target) }
         showFlash("Removed")
@@ -3218,7 +3229,9 @@ struct PlayerTakeover: View {
     ///
     /// The new half is the one scored: the parent keeps the answer it
     /// already has, and its own Undo entry is left alone.
-    func answerSecondPoint(_ armed: SplitArm, _ side: Winner, thenWhy: Bool) {
+    func answerSecondPoint(
+        _ armed: SplitArm, _ action: ScoreOutcomeAction, thenWhy: Bool = false
+    ) {
         guard let parent = points.first(where: { $0.id == armed.pointId }),
               !parent.deleted
         else { return }
@@ -3251,18 +3264,35 @@ struct PlayerTakeover: View {
             // scorer drops a tap-derived ending on an edited card. Its
             // playback end is the card's own padded end either way, which is
             // exactly what leaves a THIRD rally's footage in place below.
-            let command = model.queueWinner(
-                child, side, scoredAt: nil,
-                observationTiming: ScorerTimingGuard(child), force: true
-            )
+            // A let is one of the three answers to the same question, so it
+            // takes the same road: the card is cut and the new half is the
+            // let. Skip meaning something else while this is up would make
+            // the buttons under one sentence answer two questions.
+            let command: Task<ScorerCommandReceipt?, Never>
+            switch action {
+            case .winner(let side):
+                command = model.queueWinner(
+                    child, side, scoredAt: nil,
+                    observationTiming: ScorerTimingGuard(child), force: true
+                )
+            case .skip:
+                command = model.queueSkip(child)
+            }
             let owner = scorerSessionEffects.capture()
             Task {
                 guard await command.value == nil,
                       scorerSessionEffects.sameSession(owner) else { return }
                 showToast("Couldn't save. Tap again.")
             }
-            showFlash("Split · \(side == .user ? "Me" : (match.opponentName ?? "Them"))")
-            if thenWhy {
+            let name: String
+            switch action {
+            case .winner(let side):
+                name = side == .user ? "Me" : (match.opponentName ?? "Them")
+            case .skip:
+                name = "let"
+            }
+            showFlash("Split · \(name)")
+            if thenWhy, case .winner(let side) = action {
                 pauseForInteraction()
                 var scored = child
                 scored.confirmedWinner = side
@@ -3273,7 +3303,7 @@ struct PlayerTakeover: View {
             // Carry on exactly as an ordinary answer does: a third rally in
             // what is left arms the new half in turn, otherwise this moves on.
             switch scoreOutcomeDecision(
-                .winner(side), for: child, hadOutcome: false,
+                action, for: child, hadOutcome: false,
                 now: currentT, pad: pad
             ) {
             case .armSecondAnswer(let atCut, let certain, let tailEnd):
@@ -3281,7 +3311,7 @@ struct PlayerTakeover: View {
                     child, atCut: atCut, certain: certain, tailEnd: tailEnd
                 )
             case .continueExistingFlow:
-                advance(from: child)
+                if case .skip = action { jumpAfter(child) } else { advance(from: child) }
             case .stay:
                 break
             }
