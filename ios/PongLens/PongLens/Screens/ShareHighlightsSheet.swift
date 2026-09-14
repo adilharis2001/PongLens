@@ -27,6 +27,9 @@ struct ShareHighlightsSheet: View {
 
     var body: some View {
         PLChooserSheet(title: "Share your highlights") {
+            if let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                Section { ProcessingAvailabilityNoticeView(notice: notice) }
+            }
             Section {
                 if sharingOn, InstagramShare.isAvailable(.reel) {
                     PLChooserRow(

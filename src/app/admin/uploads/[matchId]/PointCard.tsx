@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Point } from "@/lib/types";
 import type { ServeInfo } from "../../../match/[id]/serving";
 import {
@@ -24,8 +24,18 @@ import {
   type ServeMissData,
 } from "../serveMiss";
 import type { CardReading } from "../pointReadings";
+import { crossingDisputesServer, v3ServerOf } from "../serveMiss";
+import {
+  isLabelled,
+  type CardScore,
+  type EndName,
+  type LabelPatch,
+  type PlayheadHandle,
+  type PointLabel,
+} from "../pointLabels";
 import { CardFacts } from "./CardFacts";
 import { CardReview, type Theme } from "./CardReview";
+import { PointLabels } from "./PointLabels";
 import { ServeMissView } from "./ServeMissView";
 
 /**
@@ -68,6 +78,13 @@ export function PointCard({
   onThemeToggle,
   onThemeCreated,
   onThemeDeleted,
+  sideThisGame,
+  label,
+  onLabelPatch,
+  labelContext,
+  unmarked = 0,
+  hasNext = false,
+  continuesFromPrev = false,
 }: {
   row: UploadPointRow;
   serve: ServeInfo | null;
@@ -110,8 +127,30 @@ export function PointCard({
   onThemeToggle?: (pointId: string, themeId: string, on: boolean) => void;
   onThemeCreated?: (theme: Theme) => void;
   onThemeDeleted?: (themeId: string) => void;
+  /** The uploader's end for THIS point's game — physicalSideForGame, not
+   *  the raw `matches.user_side`. Only used to tell agreement from
+   *  disagreement; the chip itself names an end and needs none of it. */
+  sideThisGame?: string | null;
+  /** The admin's own answer for this card: which end served, which end
+   *  won, where it splits, whether it runs on. Drives the list's marker
+   *  and, where the list owns the expansion, the buttons inside it. */
+  label?: PointLabel | null;
+  onLabelPatch?: (pointId: string, patch: LabelPatch) => void;
+  labelContext?: {
+    detectedServerEnd: EndName | null;
+    rotationServerEnd: EndName | null;
+    ownerWinnerEnd: EndName | null;
+    scores: CardScore[] | null;
+  } | null;
+  unmarked?: number;
+  hasNext?: boolean;
+  /** The card before this one runs into it. */
+  continuesFromPrev?: boolean;
 }) {
   const [openMiss, setOpenMiss] = useState(false);
+  // A phone expands the analysis inside the card, so the split button has
+  // to reach the picture mounted right here rather than the pane's.
+  const playhead = useRef<PlayheadHandle | null>(null);
   const flags = pointFlags(row);
   const gap = gapLabel(row.gapBeforeS);
 
@@ -174,7 +213,8 @@ export function PointCard({
                 {serve.server === "user" ? names.user : names.opponent} served
               </span>
             )}
-            {review && (review.note || review.themeIds.length > 0) && (
+            {((review && (review.note || review.themeIds.length > 0)) ||
+              isLabelled(label)) && (
               <span
                 className={compact ? "text-xs text-cyan-glow" : "text-sm text-cyan-glow"}
                 title="Reviewed"
@@ -207,6 +247,65 @@ export function PointCard({
                 {trimmedS.toFixed(1)}s trimmed
               </span>
             )}
+            {/* V3's own read of who served, which is independent of the
+                rotation on the line above: that one is COUNTED OUT from
+                the scoring, this one is seen in the geometry. Where they
+                disagree is the only interesting part, so that is the only
+                part that gets a colour. */}
+            {miss?.serve_source === "v3" && miss.serve_half && (() => {
+              // The chip names an END, which is what V3 actually read. It
+              // used to name a PLAYER, and that was wrong: turning an end
+              // into a person needs the uploader's end for THIS game, and
+              // players change ends every game. An end cannot go stale at a
+              // changeover, and on an unscored match — where the games are
+              // not known at all — it is the only answer that can be right.
+              const who = v3ServerOf(miss.serve_half, sideThisGame);
+              // A verdict the admin filed OUTRANKS the counted rotation.
+              // One is a person who watched the rally; the other is
+              // arithmetic over a scoring that can itself have lost its
+              // anchor, which is exactly what happened on Julian on 13
+              // Sep — 17 disagreements, and the ball put V3 right on 12.
+              // The FIRST point in the card: V3 read the serve at the
+              // card's start, so that is the only one of its points its
+              // reading can be right or wrong about.
+              const called = label?.serverEnds?.[0] ?? null;
+              const disagrees = called
+                ? called !== miss.serve_half
+                : who !== null && serve?.server != null && who !== serve.server;
+              // The crossings' own read of the same question. It flags and
+              // never corrects: on Adil's marks it caught 6 of 8 wrong
+              // server reads but disputed 3 of 10 right ones, and a second
+              // opinion wrong three times in ten is not one to overrule a
+              // detector with.
+              const doubted = crossingDisputesServer(miss);
+              return (
+                <span
+                  title={
+                    called
+                      ? called === miss.serve_half
+                        ? "You marked this end as the server's, so V3 read it right"
+                        : `You marked the ${called} end as the server's, so V3 read it wrong`
+                      : doubted
+                        ? "The net crossings put the serve's first bounce on the other half, so this end is doubtful. The crossings are right about six times in eight when they dispute it, and wrong about three times in ten when they agree with nothing."
+                        : disagrees
+                          ? "V3 read the server at the other end from the one the scoring rotation counts out"
+                          : "The end V3 read as the server's, from the half its qualifying bounce landed on"
+                  }
+                  className={
+                    disagrees
+                      ? "rounded border border-amber-400/40 px-1.5 py-px text-amber-300"
+                      : called
+                        ? "rounded border border-cyan-glow/40 px-1.5 py-px text-cyan-glow"
+                        : doubted
+                          ? "rounded border border-amber-400/40 px-1.5 py-px text-amber-300"
+                          : "rounded border border-edge px-1.5 py-px text-zinc-400"
+                  }
+                >
+                  V3: {miss.serve_half} end
+                  {called ? (disagrees ? " ✗" : " ✓") : doubted ? " ?" : ""}
+                </span>
+              );
+            })()}
             {miss &&
               (typeof miss.serve_s === "number" ? (
                 <span className="rounded border border-edge px-1.5 py-px text-zinc-400">
@@ -276,7 +375,30 @@ export function PointCard({
                   videoUrl={videoUrl ?? null}
                   labels={eventLabels}
                   onLabel={onEventLabel}
+                  playhead={playhead}
                 />
+              )}
+              {label && onLabelPatch && (
+                <div className="mt-3">
+                  <PointLabels
+                    pointId={row.id}
+                    label={label}
+                    onPatch={onLabelPatch}
+                    names={names}
+                    sideThisGame={sideThisGame ?? null}
+                    detectedServerEnd={labelContext?.detectedServerEnd ?? null}
+                    rotationServerEnd={labelContext?.rotationServerEnd ?? null}
+                    ownerWinnerEnd={labelContext?.ownerWinnerEnd ?? null}
+                    scores={labelContext?.scores ?? null}
+                    unmarked={unmarked}
+                    cardT0={row.t0}
+                    cardT1={row.t1}
+                    playhead={miss && missData ? playhead : undefined}
+                    hasNext={hasNext}
+                    cardNumber={row.displayNo ?? 0}
+                    continuesFromPrev={continuesFromPrev}
+                  />
+                </div>
               )}
               {review && vocabulary && onNoteChange && onThemeToggle &&
                 onThemeCreated && (

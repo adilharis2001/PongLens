@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MutableRefObject,
   type ReactNode,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -19,6 +20,8 @@ import {
 } from "../../../match/[id]/playhead";
 import { clipPad, effectivePad } from "../../../match/[id]/clipEdit";
 import { computeServing, type ServeInfo } from "../../../match/[id]/serving";
+import { computeMatchScore } from "../../../match/[id]/gameScore";
+import { physicalSideForGame, type Side } from "../../../match/[id]/sides";
 import {
   buildPointRows,
   cardCanOpen,
@@ -43,12 +46,25 @@ import {
   cutOffsetFor,
   labelKey,
   missForPoint,
+  v3ServerAgreement,
   type BounceLabel,
   type MissBounce,
   type ServeMissData,
 } from "../serveMiss";
+import {
+  applyPatch,
+  emptyLabel,
+  endForPerson,
+  labelScoreByPoint,
+  type CardScore,
+  type EndName,
+  type LabelPatch,
+  type PlayheadHandle,
+  type PointLabel,
+} from "../pointLabels";
 import { CardFacts } from "./CardFacts";
 import { CardReview, type Theme } from "./CardReview";
+import { PointLabels } from "./PointLabels";
 import { PointCard } from "./PointCard";
 import { ServeMissView } from "./ServeMissView";
 import { TableQuad } from "./TableQuad";
@@ -102,6 +118,7 @@ export function UploadView({
   readingSummary,
   themes: initialThemes,
   eventLabels: initialEventLabels,
+  cardLabels: initialCardLabels,
   ends,
 }: {
   detail: UploadDetail;
@@ -112,6 +129,8 @@ export function UploadView({
   themes: Theme[];
   /** The admin's stored event corrections for this match (154). */
   eventLabels: { t: number; label: BounceLabel }[];
+  /** What the admin has already decided each card should have been. */
+  cardLabels: { pointId: string; label: PointLabel }[];
   ends: EndOptions;
 }) {
   const { match, owner, job, totals } = detail;
@@ -182,6 +201,29 @@ export function UploadView({
     [match.id]
   );
 
+  /* The admin's answer to what each card should have been — which end
+     served, which end won, where it splits, whether it joins on. Held here
+     rather than inside each card for the same reason the notes are: the
+     list's markers, the pane's buttons and the running score all have to
+     agree the instant any one of them changes.
+
+     Writes are optimistic and PointLabels puts them back itself if the
+     database refuses, so this only ever holds what the page is showing. */
+  const [cardLabels, setCardLabels] = useState<Map<string, PointLabel>>(
+    () => new Map(initialCardLabels.map((l) => [l.pointId, l.label]))
+  );
+  const patchLabel = useCallback((pointId: string, patch: LabelPatch) => {
+    setCardLabels((prev) => {
+      const next = new Map(prev);
+      next.set(pointId, applyPatch(prev.get(pointId) ?? emptyLabel(), patch));
+      return next;
+    });
+  }, []);
+  const labelFor = useCallback(
+    (pointId: string) => cardLabels.get(pointId) ?? emptyLabel(),
+    [cardLabels]
+  );
+
   const [vocabulary, setVocabulary] = useState<Theme[]>(initialThemes);
   const [reviewNotes, setReviewNotes] = useState<Map<string, string>>(
     () => new Map(detail.points.map((p) => [p.id, p.admin_note ?? ""]))
@@ -235,6 +277,10 @@ export function UploadView({
   });
 
   const rows = useMemo(() => buildPointRows(detail.points), [detail.points]);
+  const selected = useMemo(
+    () => rows.find((r) => r.id === selectedId) ?? null,
+    [rows, selectedId]
+  );
   const readingFor = useMemo(
     () => new Map(readings.map((r) => [r.pointId, r])),
     [readings]
@@ -263,6 +309,170 @@ export function UploadView({
       match.first_server ?? null
     );
   }, [rows, match.first_server]);
+
+  /* Which end the uploader was at, PER POINT.
+  
+     `matches.user_side` is tagged from the first point's frame, so it is
+     their end in game one and the wrong end in game two — players change
+     ends at every game. Every other surface that turns an end into a
+     person runs it through physicalSideForGame first (the placement map,
+     the point sheet, the aggregate); this page did not, and named the
+     wrong player for half of every match. Game index comes from the same
+     confirmed-score walk MatchView uses, so the three cannot drift.
+
+     `confirmedCount` is what says whether the walk means anything. With no
+     confirmed scores there are no game boundaries to find, every point
+     reads as game one, and the uploader's end is unknowable past the first
+     changeover — so the ends stay null rather than quietly wrong. */
+  const sideByPoint = useMemo(() => {
+    const map = new Map<string, Side | null>();
+    const visible = rows.filter((r) => !r.deleted);
+    const userSide =
+      match.user_side === "near" || match.user_side === "far"
+        ? (match.user_side as Side)
+        : null;
+    const score = computeMatchScore(visible as unknown as Point[]);
+    const known = userSide !== null && score.confirmedCount > 0;
+    let g = 0;
+    for (const r of visible) {
+      map.set(r.id, known ? physicalSideForGame(userSide, g) : null);
+      if (score.boundaryAfter.has(r.id)) g += 1;
+    }
+    return map;
+  }, [rows, match.user_side]);
+
+  /* Has the rotation lost its anchor?
+  
+     A game ends at 11. If none ever closed and the running score is deep
+     past that, the boundaries were never marked — and the ITTF rotation
+     switches to ONE serve each at 10-10, so from there on it simply
+     alternates every point. It is no longer counting anything out; it is
+     flipping a coin in step.
+  
+     Measured on Julian, 13 Sep: one unclosed game reading 26-38, and the
+     server it reported disagreed with the detector on 17 points. Asking
+     the ball to arbitrate — a bounce, a net crossing, a bounce on the
+     other half within half a second is a serve and names its own end —
+     put the DETECTOR right on 12 of them and the rotation right on 2. So
+     the accuracy figure on that match was measuring the ruler's drift.
+  
+     Every one of those 17 came from the computed rotation. Not one came
+     from a server the owner had set by hand, which is the other half of
+     the same evidence. */
+  const rotationAnchored = useMemo(() => {
+    const visible = rows.filter((r) => !r.deleted);
+    const score = computeMatchScore(visible as unknown as Point[]);
+    if (score.confirmedCount === 0) return false;
+    if (score.games.length > 0) return true;
+    // One game still open: trustworthy until 10-10, guesswork after it.
+    return score.current.you < 11 && score.current.them < 11;
+  }, [rows]);
+
+  /* V3's read of the server against the one the scoring counts out. Both
+     answers have to exist for a card to be asked: a card with no V3 half,
+     a rotation that never anchored on a known first server, or a match
+     whose ends cannot be followed, has nothing to compare rather than a
+     disagreement. */
+  const serverRead = useMemo(
+    () =>
+      v3ServerAgreement(
+        rows
+          .filter((r) => !r.deleted)
+          .map((r) => {
+            const m = missForPoint(serveMisses, r);
+            return {
+              serveSource: m?.serve_source,
+              serveHalf: m?.serve_half,
+              rotationServer: rotationAnchored
+                ? serving.get(r.id)?.server ?? null
+                : null,
+              sideThisGame: sideByPoint.get(r.id) ?? null,
+            };
+          })
+      ),
+    [rows, serveMisses, serving, sideByPoint, rotationAnchored]
+  );
+
+  /* The running score as the cards have actually been called: the admin's
+     own mark where there is one, the owner's own scoring where there is
+     not. In ENDS, because ends hold still for the length of a game and a
+     match nobody has scored cannot name a person at all. */
+  const labelScore = useMemo(
+    () =>
+      labelScoreByPoint(
+        rows
+          .filter((r) => !r.deleted)
+          .map((r) => {
+            const l = cardLabels.get(r.id);
+            const owner = endForPerson(
+              r.confirmed_winner,
+              sideByPoint.get(r.id) ?? null
+            );
+            const segments = (l?.splits.length ?? 0) + 1;
+            return {
+              id: r.id,
+              is_let: r.is_let,
+              gameEndOverride: r.game_end_override,
+              // A card nobody has cut still has the owner's own answer
+              // standing behind it. Once it is cut, the owner's single
+              // answer describes none of its points, so only what has
+              // actually been filed counts.
+              winnerEnds:
+                segments === 1
+                  ? [l?.winnerEnds[0] ?? owner]
+                  : Array.from({ length: segments }, (_, i) =>
+                      l?.winnerEnds[i] ?? null
+                    ),
+              segments,
+              joinNext: l?.joinNext ?? false,
+            };
+          })
+      ),
+    [rows, cardLabels, sideByPoint]
+  );
+
+  /* What the machine and the scoring each say about one card, so the
+     buttons can carry it. Context beside the answer, never a pre-filled
+     answer: a ticked box teaches you to confirm rather than to look. */
+  const labelContextFor = useCallback(
+    (row: UploadPointRow) => {
+      const side = sideByPoint.get(row.id) ?? null;
+      const m = missForPoint(serveMisses, row);
+      return {
+        detectedServerEnd:
+          m?.serve_source === "v3" ? m.serve_half ?? null : null,
+        // Suppressed on a match whose rotation has lost its anchor: past
+        // 10-10 with no game ever closed it alternates every point rather
+        // than counting anything out, and marking a button with it would
+        // be pointing at a coin toss.
+        rotationServerEnd: rotationAnchored
+          ? endForPerson(serving.get(row.id)?.server ?? null, side)
+          : null,
+        ownerWinnerEnd: endForPerson(row.confirmed_winner, side),
+        scores: labelScore.bySegment.get(row.id) ?? null,
+      };
+    },
+    [sideByPoint, serveMisses, serving, rotationAnchored, labelScore]
+  );
+
+  /** Every visible card but the last: only those can run into a next one. */
+  const hasNextCard = useMemo(() => {
+    const visible = rows.filter((r) => !r.deleted);
+    return new Set(visible.slice(0, -1).map((r) => r.id));
+  }, [rows]);
+
+  /* Cards whose PREVIOUS card is marked as running into them. Their first
+     point began there, so its serve was asked there and is not asked
+     again here — the one place a label has to look at its neighbour. */
+  const continuedInto = useMemo(() => {
+    const visible = rows.filter((r) => !r.deleted);
+    const out = new Set<string>();
+    visible.forEach((r, i) => {
+      const prev = i > 0 ? visible[i - 1] : null;
+      if (prev && cardLabels.get(prev.id)?.joinNext) out.add(r.id);
+    });
+    return out;
+  }, [rows, cardLabels]);
 
   const signCut = useCallback(async () => {
     const res = await fetch("/api/admin/media-url", {
@@ -517,7 +727,11 @@ export function UploadView({
           />
         </dl>
 
-        <DetectorCounts assembly={assembly} />
+        <DetectorCounts
+          assembly={assembly}
+          serverRead={serverRead}
+          rotationAnchored={rotationAnchored}
+        />
         <RuleScore summary={readingSummary} />
 
         <p className="mt-4 text-sm text-zinc-500">
@@ -535,23 +749,6 @@ export function UploadView({
               : ""}
         </p>
       </section>
-
-      {/* The worker's own log */}
-      {matchJson?.notes && matchJson.notes.length > 0 && (
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold">What the pipeline said</h2>
-          <ul className="mt-3 space-y-2">
-            {matchJson.notes.map((note, i) => (
-              <li
-                key={i}
-                className="rounded-xl border border-edge bg-surface px-4 py-3 text-sm text-zinc-400"
-              >
-                {note}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       {/* The cards */}
       <section className="mt-8">
@@ -656,6 +853,13 @@ export function UploadView({
                   onThemeToggle={toggleTheme}
                   onThemeCreated={addTheme}
                   onThemeDeleted={dropTheme}
+                  sideThisGame={sideByPoint.get(row.id) ?? null}
+                  label={labelFor(row.id)}
+                  onLabelPatch={patchLabel}
+                  labelContext={labelContextFor(row)}
+                  unmarked={labelScore.unmarked}
+                  hasNext={hasNextCard.has(row.id)}
+                  continuesFromPrev={continuedInto.has(row.id)}
                 />
               ))}
             </ul>
@@ -666,7 +870,7 @@ export function UploadView({
                 className="sticky top-[73px] max-h-[calc(100dvh-89px)] min-w-0 flex-1 overflow-y-auto"
               >
                 <CardPane
-                  row={rows.find((r) => r.id === selectedId) ?? null}
+                  row={selected}
                   serve={selectedId ? serving.get(selectedId) ?? null : null}
                   names={names}
                   pad={pad}
@@ -685,6 +889,19 @@ export function UploadView({
                   onThemeToggle={toggleTheme}
                   onThemeCreated={addTheme}
                   onThemeDeleted={dropTheme}
+                  label={selectedId ? labelFor(selectedId) : null}
+                  onLabelPatch={patchLabel}
+                  labelContext={
+                    selected ? labelContextFor(selected) : null
+                  }
+                  unmarked={labelScore.unmarked}
+                  hasNext={selectedId ? hasNextCard.has(selectedId) : false}
+                  continuesFromPrev={
+                    selectedId ? continuedInto.has(selectedId) : false
+                  }
+                  sideThisGame={
+                    selectedId ? sideByPoint.get(selectedId) ?? null : null
+                  }
                 />
               </aside>
             )}
@@ -736,6 +953,13 @@ function CardPane({
   onThemeToggle,
   onThemeCreated,
   onThemeDeleted,
+  label,
+  onLabelPatch,
+  labelContext,
+  unmarked,
+  hasNext,
+  continuesFromPrev,
+  sideThisGame,
 }: {
   row: UploadPointRow | null;
   serve: ServeInfo | null;
@@ -754,7 +978,29 @@ function CardPane({
   onThemeToggle: (pointId: string, themeId: string, on: boolean) => void;
   onThemeCreated: (theme: Theme) => void;
   onThemeDeleted: (themeId: string) => void;
+  /** What the admin has filed about this card, and how to change it. */
+  label: PointLabel | null;
+  onLabelPatch: (pointId: string, patch: LabelPatch) => void;
+  labelContext: {
+    detectedServerEnd: EndName | null;
+    rotationServerEnd: EndName | null;
+    ownerWinnerEnd: EndName | null;
+    scores: CardScore[] | null;
+  } | null;
+  unmarked: number;
+  hasNext: boolean;
+  /** The card before this one runs into it, so this card's first point
+   *  began there and its serve was asked there. */
+  continuesFromPrev: boolean;
+  /** The uploader's end for THIS card's game, so an end can name a player. */
+  sideThisGame: string | null;
 }) {
+  /* The picture, so a split can be filed at the frame on screen. One ref
+     for the pane rather than one per card: only ever one card is mounted
+     here, and whichever player takes it claims the handle on mount and
+     gives it back on unmount. */
+  const playhead = useRef<PlayheadHandle | null>(null);
+
   if (!row) {
     return (
       <div className="rounded-2xl border border-dashed border-edge p-6">
@@ -795,6 +1041,33 @@ function CardPane({
       onThemeCreated={onThemeCreated}
       onThemeDeleted={onThemeDeleted}
       compact
+    />
+  ) : null;
+
+  /* What the card SHOULD have been, filed here rather than under the map.
+     The map is capped at 208px inside a 408px column, so the 188px left
+     over beside it is free height — putting these buttons there costs the
+     pane nothing, and a pass down the list never has to scroll to reach
+     them. On a card with no diagnosis there is no map to sit beside, so
+     they stack above the note box instead. */
+  const labelPanel = label ? (
+    <PointLabels
+      pointId={row.id}
+      label={label}
+      onPatch={onLabelPatch}
+      names={names}
+      sideThisGame={sideThisGame}
+      detectedServerEnd={labelContext?.detectedServerEnd ?? null}
+      rotationServerEnd={labelContext?.rotationServerEnd ?? null}
+      ownerWinnerEnd={labelContext?.ownerWinnerEnd ?? null}
+      scores={labelContext?.scores ?? null}
+      unmarked={unmarked}
+      cardT0={row.t0}
+      cardT1={row.t1}
+      playhead={playhead}
+      hasNext={hasNext}
+      cardNumber={row.displayNo ?? 0}
+      continuesFromPrev={continuesFromPrev}
     />
   ) : null;
 
@@ -855,7 +1128,9 @@ function CardPane({
           videoUrl={videoUrl}
           labels={eventLabels}
           onLabel={onEventLabel}
+          beside={labelPanel}
           side={sidePanel}
+          playhead={playhead}
           autoPlay
         />
       ) : (
@@ -864,7 +1139,16 @@ function CardPane({
           videoUrl={videoUrl}
           pad={pad}
           ends={ends}
-          side={sidePanel}
+          cutOffset={cutOffset}
+          playhead={playhead}
+          side={
+            labelPanel || sidePanel ? (
+              <>
+                {labelPanel}
+                {sidePanel}
+              </>
+            ) : null
+          }
           autoPlay
         />
       )}
@@ -887,12 +1171,19 @@ function PlainCardClip({
   pad,
   ends,
   side,
+  cutOffset,
+  playhead,
   autoPlay = false,
 }: {
   row: UploadPointRow;
   videoUrl: string | null;
   pad: ClipPad;
   ends: EndOptions;
+  /** Seconds to add to a source time to reach this video's clock. Null on
+   *  a card with no place in the cut, where there is nothing to convert. */
+  cutOffset?: number | null;
+  /** Handed the picture so a split can be filed at the frame on screen. */
+  playhead?: MutableRefObject<PlayheadHandle | null>;
   /** The same column the diagnosed view carries, so the note box sits in
    *  one place whether or not a card happens to have a diagnosis. */
   side?: ReactNode;
@@ -923,6 +1214,25 @@ function PlainCardClip({
       v.pause();
     };
   }, [start, autoPlay]);
+
+  /* This picture runs on the CUT clock and everything filed against a card
+     is in SOURCE seconds, so the handle converts in both directions. With
+     no offset there is no conversion to make and the handle stays unclaimed
+     — which is what disables the split rather than filing a wrong time. */
+  useEffect(() => {
+    if (!playhead || cutOffset == null) return;
+    const host = playhead;
+    host.current = {
+      time: () => (ref.current?.currentTime ?? 0) - cutOffset,
+      seek: (sourceSeconds: number) => {
+        const v = ref.current;
+        if (v) v.currentTime = sourceSeconds + cutOffset;
+      },
+    };
+    return () => {
+      host.current = null;
+    };
+  }, [playhead, cutOffset]);
 
   if (!videoUrl || start === null) {
     return (
@@ -1143,8 +1453,16 @@ function RuleScore({ summary }: { summary: ReadingSummary | null }) {
 
 function DetectorCounts({
   assembly,
+  serverRead,
+  rotationAnchored,
 }: {
   assembly: ReturnType<typeof readAssembly>;
+  /** How often V3 named the same server as the scoring rotation, and on
+   *  how many cards the question could be asked at all. */
+  serverRead: { agree: number; compared: number };
+  /** False when no game ever closed and the score ran past 11, which puts
+   *  the rotation into permanent deuce where it alternates every point. */
+  rotationAnchored: boolean;
 }) {
   const endOn = assembly.route === "end-on";
   const has =
@@ -1179,6 +1497,13 @@ function DetectorCounts({
             detail={assembly.cameraShape < 0.5 ? "flat, down the lens" : "across the lens"}
           />
         )}
+        {serverRead.compared > 0 && (
+          <Counted
+            label="Serve prediction accuracy"
+            value={`${Math.round((serverRead.agree / serverRead.compared) * 100)}%`}
+            detail={`${serverRead.agree} of ${serverRead.compared} cards`}
+          />
+        )}
       </dl>
 
       {endOn ? (
@@ -1199,6 +1524,25 @@ function DetectorCounts({
               : "."}
           </p>
         )
+      )}
+
+      {serverRead.compared > 0 && (
+        <p className="mt-2 text-sm text-zinc-500">
+          Serve prediction accuracy is who V3 read as the server — the half
+          its qualifying bounce landed on — against the server your scoring
+          counts out. Asked only on the cards where both have an answer, so
+          a card V3 refused is missing from it rather than counted wrong.
+        </p>
+      )}
+
+      {!rotationAnchored && assembly.serves !== null && (
+        <p className="mt-2 text-sm text-amber-300">
+          No serve prediction accuracy on this match, because there is
+          nothing to measure it against. No game has been closed and the
+          score has run past 11, so the rotation is in permanent deuce and
+          is alternating the server every point rather than counting it
+          out. Mark the game ends in Keep score and the figure comes back.
+        </p>
       )}
     </div>
   );

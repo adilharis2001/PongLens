@@ -42,6 +42,11 @@ struct StarredScreen: View {
 
                     header
 
+                    if store.rows.contains(where: \.edited),
+                       let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                        ProcessingAvailabilityNoticeView(notice: notice)
+                    }
+
                     if !store.loaded {
                         loading
                     } else if store.rows.isEmpty {
@@ -422,7 +427,7 @@ struct StarredTile: View {
                 }
                 Spacer(minLength: 0)
                 onFrame(
-                    Text(row.edited ? "Updating clip" : (row.durationLabel ?? ""))
+                    Text(row.edited ? (ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) == nil ? "Updating clip" : "Clip update waiting") : (row.durationLabel ?? ""))
                         .font(.system(size: 11, weight: .medium))
                         .monospacedDigit()
                         .foregroundStyle(PL.text200)
@@ -471,6 +476,10 @@ struct StarredPlayerScreen: View {
             if let row {
                 VStack(spacing: 0) {
                     header(row)
+                    if row.edited,
+                       let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                        ProcessingAvailabilityNoticeView(notice: notice).padding(.horizontal, 20)
+                    }
                     Spacer(minLength: 0)
                     picture(row)
                     controls(row)
@@ -541,7 +550,7 @@ struct StarredPlayerScreen: View {
                 url: url,
                 starred: true,
                 tagged: false,
-                updating: row.edited,
+                updating: row.edited && ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) == nil,
                 hasPrev: index > 0,
                 hasNext: index < store.rows.count - 1,
                 showTag: false,
@@ -560,7 +569,7 @@ struct StarredPlayerScreen: View {
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .overlay(
                     Text(row.edited
-                         ? "This clip is still being recut."
+                         ? (ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) == nil ? "This clip is still being recut." : "This clip will update when service is restored.")
                          : "Couldn't load this clip.")
                         .font(.plBody)
                         .foregroundStyle(PL.text500)

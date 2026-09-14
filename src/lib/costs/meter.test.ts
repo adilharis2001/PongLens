@@ -200,3 +200,54 @@ test("Deepgram without duration records a request without invented seconds", () 
     [["request", 1, "assumed"]],
   );
 });
+
+const SUBJECT = "8f14e45f-ce0a-4de5-9f1b-2c3d4e5f6a7b";
+
+test("a metered cost carries the account that caused it", () => {
+  const events = openAIUsageEvents({
+    usage: { prompt_tokens: 40, completion_tokens: 10 },
+    model: "gpt-5-mini",
+    operation: "lesson_summary",
+    idempotencyKey: "openai:sub-1",
+    subjectUserId: SUBJECT,
+  });
+
+  assert.ok(events.length > 0);
+  for (const event of events) {
+    assert.equal(normalizeUsageEvent(event)?.subjectUserId, SUBJECT);
+  }
+});
+
+test("a malformed subject loses the attribution, never the charge", () => {
+  // Metering is best-effort in every other respect, and a charge that
+  // really happened must not be thrown away over the shape of an id.
+  for (const bad of ["", "   ", "not-a-uuid", "12345", null, undefined]) {
+    const normalized = normalizeUsageEvent({
+      provider: "OpenAI",
+      service: "AI",
+      operation: "lesson_summary",
+      sku: "gpt-5-mini",
+      quantity: 7,
+      unit: "output_token",
+      idempotencyKey: "openai:sub-2",
+      subjectUserId: bad as string | null | undefined,
+    });
+    assert.equal(normalized?.quantity, 7);
+    assert.equal(normalized?.subjectUserId, null);
+  }
+});
+
+test("an unattributed cost is normalised to null rather than left undefined", () => {
+  // The column is nullable and the dashboard splits on "is not null", so
+  // an event that names nobody has to say so in the same way every time.
+  const normalized = normalizeUsageEvent({
+    provider: "Cloudflare",
+    service: "R2",
+    operation: "storage_daily_accrual",
+    sku: "r2-standard",
+    quantity: 3,
+    unit: "gb_month",
+    idempotencyKey: "r2:sweep-1",
+  });
+  assert.equal(normalized?.subjectUserId, null);
+});

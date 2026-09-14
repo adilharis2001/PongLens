@@ -161,6 +161,16 @@ func targetAt(
         : effectiveEnd(prev, pad, ends)
     guard let stop, let rEnd = rallyEnd(prev, pad), t < stop else { return cur }
     guard let runStart, runStart < rEnd else { return cur }
+    // A run that started on THIS rally settles it: you are watching the one
+    // you jumped to. The test above is written against the PREVIOUS rally,
+    // and on ordinary neighbours landing on one means landing after the
+    // other has finished — but not on the two halves of a SPLIT card, whose
+    // padded spans overlap by a third of a second. Jumping straight to the
+    // second half started a run that still read as "before the first half
+    // ended", and the hold dragged the target back onto the half nobody
+    // asked for: its number under the ring, its server on the switch, and
+    // its rally under the next winner tap.
+    if let start = cur.cutT0, runStart >= start - 0.05 { return cur }
     return prev
 }
 
@@ -200,6 +210,68 @@ enum AdvanceMove: Equatable {
     case jump(to: Double)
     /// Nothing after this rally — stay put and keep playing.
     case stay
+}
+
+enum ScoreOutcomeAction: Equatable {
+    case winner(Winner)
+    case skip
+}
+
+enum ScoreOutcomeDecision: Equatable {
+    /// Keep the card playing and ARM the second answer on it: while this
+    /// stands, the winner buttons mean "who won the rally that just
+    /// finished", so a fused clip is split by answering again rather than
+    /// through an editor. `atCut` is where that cut lands.
+    case armSecondAnswer(atCut: Double, certain: Bool, tailEnd: Double)
+    case continueExistingFlow
+    case stay
+}
+
+/// First answers made with a rally's worth of footage still unseen play the
+/// current card to its full padded end while asking whether it should be
+/// split. Corrections stay where they are, while late first answers keep each
+/// action's existing advance behavior.
+func scoreOutcomeDecision(
+    _ action: ScoreOutcomeAction, for p: MatchPoint, hadOutcome: Bool,
+    now: Double, pad: ClipPad
+) -> ScoreOutcomeDecision {
+    guard !hadOutcome else { return .stay }
+    guard let cutT0 = p.cutT0, let end = paddedEnd(p, pad),
+          end - now > TAIL_WATCH_S + 0.000_001
+    else { return .continueExistingFlow }
+
+    // Both answer kinds deliberately share this rule. Keeping the action in
+    // the contract makes that parity explicit and protects either caller
+    // from silently diverging later.
+    switch action {
+    case .winner, .skip:
+        let gap = fusedSplitCut(p, pad)
+        return .armSecondAnswer(
+            atCut: gap ?? max(cutT0 + 0.4, now - SPLIT_LEAD_S),
+            certain: gap != nil,
+            tailEnd: end
+        )
+    }
+}
+
+/// A delayed failed write may retire only the decision created by that same
+/// action. Without both identities, an older failure can disarm a newer
+/// question on the same point.
+func scoreFailureClearsSplitArm(
+    failedActionId: Int, latestActionId: Int,
+    failedPointId: UUID, armPointId: UUID?
+) -> Bool {
+    failedActionId == latestActionId && failedPointId == armPointId
+}
+
+/// Retiring a split offer also retires the automatic advance only when both
+/// belong to the same point. An ordinary tail, or another point's tail, is
+/// independent state and must keep running.
+func splitArmOwnsPlayTail(
+    armPointId: UUID?, tailPointId: UUID?
+) -> Bool {
+    guard let armPointId, let tailPointId else { return false }
+    return armPointId == tailPointId
 }
 
 /// The web's advanceFrom, as a decision. `now` is the playhead at the
@@ -460,4 +532,11 @@ enum ScoreUndo: Equatable {
     case override(pointId: UUID, previous: GameEndOverride?, previousWinner: Winner?)
     /// "Match starts here" swept the earlier points away.
     case bulkDelete(pointIds: [UUID], cutT0: Double?)
+    /// A card answered twice: the second answer cut it in two and scored the
+    /// new half. Undoing rejoins them, which takes that answer with it —
+    /// one entry for one gesture, because that is how it was made.
+    case split(
+        parentId: UUID, childId: UUID, prevT1: Double,
+        prevTightEnd: Bool, prevEdited: Bool, cutT0: Double?
+    )
 }

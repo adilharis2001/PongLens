@@ -22,6 +22,7 @@ swiftc -O -o "$OUT" \
   "$CORE/SideChanges.swift" \
   "$CORE/SpokenScore.swift" \
   "$CORE/ScoreCapture.swift" \
+  "$CORE/ScorerState.swift" \
   "$CORE/Linkify.swift" \
   "$CORE/AllowanceLimit.swift" \
   "$CORE/UserFacingError.swift" \
@@ -30,7 +31,9 @@ swiftc -O -o "$OUT" \
   "$CORE/CoachActions.swift" \
   "$CORE/MatchPointLink.swift" \
   "$CORE/SignupSource.swift" \
+  "$CORE/ProcessingFeedback.swift" \
+  "$CORE/ProcessingEstimate.swift" \
   ScoreLogicTests.swift ServePlacementTests.swift StarredTests.swift \
   HighlightsTests.swift PlayerTakeoverTests.swift CameraGuideGateTests.swift \
-  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift UserFacingErrorTests.swift MatchToolsTests.swift LessonPreviewTests.swift CoachActionsTests.swift MatchPointLinkTests.swift SignupSourceTests.swift main.swift
+  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift ScorerStateTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift UserFacingErrorTests.swift MatchToolsTests.swift LessonPreviewTests.swift CoachActionsTests.swift MatchPointLinkTests.swift SignupSourceTests.swift ProcessingFeedbackTests.swift main.swift
 "$OUT"

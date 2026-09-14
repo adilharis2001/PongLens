@@ -234,6 +234,7 @@ export async function POST(req: Request) {
       // list stops the charge being recorded, instead of leaving the
       // dashboard billing for something the request no longer asks for.
       keyterms: TT_KEYTERMS.length > 0,
+      subjectUserId: user.id,
     }));
     const transcript: string =
       dg?.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? "";

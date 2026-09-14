@@ -60,7 +60,7 @@ import { ScoreBug } from "./ScoreBug";
 import { GesturesButton } from "./GesturesSheet";
 import { hintEligible, markHintDone, markHintShown } from "./gestureHints";
 import { tapZone } from "./tapZone";
-import type { MatchServer, ServeInfo } from "./serving";
+import { computeServing, type MatchServer, type ServeInfo } from "./serving";
 import { InsertPoint } from "./InsertPoint";
 import {
   gapWorthOffering,
@@ -72,6 +72,13 @@ import {
   SPEEDS as SPEED_VALUES,
   SpeedMenu,
 } from "./SpeedMenu";
+import {
+  ScorePlaybackRun,
+  ScorerSessionEffects,
+  isScorerFailure,
+  type ScorerCommandReceipt,
+  type ScorerCommandResult,
+} from "./scorerState";
 
 /**
  * The Player: ONE takeover playback surface that owns the ONLY
@@ -403,15 +410,31 @@ const TAIL_WATCH_S = 3.5;
  *  after the deciding shot, so cutting AT it would clip the next serve. */
 const SPLIT_LEAD_S = 0.6;
 
+/** The stand-in for the point a split would create, used only to ask the
+ *  rotation who would serve it. Never written anywhere. */
+const GHOST_POINT_ID = "__armed_second_half__";
+
+/** A long name on a winner pad reads better broken over two lines than
+ *  truncated on one: the first line still says who it is. Inline rather
+ *  than a utility class, the way this file's other geometry is — a stale
+ *  dev stylesheet cannot drop it (see the Tailwind memory). */
+const CLAMP_TWO: React.CSSProperties = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+  overflowWrap: "anywhere",
+};
+
 type Mode = "watch" | "score";
 type Phase = "play" | "summary" | "review";
 
 type UndoEntry =
   | {
       type: "tap";
+      actionId: number;
       pointId: string;
-      prevWinner: "user" | "opponent" | null;
-      prevSkipped: boolean;
+      receipt: Promise<ScorerCommandReceipt | null>;
     }
   | {
       /** Player-originated soft delete; undo restores deleted:false. */
@@ -495,6 +518,16 @@ type UndoEntry =
  * only true in score/play — watch mode has no stops and should follow the
  * picture. A run that STARTED at or after the previous rally's end (chevron,
  * chip, answer-advance) never holds: you are watching the new one.
+ *
+ * That last test is written against the previous rally, and on ordinary
+ * neighbours landing on one means landing after the other has finished. It
+ * is not true of the two halves of a SPLIT card: the second half's padded
+ * start sits a third of a second before the first half's padded end, so
+ * jumping straight to it starts a run that is still "before the previous
+ * rally ended" and the hold dragged the target back onto the half you did
+ * not ask for — its number under the ring, its server on the switch, and
+ * its rally under the next winner tap. So a run that started on THIS rally
+ * settles it too: you are watching the one you jumped to.
  */
 function targetAt(
   ps: Point[],
@@ -521,6 +554,7 @@ function targetAt(
   const rEnd = rallyEnd(prev, pad);
   if (stop === null || rEnd === null || t >= stop) return cur;
   if (runStart === null || runStart >= rEnd) return cur;
+  if (cur.cut_t0 !== null && runStart >= Number(cur.cut_t0) - 0.05) return cur;
   return prev;
 }
 
@@ -708,7 +742,12 @@ export const Player = forwardRef<
       /** Cut-video playhead at the tap — Keep score's flowing session
        *  only, where the video sits at the rally's end (067). */
       scoredAtCutS?: number
-    ) => void;
+    ) => Promise<ScorerCommandResult>;
+    /** Restore one successful score/Skip command as a coupled snapshot. */
+    onRestoreScorer: (
+      pointId: string,
+      pending: Promise<ScorerCommandReceipt | null>
+    ) => Promise<ScorerCommandResult>;
     /**
      * Admin, on their own match (089). Shows the serve-start label under
      * the pad. The DB trigger enforces the same rule, so this only decides
@@ -726,7 +765,10 @@ export const Player = forwardRef<
       meta: ServeStartMeta | null
     ) => void;
     /** Mark/unmark a point skipped (is_let column). */
-    onSetSkipped: (point: Point, value: boolean) => void;
+    onSetSkipped: (
+      point: Point,
+      value: boolean
+    ) => Promise<ScorerCommandResult>;
     onSetServer: (point: Point, value: "user" | "opponent") => void;
     /**
      * Add a card for a rally the cut missed, between two neighbours.
@@ -861,6 +903,7 @@ export const Player = forwardRef<
     onSaveNames,
     onSaveFirstServer,
     onSetWinner,
+    onRestoreScorer,
     canLabelServeStart = false,
     onSetServeStart,
     onSetSkipped,
@@ -1295,21 +1338,40 @@ export const Player = forwardRef<
   // that tail ends. Cleared when it plays out (we advance then), or as soon
   // as the playhead leaves the clip by any other route.
   const playTailRef = useRef<{ id: string; end: number } | null>(null);
-  // The "this might be two points" offer, on the clip just answered.
-  // atCut is where a split would land (the detected gap, else the playhead
-  // at the time of the offer); certain=true only with gap evidence.
-  const [splitNudge, setSplitNudge] = useState<{
+  /**
+   * THE SECOND ANSWER, ARMED on the card just answered.
+   *
+   * A fused clip holds another rally, and the way to say so is to answer
+   * again: while this is set, the two winner buttons stop meaning "who won
+   * this card" and mean "who won the rally that just finished". The tap
+   * cuts the card at `atCut` and scores the new half, so a split costs the
+   * same one tap the answer would have cost anyway — and saying nothing
+   * costs none, which matters because most flagged cards hold one point.
+   *
+   * atCut is where the cut lands (the detected gap, else a beat before the
+   * FIRST answer, which is where that rally ended); certain=true only with
+   * gap evidence. Three rallies work by repeating: the new half arms in
+   * turn while footage remains.
+   */
+  const [splitArm, setSplitArm] = useState<{
     pointId: string;
     atCut: number;
     certain: boolean;
   } | null>(null);
-  // Ref twin for onTime (built once, lives for the session) and the
-  // 2s hold at a fused clip's end: the nudge pauses there for a beat of
-  // reflection, then advances by itself — most clips are NOT two points,
-  // and the offer must never become a place you get stuck.
-  const splitNudgeRef = useRef<typeof splitNudge>(null);
-  splitNudgeRef.current = splitNudge;
-  const nudgeHoldTimer = useRef<number | null>(null);
+  // Ref twin for media callbacks. The arm stays with the answered card
+  // while its remaining footage plays; it never interrupts playback.
+  const splitArmRef = useRef<typeof splitArm>(null);
+  splitArmRef.current = splitArm;
+  const clearSplitArm = useCallback(() => {
+    if (splitArmRef.current && playTailRef.current?.id === splitArmRef.current.pointId) {
+      playTailRef.current = null;
+      if (endPauseFiredRef.current === splitArmRef.current.pointId) {
+        endPauseFiredRef.current = null;
+      }
+    }
+    splitArmRef.current = null;
+    setSplitArm(null);
+  }, []);
   // Analysis panel (score mode): the point whose detail is being recorded,
   // and the shared "Saved" line its questions report through.
   const [analysisPoint, setAnalysisPoint] = useState<Point | null>(null);
@@ -1329,8 +1391,58 @@ export const Player = forwardRef<
   showControlsRef.current = showControls;
 
   // Score-mode session state.
-  const [phase, setPhase] = useState<Phase>("play");
+  const [phase, setPhaseState] = useState<Phase>("play");
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const scorerActionId = useRef(0);
+  const scorerUndoInFlight = useRef<number | null>(null);
+  const scorerSessionEffects = useRef(new ScorerSessionEffects());
+  const setPhase = useCallback((next: Phase) => {
+    scorerSessionEffects.current.navigate();
+    setPhaseState(next);
+  }, []);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
+  const showToast = useCallback((text: string, ms = 1500) => {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast(text);
+    toastTimer.current = window.setTimeout(() => setToast(null), ms);
+  }, []);
+  useEffect(() => () => scorerSessionEffects.current.close(), []);
+  const recordScorerUndo = useCallback(
+    (
+      pointId: string,
+      command: Promise<ScorerCommandResult>
+    ) => {
+      const actionId = ++scorerActionId.current;
+      clearSplitArm();
+      const owner = scorerSessionEffects.current.capture();
+      const receipt = command.catch<ScorerCommandResult>(() => ({ failed: true })).then((result) => {
+        if (isScorerFailure(result)) {
+          if (scorerSessionEffects.current.sameSession(owner)) {
+            showToast("Couldn't save. Tap again.");
+            if (scorerActionId.current === actionId && splitArmRef.current?.pointId === pointId) {
+              clearSplitArm();
+            }
+          }
+          return null;
+        }
+        return result;
+      });
+      setUndoStack((stack) => [
+        ...stack,
+        { type: "tap", actionId, pointId, receipt },
+      ]);
+      void receipt.then((saved) => {
+        if (saved || !scorerSessionEffects.current.sameSession(owner)) return;
+        setUndoStack((stack) =>
+          stack.filter(
+            (entry) => entry.type !== "tap" || entry.actionId !== actionId
+          )
+        );
+      });
+    },
+    [showToast, clearSplitArm]
+  );
   // Modify modal: the point it was opened for (null = closed), and an
   // in-flight guard for the split/join orchestration round-trips.
   const [modifyPoint, setModifyPoint] = useState<Point | null>(null);
@@ -1348,8 +1460,6 @@ export const Player = forwardRef<
   const [draftYou, setDraftYou] = useState("");
   const [draftThem, setDraftThem] = useState("");
   const namesPromptedRef = useRef(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<number | null>(null);
   const [boundary, setBoundary] = useState<{
     game: number;
     you: number;
@@ -1415,14 +1525,10 @@ export const Player = forwardRef<
     if (open) return;
     setHint(null);
     setScoreHint(false);
-    setSplitNudge(null);
+    setSplitArm(null);
     if (hintTimer.current) {
       window.clearTimeout(hintTimer.current);
       hintTimer.current = null;
-    }
-    if (nudgeHoldTimer.current) {
-      window.clearTimeout(nudgeHoldTimer.current);
-      nudgeHoldTimer.current = null;
     }
   }, [open]);
   const holdRateRef = useRef<number | null>(null);
@@ -1485,6 +1591,7 @@ export const Player = forwardRef<
   const detourBaseRef = useRef(0);
   const detourVideoRef = useRef<HTMLVideoElement | null>(null);
   const detourPendingSeek = useRef<number | null>(null);
+  const detourHandoffSeekRef = useRef(false);
   const detourTickRef = useRef<number | null>(null);
   /** Presigned clip URLs for the cards that need one, by point id. */
   const clipUrlsRef = useRef(new Map<string, string>());
@@ -1600,6 +1707,16 @@ export const Player = forwardRef<
   // every optimistic points update.
   const pointsRef = useRef(points);
   pointsRef.current = points;
+  const scorePlaybackRun = useRef(new ScorePlaybackRun());
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        scorePlaybackRun.current.invalidate();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   // Latest deleted spans, same reasoning (auto-skip runs per timeupdate).
   const deletedSpansRef = useRef(deletedSpans);
@@ -1782,12 +1899,18 @@ export const Player = forwardRef<
   // still occupy cut footage — and only a visible card whose clip the
   // worker has already produced can take a detour: a fresh insert stays on
   // the cut (today's behaviour) until processing finishes.
+  const ownClipCandidates = useMemo(
+    () => ownClipIds([...points, ...removedPoints], pad, duration || null),
+    [points, removedPoints, pad, duration]
+  );
+  const ownClipCandidatesRef = useRef(ownClipCandidates);
+  ownClipCandidatesRef.current = ownClipCandidates;
   const ownClipSet = useMemo(() => {
-    const ids = ownClipIds([...points, ...removedPoints], pad, duration || null);
+    const ids = ownClipCandidates;
     if (ids.size === 0) return ids;
     const byId = new Map(points.map((p) => [p.id, p]));
     return new Set([...ids].filter((id) => byId.get(id)?.clip_path));
-  }, [points, removedPoints, pad, duration]);
+  }, [points, ownClipCandidates]);
   const ownClipSetRef = useRef(ownClipSet);
   ownClipSetRef.current = ownClipSet;
 
@@ -1924,7 +2047,10 @@ export const Player = forwardRef<
 
   const exitDetour = useCallback(() => {
     if (detourRef.current === null) return;
+    scorerSessionEffects.current.navigate();
+    scorePlaybackRun.current.invalidate();
     detourRef.current = null;
+    detourHandoffSeekRef.current = false;
     setDetourId(null);
     detourTickRef.current = null;
     // A surface out of the document's flow keeps playing WITH SOUND —
@@ -1934,10 +2060,13 @@ export const Player = forwardRef<
 
   /** Put the detour surface on card p at virtual time t. The main video
    *  pauses underneath and keeps its place. */
-  const enterDetour = useCallback((p: Point, t: number) => {
+  const enterDetour = useCallback((p: Point, t: number, continuous = false) => {
     const url = clipUrlsRef.current.get(p.id);
     const dv = detourVideoRef.current;
     if (!url || !dv || p.cut_t0 === null) return;
+    detourHandoffSeekRef.current = continuous;
+    scorerSessionEffects.current.navigate();
+    scorePlaybackRun.current.invalidate();
     // Pin FIRST: the pause below flushes one last timeupdate/pause pair
     // off the main element, and both handlers key off this ref to stand
     // down during a detour.
@@ -1957,6 +2086,9 @@ export const Player = forwardRef<
 
   const seekTo = useCallback(
     (t: number) => {
+      clearSplitArm();
+      scorerSessionEffects.current.navigate();
+      scorePlaybackRun.current.invalidate();
       const clamped = Math.max(0, t);
       setPlayheadT(clamped);
       // Kill the crossing detector's previous tick SYNCHRONOUSLY: a
@@ -1979,7 +2111,7 @@ export const Player = forwardRef<
       if (v && v.readyState >= 1) v.currentTime = clamped;
       else pendingSeek.current = clamped;
     },
-    [detourPointOf, enterDetour, exitDetour]
+    [detourPointOf, enterDetour, exitDetour, clearSplitArm]
   );
 
   const playNow = useCallback(() => {
@@ -1995,11 +2127,14 @@ export const Player = forwardRef<
    *  main element under an active detour leaves sound running behind
    *  whatever just opened. */
   const pauseBoth = useCallback(() => {
+    scorerSessionEffects.current.navigate();
+    scorePlaybackRun.current.invalidate();
     videoRef.current?.pause();
     detourVideoRef.current?.pause();
   }, []);
 
   const onLoadedMetadata = useCallback((v: HTMLVideoElement) => {
+    scorePlaybackRun.current.invalidate();
     setDuration(v.duration || 0);
     // Portrait-shot footage gates the landscape affordances (see the
     // fullscreen section).
@@ -2016,6 +2151,50 @@ export const Player = forwardRef<
     }
   }, []);
 
+  const scorePlaybackEvent = useCallback(
+    (point: Point, video: HTMLVideoElement) => {
+      if (point.cut_t0 === null || point.edited) return null;
+      const end = paddedEnd(point, padRef.current);
+      if (end === null) return null;
+      return {
+        pointId: point.id,
+        start: Number(point.cut_t0),
+        end,
+        time: video.currentTime,
+        playing: !video.paused && !video.seeking && !video.ended,
+        ready: video.readyState >= 2,
+        foreground: document.visibilityState === "visible",
+        sourceKey: "cut",
+        requiresOwnClip: ownClipCandidatesRef.current.has(point.id),
+      };
+    },
+    []
+  );
+
+  const observeScorePlayback = useCallback(
+    (video: HTMLVideoElement) => {
+      if (
+        modeRef.current !== "score" ||
+        phase !== "play" ||
+        video !== videoRef.current ||
+        detourRef.current !== null ||
+        highlightAssetRef.current !== null ||
+        scrubbing.current
+      ) {
+        scorePlaybackRun.current.invalidate();
+        return;
+      }
+      const pointId = playingPointId(pointsRef.current, video.currentTime);
+      const point = pointId
+        ? pointsRef.current.find((candidate) => candidate.id === pointId)
+        : null;
+      const event = point ? scorePlaybackEvent(point, video) : null;
+      if (event) scorePlaybackRun.current.observe(event);
+      else scorePlaybackRun.current.invalidate();
+    },
+    [phase, scorePlaybackEvent]
+  );
+
   const reviewPoint =
     phase === "review"
       ? (points.find((p) => p.id === reviewIds[reviewIdx]) ?? null)
@@ -2023,6 +2202,7 @@ export const Player = forwardRef<
 
   const onTime = useCallback(
     (v: HTMLVideoElement) => {
+      observeScorePlayback(v);
       // The highlight file is already one continuous timeline. Nothing in
       // the match-cut playhead (detours, deleted spans, tap tails, score
       // pauses) may seek inside it.
@@ -2046,7 +2226,7 @@ export const Player = forwardRef<
       if (!scrubbing.current && !v.paused && detourRef.current === null) {
         const dp = detourPointOf(v.currentTime);
         if (dp) {
-          enterDetour(dp, v.currentTime);
+          enterDetour(dp, v.currentTime, true);
           playNow();
           return;
         }
@@ -2156,10 +2336,8 @@ export const Player = forwardRef<
             ? pauseEnd(p, cpad, nextCutStart(ps, p))
             : effectiveEnd(p, cpad, scoreEndsRef.current);
         // Playing out an answered clip's tail: when it runs out, move on
-        // exactly as the answer would have — except while the split offer
-        // is still open, where the video holds its last frame for two
-        // seconds first ("was that two points?") and then advances by
-        // itself. Deliberate departures from the clip (chevron, chip,
+        // exactly as the answer would have, without a split-offer hold.
+        // Deliberate departures from the clip (chevron, chip,
         // scrub, replay) are all seeks, and onSeeked retires the tail.
         // The old WYSIWYG-flip retire is gone: on tight cuts the resolver
         // flips to the next rally's padded span mid-tail during NATURAL
@@ -2170,23 +2348,14 @@ export const Player = forwardRef<
           playTailRef.current = null;
           const tp = ps.find((x) => x.id === tail.id);
           if (tp) {
-            if (splitNudgeRef.current?.pointId === tail.id) {
-              v.pause();
-              if (nudgeHoldTimer.current)
-                window.clearTimeout(nudgeHoldTimer.current);
-              nudgeHoldTimer.current = window.setTimeout(() => {
-                nudgeHoldTimer.current = null;
-                if (splitNudgeRef.current?.pointId !== tail.id) return;
-                setSplitNudge(null);
-                const p = pointsRef.current.find((x) => x.id === tail.id);
-                if (p) advanceRef.current(p);
-              }, 2000);
-              return;
-            }
+            clearSplitArm();
             advanceRef.current(tp);
             return;
           }
         }
+        // The offered tail must not hit the ending observation just saved
+        // by a live winner tap, even when full-card playback is disabled.
+        if (tail) return;
         if (endPauseFiredRef.current !== null) {
           const fp = ps.find((pt) => pt.id === endPauseFiredRef.current);
           const fend = fp ? stopAt(fp) : null;
@@ -2268,7 +2437,7 @@ export const Player = forwardRef<
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
-    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow]
+    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow, observeScorePlayback, clearSplitArm]
   );
 
   /**
@@ -2331,10 +2500,12 @@ export const Player = forwardRef<
         playTailRef.current = null;
         const tp = pointsRef.current.find((x) => x.id === tail.id);
         if (tp) {
+          clearSplitArm();
           advanceRef.current(tp);
           return;
         }
       }
+      if (tail?.id === id) return;
       // Replay re-arm and the single-card boundary, same guards as the
       // main loop's crossing detector.
       if (
@@ -2359,7 +2530,7 @@ export const Player = forwardRef<
         }
       }
     },
-    [phase, pinEndPause]
+    [phase, pinEndPause, clearSplitArm]
   );
 
   /**
@@ -2395,7 +2566,7 @@ export const Player = forwardRef<
     } else if (modeRef.current === "score" && phase === "play") {
       setPhase("summary");
     }
-  }, [exitDetour, seekTo, playNow, phase]);
+  }, [exitDetour, seekTo, playNow, phase, setPhase]);
   const onDetourDoneRef = useRef(onDetourDone);
   onDetourDoneRef.current = onDetourDone;
 
@@ -2615,6 +2786,28 @@ export const Player = forwardRef<
     );
   }, [phase, reviewIds, reviewIdx, playheadT]);
 
+  const scoreObservation = useCallback(
+    (point: Point): number | undefined => {
+      const video = videoRef.current;
+      if (
+        phase !== "play" ||
+        modeRef.current !== "score" ||
+        !video ||
+        activeVideo() !== video ||
+        detourRef.current !== null ||
+        highlightAssetRef.current !== null ||
+        playingPointId(pointsRef.current, video.currentTime) !== point.id
+      ) {
+        return undefined;
+      }
+      const event = scorePlaybackEvent(point, video);
+      return event
+        ? scorePlaybackRun.current.observation(event)
+        : undefined;
+    },
+    [activeVideo, phase, scorePlaybackEvent]
+  );
+
   // Serve ball: the server of the rally the surface is ABOUT — targetId,
   // the same pin-first, hold-aware answer the chip ring, ticker score and
   // taps use. It used to read the raw WYSIWYG resolver instead, which
@@ -2625,9 +2818,54 @@ export const Player = forwardRef<
   // visible serve-rotation stutter on every tight gap.
   const currentRallyId =
     targetId ?? points.find((p) => p.cut_t0 !== null)?.id ?? null;
-  const server = currentRallyId
-    ? (serving.get(currentRallyId)?.server ?? null)
-    : null;
+
+  /**
+   * WHO SERVES THE RALLY BEING ASKED ABOUT.
+   *
+   * While the second answer is armed the whole pad has pivoted to the
+   * rally inside the card — the hint says so, both buttons wear "2nd" —
+   * and the serve switch was the one thing still describing the card
+   * already answered. A fused card holds a serve change half the time, so
+   * that reading is wrong as often as it is right, and it corrects itself
+   * a second later when the cut lands, which is worse than either.
+   *
+   * There is no row to ask about yet, so ask the rotation what it would
+   * say about a point inserted here. Same walk, same two-serve blocks,
+   * same deuce, same lets, same overrides, same game boundaries — none of
+   * the rule is restated, which is the only way this can stay true when
+   * the rule changes.
+   */
+  const armedServer = useMemo(() => {
+    if (!splitArm) return null;
+    const i = points.findIndex((p) => p.id === splitArm.pointId);
+    if (i < 0) return null;
+    const ghost: Point = {
+      ...points[i],
+      id: GHOST_POINT_ID,
+      is_let: false,
+      confirmed_winner: null,
+      server_override: null,
+      game_end_override: null,
+    };
+    const rows = [...points.slice(0, i + 1), ghost, ...points.slice(i + 1)];
+    return computeServing(rows, firstServer).get(GHOST_POINT_ID)?.server ?? null;
+  }, [splitArm, points, firstServer]);
+  const armedServerRef = useRef(armedServer);
+  armedServerRef.current = armedServer;
+  /**
+   * The answer survives the round trip that creates its point. Without
+   * this the switch snaps back to the answered card for the few hundred
+   * milliseconds the cut takes, then forward again — the same flicker,
+   * just shorter.
+   */
+  const [armHold, setArmHold] = useState<MatchServer | null>(null);
+
+  const server = splitArm
+    ? armedServer
+    : (armHold ??
+      (currentRallyId ? (serving.get(currentRallyId)?.server ?? null) : null));
+  /** The switch is a statement, not a control, until its point exists. */
+  const serverPending = splitArm !== null || armHold !== null;
 
   // Flank chevron availability: hidden on the first-point side (nothing
   // before) and the last-point side (nothing after).
@@ -2675,6 +2913,9 @@ export const Player = forwardRef<
   modeRef.current = mode;
 
   const openTakeover = useCallback((m: Mode) => {
+    clearSplitArm();
+    scorerSessionEffects.current.open();
+    scorerUndoInFlight.current = null;
     if (modeRef.current === null) {
       window.history.pushState({ player: true }, "");
       openChangeRef.current(true);
@@ -2709,12 +2950,15 @@ export const Player = forwardRef<
           detourPrimedRef.current = false;
         });
     }
-  }, []);
+  }, [clearSplitArm]);
 
   // popstate (browser/OS Back or our own history.back) closes the takeover.
   useEffect(() => {
     if (!open) return;
     const onPop = () => {
+      clearSplitArm();
+      scorerSessionEffects.current.close();
+      modeRef.current = null;
       pauseBoth();
       exitDetour(); // closing hands the surface back to the cut
       const video = videoRef.current;
@@ -2740,9 +2984,10 @@ export const Player = forwardRef<
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [open, pinEndPause, pauseBoth, exitDetour, videoUrl]);
+  }, [open, pinEndPause, pauseBoth, exitDetour, videoUrl, setPhase, clearSplitArm]);
 
   const exit = useCallback(() => {
+    scorerSessionEffects.current.close();
     // The component never unmounts, so a zoom left on would still be there
     // the next time the takeover opens. Closing is the reset.
     resetZoom();
@@ -2758,12 +3003,6 @@ export const Player = forwardRef<
       document.body.style.overflow = prev;
     };
   }, [open]);
-
-  const showToast = useCallback((text: string, ms = 1500) => {
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    setToast(text);
-    toastTimer.current = window.setTimeout(() => setToast(null), ms);
-  }, []);
 
   const openWatch = useCallback(
     (seekT?: number) => {
@@ -2894,6 +3133,7 @@ export const Player = forwardRef<
   }, [
     gamesCount,
     seekTo,
+    setPhase,
     snapLanding,
     playheadT,
     openTakeover,
@@ -2953,6 +3193,7 @@ export const Player = forwardRef<
   // ------------------------------------------------------------- controls
 
   const togglePause = useCallback(() => {
+    scorerSessionEffects.current.navigate();
     const v = activeVideo();
     if (!v) return;
     if (v.paused) playNow();
@@ -3448,7 +3689,7 @@ export const Player = forwardRef<
   const nextReview = useCallback(() => {
     if (reviewIdx + 1 >= reviewIds.length) setPhase("summary");
     else setReviewIdx(reviewIdx + 1);
-  }, [reviewIdx, reviewIds.length]);
+  }, [reviewIdx, reviewIds.length, setPhase]);
   const nextReviewRef = useRef(nextReview);
   nextReviewRef.current = nextReview;
 
@@ -3793,33 +4034,174 @@ export const Player = forwardRef<
   });
 
   /**
-   * Offer the split on a clip that was answered with a rally's worth of
-   * footage still to run — the shape of a clip the cutter fused.
+   * Arm the second answer on a clip that was answered with a rally's worth
+   * of footage still to run — the shape of a clip the cutter fused.
    *
    * The trigger is REMAINING SECONDS, not a fraction of the clip: what
    * decides whether a second rally can be hiding is how much unwatched
-   * footage is left, and a percentage would nudge on every quick answer to
+   * footage is left, and a percentage would arm on every quick answer to
    * a short point while missing a late answer on a long one.
    *
    * The bounce data sharpens it where it exists (an actual quiet stretch
    * places the cut and firms up the wording) but is never required — the
-   * offer stands on the timing alone, worded as a question.
+   * arm stands on the timing alone, worded as a question.
+   *
+   * `answeredAt` is the playhead at the tap that armed it, passed in by the
+   * callers that have already awaited a round trip: the cut belongs a beat
+   * before the rally ENDED, not a beat before the write came back.
    */
-  const offerSplitIfEarly = useCallback((p: Point) => {
-    // One offer at a time, and answering anything retires the last one: the
-    // tail it belonged to has been watched by then, and a stale offer that
-    // outlives its clip is how you split the wrong point.
-    setSplitNudge(null);
-    if (!onSplit || p.cut_t0 === null || p.t0 === null || p.t1 === null) return;
+  const armSecondAnswer = useCallback((p: Point, answeredAt?: number) => {
+    clearSplitArm();
+    if (!onSplit || p.cut_t0 === null || p.t0 === null || p.t1 === null) return false;
     const now = nowT(0);
     const own = paddedEnd(p, padRef.current);
-    if (own === null || own - now <= TAIL_WATCH_S) return;
+    if (own === null || own - now <= TAIL_WATCH_S) return false;
     const gap = fusedSplitCut(p, padRef.current);
     // Without gap evidence, cut a beat before where they answered — the tap
     // always lands after the deciding shot (same lead the pad's Split uses).
-    const atCut = gap ?? Math.max(Number(p.cut_t0) + 0.4, now - SPLIT_LEAD_S);
-    setSplitNudge({ pointId: p.id, atCut, certain: gap !== null });
-  }, [onSplit]);
+    const atCut =
+      gap ?? Math.max(Number(p.cut_t0) + 0.4, (answeredAt ?? now) - SPLIT_LEAD_S);
+    // Use the full card, not the ending observation just saved by the tap:
+    // the unseen footage is precisely what this arm asks about.
+    playTailRef.current = { id: p.id, end: own };
+    endPauseFiredRef.current = p.id;
+    const armed = { pointId: p.id, atCut, certain: gap !== null };
+    splitArmRef.current = armed;
+    setSplitArm(armed);
+    playNow();
+    return true;
+  }, [onSplit, clearSplitArm, playNow]);
+
+  /**
+   * THE SECOND ANSWER: the armed card holds another rally and this is who
+   * won it. One tap does the whole thing — cut the card at the arm's mark,
+   * score the new half, and carry on into whatever is left of the footage.
+   *
+   * The cut is NOT confirmed on a timeline first. That was the old Split
+   * pill's job and it cost a modal, a look and two more taps; here the mark
+   * is either a real quiet stretch the detector found or a beat before the
+   * first answer, both of which are where the rally ended. Undo is one
+   * entry and it puts the card back exactly as it was.
+   *
+   * Scoring lands on the CHILD because the child is the half that was never
+   * answered: the parent keeps the answer it already has, and the parent's
+   * own Undo entry is left alone.
+   */
+  const answerSecondPoint = useCallback(
+    async (call: "user" | "opponent" | "skip", thenWhy = false) => {
+      const armed = splitArmRef.current;
+      if (!armed || !onSplit || modifyBusy) return;
+      const A = pointsRef.current.find((x) => x.id === armed.pointId);
+      if (!A || A.deleted || A.cut_t0 === null) return;
+      // The playhead at the tap, before a round trip moves it: this rally
+      // ended here, so it is both the child's ending observation and the
+      // mark a THIRD rally would be cut at.
+      const at = nowT(0);
+      const prevWinner = A.confirmed_winner;
+      const prevSkipped = A.is_let;
+      const rootCutT0 = Number(A.cut_t0);
+      // Disarm first: the tap is spent, and the tail it owns is about to be
+      // rebuilt around the child. A second tap during the round trip must
+      // not cut the same card twice.
+      const heldServer = armedServerRef.current;
+      clearSplitArm();
+      setArmHold(heldServer);
+      setModifyBusy(true);
+      const { ok, created, unsplits } = await runSplitPlan({
+        point: A,
+        pad: padRef.current,
+        cutTimes: [armed.atCut],
+        onChild: onSplit,
+      });
+      setModifyBusy(false);
+      setArmHold(null);
+      const child = created[0] ?? null;
+      if (!ok || !child) {
+        if (unsplits.length > 0) {
+          setUndoStack((s) => [
+            ...s,
+            {
+              type: "modify-split",
+              unsplits,
+              rootId: A.id,
+              rootPrevWinner: prevWinner,
+              rootPrevSkipped: prevSkipped,
+              rootCutT0,
+            },
+          ]);
+        }
+        showToast("Couldn't split that card. Try again.");
+        return;
+      }
+      // One entry for the whole gesture: undoing puts the two halves back
+      // together, which takes the second answer with it.
+      setUndoStack((s) => [
+        ...s,
+        {
+          type: "modify-split",
+          unsplits,
+          rootId: A.id,
+          rootPrevWinner: prevWinner,
+          rootPrevSkipped: prevSkipped,
+          rootCutT0,
+        },
+      ]);
+      // No ending observation: a hand-cut half is `edited`, and the scorer
+      // drops a tap-derived ending on an edited card (scorerState.winner).
+      // Its playback end is the card's own padded end either way, which is
+      // exactly what leaves a THIRD rally's footage in place below.
+      //
+      // A let is one of the three answers to the same question, so it takes
+      // the same road: the card is cut and the new half is the let. Skip
+      // meaning something else while this is up would make the row of
+      // buttons under one sentence answer two different questions.
+      void (call === "skip"
+        ? onSetSkipped(child, true)
+        : onSetWinner(child, call)
+      )
+        .catch(() => ({ failed: true }) as ScorerCommandResult)
+        .then((result) => {
+          if (isScorerFailure(result)) showToast("Couldn't save. Tap again.");
+        });
+      showFlash(
+        `Split · ${
+          call === "skip" ? "let" : call === "user" ? youLabel : themLabel
+        }`
+      );
+      if (thenWhy && call !== "skip") {
+        pauseBoth();
+        pinEndPause(null);
+        setWhyPoint({ ...child, confirmed_winner: call, is_let: false });
+        return;
+      }
+      // Carry on exactly as an ordinary answer does: a third rally inside
+      // what is left arms the child in turn, otherwise this moves on.
+      pinEndPause(null);
+      if (!armSecondAnswer(child, at)) {
+        if (call === "skip") jumpAfter(child);
+        else advanceFrom(child);
+      }
+    },
+    [
+      onSplit,
+      modifyBusy,
+      nowT,
+      clearSplitArm,
+      onSetWinner,
+      onSetSkipped,
+      jumpAfter,
+      showFlash,
+      showToast,
+      youLabel,
+      themLabel,
+      pauseBoth,
+      pinEndPause,
+      armSecondAnswer,
+      advanceFrom,
+    ]
+  );
+  const answerSecondRef = useRef(answerSecondPoint);
+  answerSecondRef.current = answerSecondPoint;
 
   /** Light the pad's Game-ended control for a just-answered point (only
    *  offered while a 'continue' override holds the game open). A glow on
@@ -3915,27 +4297,28 @@ export const Player = forwardRef<
 
   const tapSide = useCallback(
     (side: "user" | "opponent", opts?: { thenWhy?: boolean }) => {
+      // ARMED: the card just answered has another rally in it, and this tap
+      // says who won THAT one. It acts on the armed card by id rather than
+      // on whatever the playhead currently resolves to — the resolver flips
+      // to the next rally's padded span mid-tail on a tight cut, and this
+      // answer belongs to the card the footage came from.
+      if (splitArmRef.current && phase === "play") {
+        lastScoreTapRef.current = Date.now();
+        markHintDone("score");
+        setScoreHint(false);
+        void answerSecondRef.current(side, opts?.thenWhy === true);
+        return;
+      }
       const p = resolveTargetPoint();
       if (!p) return;
       lastScoreTapRef.current = Date.now();
       markHintDone("score");
       setScoreHint(false);
       // A bubble tap on a point already given to this side changes nothing
-      // to undo; pushing an entry anyway would spend the user's next Undo
-      // on a no-op.
+      // to undo; recording a command anyway would spend the user's next
+      // Undo on a no-op.
       const noOp =
         opts?.thenWhy && p.confirmed_winner === side && !p.is_let;
-      if (!noOp) {
-        setUndoStack((s) => [
-          ...s,
-          {
-            type: "tap",
-            pointId: p.id,
-            prevWinner: p.confirmed_winner,
-            prevSkipped: p.is_let,
-          },
-        ]);
-      }
       const hadOutcome = p.confirmed_winner !== null || p.is_let;
       /**
        * The big button TOGGLES — tapping the winner it already shows clears
@@ -3950,18 +4333,10 @@ export const Player = forwardRef<
         : p.confirmed_winner === side
           ? null
           : side;
-      if (next !== p.confirmed_winner || p.is_let) {
-        // The training label (067): where the playhead sat when the human
-        // called the point. Only the flowing session — in review or on
-        // chip corrections the playhead says nothing about the rally end.
-        // On a detour the stamp is the VIRTUAL clock, which is what every
-        // consumer of this card's numbers reads.
-        const v = activeVideo();
+      if (!noOp && (next !== p.confirmed_winner || p.is_let)) {
         const atCut =
-          phase === "play" && next !== null && v && v.readyState >= 1
-            ? Math.round(nowT(0) * 100) / 100
-            : undefined;
-        onSetWinner(p, next, atCut);
+          !hadOutcome && next !== null ? scoreObservation(p) : undefined;
+        recordScorerUndo(p.id, onSetWinner(p, next, atCut));
       }
       lastScoredRef.current = next === null ? null : { id: p.id, at: Date.now() };
       if (phase === "review") {
@@ -4018,8 +4393,7 @@ export const Player = forwardRef<
       // the user put it).
       if (!hadOutcome && next !== null) {
         pinEndPause(null);
-        offerSplitIfEarly(p);
-        advanceFrom(p);
+        if (!armSecondAnswer(p)) advanceFrom(p);
       } else if (endPausedRef.current === p.id) {
         // Corrections while paused-at-end release the pin so playback
         // controls behave normally, but stay in place.
@@ -4029,18 +4403,33 @@ export const Player = forwardRef<
     [
       resolveTargetPoint,
       onSetWinner,
+      recordScorerUndo,
+      scoreObservation,
       phase,
       advanceFrom,
       pinEndPause,
       showEndedPill,
-      offerSplitIfEarly,
+      armSecondAnswer,
     ]
   );
 
   const tapSkip = useCallback(() => {
+    // ARMED: the same question the winner buttons are answering, answered
+    // "that one was a let". Skip is one of the three things that can have
+    // happened in the rally just watched, so it goes down the same road —
+    // anything else and the row of buttons under one sentence would be
+    // answering two different questions.
+    if (splitArmRef.current && phase === "play") {
+      lastScoreTapRef.current = Date.now();
+      markHintDone("score");
+      setScoreHint(false);
+      void answerSecondRef.current("skip");
+      return;
+    }
     const p = resolveTargetPoint();
     if (!p) return;
     if (p.is_let) {
+      clearSplitArm();
       // Already skipped — the press means "move on". Never a silent no-op.
       const ps = pointsRef.current;
       const next = ps.find(
@@ -4057,50 +4446,34 @@ export const Player = forwardRef<
       return;
     }
     const hadOutcome = p.confirmed_winner !== null;
-    setUndoStack((s) => [
-      ...s,
-      {
-        type: "tap",
-        pointId: p.id,
-        prevWinner: p.confirmed_winner,
-        prevSkipped: p.is_let,
-      },
-    ]);
-    onSetSkipped(p, true);
+    recordScorerUndo(p.id, onSetSkipped(p, true));
     showFlash("Skipped");
     if (phase === "review") {
       window.setTimeout(() => nextReviewRef.current(), 400);
       return;
     }
-    // NEW answer → advance: a skipped point doesn't count — jump straight
-    // to the next rally (this is also the paused-at-end advance: Skip
-    // answers the pause). Skipping a rally that already HAD a winner is a
-    // correction and stays in place, like every other outcome change.
+    // A first Skip uses the same early split decision as a first winner.
+    // Changing an existing winner to Skip is a correction and stays put.
     if (hadOutcome) {
       if (endPausedRef.current === p.id) pinEndPause(null);
       return;
     }
     pinEndPause(null);
-    const ps = pointsRef.current;
-    const next = ps.find(
-      (pt) =>
-        pt.cut_t0 !== null &&
-        p.cut_t0 !== null &&
-        Number(pt.cut_t0) > Number(p.cut_t0)
-    );
-    if (next?.cut_t0 != null) {
-      seekTo(Number(next.cut_t0)); // zoom persists
-      playNow();
-    }
+    if (!armSecondAnswer(p)) jumpAfter(p);
   }, [
     resolveTargetPoint,
     onSetSkipped,
+    recordScorerUndo,
     phase,
     showFlash,
     seekTo,
     playNow,
     indexById,
     pinEndPause,
+    clearSplitArm,
+    armSecondAnswer,
+    jumpAfter,
+    markHintDone,
   ]);
 
   // Delete ("dead space"): soft-remove the rally on screen — a mis-cut,
@@ -4111,6 +4484,8 @@ export const Player = forwardRef<
   const tapDelete = useCallback(() => {
     const p = resolveTargetPoint();
     if (!p) return;
+    // Removing the card retires the question about what else is inside it.
+    clearSplitArm();
     setUndoStack((s) => [
       ...s,
       {
@@ -4160,6 +4535,7 @@ export const Player = forwardRef<
     phase,
     seekTo,
     playNow,
+    clearSplitArm,
   ]);
 
   // ------------------------------------------------------ Modify modal
@@ -4169,13 +4545,23 @@ export const Player = forwardRef<
   // undo — is unchanged; see performSplit.)
 
   // Open the Modify modal for the rally on screen (the pad's Modify button).
+  //
+  // While a second answer is armed it opens on the ARMED card, with the
+  // mark that answer would have cut at already placed: the same escape
+  // hatch the old Split pill was, without a pill of its own. Someone who
+  // wants to see the cut before it lands has it one button away.
   const tapModify = useCallback(() => {
-    const p = resolveTargetPoint();
+    const armed = splitArmRef.current;
+    const armedPoint = armed
+      ? (pointsRef.current.find((x) => x.id === armed.pointId) ?? null)
+      : null;
+    const p = armedPoint ?? resolveTargetPoint();
     if (!p) return;
     pauseBoth();
-    setModifyInitialCut(null);
+    clearSplitArm();
+    setModifyInitialCut(armedPoint ? armed!.atCut : null);
     setModifyPoint(p);
-  }, [resolveTargetPoint]);
+  }, [resolveTargetPoint, pauseBoth, clearSplitArm]);
 
   const closeModify = useCallback(() => {
     if (modifyBusy) return;
@@ -4854,6 +5240,49 @@ export const Player = forwardRef<
   const undo = useCallback(() => {
     const e = undoStack[undoStack.length - 1];
     if (!e) return;
+    clearSplitArm();
+    if (e.type === "tap") {
+      if (scorerUndoInFlight.current !== null) return;
+      scorerUndoInFlight.current = e.actionId;
+      const owner = scorerSessionEffects.current.capture();
+      // Reserve Undo before awaiting its original receipt, so a subsequent
+      // score cannot overtake the restore in this point's command queue.
+      const restore = onRestoreScorer(e.pointId, e.receipt);
+      void (async () => {
+        const receipt = await e.receipt;
+        const restored = await restore;
+        if (!scorerSessionEffects.current.sameSession(owner)) return;
+        if (!receipt) {
+          setUndoStack((stack) =>
+            stack.filter(
+              (entry) =>
+                entry.type !== "tap" || entry.actionId !== e.actionId
+            )
+          );
+          return;
+        }
+        if (!restored || isScorerFailure(restored)) {
+          if (scorerSessionEffects.current.owns(owner)) {
+            showToast("Couldn't fully undo. Try again.");
+          }
+          return;
+        }
+        setUndoStack((stack) =>
+          stack.filter(
+            (entry) => entry.type !== "tap" || entry.actionId !== e.actionId
+          )
+        );
+        if (scorerSessionEffects.current.owns(owner) && receipt.timing.cut_t0 !== null && phase !== "review") {
+          seekTo(Number(receipt.timing.cut_t0));
+          playNow();
+        }
+      })().finally(() => {
+        if (scorerUndoInFlight.current === e.actionId) {
+          scorerUndoInFlight.current = null;
+        }
+      });
+      return;
+    }
     setUndoStack((s) => s.slice(0, -1));
     if (e.type === "delete") {
       // Restore the deleted point and replay it (it isn't in the visible
@@ -4977,22 +5406,13 @@ export const Player = forwardRef<
       })();
       return;
     }
-    const p = pointsRef.current.find((pt) => pt.id === e.pointId);
-    if (!p) return;
-    if (p.confirmed_winner !== e.prevWinner) onSetWinner(p, e.prevWinner);
-    if (p.is_let !== e.prevSkipped) onSetSkipped(p, e.prevSkipped);
-    // Seek back to the undone point so it plays out and re-arms (undo
-    // after a paused-at-end advance lands back on the undone rally, whose
-    // end will pause again once it's unscored).
-    if (p.cut_t0 !== null && phase !== "review") {
-      seekTo(Number(p.cut_t0)); // zoom persists
-      playNow();
-    }
   }, [
     undoStack,
     onUndoDelete,
     onUnsplit,
     onAdjustTiming,
+    onRestoreScorer,
+    clearSplitArm,
     onSetWinner,
     onSetSkipped,
     onSetGameOverride,
@@ -5059,7 +5479,7 @@ export const Player = forwardRef<
     setReviewIds(ids); // zoom persists into review
     setReviewIdx(0);
     setPhase("review");
-  }, [unscored, pinEndPause]);
+  }, [unscored, pinEndPause, setPhase]);
 
   // Seek to the reviewed point whenever review advances. Reads points via
   // ref so a score tap (points identity change) never re-seeks/loops the
@@ -5314,10 +5734,14 @@ export const Player = forwardRef<
   }, [score]);
 
   const target = displayTarget;
+  // While a second answer is armed the two buttons are asking a NEW
+  // question, so neither shows the card's existing answer: a lit button
+  // under "tap who won the second one" contradicts the sentence above it.
+  const secondArmed = phase === "play" && splitArm !== null;
   const litYou =
-    !!target && !target.is_let && target.confirmed_winner === "user";
+    !secondArmed && !!target && !target.is_let && target.confirmed_winner === "user";
   const litThem =
-    !!target && !target.is_let && target.confirmed_winner === "opponent";
+    !secondArmed && !!target && !target.is_let && target.confirmed_winner === "opponent";
   const canTap = !!target;
   // Whether the rally on screen already carries a serve-start label (089).
   const serveStartMarked =
@@ -5400,6 +5824,7 @@ export const Player = forwardRef<
             // playback always wins over drawing.
             crossOrigin={corsOff ? undefined : "anonymous"}
             onError={() => {
+              scorePlaybackRun.current.invalidate();
               if (!corsOff) {
                 corsRetryT.current = videoRef.current?.currentTime ?? 0;
                 setCorsOff(true);
@@ -5422,10 +5847,23 @@ export const Player = forwardRef<
             onProgress={(e) => onProgress(e.currentTarget)}
             // Buffering visibility: waiting/stalled show the spinner,
             // anything that means frames are moving again clears it.
-            onWaiting={() => setStalled(true)}
-            onStalled={() => setStalled(true)}
-            onPlaying={() => setStalled(false)}
-            onCanPlay={() => setStalled(false)}
+            onWaiting={() => {
+              scorePlaybackRun.current.invalidate();
+              setStalled(true);
+            }}
+            onStalled={() => {
+              scorePlaybackRun.current.invalidate();
+              setStalled(true);
+            }}
+            onPlaying={(e) => {
+              setStalled(false);
+              observeScorePlayback(e.currentTarget);
+            }}
+            onCanPlay={(e) => {
+              setStalled(false);
+              observeScorePlayback(e.currentTarget);
+            }}
+            onSeeking={() => scorePlaybackRun.current.invalidate()}
             onSeeked={(e) => {
               setPlayheadT(e.currentTarget.currentTime);
               // A jump is not continuous playback: never let the crossing
@@ -5438,11 +5876,9 @@ export const Player = forwardRef<
               // clip was playing out: retire the tail and any pending
               // nudge auto-advance. (The advance's own seek lands here too,
               // harmlessly — both are already null by then.)
+              clearSplitArm();
               playTailRef.current = null;
-              if (nudgeHoldTimer.current) {
-                window.clearTimeout(nudgeHoldTimer.current);
-                nudgeHoldTimer.current = null;
-              }
+              observeScorePlayback(e.currentTarget);
             }}
             onPlay={(e) => {
               setPaused(false);
@@ -5452,14 +5888,9 @@ export const Player = forwardRef<
               // guard window (covers plays we didn't initiate too).
               lastPlayAtRef.current = Date.now();
               pinEndPause(null);
-              // Resuming during the split nudge's 2s hold cancels the
-              // pending auto-advance: the user chose to keep watching.
-              // (The auto-advance's own play() lands here after its timer
-              // has already cleared itself — a no-op.)
-              if (nudgeHoldTimer.current) {
-                window.clearTimeout(nudgeHoldTimer.current);
-                nudgeHoldTimer.current = null;
-              }
+              // Starting/resuming this offered tail keeps its question.
+              // Navigation and tail completion retire it before leaving.
+              if (playTailRef.current?.id !== splitArmRef.current?.pointId) clearSplitArm();
               // A play() that lands mid-hold keeps the held rate, whichever
               // side is being held.
               e.currentTarget.playbackRate =
@@ -5471,8 +5902,10 @@ export const Player = forwardRef<
               setPill((cur) =>
                 cur && Date.now() - cur.shownAt > 600 ? null : cur
               );
+              observeScorePlayback(e.currentTarget);
             }}
             onPause={() => {
+              scorePlaybackRun.current.invalidate();
               // The handoff INTO a detour pauses this element while the
               // clip takes over — playback is not stopping, so the paused
               // chrome must not flash.
@@ -5482,6 +5915,7 @@ export const Player = forwardRef<
               setStalled(false);
             }}
             onEnded={() => {
+              scorePlaybackRun.current.invalidate();
               if (mode === "score" && phase === "play") setPhase("summary");
             }}
             className="h-full w-full select-none bg-black object-contain [-webkit-touch-callout:none]"
@@ -5514,6 +5948,7 @@ export const Player = forwardRef<
           controlsList="nodownload noplaybackrate noremoteplayback"
           onContextMenu={(e) => e.preventDefault()}
           onLoadedMetadata={(e) => {
+            scorePlaybackRun.current.invalidate();
             const at = detourPendingSeek.current;
             if (at !== null) {
               e.currentTarget.currentTime = at;
@@ -5521,49 +5956,56 @@ export const Player = forwardRef<
             }
           }}
           onTimeUpdate={(e) => onDetourTime(e.currentTarget)}
+          onSeeking={() => scorePlaybackRun.current.invalidate()}
           onSeeked={(e) => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current === null) return;
             setPlayheadT(detourBaseRef.current + e.currentTarget.currentTime);
             detourTickRef.current = null;
-            playTailRef.current = null;
-            if (nudgeHoldTimer.current) {
-              window.clearTimeout(nudgeHoldTimer.current);
-              nudgeHoldTimer.current = null;
+            // Loading the same ongoing run into its required clip is not
+            // navigation. Preserve the offer through that internal seek.
+            if (!detourHandoffSeekRef.current) {
+              clearSplitArm();
+              playTailRef.current = null;
             }
+            detourHandoffSeekRef.current = false;
           }}
           onEnded={onDetourDone}
           onPlay={(e) => {
+            scorePlaybackRun.current.invalidate();
             // The muted priming play (openTakeover) lands here with no
             // detour pinned; everything below is for real playback only.
             if (detourRef.current === null) return;
             setPaused(false);
             lastPlayAtRef.current = Date.now();
             pinEndPause(null);
-            if (nudgeHoldTimer.current) {
-              window.clearTimeout(nudgeHoldTimer.current);
-              nudgeHoldTimer.current = null;
-            }
+            if (playTailRef.current?.id !== splitArmRef.current?.pointId) clearSplitArm();
             e.currentTarget.playbackRate =
               gesture.current.holding && holdRateRef.current !== null
                 ? holdRateRef.current
                 : SPEEDS[speedIdx];
           }}
           onPause={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current === null) return;
             setPaused(true);
             setControlsVisible(true);
             setStalled(false);
           }}
           onWaiting={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current !== null) setStalled(true);
           }}
           onStalled={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current !== null) setStalled(true);
           }}
           onPlaying={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current !== null) setStalled(false);
           }}
           onCanPlay={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current !== null) setStalled(false);
           }}
           className={`pointer-events-none absolute inset-0 h-full w-full select-none bg-black object-contain [-webkit-touch-callout:none] ${
@@ -6486,23 +6928,30 @@ export const Player = forwardRef<
                 role="switch"
                 aria-checked={server === "opponent"}
                 onClick={() => setServerTo(server === "user" ? "opponent" : "user")}
+                disabled={serverPending}
                 aria-label={
-                  server === "user"
-                    ? `${youLabel === "Me" ? "You serve" : `${youLabel} serves`}. Press to give the serve to ${themLabel}.`
-                    : `${themLabel} serves. Press to give the serve to ${youLabel === "Me" ? "you" : youLabel}.`
+                  serverPending
+                    ? server === "user"
+                      ? `${youLabel === "Me" ? "You serve" : `${youLabel} serves`} the next one.`
+                      : `${themLabel} serves the next one.`
+                    : server === "user"
+                      ? `${youLabel === "Me" ? "You serve" : `${youLabel} serves`}. Press to give the serve to ${themLabel}.`
+                      : `${themLabel} serves. Press to give the serve to ${youLabel === "Me" ? "you" : youLabel}.`
                 }
-                className="flex shrink-0 items-center gap-2.5 rounded-lg py-0.5 pl-1.5 pr-1"
+                className={`flex shrink-0 items-center gap-2.5 rounded-lg py-0.5 pl-1.5 pr-1 ${
+                  serverPending ? "opacity-70" : ""
+                }`}
               >
                 <span
                   className={`max-w-[9rem] truncate text-sm font-semibold ${
                     server === "user" ? "text-cyan-glow" : "text-magenta-soft"
                   }`}
                 >
-                  {server === "user"
+                  {(server === "user"
                     ? youLabel === "Me"
                       ? "You serve"
                       : `${youLabel} serves`
-                    : `${themLabel} serves`}
+                    : `${themLabel} serves`) + (serverPending ? " next" : "")}
                 </span>
                 <span
                   aria-hidden="true"
@@ -7183,19 +7632,19 @@ export const Player = forwardRef<
               </div>
             )}
 
-            {/* "That clip might be two points" — offered on the clip you
-                just answered when a rally's worth of footage was still to
-                run. It sits in the pad, not over the video, because the
-                video is now playing the part you had not seen: watch it,
-                then decide. Non-blocking and never in the way of the next
-                answer; ignoring it costs nothing, and the clip advances on
-                its own when the footage runs out. */}
-            {phase === "play" && splitNudge && (
+            {/* ARMED: the card just answered still has footage running, and
+                the winner buttons are now asking about the rally inside it.
+                Text only. The answer is the buttons themselves, and the
+                pad already carries Modify one row down for the rare cut
+                that wants placing by hand — while this is up, Modify opens
+                on this very mark. Calm, not amber: nothing is wrong, a
+                question is being asked. */}
+            {phase === "play" && splitArm && (
               <div
-                className={`ks-fade flex items-center gap-2 rounded-xl border border-amber-400/40 px-3 py-2 ${
+                className={`ks-fade flex items-center gap-2 rounded-xl border border-edge px-3 py-2 ${
                   padOverlay
                     ? "pointer-events-auto absolute z-10 bg-ink/85 backdrop-blur-sm"
-                    : "shrink-0 bg-amber-400/5"
+                    : "shrink-0 bg-surface"
                 }`}
                 // Centred and width-capped in the edge layout: a compact
                 // toast under the top bands, not a band of its own.
@@ -7210,56 +7659,29 @@ export const Player = forwardRef<
                     : undefined
                 }
               >
-                {/* Named, because the offer outlives the clip: the tail
-                    plays out and the pad moves on, and "this clip" would
-                    then be pointing at the wrong one. */}
-                <span className="min-w-0 flex-1 text-[11px] leading-snug text-amber-200/90">
-                  <span className="font-semibold">
-                    Point {(indexById.get(splitNudge.pointId) ?? 0) + 1}
-                  </span>
-                  {splitNudge.certain
-                    ? " looks like two points."
-                    : " — two points in there?"}
+                {/* Name the card, because the arm outlives the rally: the
+                    footage plays on and "this clip" would be pointing at
+                    the wrong one by the time anyone reads it. */}
+                <span className="min-w-0 flex-1 text-[11px] leading-snug text-zinc-300">
+                  <span className="font-semibold text-white">
+                    Point {(indexById.get(splitArm.pointId) ?? 0) + 1}
+                  </span>{" "}
+                  {splitArm.certain
+                    ? "looks like two points."
+                    : "might be two points."}{" "}
+                  Tap who won the second one.
                 </span>
+                {/* The old way, kept on purpose. Answering again is faster
+                    and it is what the sentence asks for, but someone who
+                    would rather SEE the cut before it lands should not have
+                    to know that Modify is the door to it. Same destination:
+                    the editor, opened on this mark. */}
                 <button
                   type="button"
-                  onClick={() => {
-                    const p = pointsRef.current.find(
-                      (x) => x.id === splitNudge.pointId
-                    );
-                    setSplitNudge(null);
-                    // Splitting outright here proved confusing — the cut
-                    // lands sight-unseen. Open the Modify sheet instead,
-                    // with the suggested cut seeded as its split marker:
-                    // the user SEES where the split goes, adjusts it on
-                    // the scrub timeline, and confirms.
-                    if (p) {
-                      pauseBoth();
-                      setModifyInitialCut(splitNudge.atCut);
-                      setModifyPoint(p);
-                    }
-                  }}
-                  className="shrink-0 rounded-full border border-amber-400/50 px-3 py-1 text-[11px] font-semibold text-amber-200 transition-colors hover:bg-amber-400/10"
+                  onClick={tapModify}
+                  className="shrink-0 rounded-full border border-cyan-glow/50 px-3 py-1 text-[11px] font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/10"
                 >
                   Split
-                </button>
-                {/* "No" rather than a bare dismiss: answering the question
-                    also answers what to do next. If there is only one point
-                    in the clip then the rest of it is the walk-back, and
-                    waiting through it is time you did not need to spend. */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const p = pointsRef.current.find(
-                      (x) => x.id === splitNudge.pointId
-                    );
-                    setSplitNudge(null);
-                    playTailRef.current = null;
-                    if (p) jumpAfter(p);
-                  }}
-                  className="shrink-0 rounded-full border border-edge px-3 py-1 text-[11px] font-semibold text-zinc-300 transition-colors hover:bg-surface-2 hover:text-white"
-                >
-                  No
                 </button>
               </div>
             )}
@@ -7400,6 +7822,17 @@ export const Player = forwardRef<
               }
             >
               <div className="relative min-w-0 flex-1">
+                {/* The armed marker sits OUTSIDE the button on purpose: it
+                    must not join the button's accessible name, which is the
+                    player's name and nothing else. */}
+                {secondArmed && (
+                  <span
+                    aria-hidden
+                    className="ks-fade pointer-events-none absolute left-2 top-2 z-10 rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-1.5 py-px text-[10px] font-semibold text-cyan-glow/80"
+                  >
+                    2nd
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => tapSide("user")}
@@ -7413,10 +7846,18 @@ export const Player = forwardRef<
                       : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow"
                   }`}
                 >
-                  <span className="block truncate">{youLabel}</span>
+                  <span className="block" style={CLAMP_TWO}>{youLabel}</span>
                 </button>
               </div>
               <div className="relative min-w-0 flex-1">
+                {secondArmed && (
+                  <span
+                    aria-hidden
+                    className="ks-fade pointer-events-none absolute left-2 top-2 z-10 rounded-full border border-magenta-glow/40 bg-magenta-glow/10 px-1.5 py-px text-[10px] font-semibold text-magenta-soft/80"
+                  >
+                    2nd
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => tapSide("opponent")}
@@ -7430,7 +7871,7 @@ export const Player = forwardRef<
                       : "border-magenta-glow/30 bg-magenta-glow/5 text-magenta-soft"
                   }`}
                 >
-                  <span className="block truncate">{themLabel}</span>
+                  <span className="block" style={CLAMP_TWO}>{themLabel}</span>
                 </button>
                 {whyAvailable && (
                   <WhyPill
@@ -7784,7 +8225,7 @@ export const Player = forwardRef<
                 }}
                 className="h-12 min-w-0 flex-1 rounded-xl border border-cyan-glow/40 bg-cyan-glow/10 px-2 text-base font-bold text-cyan-glow transition-colors hover:bg-cyan-glow/15"
               >
-                <span className="block truncate">{youLabel}</span>
+                <span className="block" style={CLAMP_TWO}>{youLabel}</span>
               </button>
               <button
                 type="button"
@@ -7799,7 +8240,7 @@ export const Player = forwardRef<
                 }}
                 className="h-12 min-w-0 flex-1 rounded-xl border border-magenta-glow/40 bg-magenta-glow/10 px-2 text-base font-bold text-magenta-soft transition-colors hover:bg-magenta-glow/15"
               >
-                <span className="block truncate">{themLabel}</span>
+                <span className="block" style={CLAMP_TWO}>{themLabel}</span>
               </button>
             </div>
             <button
@@ -7899,7 +8340,7 @@ export const Player = forwardRef<
                             : "border-cyan-glow/30 bg-cyan-glow/5 text-cyan-glow hover:bg-cyan-glow/10"
                         }`}
                       >
-                        <span className="block truncate">{youLabel}</span>
+                        <span className="block" style={CLAMP_TWO}>{youLabel}</span>
                       </button>
                       <button
                         type="button"
@@ -7916,7 +8357,7 @@ export const Player = forwardRef<
                             : "border-magenta-glow/30 bg-magenta-glow/5 text-magenta-soft hover:bg-magenta-glow/10"
                         }`}
                       >
-                        <span className="block truncate">{themLabel}</span>
+                        <span className="block" style={CLAMP_TWO}>{themLabel}</span>
                       </button>
                     </div>
                   </div>

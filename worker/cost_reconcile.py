@@ -253,6 +253,78 @@ def _fetch_openai(http, config: dict, start: datetime, end: datetime):
     )}
 
 
+def fetch_openai_key_costs(http, config: dict, start: datetime, end: datetime):
+    """What each OpenAI API key cost, per day.
+
+    The metered ledger records the CODE that spent money, never the
+    credential it used, so it cannot separate a corpus run from an upload:
+    both reach the same function. Since the keys were split per purpose
+    (2026-09-12) the provider can answer that, and it answers for spend the
+    meter never saw at all — which is how two research days became 77% of a
+    three-week bill while appearing nowhere.
+
+    Returns [{provider, key_id, day, cost_usd}]. Keys the dashboard has
+    never been told about are still returned: an unrecognised key is shown
+    as itself with a marker rather than dropped, because a cost that
+    silently belongs to nobody is the whole problem this exists to fix.
+    """
+    rows: list[dict] = []
+    page = None
+    while True:
+        params = {
+            "start_time": int(start.timestamp()),
+            "end_time": int(end.timestamp()),
+            "bucket_width": "1d",
+            "group_by": "api_key_id",
+            "limit": 31,
+        }
+        if page:
+            params["page"] = page
+        payload = _json_response(
+            http,
+            "GET",
+            f"{OPENAI_COSTS_URL}?{urlencode(params)}",
+            headers={
+                "Authorization": f"Bearer {config['openai_admin_key']}",
+                "Content-Type": "application/json",
+            },
+        )
+        for bucket in payload.get("data", []) or []:
+            started = bucket.get("start_time")
+            if not started:
+                continue
+            day = datetime.fromtimestamp(started, timezone.utc).date().isoformat()
+            for result in bucket.get("results", []) or []:
+                key_id = result.get("api_key_id")
+                amount = (result.get("amount") or {}).get("value")
+                if not key_id or not amount:
+                    continue
+                rows.append({
+                    "provider": "OpenAI",
+                    "key_id": str(key_id)[:120],
+                    "day": day,
+                    "cost_usd": float(amount),
+                })
+        if not payload.get("has_more") or not payload.get("next_page"):
+            break
+        page = payload["next_page"]
+    return rows
+
+
+def save_provider_key_costs(connection, rows: list[dict]) -> int:
+    """Store per-key costs. Best effort: this is a reporting nicety and must
+    never be able to fail the reconciliation that carries the real totals."""
+    if not rows:
+        return 0
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select public.record_provider_key_costs(%s::jsonb)",
+            (json.dumps(rows[:500], separators=(",", ":")),),
+        )
+        result = cursor.fetchone()
+    return int(result[0]) if result and result[0] is not None else 0
+
+
 def _fetch_deepgram(http, config: dict, start: datetime, end: datetime):
     project_id = config["deepgram_project_id"]
     params = {"start": start.date().isoformat(), "end": start.date().isoformat()}
@@ -424,6 +496,19 @@ def run_daily_reconciliation(
                 error_code=type(error).__name__[:80],
             )
             statuses[provider] = "error"
+
+    # Per-key costs ride along with the OpenAI check. Deliberately after the
+    # snapshots and deliberately swallowed: the snapshot carries the number
+    # the dashboard's totals depend on, and a reporting breakdown must not
+    # be able to cost us that.
+    if config.get("openai_admin_key"):
+        try:
+            saved = save_provider_key_costs(
+                connection, fetch_openai_key_costs(http, config, start, end)
+            )
+            statuses["OpenAI:keys"] = f"success:{saved}"
+        except Exception as error:
+            statuses["OpenAI:keys"] = f"error:{type(error).__name__}"
     return statuses
 
 

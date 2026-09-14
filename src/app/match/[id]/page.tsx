@@ -1,3 +1,4 @@
+import { selectPrimaryMatchJob } from "@/lib/primaryMatchJob";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -120,24 +121,31 @@ export default async function MatchPage({
     let handCutEnabled = false;
     const commerceEnabled = await getCommerceEnabled();
     if (isOwner) {
-      const [stateRes, jobRes, gateRes] = await Promise.all([
+      const [stateRes, jobRes, activeJobRes, gateRes] = await Promise.all([
         commerceEnabled
           ? supabase.rpc("my_processing_state").single()
           : Promise.resolve({ data: null }),
         supabase
           .from("jobs")
-          .select("id, status, progress, user_message, kind")
+          .select("id, status, progress, user_message, kind, created_at")
           .filter("options->>match_id", "eq", id)
+          .in("kind", ["deadspace_cut", "youtube_import", "hand_cut", "content_check"])
           .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+          .limit(100),
+        // An older retried job must remain visible even after many checks.
+        supabase.from("jobs")
+          .select("id, status, progress, user_message, kind, created_at")
+          .filter("options->>match_id", "eq", id)
+          .in("kind", ["deadspace_cut", "youtube_import", "hand_cut"])
+          .in("status", ["queued", "processing"])
+          .order("created_at", { ascending: false }).limit(1),
         supabase.rpc("hand_cut_enabled", { p_user: user.id }),
       ]);
       const state = stateRes.data as { minutes_balance?: number } | null;
       if (typeof state?.minutes_balance === "number") {
         minutesBalance = state.minutes_balance;
       }
-      initialJob = jobRes.data ?? null;
+      initialJob = selectPrimaryMatchJob([...(jobRes.data ?? []), ...(activeJobRes.data ?? [])]);
       handCutEnabled = gateRes.data === true;
     }
 

@@ -49,7 +49,7 @@ function keychain(service) {
 }
 
 const SERVICE_KEY = keychain("ponglens-service-role");
-const OPENAI_KEY = keychain("openai-api-key");
+const OPENAI_KEY = keychain("ponglens-openai-research");
 
 // ---------------------------------------------------------------------------
 // Free signals, tried before spending anything

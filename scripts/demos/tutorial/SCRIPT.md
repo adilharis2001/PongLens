@@ -240,7 +240,7 @@ export TUTORIAL_PLAYER="uploader-test@example.com"
 export TUTORIAL_COACH="miguel-demo@example.com"
 export TUTORIAL_STUDENT="uploader-test@example.com"
 export TUTORIAL_ACCOUNT="$TUTORIAL_PLAYER"
-export OPENAI_API_KEY="$(security find-generic-password -a openclaw -s openai-api-key -w)"
+export OPENAI_API_KEY="$(security find-generic-password -a openclaw -s ponglens-openai-research -w)"
 ```
 
 Load the database URL from the existing keychain item without printing or

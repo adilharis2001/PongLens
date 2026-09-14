@@ -204,6 +204,9 @@ struct UploadScreen: View {
 
     private var pickCard: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let notice = ProcessingServiceStore.shared.notice(context: .beforeUpload) {
+                ProcessingAvailabilityNoticeView(notice: notice)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Upload a match")
                     .font(.plCardTitle)
@@ -405,6 +408,9 @@ struct UploadScreen: View {
                 }
                 .buttonStyle(PLSecondaryButtonStyle())
             default:
+                if let notice = ProcessingServiceStore.shared.notice(context: .beforeImport) {
+                    ProcessingAvailabilityNoticeView(notice: notice)
+                }
                 HStack(spacing: 8) {
                     TextField("Paste a YouTube link", text: $youtubeURL)
                         .plField()

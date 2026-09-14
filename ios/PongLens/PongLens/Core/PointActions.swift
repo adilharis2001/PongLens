@@ -267,28 +267,6 @@ extension MatchDetailModel {
         }
     }
 
-    /// The admin serve-start label (089): where the serve began, in cut
-    /// seconds, with the context an offline pass needs to tell a paused,
-    /// frame-accurate mark from a live one carrying reaction time.
-    /// A second call re-stamps; nil clears.
-    func setServeStart(
-        _ point: MatchPoint, at cutSeconds: Double?, paused: Bool?, rate: Float?, source: String?
-    ) async {
-        var fields: [String: AnyJSON] = [
-            "serve_start_at_cut_s": cutSeconds.map { .double((($0 * 100).rounded()) / 100) } ?? .null
-        ]
-        if cutSeconds != nil, let paused, let rate, let source {
-            fields["serve_start_meta"] = .object([
-                "paused": .bool(paused),
-                "rate": .double(Double(rate)),
-                "src": .string(source),
-            ])
-        } else {
-            fields["serve_start_meta"] = .null
-        }
-        await patch(point, fields: fields) { _ in }
-    }
-
     /// One button, web semantics: the label names what the tap DOES.
     /// Reopening an end clears the named winner in the same write.
     func setBoundary(_ point: MatchPoint, next: GameEndOverride?) async {

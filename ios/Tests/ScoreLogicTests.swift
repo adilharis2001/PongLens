@@ -351,6 +351,87 @@ func runAllChecks() {
            "the last rally has nowhere to go")
     }
 
+    suite("first outcome offers a split while its full tail plays") {
+        // paddedEnd = 16.6, so answering at 12.0 leaves 4.6 seconds.
+        let p = mkPoint(1, cutT0: 10, t0: 100, t1: 104)
+        let expected = ScoreOutcomeDecision.armSecondAnswer(
+            atCut: 11.4, certain: false, tailEnd: 16.6
+        )
+
+        eq(scoreOutcomeDecision(
+            .winner(.user), for: p, hadOutcome: false,
+            now: 12.0, pad: NORMAL
+        ), expected, "an early Me answer keeps the full current card playing")
+        eq(scoreOutcomeDecision(
+            .winner(.opponent), for: p, hadOutcome: false,
+            now: 12.0, pad: NORMAL
+        ), expected, "an early opponent answer keeps the full current card playing")
+        eq(scoreOutcomeDecision(
+            .skip, for: p, hadOutcome: false,
+            now: 12.0, pad: NORMAL
+        ), expected, "an early Skip or let keeps the full current card playing")
+
+        eq(scoreOutcomeDecision(
+            .winner(.user), for: p, hadOutcome: false,
+            now: 13.1, pad: NORMAL
+        ), .continueExistingFlow, "exactly 3.5 seconds left is not early")
+        eq(scoreOutcomeDecision(
+            .skip, for: p, hadOutcome: false,
+            now: 16.2, pad: NORMAL
+        ), .continueExistingFlow, "a late Skip keeps its existing jump")
+
+        eq(scoreOutcomeDecision(
+            .winner(.opponent), for: p, hadOutcome: true,
+            now: 12.0, pad: NORMAL
+        ), .stay, "correcting a winner never raises the split offer")
+        eq(scoreOutcomeDecision(
+            .skip, for: p, hadOutcome: true,
+            now: 12.0, pad: NORMAL
+        ), .stay, "correcting an outcome to Skip never advances")
+
+        let fused = mkPoint(
+            2, cutT0: 10, t0: 100, t1: 110,
+            placement: detections([100.2, 100.8, 101.4, 102.0, 105.0, 105.6, 106.2, 106.8])
+        )
+        eq(scoreOutcomeDecision(
+            .winner(.user), for: fused, hadOutcome: false,
+            now: 12.0, pad: NORMAL
+        ), .armSecondAnswer(atCut: 14.5, certain: true, tailEnd: 22.6),
+           "gap evidence seeds the existing Modify split and firms the nudge")
+    }
+
+    suite("score failure contains its split decision") {
+        let point = UUID(uuidString: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")!
+        let other = UUID(uuidString: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")!
+
+        check(scoreFailureClearsSplitArm(
+            failedActionId: 4, latestActionId: 4,
+            failedPointId: point, armPointId: point
+        ), "the latest failed answer clears its own split decision")
+        check(!scoreFailureClearsSplitArm(
+            failedActionId: 3, latestActionId: 4,
+            failedPointId: point, armPointId: point
+        ), "an older delayed failure cannot clear a newer decision on the same point")
+        check(!scoreFailureClearsSplitArm(
+            failedActionId: 4, latestActionId: 4,
+            failedPointId: point, armPointId: other
+        ), "a failed answer cannot clear another point's decision")
+        check(!scoreFailureClearsSplitArm(
+            failedActionId: 4, latestActionId: 4,
+            failedPointId: point, armPointId: nil
+        ), "a failure with no visible decision is contained")
+
+        check(splitArmOwnsPlayTail(
+            armPointId: point, tailPointId: point
+        ), "a matching decision owns the tail it must preserve or cancel together")
+        check(!splitArmOwnsPlayTail(
+            armPointId: point, tailPointId: other
+        ), "a decision cannot preserve or cancel another point's tail")
+        check(!splitArmOwnsPlayTail(
+            armPointId: nil, tailPointId: point
+        ), "no decision never owns an ordinary tail")
+    }
+
     // MARK: - Effective end (the winner tap, 2026-08-25)
 
     suite("effectiveEnd") {
@@ -622,6 +703,27 @@ func runAllChecks() {
            "no run in progress, no hold")
         eq(targetAt(tight, at: 19.4, pad: NORMAL, ends: EndOptions.off, hold: false, runStart: 12, firedId: nil)?.id,
            tight[1].id, "watch mode follows the picture")
+
+        // THE TWO HALVES OF A SPLIT CARD. Their padded spans overlap by a
+        // third of a second each way, so the second half's start sits
+        // BEFORE the first half's rally ends — the one shape where "the run
+        // started after the previous rally" cannot tell a deliberate jump
+        // from natural playback. Jumping to the second half must land on
+        // the second half; playing into it from the first must not.
+        let halves = [
+            mkPoint(1, winner: .opponent, cutT0: 9, t0: 10, t1: 11.9,
+                    tightEnd: true, edited: true),
+            mkPoint(2, cutT0: 11.6, t0: 11.9, t1: 16,
+                    tightStart: true, edited: true),
+        ]
+        let halfHold = { (t: Double, runStart: Double?) in
+            targetAt(halves, at: t, pad: NORMAL, ends: EndOptions.off,
+                     hold: true, runStart: runStart, firedId: nil)?.id
+        }
+        eq(halfHold(11.7, 11.6), halves[1].id,
+           "jumping to the second half lands on the second half")
+        eq(halfHold(11.7, 9), halves[0].id,
+           "playing into the overlap still holds the half being watched")
 
         // An ANSWERED previous rally holds to its clip end, not the beat.
         let answered = [

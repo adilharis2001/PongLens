@@ -84,3 +84,36 @@ test("review lifecycle emails delegate to the shared metered sender with their o
   assert.match(source, /await sendTransactionalEmail\(\{/);
   assert.match(source, /operation: `review_email_\$\{kind\}`/);
 });
+
+// Every paid call that one account caused must say so, or the admin page
+// falls back to dividing the total by activity counts — which is what made
+// a coach running twenty lesson recaps look free.
+const attributed = [
+  ["lesson", /subjectUserId,/],
+  ["journal-ocr", /subjectUserId,/],
+  ["entry-image", /subjectUserId: user\.id,/],
+  ["feedback/assist", /subjectUserId: user\.id,/],
+  ["journal-ask", /subjectUserId: user\.id,/],
+  ["offerings/draft", /subjectUserId: user\.id,/],
+  ["profile/draft", /subjectUserId: user\.id,/],
+  ["reviews/assist", /subjectUserId: user\.id,/],
+  ["transcribe", /subjectUserId: user\.id,/],
+] as const;
+
+for (const [route, pattern] of attributed) {
+  test(`${route} attributes its spend to the account that caused it`, () => {
+    const source = readFileSync(
+      new URL(`../../app/api/${route}/route.ts`, import.meta.url),
+      "utf8",
+    );
+    assert.match(source, pattern);
+  });
+}
+
+test("Recollect attributes its spend to the job's owner", () => {
+  const source = readFileSync(
+    new URL("../recollect/openai.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /subjectUserId: args\.job\.userId,/);
+});

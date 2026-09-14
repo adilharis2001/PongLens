@@ -251,6 +251,9 @@ private struct AutomaticHighlightActions: View {
 
     var body: some View {
         Group {
+            if let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                Section { ProcessingAvailabilityNoticeView(notice: notice) }
+            }
             Section {
                 ForEach(
                     automaticHighlightActions(
@@ -320,18 +323,23 @@ private struct AutomaticHighlightActions: View {
         }
         .sheet(isPresented: $instagramOpen) {
             PLChooserSheet(title: "Instagram") {
-                shareRow(
-                    action: "story",
-                    title: "Story",
-                    detail: "Your best qualifying rally inside 20 seconds.",
-                    destination: .story
-                )
-                shareRow(
-                    action: "reel",
-                    title: "Reel",
-                    detail: "Your best qualifying rallies inside a minute.",
-                    destination: .reel
-                )
+                if let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                    Section { ProcessingAvailabilityNoticeView(notice: notice) }
+                }
+                Section {
+                    shareRow(
+                        action: "story",
+                        title: "Story",
+                        detail: "Your best qualifying rally inside 20 seconds.",
+                        destination: .story
+                    )
+                    shareRow(
+                        action: "reel",
+                        title: "Reel",
+                        detail: "Your best qualifying rallies inside a minute.",
+                        destination: .reel
+                    )
+                }
             }
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)

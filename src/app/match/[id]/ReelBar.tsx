@@ -1,4 +1,7 @@
 "use client";
+import { useProcessingService } from "@/lib/useProcessingService";
+import { availabilityNotice } from "@/lib/processingAvailability";
+import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { downloadReel, triggerDownload } from "@/lib/download";
@@ -128,17 +131,19 @@ function RenderAction({
   label,
   onClick,
   rendering,
+  unavailable = false,
   disabled,
 }: {
   label: string;
   onClick: () => void;
   rendering: boolean;
+  unavailable?: boolean;
   disabled?: boolean;
 }) {
   if (rendering) {
     return (
-      <span className="shrink-0 animate-pulse text-xs font-medium text-cyan-glow/80">
-        Rendering…
+      <span className={`shrink-0 text-xs font-medium text-cyan-glow/80 ${unavailable ? "" : "animate-pulse"}`}>
+        {unavailable ? "Waiting" : "Rendering…"}
       </span>
     );
   }
@@ -260,6 +265,7 @@ export function ReelRow({
     r?.status === "queued" || r?.status === "rendering";
   const anyTagRendering = [...tagReels.values()].some(isRendering);
   const anyRendering = starredRendering || fullRendering || anyTagRendering;
+  const services = useProcessingService();
 
   // Poll while the sheet is open and a render is in flight (either scope).
   useEffect(() => {
@@ -433,7 +439,7 @@ export function ReelRow({
         <span className="flex shrink-0 items-center gap-2">
           <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
             {anyRendering ? (
-              <span className="animate-pulse text-cyan-glow/80">Rendering…</span>
+              <span className="text-cyan-glow/80">{availabilityNotice(services.main, "export") ? "Waiting for processing" : "Rendering…"}</span>
             ) : lineReadyFull || lineReadyStarred ? (
               <span className="font-semibold text-emerald-400/90">Ready</span>
             ) : starred.length > 0 ? (
@@ -469,6 +475,8 @@ export function ReelRow({
         onClose={() => setOpen(false)}
         closeLabel="Close export sheet"
       >
+            <ProcessingAvailabilityNotice state={services.main} context="export" />
+
             {/* One score choice governs every rendered video. */}
             {canScore && (
               <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-4 py-3">
@@ -496,7 +504,7 @@ export function ReelRow({
                 subtitle={
                   effShow
                     ? fullRendering
-                      ? "Rendering — we'll email you"
+                      ? availabilityNotice(services.main, "export") ? "Waiting for processing" : "Rendering — we'll email you"
                       : fullSaveReady
                         ? "With scoreboard · ready"
                         : "Whole match, with scoreboard"
@@ -507,6 +515,7 @@ export function ReelRow({
                     <RenderAction
                       label={fullBtnLabel}
                       rendering={fullRendering}
+                      unavailable={!!availabilityNotice(services.main, "export")}
                       disabled={busy !== null}
                       onClick={() => void runRender("full", effShow)}
                     />
@@ -526,7 +535,7 @@ export function ReelRow({
                   title={`Starred points (${starred.length})`}
                   subtitle={
                     starredRendering
-                      ? "Rendering — we'll email you"
+                      ? availabilityNotice(services.main, "export") ? "Waiting for processing" : "Rendering — we'll email you"
                       : starredSaveReady
                         ? "Ready"
                         : "Your starred rallies, in order"
@@ -535,6 +544,7 @@ export function ReelRow({
                     <RenderAction
                       label={starredBtnLabel}
                       rendering={starredRendering}
+                      unavailable={!!availabilityNotice(services.main, "export")}
                       disabled={busy !== null}
                       onClick={() => void runRender("starred", effShow)}
                     />
@@ -573,7 +583,7 @@ export function ReelRow({
                       title={`${t.label} (${t.pointIds.length})`}
                       subtitle={
                         rendering
-                          ? "Rendering — we'll email you"
+                          ? availabilityNotice(services.main, "export") ? "Waiting for processing" : "Rendering — we'll email you"
                           : saveReady
                             ? "Ready"
                             : "Points with this tag, in order"
@@ -582,6 +592,7 @@ export function ReelRow({
                         <RenderAction
                           label={label}
                           rendering={rendering}
+                          unavailable={!!availabilityNotice(services.main, "export")}
                           disabled={busy !== null}
                           onClick={() => void runRender(scope, effShow)}
                         />

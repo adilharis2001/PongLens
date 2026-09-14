@@ -18,6 +18,7 @@ class CoverageTests(unittest.TestCase):
   class Runtime:
    def stage(self,*args):pass
    def model(self,prompt,content):
+    if 'the two lists that bracket the recap' in prompt:return {'goals':[],'work_on':[]}
     calls.append(content)
     if len(calls)==1:return {'title':'Lesson','themes':[{'name':'All teaching','points':['First','Second','Third']}],'chapters':[chapter(i) for i in range(3)]}
     if len(calls)==2:return {'title':'Lesson','themes':[{'name':'Complete outline','points':['Third distinct correction']}]}

@@ -1,0 +1,66 @@
+import type { ProcessingEstimate } from "./processingEstimate";
+
+/** Owner feedback carries observations and an optional server-owned rough estimate. */
+export interface ProcessingFeedback {
+  match_id: string;
+  job_id: string | null;
+  job_status: string | null;
+  job_kind: string | null;
+  stage: string | null;
+  worker_state: "fresh" | "missing" | "silent" | null;
+  service_state?: "available" | "unavailable" | "maintenance" | "unknown";
+  lane?: "main" | "fast" | "hand";
+  estimate?: ProcessingEstimate | null;
+  checked_at: string | null;
+  window_start_s: number | null;
+  window_end_s: number | null;
+  camera_check: { status: string; changes?: unknown[] } | null;
+}
+
+export function processingStageLabel(feedback: ProcessingFeedback | null): string | null {
+  if (feedback?.job_kind === "content_check") return null;
+  if (!feedback || !["queued", "processing"].includes(feedback.job_status ?? "")) return null;
+  if (feedback.service_state === "maintenance") return "Paused for maintenance";
+  if (feedback.service_state === "unavailable") return "Processing is delayed";
+  if (feedback.worker_state === "silent") return "Processing is delayed";
+  if (feedback.job_status === "queued") return "Waiting to process";
+  if (feedback.worker_state !== "fresh") return null;
+  const stages: Record<string, string> = {
+    content_check: "Processing your match",
+    camera_check: "Checking the camera view",
+    download: "Preparing video",
+    import: "Importing video",
+    trim: "Preparing video",
+    ball: "Finding the ball",
+    points: "Finding the points",
+    bodies: "Finding the points",
+    cut: "Removing dead time",
+    publish: "Preparing your match",
+  };
+  return stages[feedback.stage ?? ""] ?? "Processing your match";
+}
+
+export function cameraViewWarning(
+  feedback: ProcessingFeedback | null,
+  trimStart = 0,
+  trimEnd = Infinity,
+): string | null {
+  if (!Number.isFinite(trimStart) || trimStart < 0 || Number.isNaN(trimEnd) || trimEnd <= trimStart) return null;
+  if (feedback?.camera_check?.status !== "changed" || !Array.isArray(feedback.camera_check.changes)) return null;
+  const inside = feedback.camera_check.changes.some((value) => {
+    if (!value || typeof value !== "object") return false;
+    const { before_s: before, after_s: after } = value as Record<string, unknown>;
+    return typeof before === "number" && typeof after === "number"
+      && Number.isFinite(before) && Number.isFinite(after)
+      && before >= 0 && before < after && before >= trimStart && after <= trimEnd;
+  });
+  if (!inside) return null;
+  const start = feedback.window_start_s;
+  const end = feedback.window_end_s;
+  if (typeof start === "number" && typeof end === "number"
+      && Number.isFinite(start) && Number.isFinite(end)
+      && start >= 0 && end > start && end - start <= 10) {
+    return "The camera view changes during this recording. Keep the camera in a fixed position with the same table in view.";
+  }
+  return "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table.";
+}

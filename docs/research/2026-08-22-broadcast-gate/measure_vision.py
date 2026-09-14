@@ -5,7 +5,7 @@ CONTENT_CHECK_MIN_POSITIVE is 3)."""
 import base64, concurrent.futures as cf, glob, json, os, subprocess, sys
 import requests
 KEY=(os.environ.get("OPENAI_API_KEY") or subprocess.run(
-    ["security","find-generic-password","-a","openclaw","-s","openai-api-key","-w"],
+    ["security","find-generic-password","-a","openclaw","-s","ponglens-openai-research","-w"],
     capture_output=True,text=True).stdout.strip())
 MODEL=os.environ.get("MODEL","gpt-5-nano")
 PROMPT=open(os.environ.get("PROMPT","prompt3.txt")).read()

@@ -139,10 +139,13 @@ func runAutomaticHighlightsChecks() {
             contentsOfFile: "../PongLens/PongLens/DesignSystem/SheetScaffold.swift",
             encoding: .utf8
         )
-        // The sheet's one action is the shared sheet button, and that
-        // button is the approved primary, drawn the full width of the form.
+        // The sheet's one action is the shared sheet action row — the same
+        // full-width primary every sheet off the match page uses (2026-09-14)
+        // — and never a primary style of its own.
         check(sheet.contains("PLSheetActionRow("),
-              "the native score action is the shared sheet action row")
+              "the native highlight request uses the shared sheet action row")
+        check(!sheet.contains("buttonStyle(PLPrimaryButtonStyle())"),
+              "the native highlight request draws no primary button of its own")
         check(scaffold.contains("frame(maxWidth: .infinity, minHeight: 28)"),
               "the sheet action row fills the form width")
         check(scaffold.contains("buttonStyle(PLPrimaryButtonStyle())"),

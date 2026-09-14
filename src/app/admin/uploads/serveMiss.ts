@@ -41,6 +41,7 @@ import {
   type PlacementHypothesisJson,
   type PlacementShotJson,
 } from "./uploadView.ts";
+import { personAtEnd } from "./pointLabels.ts";
 
 export interface MissBounce {
   t: number;
@@ -754,6 +755,178 @@ export function serveDetector(
   if (!data) return null;
   if (data.cards.some((c) => c.serve_source === "v3")) return "v3";
   if (data.cards.some((c) => c.serve_source === "motif")) return "motif";
+  return null;
+}
+
+/**
+ * Which player V3 read as the server on a card, or null when it cannot say.
+ *
+ * V3 answers with an END of the table, because it reads the server off
+ * geometry: the arrival test catches the ball coming onto the table, and
+ * the first place a served ball lands is the server's OWN half — so the
+ * half of the qualifying bounce IS the server. (Measured in the worker
+ * against the scorekeeper's rotation on 126 cards: inverted 31%, this way
+ * round 81%.)
+ *
+ * THE SIDE PASSED IN IS THE ONE FOR THIS POINT'S GAME, not `matches.
+ * user_side`. Players change ends every game, and `user_side` is tagged
+ * from the first point's frame — it is the uploader's end in GAME ONE and
+ * the wrong end in game two. Callers pass
+ * `physicalSideForGame(userSide, gameIndex)`, exactly as the placement map
+ * and the point sheet already do. Handing the raw value straight in is the
+ * bug this parameter is named to stop.
+ */
+export function v3ServerOf(
+  half: "near" | "far" | null | undefined,
+  sideThisGame: string | null | undefined
+): "user" | "opponent" | null {
+  // The turn from an end into a person is `personAtEnd`, which the admin's
+  // own server and winner marks go through as well. One rule, one place:
+  // written twice it would be corrected once, which is how the placement
+  // mirror survived for eight months.
+  return personAtEnd(half, sideThisGame);
+}
+
+/**
+ * How often V3's read of the server matches the one the scoring counts out.
+ *
+ * Each card carries its OWN end for the game it sits in, because the answer
+ * changes at every changeover and a single match-wide side would score half
+ * the games against the wrong player.
+ *
+ * Only cards where both sides have an answer are asked. A card with no V3
+ * half, or one whose rotation never anchored on a known first server, is
+ * not a disagreement — it is a card with nothing to compare, and folding
+ * those into the denominator would report a coverage gap as an accuracy
+ * problem.
+ */
+export function v3ServerAgreement(
+  cards: {
+    serveSource: string | null | undefined;
+    serveHalf: "near" | "far" | null | undefined;
+    rotationServer: "user" | "opponent" | null | undefined;
+    /** physicalSideForGame(userSide, gameIndex) for THIS card. */
+    sideThisGame: string | null | undefined;
+  }[]
+): { agree: number; compared: number } {
+  let agree = 0;
+  let compared = 0;
+  for (const c of cards) {
+    if (c.serveSource !== "v3") continue;
+    const mine = v3ServerOf(c.serveHalf, c.sideThisGame);
+    if (mine === null || !c.rotationServer) continue;
+    compared += 1;
+    if (mine === c.rotationServer) agree += 1;
+  }
+  return { agree, compared };
+}
+
+/**
+ * Does the net crossing order dispute which end V3 read as the server?
+ *
+ * V3 reads the server off one thing: the half its qualifying bounce landed
+ * on. The crossings are a second, independent opinion, and they cannot be
+ * argued with on order alone — a ball that bounces BEFORE the first net
+ * crossing after contact has not crossed yet, so that bounce is on the
+ * server's own side. Take the first on-surface bounce AFTER that crossing,
+ * which is the receiver's half, and the server is the other end.
+ *
+ * WHY THIS FLAGS RATHER THAN CORRECTS. Against Adil's own marks on 20
+ * judged cards it caught 6 of the 8 wrong server reads, but it also
+ * disputed 3 of the 10 that were right. Flipping the answer on a second
+ * opinion that is wrong three times in ten would trade visible errors for
+ * confident invisible ones. A card the two disagree about is a card worth
+ * looking at, and that is all this claims.
+ *
+ * Distinct from requiring a crossing BETWEEN a serve's two bounces, which
+ * was measured dead on 2026-09-12: it cost twelve points of landing
+ * coverage and bought no accuracy, because a low serve often trips no
+ * crossing at all. This reads the ORDER of the ones that did fire.
+ */
+export function crossingDisputesServer(card: {
+  serve_s?: number | null;
+  serve_arrival_s?: number | null;
+  serve_half?: "near" | "far" | null;
+  crossings?: number[];
+  bounces?: { t: number; v: number | null; onSurface: boolean }[];
+}): boolean {
+  const contact = card.serve_s;
+  const arrival = card.serve_arrival_s;
+  const half = card.serve_half;
+  if (contact == null || arrival == null || !half) return false;
+  const after = (card.crossings ?? [])
+    .filter((t) => t > contact)
+    .sort((a, b) => a - b);
+  if (!after.length) return false;
+  const first = after[0];
+  // only speaks when the bounce precedes the crossing; otherwise it has
+  // nothing to say rather than something weak to say
+  if (arrival >= first) return false;
+  const next = (card.bounces ?? []).find(
+    (b) => b.t > first && b.v !== null && b.onSurface
+  );
+  if (!next || next.v === null) return false;
+  const receiver = next.v < TABLE_L_M / 2 ? "near" : "far";
+  const server = receiver === "near" ? "far" : "near";
+  return server !== half;
+}
+
+/** How far apart two readings of the same bounce may be and still be it. */
+const SAME_BOUNCE_S = 0.10;
+/** A serve's two bounces are about 0.4s apart; 1.6s is the pair rule's own
+ *  ceiling and nothing beyond it has ever been a serve's landing. */
+const LANDING_WINDOW_S = 1.6;
+
+/**
+ * Where the serve LANDED — its second bounce, on the receiver's half.
+ *
+ * Two sources, and they are not equally good, so the caller is told which
+ * one answered.
+ *
+ * `pair` — the bounce-pair rule found both bounces itself. It never
+ * consults V3's reading of which end served, so it cannot inherit that
+ * mistake, and it is the answer wherever it exists. Adil judged 24 of
+ * these by eye on 2026-09-13 and went 0 for 5 on the cases where a derived
+ * landing DISAGREED with this one: where the pair rule speaks, it wins.
+ *
+ * `derived` — the pair rule was silent, or was describing a different
+ * flight, so the landing is worked out from V3's serve instead: the first
+ * bounce on the table, on the other half, after V3's own. That covers
+ * another 36% of V3 serves, and on the end-on cameras it is nearly all of
+ * them. It is marked separately because it is only as good as the end V3
+ * named — every failure Adil found in this group was a wrong server read,
+ * not a wrong landing.
+ *
+ * Nothing here needs reprocessing. Every field it reads is already in each
+ * match's diagnosis bundle, so a match cut months ago gains its landings
+ * the moment the page asks for them.
+ */
+export function serveLanding(
+  card: MissCard
+): { t: number; from: "pair" | "derived" } | null {
+  const pair = card.serve_bounces;
+  const arrival = card.serve_arrival_s;
+  // On a bounce-pair match the pair IS the rule's own answer, whole. On a
+  // V3 match it was borrowed, so it only counts when its first bounce is
+  // the one V3 qualified — otherwise it describes a different flight and
+  // its landing is a statement about some other serve.
+  if (pair && pair.length === 2) {
+    const sameFlight =
+      card.serve_source !== "v3" ||
+      (arrival != null && Math.abs(pair[0] - arrival) < SAME_BOUNCE_S);
+    if (sameFlight) return { t: pair[1], from: "pair" };
+  }
+  const half = card.serve_half;
+  if (arrival == null || !half) return null;
+  const receiver = half === "near" ? "far" : "near";
+  for (const b of card.bounces) {
+    if (b.t <= arrival + 0.02) continue;
+    if (b.t > arrival + LANDING_WINDOW_S) break;
+    if (!b.onSurface || b.v === null) continue;
+    if ((b.v < TABLE_L_M / 2 ? "near" : "far") === receiver) {
+      return { t: b.t, from: "derived" };
+    }
+  }
   return null;
 }
 

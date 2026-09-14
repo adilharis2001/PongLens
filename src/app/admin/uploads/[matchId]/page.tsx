@@ -13,6 +13,12 @@ import { UploadView } from "./UploadView";
 import type { MatchJson, UploadDetail } from "../uploadView";
 import { hydrateServeMissData, type ServeMissData } from "../serveMiss";
 import { readCards, type TrackArtifact } from "../pointReadings";
+import { normaliseSplits, type EndName } from "../pointLabels";
+
+/** Postgres hands back text; only two values mean anything. */
+function asEnd(value: string | null): EndName | null {
+  return value === "near" || value === "far" ? value : null;
+}
 
 export const metadata: Metadata = {
   title: "Upload",
@@ -125,7 +131,7 @@ export default async function AdminUploadPage({
   const { matchId } = await params;
   const { supabase, avatarUrl } = await requireAdmin();
 
-  const [{ data, error }, themesRes, evidenceRes, labelsRes] =
+  const [{ data, error }, themesRes, evidenceRes, labelsRes, cardLabelsRes] =
     await Promise.all([
       supabase.rpc("admin_upload_detail", { p_match_id: matchId }),
       // The shared vocabulary, fetched once for the page rather than per
@@ -136,6 +142,9 @@ export default async function AdminUploadPage({
       // The admin's stored event corrections (154), so a label filed last
       // week is still on its dot today.
       supabase.rpc("admin_event_labels", { p_match_id: matchId }),
+      // What the admin already decided each card SHOULD have been: which
+      // end served, which end won, where it splits, whether it joins on.
+      supabase.rpc("admin_point_labels", { p_match_id: matchId }),
     ]);
   if (error || !data) notFound();
   const detail = data as UploadDetail;
@@ -205,6 +214,21 @@ export default async function AdminUploadPage({
           }[]).map((l) => ({
             t: Number(l.t),
             label: l.label as import("../serveMiss").BounceLabel,
+          }))}
+          cardLabels={((cardLabelsRes.data ?? []) as {
+            point_id: string;
+            server_ends: (string | null)[] | null;
+            winner_ends: (string | null)[] | null;
+            splits: (number | string)[] | null;
+            join_next: boolean;
+          }[]).map((l) => ({
+            pointId: l.point_id,
+            label: {
+              serverEnds: (l.server_ends ?? []).map(asEnd),
+              winnerEnds: (l.winner_ends ?? []).map(asEnd),
+              splits: normaliseSplits((l.splits ?? []).map(Number)),
+              joinNext: !!l.join_next,
+            },
           }))}
           ends={{
             tapEnd,

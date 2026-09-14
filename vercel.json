@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/reviews-sweep",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/openai-key-costs",
+      "schedule": "30 9 * * *"
     }
   ]
 }

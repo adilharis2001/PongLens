@@ -151,6 +151,7 @@ export async function POST(req: Request) {
       idempotencyKey: `openai:${String(
         data.id ?? crypto.randomUUID()
       )}:feedback`,
+      subjectUserId: user.id,
     }));
     const parsed = JSON.parse(
       data?.choices?.[0]?.message?.content ?? "{}"

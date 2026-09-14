@@ -11,10 +11,27 @@ export interface UsageEvent {
   source?: "internal" | "provider" | "backfill" | "assumed";
   idempotencyKey: string;
   metadata?: Record<string, unknown>;
+  /**
+   * The account whose action caused this cost, where one account did.
+   *
+   * Without it the admin page can only divide the total by activity
+   * counts, which makes every player's number a function of everyone
+   * else's behaviour and goes quietly wrong the moment a new expensive
+   * feature is not one of the counts. That is exactly what happened to
+   * lesson recaps.
+   *
+   * Leave it out for costs nobody caused in particular — a nightly
+   * storage sweep, a model warm-up, an admin's own tooling. Guessing an
+   * owner for those is worse than admitting there isn't one: the page
+   * shows how much of the spend is attributed, and a wrong name in that
+   * number is harder to spot than a missing one.
+   */
+  subjectUserId?: string | null;
 }
 
 interface NormalizedUsageEvent extends Omit<UsageEvent, "metadata"> {
   metadata: Record<string, string | number | boolean>;
+  subjectUserId: string | null;
 }
 
 export interface OpenAIUsageArgs {
@@ -24,6 +41,7 @@ export interface OpenAIUsageArgs {
   idempotencyKey: string;
   occurredAt?: string;
   source?: UsageEvent["source"];
+  subjectUserId?: string | null;
 }
 
 export interface DeepgramUsageArgs {
@@ -36,6 +54,7 @@ export interface DeepgramUsageArgs {
    * than one without and the ledger has to be able to tell them apart.
    */
   keyterms?: boolean;
+  subjectUserId?: string | null;
 }
 
 type UsageTransport = (events: NormalizedUsageEvent[]) => Promise<void>;
@@ -65,6 +84,18 @@ function positive(value: unknown): number {
 
 function boundedText(value: string, max: number): string {
   return value.trim().slice(0, max);
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A malformed subject loses the attribution, never the cost. The meter is
+ * best-effort everywhere else too, and a charge that really happened must
+ * not be rejected over the shape of an id.
+ */
+function subject(value: unknown): string | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  return UUID.test(text) ? text.toLowerCase() : null;
 }
 
 export function normalizeUsageEvent(
@@ -110,6 +141,7 @@ export function normalizeUsageEvent(
     source: event.source ?? "internal",
     idempotencyKey,
     metadata,
+    subjectUserId: subject(event.subjectUserId),
   };
 }
 
@@ -154,6 +186,7 @@ export function openAIUsageEvents(args: OpenAIUsageArgs): UsageEvent[] {
     operation: args.operation,
     sku: args.model,
     source: args.source,
+    subjectUserId: args.subjectUserId,
   };
   const candidates: UsageEvent[] = [
     {
@@ -207,6 +240,7 @@ export function deepgramUsageEvents(args: DeepgramUsageArgs): UsageEvent[] {
     service: "Transcription",
     operation: args.operation,
     sku: "nova-3",
+    subjectUserId: args.subjectUserId,
   };
   if (duration > 0) {
     const events: UsageEvent[] = [
@@ -264,6 +298,7 @@ export function resendEmailEvent(args: {
   operation: string;
   recipients?: number;
   occurredAt?: string;
+  subjectUserId?: string | null;
 }): UsageEvent | null {
   const recipients = Math.max(0, Math.round(args.recipients ?? 1));
   if (!args.messageId || recipients === 0) return null;
@@ -276,6 +311,7 @@ export function resendEmailEvent(args: {
     quantity: recipients,
     unit: "email_recipient",
     idempotencyKey: `resend:${args.messageId}`,
+    subjectUserId: args.subjectUserId,
   };
 }
 
@@ -312,6 +348,7 @@ async function supabaseTransport(
         source: event.source,
         idempotency_key: event.idempotencyKey,
         metadata: event.metadata,
+        subject_user_id: event.subjectUserId,
       })),
     }),
     signal: AbortSignal.timeout(2000),

@@ -1,4 +1,7 @@
 "use client";
+import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
+import { processingStageLabel } from "@/lib/processingFeedback";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
@@ -130,6 +133,7 @@ export function MatchLibrary({
   accountName: string | null;
 }) {
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
+  const processingFeedback = useProcessingFeedback((matches ?? []).filter((m) => m.user_id === userId).map((m) => m.id));
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [sharedPlayers, setSharedPlayers] = useState<SharedPlayer[]>([]);
   // Points are fetched per visible card (see chipTargets), so they're held
@@ -660,6 +664,8 @@ export function MatchLibrary({
     }
     if (processing && job && job.progress > 0 && job.status !== "done")
       bits.push(`${job.progress}%`);
+    const stage = processingStageLabel(processingFeedback[m.id] ?? null);
+    if (stage) bits.push(stage);
 
     const body = (
       <>
@@ -681,6 +687,8 @@ export function MatchLibrary({
           <p className="mt-0.5 truncate text-xs text-zinc-500">
             {bits.filter(Boolean).join(" · ")}
           </p>
+          {!shared && <ProcessingEstimateNote compact className="mt-1" estimate={processingFeedback[m.id]?.estimate}
+            jobStatus={processingFeedback[m.id]?.job_status ?? null} serviceState={processingFeedback[m.id]?.service_state} />}
           {/* fixed-height footer keeps every card the same size */}
           <div className="mt-2 flex h-6 items-center gap-2">
             {/* Both branches are score furniture, so both sit behind

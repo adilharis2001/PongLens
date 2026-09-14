@@ -23,6 +23,12 @@ import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { SpokenGamesToggle, SpokenLine, cleanSpoken } from "./SpokenScore";
 import { useRouter } from "next/navigation";
 import { AllowanceRecovery } from "@/components/AllowanceRecovery";
+import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
+import { useProcessingService } from "@/lib/useProcessingService";
+import { availabilityNotice, serviceLane, processingContext, processingExitMessage } from "@/lib/processingAvailability";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
+import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
+import { cameraViewWarning, processingStageLabel } from "@/lib/processingFeedback";
 import { NoteComposer, NoteItem } from "./Notes";
 
 import { chargeMinutes, formatClock, formatMinutes } from "@/lib/commerce/minutes";
@@ -100,11 +106,19 @@ export function RawMatchView({
   const [trimEnd, setTrimEnd] = useState<number | null>(
     match.duration_s ?? null,
   );
+  const feedbackByMatch = useProcessingFeedback(isOwner ? [match.id] : []);
+  const feedback = feedbackByMatch[match.id] ?? null;
+  const services = useProcessingService();
+  const processingLabel = processingStageLabel(feedback);
+  const cameraWarning = cameraViewWarning(feedback, trimStart, trimEnd ?? Infinity);
   const [placement, setPlacement] = useState(false);
   const [strictness, setStrictness] = useState<"tight" | "normal" | "loose">(
     "normal",
   );
   const [job, setJob] = useState<ActiveJob | null>(initialJob);
+  const serviceState = services[feedback?.lane ?? serviceLane(feedback?.job_kind ?? job?.kind)];
+  const availabilityContext = processingContext(feedback?.job_kind ?? job?.kind, !!match.raw_path);
+  const serviceNotice = availabilityNotice(serviceState, availabilityContext);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [availableMinutes, setAvailableMinutes] = useState(minutesBalance);
@@ -312,27 +326,33 @@ export function RawMatchView({
     }
   }, [isOwner, match.duration_s, match.id]);
 
-  // While a job runs, poll it; when it lands, the server page has a whole
-  // different view to render.
+  // The owner RPC selects the match-producing job ahead of housekeeping.
+  // Keep its progress fresh and ignore late responses after navigation.
+  const feedbackJobId = feedback?.job_id;
+  const feedbackJobStatus = feedback?.job_status;
   useEffect(() => {
-    if (!job || (job.status !== "queued" && job.status !== "processing")) {
-      return;
-    }
+    const jobId = feedbackJobId ?? job?.id;
+    const status = feedbackJobId ? feedbackJobStatus : job?.status;
+    if (!jobId || (status !== "queued" && status !== "processing" && jobId === job?.id)) return;
+    let active = true;
+    let busy = false;
     const supabase = createClient();
-    const timer = setInterval(async () => {
-      const { data } = await supabase
-        .from("jobs")
-        .select("id, status, progress, user_message, kind")
-        .eq("id", job.id)
-        .maybeSingle();
-      if (!data) return;
-      setJob(data as ActiveJob);
-      if (data.status === "done") {
-        router.refresh();
-      }
-    }, 8000);
-    return () => clearInterval(timer);
-  }, [job, router]);
+    const refresh = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const { data } = await supabase.from("jobs")
+          .select("id, status, progress, user_message, kind")
+          .eq("id", jobId).maybeSingle();
+        if (!active || !data) return;
+        setJob(data as ActiveJob);
+        if (data.status === "done" || data.status === "failed") router.refresh();
+      } finally { busy = false; }
+    };
+    void refresh();
+    const timer = setInterval(() => { void refresh(); }, 8000);
+    return () => { active = false; clearInterval(timer); };
+  }, [feedbackJobId, feedbackJobStatus, job?.id, job?.status, router]);
 
   // Marking already done on this match, so re-opening resumes rather than
   // starting over. A missing table (the migration has not run yet) is not
@@ -698,8 +718,9 @@ export function RawMatchView({
 
       {jobRunning && (
         <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
+          {serviceNotice ? <ProcessingAvailabilityNotice state={serviceState} context={availabilityContext} className="" /> : <>
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Processing
+            {processingLabel ?? "Processing"}
           </h2>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2">
             <div
@@ -708,8 +729,11 @@ export function RawMatchView({
             />
           </div>
           <p className="mt-3 text-sm text-zinc-400">
-            You can leave this page. We email you when the match is ready.
+            {processingExitMessage(availabilityContext)}
           </p>
+          <ProcessingEstimateNote estimate={feedback?.estimate} jobStatus={feedback?.job_status ?? job?.status ?? null} serviceState={serviceState} />
+          </>}
+          {cameraWarning && <p className="mt-3 text-sm text-amber-300/90">{cameraWarning}</p>}
         </section>
       )}
 
@@ -741,6 +765,7 @@ export function RawMatchView({
 
       {isOwner && !jobRunning && commerceEnabled && !sourceGone && (
         <section className="mt-4 overflow-hidden rounded-2xl border border-edge bg-surface">
+          <ProcessingAvailabilityNotice state={services.main} context="saved_idle" className="px-5 pt-5" />
           {/* Closed by default. This screen's job is "watch this and
               decide", and it used to open on a trim bar, two settings and
               a price. Closed it states the offer and the cost in one line;
@@ -775,6 +800,12 @@ export function RawMatchView({
             </svg>
           </button>
 
+          {cameraWarning && (
+            <p className="px-5 pb-5 text-sm text-amber-300/90">{cameraWarning}</p>
+          )}
+          {feedback?.job_kind === "content_check" && processingLabel && (
+            <p className="px-5 pb-5 text-sm text-zinc-400">{processingLabel}.</p>
+          )}
           {match.status === "failed" && (
             <p className="px-5 pb-5 text-sm text-amber-300/90">
               {job?.user_message ??

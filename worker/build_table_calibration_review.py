@@ -60,7 +60,7 @@ def keychain(service: str) -> str:
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL") or keychain("ponglens-db-url")
-OPENAI_KEY = os.environ.get("OPENAI_API_KEY") or keychain("openai-api-key")
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY") or keychain("ponglens-openai-research")
 
 
 def r2():

@@ -132,7 +132,7 @@ const faqs = [
   },
   {
     q: "How long does processing take?",
-    a: "About 90 minutes, though it can take longer depending on the length of the recording.",
+    a: "Processing time depends on the recording and the queue. We email you when your match is ready.",
   },
   {
     q: "Is PongLens free?",

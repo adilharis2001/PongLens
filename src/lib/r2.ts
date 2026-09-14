@@ -52,6 +52,13 @@ function opaqueCostKey(...parts: string[]): string {
   return createHash("sha256").update(parts.join("\u0000")).digest("hex");
 }
 
+/**
+ * No subject on R2 operations. The object key would name the owner, but
+ * threading it through every caller buys attribution over the class A/B
+ * operation lines, which are under a dollar a month in total. The money
+ * in Cloudflare is stored bytes, and those are already exact per person
+ * through storage_ledger, which the cost allocation reads directly.
+ */
 async function meterR2(
   operation: R2Operation,
   idempotencyKey: string,

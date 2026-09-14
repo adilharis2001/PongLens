@@ -38,7 +38,12 @@ export async function POST(req: Request) {
   const num = (v: unknown) =>
     typeof v === "number" && Number.isFinite(v) ? v : null;
 
-  const { data, error } = await supabase.rpc("claim_processing", {
+  const requestId = typeof body.requestId === "string" ? body.requestId : null;
+  if (requestId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) {
+    return NextResponse.json({ code: "invalid_input" }, { status: 400 });
+  }
+  const { data, error } = await supabase.rpc(requestId ? "claim_upload_processing" : "claim_processing", {
+    ...(requestId ? { p_request_id: requestId } : {}),
     p_match_id: matchId,
     p_trim_start_s: num(body.trimStartS),
     p_trim_end_s: num(body.trimEndS),

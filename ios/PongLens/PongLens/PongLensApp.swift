@@ -46,6 +46,14 @@ struct PongLensApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessingAvailabilityFixture.isEnabled {
+            AvailabilityQAData.verifyIsolation()
+            URLProtocol.registerClass(AvailabilityQAURLProtocol.self)
+            return
+        }
+        if ScorekeeperQAFixture.isEnabled || ProcessingAvailabilityFixture.isEnabled { return }
+        #endif
         // Wake the queue at launch: it reattaches to in-flight background
         // uploads and resumes anything the last run left unfinished.
         _ = RecordingQueue.shared
@@ -58,6 +66,9 @@ struct PongLensApp: App {
                 .preferredColorScheme(.dark)
                 .tint(PL.cyan)
                 .onChange(of: scenePhase) { _, phase in
+                    #if DEBUG && targetEnvironment(simulator)
+                    if ScorekeeperQAFixture.isEnabled || ProcessingAvailabilityFixture.isEnabled { return }
+                    #endif
                     if phase == .active { Task { await LessonVideoQueue.shared.resume() } }
                 }
         }

@@ -2,6 +2,7 @@ import SwiftUI
 import Supabase
 
 struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var app = AppState()
     @State private var router = Router()
     @State private var library = LibraryStore()
@@ -210,6 +211,9 @@ struct RootView: View {
         }
         .onChange(of: app.userId) { previous, next in
             guard previous != next else { return }
+            ProcessingServiceStore.shared.stop()
+            if next != nil && scenePhase == .active { ProcessingServiceStore.shared.start() }
+            if next != nil { RecordingQueue.shared.resumeProcessingRequests() }
             // pendingInvite deliberately survives this: it is the reason
             // the account just changed.
             lessonVideoLink = nil
@@ -230,6 +234,11 @@ struct RootView: View {
             coach = CoachStore()
             coachWorkspace = CoachWorkspaceStore()
             gate = .checking
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { RecordingQueue.shared.resumeProcessingRequests() }
+            if phase == .active && app.userId != nil { ProcessingServiceStore.shared.start() }
+            else { ProcessingServiceStore.shared.stop() }
         }
     }
 

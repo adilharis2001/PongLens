@@ -42,6 +42,12 @@ function job(over: Partial<RunningJob> = {}): RunningJob {
 const NOW = new Date("2026-09-06T19:00:00Z");
 const ago = (s: number) => new Date(NOW.getTime() - s * 1000).toISOString();
 
+test("an integrity refusal is blocked, while a deliberate drain is paused", () => {
+  assert.equal(workerState(pulse({ stage: "release_invalid" }), { now: NOW }), "blocked");
+  assert.equal(workerState(pulse({ stage: "drained" }), { now: NOW }), "paused");
+  assert.equal(workerState(pulse({ stage: "drained", beat_at: ago(300) }), { now: NOW }), "not-running");
+});
+
 function pulse(over: Partial<WorkerPulse> = {}): WorkerPulse {
   return {
     worker_id: "mac:main",

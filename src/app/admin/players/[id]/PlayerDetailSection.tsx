@@ -11,6 +11,7 @@ import {
   gbLabel,
   retentionLabel,
   scoringLabel,
+  whenExactLabel,
   whenLabel,
   type PlayerDetailPayload,
   type PlayerMatchRow,
@@ -82,9 +83,21 @@ export function PlayerDetailSection({ userId }: { userId: string }) {
           <div className="min-w-0">
             <p className="truncate text-sm text-zinc-300">{profile.email}</p>
             <p className="mt-1 text-xs text-zinc-500">
-              Joined {whenLabel(profile.created_at)}
-              {profile.last_sign_in_at &&
-                ` · Last signed in ${whenLabel(profile.last_sign_in_at)}`}
+              Joined {whenExactLabel(profile.created_at)}
+            </p>
+            {/* Last seen, not last signed in: the sign-in timestamp only
+                moves when a session is made from scratch, so it reads as
+                though somebody never came back when their session simply
+                stayed alive. The sign-in is still shown, because it is the
+                honest answer to a different question. */}
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Last seen {whenExactLabel(profile.last_seen_at) ?? "never"}
+              {profile.last_sign_in_at && (
+                <span className="text-zinc-600">
+                  {" · signed in "}
+                  {whenExactLabel(profile.last_sign_in_at)}
+                </span>
+              )}
             </p>
             {traits && <p className="mt-1 text-xs text-zinc-500">{traits}</p>}
           </div>
@@ -97,9 +110,19 @@ export function PlayerDetailSection({ userId }: { userId: string }) {
               </p>
             </div>
             <div>
-              <p className="text-xs text-zinc-500">Est. cost</p>
+              <p className="text-xs text-zinc-500">Cost</p>
               <p className="mt-1 text-sm font-medium tabular-nums text-cyan-glow">
                 {formatCost(data.est_cost_usd)}
+              </p>
+              {/* One figure hid what it was made of: a failed eight-second
+                  upload read as $0.79 because a share of the database and
+                  mailbox bills was folded in beside two hundredths of a
+                  cent of real spend. Naming the parts is the difference
+                  between an estimate and a number that looks measured. */}
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-600">
+                {formatCost(data.cost_measured_usd ?? 0)} measured ·{" "}
+                {formatCost(data.cost_variable_usd ?? 0)} shared usage ·{" "}
+                {formatCost(data.cost_fixed_usd ?? 0)} infrastructure
               </p>
             </div>
           </div>

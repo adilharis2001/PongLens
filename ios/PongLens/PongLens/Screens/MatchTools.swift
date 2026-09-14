@@ -1052,6 +1052,9 @@ struct ExportSheet: View {
     var body: some View {
         PLSheetScaffold(title: "Export") {
             Form {
+                if let notice = ProcessingServiceStore.shared.notice(context: .export) {
+                    Section { ProcessingAvailabilityNoticeView(notice: notice) }
+                }
                 Section {
                     Toggle("Include score", isOn: $showScore)
                 }
@@ -1090,7 +1093,7 @@ struct ExportSheet: View {
                     Task { await download(scope: scope) }
                 }
             } else if status == "queued" || status == "rendering" {
-                Text("Rendering…")
+                Text(ProcessingServiceStore.shared.notice(context: .export) == nil ? "Rendering…" : "Queued")
                     .font(.plCaption)
                     .foregroundStyle(PL.warningText)
             } else {
@@ -1127,7 +1130,7 @@ struct ExportSheet: View {
 
     private func statusLine(_ status: String?) -> String? {
         switch status {
-        case "queued", "rendering": "Rendering. We'll email you."
+        case "queued", "rendering": ProcessingServiceStore.shared.notice(context: .export) == nil ? "Rendering. We'll email you." : "Waiting for video exports to resume."
         case "ready": "Ready"
         case "failed": "Couldn't prepare the video. Try again."
         default: nil

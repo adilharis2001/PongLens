@@ -82,8 +82,41 @@ final class MatchDetailModel {
     var loaded = false
     var error: String?
     var job: MatchJob?
+    var processingFeedback: MatchProcessingFeedback?
+    private var feedbackMatchId: UUID?
     var minutesBalance: Int?
     var needsMoreMinutes = false
+
+    /// Scoring commands read from the model when their turn begins. The
+    /// queue is per point, so two quick corrections cannot finish out of
+    /// order while an unrelated point remains free to save independently.
+    @ObservationIgnored @MainActor private lazy var scorerCommands = ScorerCommands(
+        read: { [weak self] id in
+            self?.points.first(where: { $0.id == id }).map(ScorerCommandPoint.init)
+        },
+        apply: { [weak self] id, state in
+            guard let self, let i = points.firstIndex(where: { $0.id == id }) else { return }
+            points[i].confirmedWinner = state.winner
+            points[i].isLet = state.isLet
+            points[i].scoredAtCutS = state.scoredAt
+        },
+        persist: { id, state in
+            do {
+                try await supa
+                    .from("points")
+                    .update([
+                        "confirmed_winner": state.winner.map { .string($0.rawValue) } ?? .null,
+                        "is_let": .bool(state.isLet),
+                        "scored_at_cut_s": state.scoredAt.map { .double($0) } ?? .null,
+                    ] as [String: AnyJSON])
+                    .eq("id", value: id.uuidString.lowercased())
+                    .execute()
+                return true
+            } catch {
+                return false
+            }
+        }
+    )
 
     var jobRunning: Bool { job?.running ?? false }
 
@@ -249,16 +282,42 @@ final class MatchDetailModel {
 
     /// The newest job for this match plus the minutes balance — what the
     /// raw view needs to say "Processing", "failed", or "Process · N min".
-    func loadRawState(_ match: MatchRow) async {
-        let jobs: [MatchJob]? = try? await supa
-            .from("jobs")
-            .select(Self.jobSelect)
-            .eq("options->>match_id", value: match.id.uuidString.lowercased())
-            .order("created_at", ascending: false)
-            .limit(1)
-            .execute()
-            .value
-        job = jobs?.first
+    func loadRawState(_ match: MatchRow, isOwner: Bool) async {
+        guard isOwner else {
+            feedbackMatchId = nil
+            processingFeedback = nil
+            job = nil
+            minutesBalance = nil
+            return
+        }
+        feedbackMatchId = match.id
+        await refreshFeedback()
+        if let primaryId = processingFeedback?.jobId {
+            let jobs: [MatchJob]? = try? await supa.from("jobs").select(Self.jobSelect)
+                .eq("id", value: primaryId.uuidString.lowercased()).execute().value
+            job = jobs?.first
+        } else {
+            let active: [MatchJob]? = try? await supa.from("jobs").select(Self.jobSelect)
+                .eq("options->>match_id", value: match.id.uuidString.lowercased())
+                .in("kind", values: ["deadspace_cut", "youtube_import", "hand_cut"])
+                .in("status", values: ["queued", "processing"])
+                .order("created_at", ascending: false).limit(1).execute().value
+            job = active?.first
+            if job == nil {
+                let jobs: [MatchJob]? = try? await supa.from("jobs").select(Self.jobSelect)
+                    .eq("options->>match_id", value: match.id.uuidString.lowercased())
+                    .in("kind", values: ["deadspace_cut", "youtube_import", "hand_cut"])
+                    .order("created_at", ascending: false).limit(1).execute().value
+                job = jobs?.first
+            }
+            if job == nil {
+                let checks: [MatchJob]? = try? await supa.from("jobs").select(Self.jobSelect)
+                    .eq("options->>match_id", value: match.id.uuidString.lowercased())
+                    .eq("kind", value: "content_check")
+                    .order("created_at", ascending: false).limit(1).execute().value
+                job = checks?.first
+            }
+        }
 
         struct StateRow: Decodable {
             let minutesBalance: Double?
@@ -269,12 +328,27 @@ final class MatchDetailModel {
         minutesBalance = state?.first?.minutesBalance.map(Int.init)
     }
 
+    private func refreshFeedback() async {
+        guard let feedbackMatchId else { return }
+        struct Request: Encodable { let p_match_ids: [UUID] }
+        let rows: [MatchProcessingFeedback]? = try? await supa
+            .rpc("my_match_processing_feedback", params: Request(p_match_ids: [feedbackMatchId]))
+            .execute().value
+        processingFeedback = rows?.first
+    }
+
+    var feedbackActive: Bool {
+        jobRunning || job?.status == "queued" || job?.status == "processing"
+            || processingFeedback?.jobStatus == "queued" || processingFeedback?.jobStatus == "processing"
+    }
+
     func refreshJob() async {
-        guard let current = job else { return }
+        await refreshFeedback()
+        guard let currentId = processingFeedback?.jobId ?? job?.id else { return }
         let jobs: [MatchJob]? = try? await supa
             .from("jobs")
             .select(Self.jobSelect)
-            .eq("id", value: current.id.uuidString.lowercased())
+            .eq("id", value: currentId.uuidString.lowercased())
             .execute()
             .value
         if let fresh = jobs?.first {
@@ -391,9 +465,9 @@ final class MatchDetailModel {
         case failed
     }
 
-    /// Optimistic column-scoped patch with rollback — the whole scorer
-    /// write surface goes through here. Returns false on a failed save so
-    /// callers can flash "Couldn't save. Tap again." the way the web does.
+    /// Generic optimistic patch for non-scorekeeper point controls. Scorer
+    /// writes use their per-point command queue below; existing star, delete
+    /// and bulk-edit callers keep this independent behavior.
     @discardableResult
     func patch(
         _ point: MatchPoint,
@@ -425,30 +499,46 @@ final class MatchDetailModel {
     /// `force` is the Why bubble's contract: it means "they won it, and here
     /// is why I lost", so on a point already theirs it re-affirms instead of
     /// toggling the score off. Saying why must never cost you the score.
-    func tapWinner(
-        _ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil, force: Bool = false
-    ) async {
-        if point.confirmedWinner == side, !force {
-            await patch(
-                point,
-                fields: ["confirmed_winner": .null, "scored_at_cut_s": .null]
-            ) {
-                $0.confirmedWinner = nil
-                $0.scoredAtCutS = nil
-            }
-        } else {
-            var fields: [String: AnyJSON] = [
-                "confirmed_winner": .string(side.rawValue),
-                "is_let": .bool(false),
-            ]
-            let stamp = scoredAt.map { (($0 * 100).rounded()) / 100 }
-            if let stamp { fields["scored_at_cut_s"] = .double(stamp) }
-            await patch(point, fields: fields) {
-                $0.confirmedWinner = side
-                $0.isLet = false
-                if let stamp { $0.scoredAtCutS = stamp }
-            }
+    @MainActor
+    func queueWinner(
+        _ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil,
+        observationTiming: ScorerTimingGuard? = nil, force: Bool = false
+    ) -> Task<ScorerCommandReceipt?, Never> {
+        let stamp = scoredAt.flatMap { value in
+            value.isFinite ? ((value * 100).rounded()) / 100 : nil
         }
+        return scorerCommands.beginWinner(
+            point.id, side: side, observation: stamp,
+            observationTiming: observationTiming, force: force
+        )
+    }
+
+    @MainActor @discardableResult
+    func tapWinner(
+        _ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil,
+        observationTiming: ScorerTimingGuard? = nil, force: Bool = false
+    ) async -> ScorerCommandReceipt? {
+        await queueWinner(
+            point, side, scoredAt: scoredAt,
+            observationTiming: observationTiming, force: force
+        ).value
+    }
+
+    /// Score Undo restores only the fields named in its receipt. Starred,
+    /// deleted and every structural field may have changed independently.
+    @MainActor @discardableResult
+    func restoreScorer(_ receipt: ScorerCommandReceipt) async -> ScorerCommandReceipt? {
+        await scorerCommands.restore(receipt)
+    }
+
+    /// Reserve Undo immediately, while the original receipt is still
+    /// pending, so a later score cannot enter this point's queue ahead of it.
+    @MainActor
+    func queueRestore(
+        _ pointId: UUID,
+        after pending: Task<ScorerCommandReceipt?, Never>
+    ) -> Task<ScorerCommandReceipt?, Never> {
+        scorerCommands.beginRestore(pointId, after: pending)
     }
 
     /// Undo support: writes a set of scorer fields back in one patch. Takes
@@ -479,20 +569,14 @@ final class MatchDetailModel {
         }
     }
 
-    func tapSkip(_ point: MatchPoint) async {
-        if point.isLet {
-            await patch(point, fields: ["is_let": .bool(false)]) {
-                $0.isLet = false
-            }
-        } else {
-            await patch(
-                point,
-                fields: ["is_let": .bool(true), "confirmed_winner": .null]
-            ) {
-                $0.isLet = true
-                $0.confirmedWinner = nil
-            }
-        }
+    @MainActor @discardableResult
+    func tapSkip(_ point: MatchPoint) async -> ScorerCommandReceipt? {
+        await queueSkip(point).value
+    }
+
+    @MainActor
+    func queueSkip(_ point: MatchPoint) -> Task<ScorerCommandReceipt?, Never> {
+        scorerCommands.beginSkip(point.id)
     }
 
     func toggleStar(_ point: MatchPoint) async {
@@ -893,7 +977,7 @@ struct MatchDetailScreen: View {
             await tagsStore.load(ownerId: match.userId, pointIds: model.visible.map(\.id))
             await reasonsStore.load(ownerId: match.userId)
             if match.status != .ready {
-                await model.loadRawState(match)
+                await model.loadRawState(match, isOwner: isOwner)
                 // A failed match opens itself: the reason and the retry
                 // are why anyone is on this screen.
                 if match.status == .failed { processOpen = true }
@@ -1188,7 +1272,7 @@ struct MatchDetailScreen: View {
                 Spacer()
                 if current.status != .ready {
                     StatusChip(
-                        status: model.jobRunning ? .processing : current.chipStatus
+                        status: processingAvailabilityNotice != nil && (model.jobRunning || current.status == .processing) ? .queued : model.jobRunning ? .processing : current.chipStatus
                     )
                 }
                 // tracksServe too, not just "has winners": a match that was
@@ -1388,18 +1472,16 @@ struct MatchDetailScreen: View {
     @ViewBuilder
     private func rawSection(proxy: ScrollViewProxy) -> some View {
         if model.jobRunning || current.status == .processing {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Processing")
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                ProgressView(value: Double(min(100, max(4, model.job?.progress ?? 0))) / 100)
-                    .tint(PL.cyan)
-                Text("You can leave this page. We email you when the match is ready.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .plCard()
+            MatchProcessingCard(
+                notice: processingAvailabilityNotice,
+                stageLabel: model.processingFeedback?.stageLabel,
+                warning: model.processingFeedback?.cameraWarning(trimStart: trimStart, trimEnd: trimEnd ?? .infinity),
+                progress: model.job?.progress,
+                sendsReadyEmail: (model.processingFeedback?.jobKind ?? model.job?.kind) == "deadspace_cut",
+                estimate: model.processingFeedback?.estimate,
+                jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
+                serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: model.processingFeedback?.jobKind ?? model.job?.kind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue
+            )
         } else if sourceGone {
             VStack(alignment: .leading, spacing: 10) {
                 Text(model.job?.userMessage ?? "This video couldn't be processed.")
@@ -1433,6 +1515,17 @@ struct MatchDetailScreen: View {
         // Notes were the invisible half of the raw player: its note button
         // saved a real match note, and this page had nowhere to show it.
         overallNotesSection
+    }
+
+    private var processingAvailabilityNotice: ProcessingAvailabilityNotice? {
+        guard isOwner else { return nil }
+        return ProcessingServiceStore.shared.matchNotice(
+            matchStatus: current.status.rawValue,
+            jobKind: model.processingFeedback?.jobKind ?? model.job?.kind,
+            jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
+            lane: model.processingFeedback?.lane,
+            videoSaved: current.rawPath != nil
+        )
     }
 
 
@@ -1481,6 +1574,19 @@ struct MatchDetailScreen: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            if let warning = model.processingFeedback?.cameraWarning(trimStart: trimStart, trimEnd: trimEnd ?? .infinity) {
+                Text(warning).font(.plBody).foregroundStyle(PL.warningText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20).padding(.bottom, 20)
+            }
+            if let notice = processingAvailabilityNotice {
+                ProcessingAvailabilityNoticeView(notice: notice)
+                    .padding(.horizontal, 20).padding(.bottom, 20)
+            } else if model.processingFeedback?.jobKind == "content_check", let label = model.processingFeedback?.stageLabel {
+                Text(label).font(.plBody).foregroundStyle(PL.text400)
+                    .padding(.horizontal, 20).padding(.bottom, 20)
+            }
 
             // Outside the fold: a failure is the reason someone opened this
             // screen, and hiding it behind a chevron would be a lie of
@@ -1692,7 +1798,7 @@ struct MatchDetailScreen: View {
     /// Poll the running job the way the web does, and flip this page to
     /// the full match view the moment processing lands.
     private func watchProcessing() async {
-        while !Task.isCancelled, model.jobRunning {
+        while !Task.isCancelled, model.feedbackActive {
             try? await Task.sleep(for: .seconds(8))
             guard !Task.isCancelled else { return }
             await model.refreshJob()

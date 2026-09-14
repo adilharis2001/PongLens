@@ -66,7 +66,7 @@ struct RecordingBriefSheet: View {
         Page(
             image: "brief-p5",
             title: "Processing is in beta",
-            body: "PongLens finds and cuts each point automatically, and it is not perfect yet. A point can be missed, or a cut can start late or run long. Scoring the match tightens them: a point you score ends right at the winning shot. You can fix any point from the match screen, and the model improves with every release. Most matches are ready in about 90 minutes, and we email you when yours is."
+            body: "PongLens finds and cuts each point automatically, and it is not perfect yet. A point can be missed, or a cut can start late or run long. Scoring the match tightens them: a point you score ends right at the winning shot. You can fix any point from the match screen, and the model improves with every release. Processing time depends on the recording and the queue. We email you when your match is ready."
         ),
     ]
 

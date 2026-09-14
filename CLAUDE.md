@@ -91,6 +91,12 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ## The processing page has to keep up with the worker
 
+**Worker release/health rollout, 2026-09-11:** main/fast now run the sealed
+release, with independent health monitoring. Read `docs/worker-release-health.md` before changing worker
+launchers, runtime dependencies or body fallback reporting. The sealed runtime
+source remains on `codex/worker-release-health`; do not merge its captured
+baseline wholesale over newer main.
+
 **`/admin/processing` is the only place anyone can see whether the workers
 are alive and what they are doing.** The worker changes often, and this
 page falls behind it silently: nothing breaks, the page simply stops
@@ -166,6 +172,88 @@ surface, not just this one:
 - **Amber is a budget.** Reserve it for the two states that are actually
   wrong. A status page that cries wolf gets ignored, and then it does not
   matter how correct the real alarm is.
+
+---
+
+## What a cost has to say about itself
+
+**`/admin/costs` answers two questions, and they must never be added
+together.** What PongLens costs to RUN for the people using it is about $79
+a month and grows with players. What it costs to BUILD is about $392 and
+does not. One total hides whichever half you were not looking at, which is
+what the page did until 2026-09-11. The split lives in
+`get_platform_cost_dashboard`, not in the page, so nothing downstream can
+sum them by accident; and build costs are never divided across players,
+because nobody's upload caused a subscription.
+
+- **A new paid call site names the account that caused it.** Pass
+  `subjectUserId` to `openAIUsageEvents` / `deepgramUsageEvents` /
+  `resendEmailEvent`, or `subject_user_id` in the worker. Without it the
+  page falls back to dividing the pot by activity counts, and that goes
+  wrong SILENTLY the first time an expensive feature is not one of the
+  counts. Lesson videos were not: Deepgram is 94% lesson-video audio and was
+  being split by voice-note count, so a coach running twenty recaps read as
+  nearly free while a player who left one voice note absorbed their bill.
+  Nothing errored and no test failed. `routeMetering.test.ts` asserts the
+  pattern per route; add a row when you add a route.
+- **A cost with no single owner stays unowned, on purpose.** A nightly
+  sweep, a warm-up, admin tooling. Guessing is worse than admitting: the
+  People tab reports what share of spend is measured, so a missing owner
+  shows up in that number and a wrong one hides inside it. Where a call site
+  is deliberately unattributed, say why there (`r2.ts` and `send.ts` do).
+- **A metered SKU with no matching rate prices at zero and says nothing.**
+  The rate lookup joins on provider, service, sku AND unit, so a rate filed
+  under the wrong service never meets its events — `gpt-audio` sat under a
+  service called "Audio" while the worker recorded "AI", and every audio
+  check on a lesson recap cost nothing for a week. `health.unmapped_count`
+  is the check; it should be 0.
+- **`effective_from` on a rate is when the PRICE started, not when somebody
+  wrote the row.** whisper-1 was dated a day late and 105 minutes of
+  transcription priced at zero.
+- **A feature is not finished when it spends money, but when the page can
+  name what it spent.** New operation names get a plain-English label in
+  `featureForOperation` (`costDashboardView.ts`), the same way a new job kind
+  gets one on the processing page.
+
+---
+
+## Which OpenAI key a call spends
+
+**PongLens has three OpenAI keys, and which one a call reaches decides
+whether its cost is legible.** All are macOS Keychain entries under account
+`openclaw`. Split on 2026-09-12, when one key served everything and two
+research days accounted for 77% of a three-week Sol bill without being
+distinguishable from ordinary uploads.
+
+| Keychain service | Read by |
+| --- | --- |
+| `openai-api-key` | PRODUCTION only: `worker.py`, the vision calibration it spawns in `points_pipeline.py`, and the sealed `lesson_video.py` |
+| `ponglens-openai-research` | anything that runs because WE were building or measuring: research scripts, `build_table_calibration_review.py`, `scripts/marketing/enrich.mjs`, tutorial `tts.mjs` |
+| `ponglens-openai-web-dev` | the value behind every `.env.local`, and Vercel Preview + Development |
+| `ponglens-openai-admin-key` | `cost_reconcile.py` only. Reads organisation cost totals; cannot call a model |
+
+The web app in production reads `OPENAI_API_KEY` from Vercel, whose key is
+deliberately not in the Keychain: nothing on the Mac needs to read it.
+
+- **The rule is what CAUSED the call, not what the code is.** A player's
+  upload spends the production key. A corpus run over the same code spends
+  the research key. Get this wrong and the cost page goes back to being
+  unable to tell a $9 research afternoon from a busy day of uploads.
+- **`openai-api-key` keeps its misleading name on purpose.** Renaming it
+  would force a re-seal of the lesson worker and move the release id the
+  Modal migration is pinned to. Read it as "production worker".
+- **Both Mac workers read their key once, at startup.** Changing the
+  Keychain value does nothing until `launchctl kickstart -k` on
+  `com.adil.ponglens-worker` and `com.adil.ponglens-lesson-video-worker`.
+- **The coach-outreach launchd job runs `enrich.mjs` from the MAIN
+  checkout**, which trails `origin/main` badly. A fix pushed to main does
+  not reach it; patch the working copy too, or the job breaks on a rotation.
+- **Storing a key: never use the interactive `security ... -w` prompt.** It
+  truncates silently at 128 characters and an OpenAI key is 164. Pass the
+  value as an argument, and never let it pass through an app with smart
+  punctuation — macOS turns `--` into an em dash, which corrupts the key AND
+  shortens it by one. A key that reads back as a long hex string rather than
+  `sk-proj-...` has a non-ASCII character in it.
 
 ---
 

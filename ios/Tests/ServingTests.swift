@@ -118,4 +118,92 @@ func runServingParityChecks() {
         servers("............", .user, [cardAfterTheGap: .opponent]) == truth,
         "one correction fixes a rally the cut missed"
     )
+
+    // A CARD THAT BECOMES TWO. Splitting a fused clip adds a real point,
+    // so the rotation has to move with it — the half that comes out of a
+    // block's SECOND serve belongs to the other player, and every card
+    // after the cut shifts one place round the two-serve cycle. Nothing
+    // computes this per card: it falls out of the walk, provided the new
+    // half is in the list in TIMELINE order, which is the part a split
+    // can get wrong (split_point mints idx = max + 1, at the end).
+    check(servers("....", .user) == "UUTT", "four cards, two serves each")
+    check(
+        splitServers(cards: 4, splitting: 1, first: .user) == "UUTTU",
+        "splitting a block's second serve hands the new half to the other side"
+    )
+    check(
+        splitServers(cards: 4, splitting: 0, first: .user) == "UUTTU",
+        "splitting a block's first serve keeps it, and moves everything after"
+    )
+    check(
+        splitServers(cards: 4, splitting: 3, first: .opponent) == "TTUUT",
+        "and it holds from the other first server"
+    )
+
+    // ARMED, BEFORE THE CUT EXISTS. The pad asks the rotation who would
+    // serve a point inserted after the card just answered, so the switch
+    // can say it at the tap rather than a second later. Same question, so
+    // the same answer: the half's own server in the sequences above.
+    check(
+        armedServer(cards: 4, after: 1, first: .user) == .opponent,
+        "the rally inside a block's second serve belongs to the other side"
+    )
+    check(
+        armedServer(cards: 4, after: 0, first: .user) == .user,
+        "the rally inside a block's first serve is the same server's second"
+    )
+}
+
+/// Who the rotation would give a point inserted after card `after` — the
+/// question the pad asks while a second answer is armed.
+private func armedServer(
+    cards: Int, after: Int, first: Winner
+) -> Winner? {
+    var inputs = (0..<cards).map { _ in
+        ServeInput(
+            id: UUID(), serverOverride: nil, isLet: false,
+            confirmedWinner: nil, gameEndOverride: nil
+        )
+    }
+    let ghostId = UUID()
+    inputs.insert(
+        ServeInput(
+            id: ghostId, serverOverride: nil, isLet: false,
+            confirmedWinner: nil, gameEndOverride: nil
+        ),
+        at: after + 1
+    )
+    return computeServingInputs(inputs, firstServer: first)[ghostId]?.server
+}
+
+/// The served-by sequence after card `splitting` is cut in two, built the
+/// way a real split builds it: the child takes a t0 INSIDE the parent's old
+/// span and an idx past the end of the match, then the list is sorted the
+/// way `visible` sorts it. A child ordered by idx instead would land last
+/// and leave every card between untouched, which is the failure this is
+/// here to catch.
+private func splitServers(
+    cards: Int, splitting: Int, first: Winner
+) -> String {
+    var points = (0..<cards).map { i in
+        mkPoint(i + 1, t0: Double(i) * 10, t1: Double(i) * 10 + 6)
+    }
+    let parent = points[splitting]
+    let at = (parent.t0 ?? 0) + 3
+    points[splitting].t1 = at
+    var child = mkPoint(cards + 1, t0: at, t1: Double(splitting) * 10 + 6)
+    child.edited = true
+    points.append(child)
+    let ordered = points.sorted { a, b in
+        if let ta = a.t0, let tb = b.t0, ta != tb { return ta < tb }
+        return a.idx < b.idx
+    }
+    let serving = computeServing(ordered, firstServer: first)
+    return String(ordered.map { p -> Character in
+        switch serving[p.id]?.server {
+        case .some(.user): return "U"
+        case .some(.opponent): return "T"
+        default: return "?"
+        }
+    })
 }

@@ -27,7 +27,7 @@ import type { PublicLessonChapter } from "./shareData";
 
 async function mediaUrl(
   token: string,
-  what: "video" | "poster" | "download"
+  what: "video" | "poster" | "download",
 ): Promise<string | null> {
   try {
     const qs = new URLSearchParams({ token, what });
@@ -39,14 +39,47 @@ async function mediaUrl(
   }
 }
 
+/**
+ * One of the two lists that bracket a recap: what the lesson set out to
+ * improve, and what to practise afterwards. The same words the video draws
+ * on its first and last cards. A lesson that stated neither renders
+ * neither, never a heading with nothing under it.
+ */
+function FocusList({ heading, lines }: { heading: string; lines: string[] }) {
+  if (!lines.length) return null;
+  return (
+    <section>
+      <h2 className="px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        {heading}
+      </h2>
+      <ul className="mt-2 space-y-1.5">
+        {lines.map((line, index) => (
+          <li
+            key={index}
+            className="flex gap-3 px-3 text-sm leading-relaxed text-zinc-300"
+          >
+            <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
+            <span className="min-w-0 flex-1">{line}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function LessonRecapView({
   token,
   chapters,
+  goals,
+  workOn,
   canDownload,
   downloadBytes,
 }: {
   token: string;
   chapters: PublicLessonChapter[];
+  /** Both empty when the lesson stated neither, which renders as nothing. */
+  goals: string[];
+  workOn: string[];
   /** The server found a current downloadable file. */
   canDownload: boolean;
   downloadBytes: number | null;
@@ -83,16 +116,13 @@ export function LessonRecapView({
         title: c.title,
         cues: c.cues,
         start_s: 0,
-        end_s: Math.max(
-          0,
-          (c.summary_end_s ?? 0) - (c.summary_start_s ?? 0)
-        ),
+        end_s: Math.max(0, (c.summary_end_s ?? 0) - (c.summary_start_s ?? 0)),
         ...(c.summary_start_s === null
           ? {}
           : { summary_start_s: c.summary_start_s }),
         ...(c.summary_end_s === null ? {} : { summary_end_s: c.summary_end_s }),
       })),
-    [chapters]
+    [chapters],
   );
 
   useEffect(() => {
@@ -151,7 +181,7 @@ export function LessonRecapView({
       setStarted(true);
       void v.play().catch(() => {});
     },
-    [timed]
+    [timed],
   );
 
   const onTimeUpdate = useCallback(() => {
@@ -187,7 +217,7 @@ export function LessonRecapView({
     resumeAt.current = null;
     v.currentTime = Math.max(
       0,
-      Math.min(target.time, Math.max(0, v.duration - 0.1))
+      Math.min(target.time, Math.max(0, v.duration - 0.1)),
     );
     if (target.playing) void v.play().catch(() => {});
   }, []);
@@ -278,56 +308,64 @@ export function LessonRecapView({
         )}
       </div>
 
-      {chapters.length > 0 && (
-        <ol className="mt-6 space-y-1 px-4 sm:px-0 lg:mt-0 lg:w-96 lg:shrink-0">
-          {chapters.map((item, index) => (
-            <li
-              key={index}
-              className={
-                "rounded-xl px-3 py-2 transition-colors " +
-                (chapter === index ? "bg-white/5" : "")
-              }
-            >
-              <button
-                type="button"
-                onClick={() => goToChapter(index)}
-                aria-current={chapter === index ? "true" : undefined}
-                className="flex min-h-11 w-full items-center gap-3 text-left focus-visible:outline focus-visible:outline-cyan-glow"
-              >
-                <span
+      {(chapters.length > 0 || goals.length > 0 || workOn.length > 0) && (
+        <div className="mt-6 space-y-6 px-4 sm:px-0 lg:mt-0 lg:w-96 lg:shrink-0">
+          <FocusList heading="Lesson goals" lines={goals} />
+
+          {chapters.length > 0 && (
+            <ol className="space-y-1">
+              {chapters.map((item, index) => (
+                <li
+                  key={index}
                   className={
-                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold " +
-                    (chapter === index
-                      ? "bg-cyan-glow text-ink"
-                      : "bg-surface-2 text-zinc-400")
+                    "rounded-xl px-3 py-2 transition-colors " +
+                    (chapter === index ? "bg-white/5" : "")
                   }
                 >
-                  {index + 1}
-                </span>
-                <span
-                  className={
-                    "min-w-0 flex-1 text-sm font-medium leading-snug " +
-                    (chapter === index ? "text-zinc-100" : "text-zinc-300")
-                  }
-                >
-                  {item.title}
-                </span>
-              </button>
-              {item.cues.length > 0 && (
-                <ul className="mt-1 space-y-1 pl-10">
-                  {item.cues.map((cue, i) => (
-                    <li
-                      key={i}
-                      className="text-sm leading-relaxed text-zinc-400"
+                  <button
+                    type="button"
+                    onClick={() => goToChapter(index)}
+                    aria-current={chapter === index ? "true" : undefined}
+                    className="flex min-h-11 w-full items-center gap-3 text-left focus-visible:outline focus-visible:outline-cyan-glow"
+                  >
+                    <span
+                      className={
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold " +
+                        (chapter === index
+                          ? "bg-cyan-glow text-ink"
+                          : "bg-surface-2 text-zinc-400")
+                      }
                     >
-                      {cue}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ol>
+                      {index + 1}
+                    </span>
+                    <span
+                      className={
+                        "min-w-0 flex-1 text-sm font-medium leading-snug " +
+                        (chapter === index ? "text-zinc-100" : "text-zinc-300")
+                      }
+                    >
+                      {item.title}
+                    </span>
+                  </button>
+                  {item.cues.length > 0 && (
+                    <ul className="mt-1 space-y-1 pl-10">
+                      {item.cues.map((cue, i) => (
+                        <li
+                          key={i}
+                          className="text-sm leading-relaxed text-zinc-400"
+                        >
+                          {cue}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+
+          <FocusList heading="Things to work on" lines={workOn} />
+        </div>
       )}
     </div>
   );

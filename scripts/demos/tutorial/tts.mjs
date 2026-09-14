@@ -10,7 +10,9 @@
  * (per line: text, file, duration, and its start offset in the chapter).
  *
  * The key comes from OPENAI_API_KEY or the macOS Keychain (account
- * `openclaw`, service `openai-api-key`), same as the worker.
+ * `openclaw`, service `ponglens-openai-research`). Deliberately NOT the
+ * worker's key: narration is generated when we build a tutorial, not when
+ * a player uses PongLens, and the two should not share a bill.
  */
 
 import { execFileSync } from "node:child_process";
@@ -72,7 +74,7 @@ function apiKey() {
   try {
     return execFileSync(
       "security",
-      ["find-generic-password", "-a", "openclaw", "-s", "openai-api-key", "-w"],
+      ["find-generic-password", "-a", "openclaw", "-s", "ponglens-openai-research", "-w"],
       { encoding: "utf8" }
     ).trim();
   } catch {

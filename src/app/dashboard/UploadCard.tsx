@@ -1,4 +1,9 @@
 "use client";
+import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
+import { useProcessingService } from "@/lib/useProcessingService";
+import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
+import { cameraViewWarning, processingStageLabel } from "@/lib/processingFeedback";
 
 import { tracksServe } from "@/lib/matchTitle";
 
@@ -378,6 +383,9 @@ export function UploadCard({
   // Commerce mode: the library row created at completion, and the file's
   // duration read from its metadata (the charging basis for processing).
   const [libraryMatchId, setLibraryMatchId] = useState<string | null>(null);
+  const uploadFeedback = useProcessingFeedback(libraryMatchId ? [libraryMatchId] : []);
+  const services = useProcessingService();
+  const currentFeedback = libraryMatchId ? uploadFeedback[libraryMatchId] ?? null : null;
   const libraryMatchIdRef = useRef<string | null>(null);
   const durationRef = useRef<number | null>(null);
   // What happens when the upload lands, and whether it has been asked
@@ -1516,6 +1524,11 @@ export function UploadCard({
    */
   /** A file is in hand: before that there is nothing to commit to. */
   const picked = active || phase === "done";
+  const feedbackFinished = currentFeedback?.job_status === "done" || currentFeedback?.job_status === "failed";
+  const completedUploadContext = autoState === "started" ? "saved_match"
+    : currentFeedback?.job_kind === "content_check" && !feedbackFinished ? "saved_video" : "saved_idle";
+  const showUploadAvailability = !(autoState === "started" && feedbackFinished)
+    && (services.main === "unavailable" || services.main === "maintenance");
   const commitPending =
     commerceEnabled &&
     !orderId &&
@@ -1730,7 +1743,7 @@ export function UploadCard({
             ? "Finishing up"
             : phase === "done"
               ? autoState === "started"
-                ? "Uploaded. Processing has started."
+                ? "Uploaded. Processing requested."
                 : "Uploaded. It is in your library."
               : phase === "error"
                 ? `Upload problem. ${error ?? ""}`
@@ -1740,6 +1753,8 @@ export function UploadCard({
       <p className="mt-1 text-sm text-zinc-400">
         MP4 or MOV, up to 45 minutes.
       </p>
+      {phase !== "done" && <ProcessingAvailabilityNotice state={services.main}
+        context={phase === "uploading" || phase === "finishing" ? "uploading" : "before_upload"} />}
 
       {/* The status of the upload, above the settings it reports on. It
           used to sit below them, which at "done" put a finished-tense
@@ -1750,15 +1765,23 @@ export function UploadCard({
             <>
               <p className="text-center text-sm font-medium text-emerald-400">
                 {autoState === "started"
-                  ? "Uploaded. Processing has started."
+                  ? "Uploaded. Processing requested."
                   : autoState === "short"
                     ? "Uploaded, but processing needs more minutes than you have."
                     : "Uploaded. It's in your library."}
               </p>
+              {showUploadAvailability && <ProcessingAvailabilityNotice state={services.main} context={completedUploadContext} />}
+              {services.main !== "unavailable" && services.main !== "maintenance" && processingStageLabel(currentFeedback) && (
+                <p className="mt-2 text-left text-sm text-zinc-400">{processingStageLabel(currentFeedback)}.</p>
+              )}
+              {cameraViewWarning(currentFeedback, trimStart, trimEnd ?? Infinity) && (
+                <p className="mt-2 text-left text-sm text-amber-300/90">{cameraViewWarning(currentFeedback, trimStart, trimEnd ?? Infinity)}</p>
+              )}
+              <ProcessingEstimateNote estimate={currentFeedback?.estimate} jobStatus={currentFeedback?.job_status ?? null} serviceState={services.main} />
               {/* Nothing under the "it's in your library" case: the
                   Process button is right below and says the rest better
                   than a sentence would. */}
-              {autoState !== "manual" && (
+              {autoState !== "manual" && !showUploadAvailability && (
                 <p className="mt-1 text-center text-xs text-zinc-500">
                   {autoState === "started"
                     ? undo && undo.minutes > 0
@@ -1772,11 +1795,11 @@ export function UploadCard({
           ) : (
             <>
               <p className="text-center text-sm font-medium text-emerald-400">
-                Done. Processing starts now.
+                Uploaded. Processing requested.
               </p>
-              <p className="mt-1 text-center text-xs text-zinc-500">
+              {showUploadAvailability ? <ProcessingAvailabilityNotice state={services.main} context="saved_match" /> : <p className="mt-1 text-center text-xs text-zinc-500">
                 You&apos;ll get an email when it&apos;s ready.
-              </p>
+              </p>}
             </>
           )}
         </div>

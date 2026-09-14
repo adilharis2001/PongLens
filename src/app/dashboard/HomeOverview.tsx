@@ -1,4 +1,10 @@
 "use client";
+import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
+import { useProcessingService } from "@/lib/useProcessingService";
+import { availabilityNotice, serviceLane, summarizeProcessingWork } from "@/lib/processingAvailability";
+import { ProcessingAvailabilityNoticeContent } from "@/components/ProcessingAvailabilityNotice";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
+import { processingStageLabel } from "@/lib/processingFeedback";
 
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
@@ -113,6 +119,7 @@ export function HomeOverview({
   const [reelError, setReelError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const services = useProcessingService();
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
@@ -302,6 +309,7 @@ export function HomeOverview({
 
   const loading = matches === null || jobs === null;
   const ownMatches = (matches ?? []).filter((m) => m.user_id === userId);
+  const processingFeedback = useProcessingFeedback(ownMatches.map((m) => m.id));
   const sharedMatches = (matches ?? []).filter((m) => m.user_id !== userId);
   const playerName = new Map(
     sharedPlayers.map((p) => [p.player_id, p.player_name])
@@ -319,7 +327,7 @@ export function HomeOverview({
   const ownMatchIds = new Set(ownMatches.map((m) => m.id));
   const pendingPointJobs = (jobs ?? []).filter(
     (j) =>
-      j.options?.points === true &&
+      (j.options?.points === true || j.kind === "youtube_import") &&
       !matchJobIds.has(j.id) &&
       !ownMatchIds.has(String(j.options?.match_id ?? "")) &&
       (j.status === "queued" || j.status === "processing")
@@ -329,7 +337,16 @@ export function HomeOverview({
   const processingMatches = ownMatches.filter(
     (m) => m.status === "processing" || liveJobFor(m.id, m.job_id, jobs) !== null
   );
-  const activeWork = pendingPointJobs.length + processingMatches.length;
+  const processingSummary = summarizeProcessingWork(services, [
+    ...pendingPointJobs.map((job) => ({ kind: job.kind, status: job.status, videoSaved: job.kind !== "youtube_import" })),
+    ...processingMatches.map((match) => {
+      const live = liveJobFor(match.id, match.job_id, jobs);
+      const feedback = processingFeedback[match.id];
+      return { kind: live?.kind ?? feedback?.job_kind, status: live?.status ?? feedback?.job_status ?? (match.status === "processing" ? "processing" : "unknown"),
+        lane: feedback?.lane, videoSaved: true, stageLabel: processingStageLabel(feedback ?? null) };
+    }),
+  ]);
+  const activeWork = processingSummary.blockedCount + processingSummary.continuingCount;
 
   // Legacy cut-only jobs, plus finished point jobs that never got a match
   // row (their cut video is still worth surfacing). Internal job kinds
@@ -438,25 +455,20 @@ export function HomeOverview({
         </section>
       ) : activeWork > 0 ? (
         <section className="rounded-2xl border border-edge bg-surface p-5">
+          <ProcessingAvailabilityNoticeContent notice={processingSummary.notice} className="" />
+          {processingSummary.continuingCount > 0 && <div className={processingSummary.notice ? "mt-4" : ""}>
           <div className="flex items-center gap-3">
             <Chip
-              s={
-                pendingPointJobs[0]?.status === "queued" &&
-                processingMatches.length === 0
-                  ? queuedChip
-                  : matchChips.processing
-              }
+              s={processingSummary.queued ? queuedChip : matchChips.processing}
             />
             <p className="text-sm font-medium text-zinc-200">
-              {activeWork === 1
-                ? "Your match is processing"
-                : `${activeWork} matches are processing`}
+              {processingSummary.continuingLabel}
             </p>
           </div>
           <p className="mt-2 text-xs text-zinc-500">
-            Most videos finish in about 90 minutes. We&apos;ll email you when
-            it&apos;s ready.
+            {processingSummary.exitMessage}
           </p>
+          </div>}
           {latestReady && (
             <div className="mt-4 border-t border-edge/60 pt-4">
               <ArrowLink
@@ -561,6 +573,8 @@ export function HomeOverview({
                 bits.push(fmtDuration(m.duration_s));
               if (live && job && job.progress > 0 && job.status !== "done")
                 bits.push(`${job.progress}%`);
+              const stage = processingStageLabel(processingFeedback[m.id] ?? null);
+              if (stage) bits.push(stage);
               const inner = (
                 <>
                   <Thumb
@@ -582,6 +596,9 @@ export function HomeOverview({
                           <ScorePill chip={scoreChips.get(m.id)!} />
                         )}
                     </p>
+                    {m.user_id === userId && <ProcessingEstimateNote compact className="mt-1"
+                      estimate={processingFeedback[m.id]?.estimate} jobStatus={processingFeedback[m.id]?.job_status ?? null}
+                      serviceState={services[processingFeedback[m.id]?.lane ?? "main"]} />}
                   </div>
                 </>
               );
@@ -777,7 +794,7 @@ export function HomeOverview({
                       {m ? formatDate(m.played_at) : formatDate(r.updated_at)}
                       {" · "}
                       {rendering ? (
-                        <span className="text-amber-300">Rendering…</span>
+                        <span className="text-amber-300">{availabilityNotice(services[serviceLane("reel", services.clip_lane, r.scope)], "export") ? "Waiting for processing" : "Rendering…"}</span>
                       ) : r.status === "failed" ? (
                         <span className="text-red-400">Failed</span>
                       ) : r.duration_s !== null ? (

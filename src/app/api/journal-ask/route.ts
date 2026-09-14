@@ -480,6 +480,7 @@ export async function POST(req: Request) {
       model: ASK_MODEL,
       operation: "journal_ask",
       idempotencyKey: `openai:${String(data.id ?? crypto.randomUUID())}:ask`,
+      subjectUserId: user.id,
     }),
   );
 
@@ -505,6 +506,7 @@ export async function POST(req: Request) {
           model: ASK_MODEL,
           operation: "journal_ask",
           idempotencyKey: `openai:${String(retry.id ?? crypto.randomUUID())}:ask`,
+          subjectUserId: user.id,
         }),
       );
       parsed = validateAnswer(

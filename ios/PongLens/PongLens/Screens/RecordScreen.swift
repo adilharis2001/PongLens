@@ -1443,6 +1443,10 @@ struct RecordingUploadRow: View {
             }
             }
         }
+        if !compact, item.state != .done, item.state != .failed,
+           let notice = ProcessingServiceStore.shared.notice(context: .uploading) {
+            ProcessingAvailabilityNoticeView(notice: notice)
+        }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -1493,7 +1497,9 @@ struct RecordingUploadRow: View {
         case .uploading: "Uploading. It keeps going with the app closed."
         case .finishing: "Almost there"
         case .failed: storageBlocked ? "There isn't enough storage. Your video is safe on this phone." : item.errorMessage ?? "Upload failed. The footage is safe on this phone."
-        case .done: "Uploaded"
+        case .done: item.processingRequest?.isPending == true
+            ? "Video saved. Retrying the processing request."
+            : "Uploaded"
         }
     }
 }
@@ -1605,8 +1611,9 @@ struct MatchDetailsSheet: View {
     /// does not jump from landscape to portrait when the picture lands.
     @State private var posterAspect: CGFloat = 16 / 9
     @State private var discardAsk = false
-    @State private var processOn: Bool
-    @State private var placementOn: Bool
+    @State private var processingChoice: UploadProcessingChoice
+    private var processOn: Bool { processingChoice.process }
+    private var placementOn: Bool { processingChoice.placement }
     @State private var minutesBalance: Int?
     /// The warm-up cut. Closed and meaning "the whole video" until the
     /// owner opens it, which is the honest default — most footage does not
@@ -1629,8 +1636,6 @@ struct MatchDetailsSheet: View {
     /// list — the regression this optional exists to prevent.
     let kind: MatchKind?
 
-    private let settingsProcessDefault: Bool
-    private let settingsPlacementDefault: Bool
 
     private var offeredTypes: [String] {
         kind?.types ?? (MatchKind.match.types + MatchKind.practice.types)
@@ -1658,13 +1663,7 @@ struct MatchDetailsSheet: View {
         self.recentOpponents = recentOpponents
         self.recentVenues = recentVenues
         self.kind = kind
-        self._processOn = State(initialValue: processOn)
-        self._placementOn = State(initialValue: placementOn)
-        // What the owner's Record settings said on the way in. Switching the
-        // Type from Practice back to Match restores THIS rather than a
-        // hardcoded true, so the setting keeps meaning something.
-        self.settingsProcessDefault = processOn
-        self.settingsPlacementDefault = placementOn
+        self._processingChoice = State(initialValue: UploadProcessingChoice(process: processOn, placement: placementOn))
     }
 
     var body: some View {
@@ -1672,11 +1671,17 @@ struct MatchDetailsSheet: View {
             Form {
                 Section {
                     progressRow
+                    if queue.items.contains(where: { $0.sessionId == sessionId && $0.state != .done && $0.state != .failed }),
+                       let notice = ProcessingServiceStore.shared.notice(context: .uploading) {
+                        ProcessingAvailabilityNoticeView(notice: notice)
+                    }
                 }
 
                 Section {
-                    Toggle("Process when the upload finishes", isOn: $processOn)
-                    Toggle("Placement maps", isOn: $placementOn)
+                    Toggle("Process when the upload finishes", isOn: Binding(
+                        get: { processOn }, set: { processingChoice.chooseProcess($0) }))
+                    Toggle("Placement maps", isOn: Binding(
+                        get: { placementOn }, set: { processingChoice.choosePlacement($0) }))
                         .disabled(!processOn)
                 } header: {
                     Text("Processing")
@@ -1806,16 +1811,10 @@ struct MatchDetailsSheet: View {
         }
         .onChange(of: processOn) { pushProcessing() }
         .onChange(of: placementOn) { pushProcessing() }
-        // The Type answer is the only thing that knows whether this footage
-        // is worth processing minutes, and on the upload path it arrives
-        // AFTER the toggles were set. So the toggles follow it: choosing
-        // Practice or Drills turns them off, choosing a match type restores
-        // the owner's Record settings. Set as defaults, not locks — the
-        // owner can turn either back on straight afterwards.
+        // Type can supply defaults, but must never undo an explicit toggle.
         .onChange(of: draft.matchType) { _, next in
             let tracked = MatchTitle.tracksServe(next)
-            processOn = tracked ? settingsProcessDefault : false
-            placementOn = tracked ? settingsPlacementDefault : false
+            processingChoice.selectType(tracksServe: tracked)
             // Answering "who served first" and THEN switching to Practice
             // hid the section but kept the answer, so the row was written
             // with a first server that nothing will ever read. Drop it

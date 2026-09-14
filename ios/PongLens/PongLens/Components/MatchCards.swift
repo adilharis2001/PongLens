@@ -25,6 +25,9 @@ struct MatchListRow: View {
     let match: MatchRow
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
+    var processingLabel: String? = nil
+    var processingUnavailable = false
+    var processingFeedback: MatchProcessingFeedback? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
@@ -44,10 +47,10 @@ struct MatchListRow: View {
                     .foregroundStyle(PL.text200)
                     .lineLimit(1)
                 if match.status != .ready {
-                    StatusChip(status: match.chipStatus(live: liveJob))
+                    StatusChip(status: processingUnavailable && (liveJob != nil || match.status == .processing) ? .queued : match.chipStatus(live: liveJob))
                 }
                 HStack(spacing: 8) {
-                    Text(parts.secondary)
+                    Text(processingLabel ?? parts.secondary)
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                         .lineLimit(1)
@@ -58,6 +61,10 @@ struct MatchListRow: View {
                         ScorePill(you: score.gamesYou, them: score.gamesThem)
                     }
                 }
+                ProcessingEstimateNote(estimate: processingFeedback?.estimate,
+                    jobStatus: processingFeedback?.jobStatus,
+                    serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: processingFeedback?.jobKind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue,
+                    compact: true)
             }
             Spacer()
             Image(systemName: "chevron.right")
@@ -73,6 +80,9 @@ struct MatchCard: View {
     let match: MatchRow
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
+    var processingLabel: String? = nil
+    var processingUnavailable = false
+    var processingFeedback: MatchProcessingFeedback? = nil
     /// Owner-only card actions. Left nil, no buttons render — the grid
     /// only passes them when the signed-in user owns the match.
     var onShare: (() -> Void)? = nil
@@ -87,7 +97,7 @@ struct MatchCard: View {
                 .clipped()
                 .overlay(alignment: .topLeading) {
                     if match.status != .ready {
-                        StatusChip(status: match.chipStatus(live: liveJob))
+                        StatusChip(status: processingUnavailable && (liveJob != nil || match.status == .processing) ? .queued : match.chipStatus(live: liveJob))
                             .padding(8)
                     }
                 }
@@ -97,10 +107,15 @@ struct MatchCard: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(PL.text100)
                     .lineLimit(1)
-                Text(parts.secondary)
+                Text(processingLabel ?? parts.secondary)
                     .font(.system(size: 12))
                     .foregroundStyle(PL.text500)
                     .lineLimit(1)
+                ProcessingEstimateNote(estimate: processingFeedback?.estimate,
+                    jobStatus: processingFeedback?.jobStatus,
+                    serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: processingFeedback?.jobKind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue,
+                    compact: true)
+
                 // Bottom meta row: score on the left, share and delete on
                 // the right, off the picture and clearly apart from the
                 // tap-to-open area. Plain button style keeps their taps

@@ -80,6 +80,8 @@ extension PlayerTakeover {
                                     .tracking(0.6)
                                     .textCase(.uppercase)
                                     .foregroundStyle(PL.text500)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
                             }
                         }
                         Spacer()
@@ -314,10 +316,12 @@ extension PlayerTakeover {
             Text(label)
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.6)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
+                .padding(.horizontal, 6)
                 .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
@@ -716,43 +720,41 @@ extension PlayerTakeover {
         showFlash("\(swept.count) removed")
     }
 
-    /// Offered on the clip you just answered when a rally's worth of footage
-    /// was still to run. It sits in the pad, not over the video, because the
-    /// video is now playing the part you had not seen: watch it, then decide.
+    /// Up on the card you just answered while a rally's worth of its footage
+    /// is still running: the two winner buttons are now asking who won the
+    /// rally inside it, and one tap cuts the card and scores the new half.
+    ///
+    /// Calm, not amber: nothing is wrong, a question is being asked. Split
+    /// stays beside it for anyone who would rather see the cut land on a
+    /// timeline first, and it opens Modify on this very mark.
     @ViewBuilder
-    var splitNudgeOffer: some View {
-        if let nudge = splitNudge,
-           let n = points.firstIndex(where: { $0.id == nudge.pointId }) {
+    var splitArmHint: some View {
+        if let armed = splitArm,
+           let n = points.firstIndex(where: { $0.id == armed.pointId }) {
             HStack(spacing: 8) {
-                // Named, because the offer outlives the clip: the tail plays
-                // out and the pad moves on, and "this clip" would then be
-                // pointing at the wrong one.
-                Text("Point \(n + 1)\(nudge.certain ? " looks like two points." : " — two points in there?")")
-                    .font(.system(size: 11))
-                    .foregroundStyle(PL.warning.opacity(0.9))
+                // Named, because the question outlives the rally: the footage
+                // plays on and "this clip" would be pointing at the wrong one
+                // by the time anyone reads it.
+                (Text("Point \(n + 1) ").font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(PL.text100)
+                    + Text(armed.certain
+                           ? "looks like two points. Tap who won the second one."
+                           : "might be two points. Tap who won the second one.")
+                        .font(.system(size: 11))
+                        .foregroundColor(PL.text300))
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 4)
-                offerPill("Split", tint: PL.warning) {
-                    let p = points.first { $0.id == nudge.pointId }
-                    splitNudge = nil
-                    // Splitting outright lands the cut sight-unseen. Open
-                    // Modify with the suggested cut seeded instead: the user
-                    // SEES where the split goes and confirms it.
+                offerPill("Split", tint: PL.cyan) {
+                    let p = points.first { $0.id == armed.pointId }
+                    clearSplitArm()
+                    // The old way, kept on purpose: answering again is
+                    // faster, but someone who wants to SEE the cut before it
+                    // lands should not have to know Modify is the door to it.
                     if let p {
                         player.pause()
-                        modifyInitialCut = nudge.atCut
+                        modifyInitialCut = armed.atCut
                         modifyPoint = p
                     }
-                }
-                // "No" rather than a bare dismiss: answering the question
-                // also answers what to do next. One point in the clip means
-                // the rest is the walk-back, and waiting through it is time
-                // you did not need to spend.
-                offerPill("No", tint: PL.text300) {
-                    let p = points.first { $0.id == nudge.pointId }
-                    splitNudge = nil
-                    playTail = nil
-                    if let p { jumpAfter(p) }
                 }
             }
             .padding(.horizontal, 12)
@@ -760,7 +762,7 @@ extension PlayerTakeover {
             .background(PL.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(PL.warning.opacity(0.4), lineWidth: 1)
+                    .strokeBorder(PL.edge, lineWidth: 1)
             )
         }
     }
@@ -899,65 +901,6 @@ extension PlayerTakeover {
         .buttonStyle(.plain)
         .disabled(offer == nil)
         .accessibilityLabel(offer?.accessibility ?? "Mark the game as ended")
-    }
-
-    /// Admin only, on the owner's own match: the serve-start label (089).
-    /// A second tap RE-STAMPS rather than toggling off — the common
-    /// correction is "I tapped late", and the fix is to scrub back and tap
-    /// again. Clearing is the rare case and gets its own control.
-    @ViewBuilder
-    func serveStartControls() -> some View {
-        if canLabelServeStart, let target = displayTarget {
-            HStack(spacing: 10) {
-                Button {
-                    Task {
-                        await model.setServeStart(
-                            target, at: currentT, paused: player.rate == 0,
-                            rate: player.rate, source: "button"
-                        )
-                    }
-                    showFlash("Serve start")
-                } label: {
-                    Text("Serve start")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(target.serveStartAtCutS == nil ? PL.text200 : PL.cyan)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
-                        .background(
-                            target.serveStartAtCutS == nil
-                                ? Color.clear : PL.cyan.opacity(0.15),
-                            in: Capsule()
-                        )
-                        .overlay(
-                            Capsule().strokeBorder(
-                                target.serveStartAtCutS == nil ? PL.edge : PL.cyan,
-                                lineWidth: 1
-                            )
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Mark where the serve began")
-                if target.serveStartAtCutS != nil {
-                    Button("Clear") {
-                        Task {
-                            await model.setServeStart(
-                                target, at: nil, paused: nil, rate: nil, source: nil
-                            )
-                        }
-                    }
-                    .font(.system(size: 14))
-                    .foregroundStyle(PL.text400)
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    /// Admin, on their own match. The number itself never goes on the pad:
-    /// the scrubber already shows a clock, and two clocks that can disagree
-    /// read as a bug.
-    var canLabelServeStart: Bool {
-        app.isAdmin && app.userId == match.userId
     }
 
     /// Review lets you pass on a point without answering it. Without this

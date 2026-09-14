@@ -7,6 +7,7 @@ import Supabase
 final class LibraryStore {
     var matches: [MatchRow] = []
     var activeJobs: [JobRow] = []
+    var processingFeedback: [UUID: MatchProcessingFeedback] = [:]
     var loaded = false
     var lastError: String?
 
@@ -14,6 +15,23 @@ final class LibraryStore {
 
     var hasActiveWork: Bool {
         !activeJobs.isEmpty || matches.contains { $0.status == .processing }
+    }
+
+    @MainActor func availabilityNotice(for match: MatchRow) -> ProcessingAvailabilityNotice? {
+        guard match.userId == supa.auth.currentUser?.id else { return nil }
+        let feedback = processingFeedback[match.id]
+        let live = liveJob(for: match)
+        return ProcessingServiceStore.shared.matchNotice(
+            matchStatus: match.status.rawValue,
+            jobKind: feedback?.jobKind ?? live?.kind,
+            jobStatus: feedback?.jobStatus ?? live?.status,
+            lane: feedback?.lane,
+            videoSaved: match.rawPath != nil
+        )
+    }
+
+    @MainActor func processingLabel(for match: MatchRow) -> String? {
+        availabilityNotice(for: match)?.title ?? processingFeedback[match.id]?.stageLabel
     }
 
     /// The queued or running job working a match, even before the match row
@@ -27,7 +45,7 @@ final class LibraryStore {
         }
         let id = match.id.uuidString.lowercased()
         return activeJobs.first {
-            $0.kind == "deadspace_cut"
+            ($0.kind == "deadspace_cut" || $0.kind == "hand_cut" || $0.kind == "youtube_import")
                 && $0.options?.matchId?.lowercased() == id
         }
     }
@@ -73,7 +91,14 @@ final class LibraryStore {
             matches = m
             activeJobs = j
             lastError = nil
+            struct FeedbackRequest: Encodable { let p_match_ids: [UUID] }
+            let ownMatches = supa.auth.currentUser.map { user in m.filter { $0.userId == user.id } } ?? []
+            let feedback: [MatchProcessingFeedback]? = try? await supa
+                .rpc("my_match_processing_feedback", params: FeedbackRequest(p_match_ids: Array(ownMatches.prefix(100).map(\.id))))
+                .execute().value
+            processingFeedback = Dictionary((feedback ?? []).map { ($0.matchId, $0) }, uniquingKeysWith: { _, last in last })
         } catch {
+            processingFeedback = [:]
             #if DEBUG
             lastError = String(describing: error)
             #else

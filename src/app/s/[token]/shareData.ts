@@ -219,6 +219,12 @@ export interface ResolvedShareLessonRecap {
   /** metadata name only, never the email local part (130) */
   owner_name: string | null;
   chapters: unknown;
+  /** What the lesson set out to improve, and what to practise afterwards.
+   *  jsonb, `[]` when the lesson stated neither, and absent from a recap
+   *  resolved before 171 — so both are read through publicLessonLines
+   *  rather than trusted. */
+  goals: unknown;
+  work_on: unknown;
   playback_key: string | null;
   poster_key: string | null;
   /** null unless a downloadable file exists AND still carries the recap's
@@ -260,6 +266,18 @@ export function publicLessonChapters(raw: unknown): PublicLessonChapter[] {
       },
     ];
   });
+}
+
+/** One of the two lists that bracket a shared recap, with anything
+ *  unusable dropped. Same treatment as a chapter's cues: the row arrives as
+ *  jsonb, so a stray number or a blank line is a shape question, not a
+ *  trust question. */
+export function publicLessonLines(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((line): line is string => typeof line === "string")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 /**

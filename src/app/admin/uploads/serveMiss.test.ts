@@ -635,3 +635,146 @@ test("every label has a colour and a name, and the vocabulary is closed", () => 
     assert.match(serveMiss.LABEL_TONE[value], /^#[0-9a-f]{6}$/);
   }
 });
+
+test("the server read maps a table END onto a player, and only when the end is known", () => {
+  // uploader at the near end THIS GAME: a bounce on the near half is theirs
+  assert.equal(serveMiss.v3ServerOf("near", "near"), "user");
+  assert.equal(serveMiss.v3ServerOf("far", "near"), "opponent");
+  // and it inverts with the end, which is what a changeover does
+  assert.equal(serveMiss.v3ServerOf("near", "far"), "opponent");
+  assert.equal(serveMiss.v3ServerOf("far", "far"), "user");
+  // an unknown end is not a coin toss
+  assert.equal(serveMiss.v3ServerOf("near", null), null);
+  assert.equal(serveMiss.v3ServerOf("near", "unknown"), null);
+  assert.equal(serveMiss.v3ServerOf(null, "near"), null);
+});
+
+test("serve prediction accuracy follows the players through a changeover", () => {
+  // The same serve, read the same way by V3, belongs to a DIFFERENT player
+  // in game one and game two. Both of these agree with the rotation; a
+  // match-wide side would score one of them wrong.
+  const cards = [
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: "user" as const, sideThisGame: "near" },
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: "opponent" as const, sideThisGame: "far" },
+  ];
+  assert.deepEqual(serveMiss.v3ServerAgreement(cards), { agree: 2, compared: 2 });
+});
+
+test("serve prediction accuracy counts only the cards where both answers exist", () => {
+  const cards = [
+    // agrees
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: "user" as const, sideThisGame: "near" },
+    // disagrees
+    { serveSource: "v3", serveHalf: "far" as const,
+      rotationServer: "user" as const, sideThisGame: "near" },
+    // V3 found no serve — not a wrong answer, no answer
+    { serveSource: null, serveHalf: null,
+      rotationServer: "user" as const, sideThisGame: "near" },
+    // the old bounce-pair rule answered; it carries no half at all
+    { serveSource: "motif", serveHalf: null,
+      rotationServer: "user" as const, sideThisGame: "near" },
+    // V3 answered but the rotation never anchored on a first server
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: null, sideThisGame: "near" },
+    // V3 answered but the ends cannot be followed on this match
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: "user" as const, sideThisGame: null },
+  ];
+  assert.deepEqual(serveMiss.v3ServerAgreement(cards), { agree: 1, compared: 2 });
+});
+
+test("the crossings dispute a server read only when the order actually says so", () => {
+  // the serve bounces, THEN the ball crosses: that bounce is the server's
+  // own half. Receiver's first bounce is far, so the server was near — and
+  // V3 saying "far" is disputed.
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "far",
+    crossings: [37.32, 38.32],
+    bounces: [{ t: 37.63, v: 2.47, onSurface: true }],
+  }), true);
+  // same evidence, V3 says "near": the crossings agree, no dispute
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "near",
+    crossings: [37.32, 38.32],
+    bounces: [{ t: 37.63, v: 2.47, onSurface: true }],
+  }), false);
+  // the bounce comes AFTER the crossing: the order says nothing, so nor does this
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.90, serve_half: "far",
+    crossings: [37.32], bounces: [{ t: 38.2, v: 2.47, onSurface: true }],
+  }), false);
+  // no crossing fired at all — a low serve. Silent, not suspicious.
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "far",
+    crossings: [], bounces: [{ t: 37.63, v: 2.47, onSurface: true }],
+  }), false);
+  // nothing to read it against
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.25, serve_half: null,
+    crossings: [37.32], bounces: [{ t: 37.63, v: 2.47, onSurface: true }],
+  }), false);
+});
+
+function landingCard(over: Record<string, unknown>) {
+  return {
+    t0: 0, t1: 9, dur: 9, bounces: [], crossings: [],
+    why: { bounces: 0, on_surface: 0, pairs: 0, rejects: {}, reason: "", detail: [] },
+    ...over,
+  } as unknown as serveMiss.MissCard;
+}
+
+test("the serve landing prefers the bounce-pair rule wherever it describes the same serve", () => {
+  // V3 qualified on 37.25; the pair's first bounce IS that one, so its
+  // second bounce is the landing and beats anything derived.
+  const card = landingCard({
+    serve_source: "v3", serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "near",
+    serve_bounces: [37.25, 37.63],
+    bounces: [{ t: 37.63, u: 0.4, v: 2.47, onTable: true, onSurface: true },
+              { t: 38.35, u: 0.3, v: 0.45, onTable: true, onSurface: true }],
+  });
+  assert.deepEqual(serveMiss.serveLanding(card), { t: 37.63, from: "pair" });
+});
+
+test("a pair describing a DIFFERENT flight does not get to name the landing", () => {
+  // the pair's first bounce is nowhere near the one V3 qualified, so it is
+  // about some other serve; fall through and work it out instead
+  const card = landingCard({
+    serve_source: "v3", serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "near",
+    serve_bounces: [39.10, 39.50],
+    bounces: [{ t: 37.63, u: 0.4, v: 2.47, onTable: true, onSurface: true }],
+  });
+  assert.deepEqual(serveMiss.serveLanding(card), { t: 37.63, from: "derived" });
+});
+
+test("a derived landing is the first on-surface bounce on the RECEIVER's half", () => {
+  const card = landingCard({
+    serve_source: "v3", serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "near",
+    bounces: [
+      // server's own half again — not a landing
+      { t: 37.40, u: 0.5, v: 0.60, onTable: true, onSurface: true },
+      // off the surface — not a landing
+      { t: 37.55, u: 0.5, v: 2.30, onTable: true, onSurface: false },
+      { t: 37.70, u: 0.4, v: 2.47, onTable: true, onSurface: true },
+    ],
+  });
+  assert.deepEqual(serveMiss.serveLanding(card), { t: 37.70, from: "derived" });
+});
+
+test("nothing beyond the pair rule's own ceiling counts as a landing", () => {
+  const card = landingCard({
+    serve_source: "v3", serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "near",
+    bounces: [{ t: 39.40, u: 0.4, v: 2.47, onTable: true, onSurface: true }],
+  });
+  assert.equal(serveMiss.serveLanding(card), null);
+});
+
+test("on a bounce-pair match the pair is the whole answer, with no V3 to check it against", () => {
+  const card = landingCard({
+    serve_source: "motif", serve_s: 36.4, serve_bounces: [37.25, 37.63],
+    bounces: [{ t: 37.63, u: 0.4, v: 2.47, onTable: true, onSurface: true }],
+  });
+  assert.deepEqual(serveMiss.serveLanding(card), { t: 37.63, from: "pair" });
+});
