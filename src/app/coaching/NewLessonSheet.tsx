@@ -84,9 +84,11 @@ export function NewLessonSheet({
               <span className="block text-sm font-medium text-zinc-100">
                 Import a lesson video
               </span>
+              {/* Value first, the way the audio row on the phone says
+                  what you get (Adil, 2026-09-14). */}
               <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500">
-                Import a lesson you filmed. You get a short recap with
-                chapters, ready to share.
+                Upload a video of your lesson with your coach. You get a
+                ten-minute video recap of what they taught.
               </span>
             </span>
           </Link>

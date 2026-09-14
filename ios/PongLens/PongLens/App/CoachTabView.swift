@@ -357,7 +357,9 @@ struct CoachNewEntryChoice: Identifiable {
             kind: .video,
             icon: "video",
             title: "Import a lesson video",
-            detail: "Import a lesson you filmed. You get a short recap with chapters, ready to share."
+            // Value first, the way the audio row says what you get
+            // (Adil, 2026-09-14).
+            detail: "Upload a video of your lesson with a student. You get a ten-minute video recap of what you taught."
         ),
     ]
 }
