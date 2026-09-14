@@ -124,6 +124,15 @@ def propose(d, base):
   a,b=card['t0'],card['t1'];sv=card.get('serve_s');sv=sv if sv is not None and a-1<=sv<b else a
   terminal=[q for q in sequences if max(a+1,sv+1.15)<=q['first'] and q['last']<b-.6 and net_ok(q)]
   for q in terminal:
+   # A stale net hypothesis plus continued exchanges cannot end a rally.
+   # Count rapid continuation from the confirming bounce, not after the
+   # .75s cleanup grace below. Isolated returns and three-bounce tails stay.
+   motion=q.get('net_motion')
+   if q['n_bounces']==2 and motion and np.any((cr>motion['t'])&(cr<q['first'])):
+    continuation=[]
+    for t in cr[(cr>q['last'])&(cr<b)]:
+     if not continuation or t-continuation[-1]>.25:continuation.append(t)
+    if any(y-x<=.75 for x,y in zip(continuation,continuation[1:])):continue
    later=cr[(cr>q['last']+.75)&(cr<b)]
    # Permit one isolated cleanup crossing, not another exchange.
    clusters=[]

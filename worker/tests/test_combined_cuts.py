@@ -7,6 +7,66 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import combined_cuts as C
 FIXTURES=Path(__file__).parent/'fixtures/combined_cuts'
 
+
+def test_archived_ball_track_preserves_confirmed_live_first_rally():
+    import net_endings as N
+    import points_v2 as V
+    data=json.loads((FIXTURES.parent/'net_continuation_first_rally.json').read_text())
+    track={row[0]:row[1:] for row in data['track']}
+    cross=V.crossings(track,V.homography_from_corners(data['corners']),data['fps'])
+    seq=N.extract_sequences(track,data['corners'],data['fps'],data['width'],cross)
+    assert len(seq)==1 and seq[0]['n_bounces']==2
+    assert seq[0]['first']==pytest.approx(12.166984957488554)
+    context=dict(crossings=cross,bounces=[f/data['fps'] for f,x,y in V.bounces(track)],
+                 sequences=seq,body_T=[],body_p=[],candidate_features=[],
+                 motifs=[],long_bounces=[],cards_gap4=[])
+    result=C.propose(context,[dict(idx=2,t0=9.48,t1=15.97,serve_s=10.19)])
+    assert [[c['t0'],c['t1']] for c in result['cards']]==[[9.48,15.97]]
+
+
+def test_crossed_net_episode_cannot_shorten_yu_yu_lin_first_rally():
+    # Saved production terminal evidence. Owner confirmed live play beyond
+    # 13.12s. The alleged contact precedes a crossing to the bounce pair.
+    seq=dict(first=12.166984957488554,last=12.300321778940484,n_bounces=2,
+             half='far',bounces=[{'t':12.166984957488554}, {'t':12.300321778940484}],
+             net_motion={'t':11.833642903858731, 'u':-.1292734197834753,
+                         'v':1.1242619368982854, 'absorbed':True,'reversed':True,
+                         'in_wps':-4.571565224639072,'out_wps':1.6173428398395535})
+    # 13.30 is retained by the original full-rally diagnostic; the new
+    # per-card diagnostic stops at 13.12 and cannot show this continuation.
+    context=dict(crossings=[11.07,11.73,11.90,12.87,13.30],
+                 bounces=[11.,11.33,11.77,12.17,12.30,12.90],
+                 body_T=[],body_p=[],sequences=[seq],candidate_features=[],
+                 motifs=[],long_bounces=[],cards_gap4=[])
+    base=[dict(idx=2,t0=9.48,t1=15.97,serve_s=10.19)]
+    result=C.propose(context,base)
+    assert [[c['t0'],c['t1']] for c in result['cards']]==[[9.48,15.97]]
+    assert result['tails']==[]
+
+
+def test_two_close_bounces_without_crossing_still_shorten_net_ending():
+    # Do not solve the regression by banning rapid double bounces or all tails.
+    seq=dict(first=12.17,last=12.30,n_bounces=2,half='far',
+             bounces=[{'t':12.17},{'t':12.30}],net_motion={'t':11.83})
+    context=dict(crossings=[11.07,11.73],bounces=[12.17,12.30],
+                 body_T=[],body_p=[],sequences=[seq],candidate_features=[],
+                 motifs=[],long_bounces=[],cards_gap4=[])
+    result=C.propose(context,[dict(idx=2,t0=9.48,t1=15.97,serve_s=10.19)])
+    assert [[c['t0'],c['t1']] for c in result['cards']]==[[9.48,13.12]]
+    assert len(result['tails'])==1
+
+
+def test_isolated_cleanup_crossings_do_not_undo_a_net_ending():
+    # A stopped ball can be passed back later. Unlike the live exchange in
+    # Yu Yu Lin, these crossings are not a rapid continuing exchange.
+    seq=dict(first=12.17,last=12.30,n_bounces=2,half='far',
+             bounces=[{'t':12.17},{'t':12.30}],net_motion={'t':11.83})
+    context=dict(crossings=[11.90,12.66,13.70],bounces=[12.17,12.30],
+                 body_T=[],body_p=[],sequences=[seq],candidate_features=[],
+                 motifs=[],long_bounces=[],cards_gap4=[])
+    result=C.propose(context,[dict(idx=2,t0=9.48,t1=15.97,serve_s=10.19)])
+    assert [[c['t0'],c['t1']] for c in result['cards']]==[[9.48,13.12]]
+
 @pytest.mark.parametrize('path',sorted(FIXTURES.glob('*.json')),ids=lambda p:p.stem)
 def test_owner_reviewed_attempts(path):
     f=json.loads(path.read_text())
