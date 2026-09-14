@@ -38,6 +38,15 @@ struct PLSheetScaffold<Content: View>: View {
     var body: some View {
         NavigationStack {
             content()
+                // A solid ground, always. On iOS 26 a sheet that is not
+                // full height is glass by default: the page shows through
+                // it, a glowing button underneath bleeds into the rows,
+                // and the grey detail lines stop being readable. The
+                // simulator draws the same sheet opaque, which is how the
+                // glass version shipped in build 201 (Adil, 2026-09-14).
+                // The toolbar keeps its glass; only the ground is solid.
+                .scrollContentBackground(.hidden)
+                .presentationBackground(PL.surface)
                 .tint(PL.cyan)
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
@@ -80,7 +89,9 @@ struct PLRowLabel: View {
             if let detail, !detail.isEmpty {
                 Text(detail)
                     .font(.plCaption)
-                    .foregroundStyle(PL.text500)
+                    // text400, not 500: a caption on a sheet has to be
+                    // read at arm's length over a dark ground.
+                    .foregroundStyle(PL.text400)
                     // A detail that runs to two lines must grow the row
                     // rather than be cut off at the first.
                     .fixedSize(horizontal: false, vertical: true)
