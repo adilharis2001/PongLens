@@ -1864,6 +1864,15 @@ struct MatchDetailScreen: View {
                         : nil,
                     onPlacementChanged: {
                         Task { await refreshMatch(refreshLibrary: true) }
+                    },
+                    onOpenPoint: { point in
+                        guard let i = model.visible.firstIndex(where: { $0.id == point.id }) else { return }
+                        pointSheetIndex = i
+                        // The zone sheet is dismissing; the point sheet
+                        // presents once it is gone, as the pad does.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            pointSheetOpen = true
+                        }
                     }
                 )
             )

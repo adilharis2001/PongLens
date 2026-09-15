@@ -128,8 +128,9 @@ export function MomentumChart({ momentum }: { momentum: Analysis["momentum"] }) 
 
 /* ------------------------------------------------------- state cards */
 
+/** Full width on a phone, content width on desktop (the app's button rule). */
 const ACTION_BUTTON =
-  "glow-cta mt-4 min-h-11 rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60";
+  "glow-cta mt-4 min-h-11 w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60 sm:w-auto";
 
 /**
  * The video cards need most of the match scored, for a reason that has

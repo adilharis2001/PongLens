@@ -207,46 +207,6 @@ struct ServeSpeedCard: View {
     private func count(_ bands: [SpeedBand]) -> Int { bands.reduce(0) { $0 + $1.won + $1.lost } }
 }
 
-// MARK: - Serve variety
-
-struct ServeVarietyCard: View {
-    let mine: VarietySummary?
-    let theirs: VarietySummary?
-
-    var body: some View {
-        ScoredCardStyle.card("Serve variety", hint: "Where the serves went", beta: true) {
-            VStack(alignment: .leading, spacing: 0) {
-                if let mine {
-                    ScoredCardStyle.eyebrow("My serves (\(mine.count))")
-                    block(mine, tone: PL.cyan)
-                }
-                if let theirs {
-                    ScoredCardStyle.eyebrow("Their serves (\(theirs.count))")
-                        .padding(.top, mine == nil ? 0 : 14)
-                    block(theirs, tone: PL.magenta.opacity(0.7))
-                }
-                ScoredCardStyle.footnote("Left and right are your left and right, as on the maps.")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func block(_ summary: VarietySummary, tone: Color) -> some View {
-        if let top = summary.top.first {
-            (Text("Most often ").foregroundStyle(PL.text300)
-                + Text(top.label).foregroundStyle(PL.text100).fontWeight(.semibold)
-                + Text(" · \(Int((summary.topShare * 100).rounded()))% of \(summary.count) · \(summary.zonesUsed) of 9 zones")
-                .foregroundStyle(PL.text500))
-                .font(.plCaption)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 4)
-            ForEach(summary.top, id: \.zone) { row in
-                ScoredCardStyle.countBar(row.label, count: row.count, max: top.count, tone: tone)
-            }
-        }
-    }
-}
-
 // MARK: - Where points ended
 
 /// One table, both halves: endings on the opponent's half are points the
@@ -399,32 +359,32 @@ struct PlacementStatusCard: View {
 
     private var title: String {
         switch status {
-        case "processing": "Generating placement maps…"
-        case "retrying": "Retrying placement maps…"
-        case "retry_available": "Try placement again?"
-        case "final_failed": "Placement maps unavailable"
-        default: "Generate placement maps?"
+        case "processing": "Generating the detailed analysis…"
+        case "retrying": "Retrying the detailed analysis…"
+        case "retry_available": "Try the detailed analysis again?"
+        case "final_failed": "Detailed analysis unavailable"
+        default: "Generate the detailed analysis?"
         }
     }
 
     private var body_: String {
         switch status {
         case "processing", "retrying":
-            "Placement maps are generating. We'll email you when they're ready."
+            "The detailed analysis is generating. We'll email you when it's ready."
         case "retry_available":
-            "Placement maps couldn't be generated because the table was hard to detect in this video. You can try once more."
+            "The detailed analysis couldn't be generated because the table was hard to detect in this video. You can try once more."
         case "final_failed":
-            "Placement maps couldn't be generated for this video."
+            "The detailed analysis couldn't be generated for this video."
         default:
-            "Placement maps haven't been generated for this match yet."
+            "The detailed analysis reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes."
         }
     }
 
     private var actionLabel: String? {
         switch status {
-        case "retry_available": "Try placement again"
+        case "retry_available": "Try again"
         case "processing", "retrying", "final_failed": nil
-        default: "Generate placement maps"
+        default: "Generate detailed analysis"
         }
     }
 
