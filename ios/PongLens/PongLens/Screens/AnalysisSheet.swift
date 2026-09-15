@@ -106,9 +106,15 @@ struct AnalysisCards: View {
         let analysis = bundle.analysis
         var cards: [DeckCard] = []
         let scoredType = video?.scoredType ?? true
+        let gate = video.map { scoredCardsGate($0.points) }
 
         if scoredType {
-            cards.append(DeckCard(id: "overview", view: AnyView(overviewCard(stats, analysis.momentum))))
+            // The overview draws the momentum of whatever is scored, and half
+            // a match's worth reads as a staircase, so it waits for the same
+            // bar as the video cards.
+            if gate?.open ?? true {
+                cards.append(DeckCard(id: "overview", view: AnyView(overviewCard(stats, analysis.momentum))))
+            }
             // Three self-reported reasons is where a pattern starts;
             // below that the card is absent rather than padded out.
             if analysis.mistakes.reasonsGiven >= 3 {
@@ -119,8 +125,7 @@ struct AnalysisCards: View {
             }
         }
 
-        guard let video else { return cards }
-        let gate = scoredCardsGate(video.points)
+        guard let video, let gate else { return cards }
         let result: ScoredCardsResult? = video.scoredType && gate.open
             ? computeScoredCards(
                 points: video.points,
@@ -141,7 +146,19 @@ struct AnalysisCards: View {
                 )))
             }
         }
-        if video.showMaps {
+        // The maps are the worker's own evidence and need no score, only an
+        // end to be drawn from and three placed points, the floor the share
+        // page uses: a table with two dots on it reads as broken, not empty.
+        let mapped: Int = {
+            guard video.showMaps, video.userSide != nil else { return 0 }
+            let collect = video.servesOnly
+                ? collectServePlacementObservations
+                : collectTrustedPlacementObservations
+            return trustedPlacementPointCount(
+                collect(unflaggedPlacementPoints(video.points), video.userSide, video.gameIndexByPoint, video.serving)
+            )
+        }()
+        if mapped >= 3 {
             for page in [PlacementMapPage.landings, .heat] {
                 cards.append(DeckCard(id: page == .landings ? "landings" : "heat", view: AnyView(
                     PlacementMapCard(
@@ -155,7 +172,8 @@ struct AnalysisCards: View {
                         servesOnly: video.servesOnly,
                         who: $mapsWho,
                         shot: $mapsShot,
-                        onOpenPoint: video.onOpenPoint
+                        onOpenPoint: video.onOpenPoint,
+                        serverEstimated: scoredType && !gate.open
                     )
                 )))
             }
@@ -165,15 +183,36 @@ struct AnalysisCards: View {
                 EndingsCard(endings: result.endings, opponentLabel: video.opponentLabel, coachView: coachView)
             )))
         }
-        if !video.showMaps, !coachView, video.match.placementStatus != "ready" {
-            cards.append(DeckCard(id: "placement-status", view: AnyView(
-                PlacementStatusCard(match: video.match, onChanged: video.onPlacementChanged)
+
+        // What is still to do, for the owner: an end to name, points to
+        // score, an analysis to generate or retry. While any of it is open
+        // the deck ends on the next-step card; once none is, and only then,
+        // on the teaser. A coach gets the teaser only for a complete match
+        // and never the card.
+        let fullyScored = gate.eligible > 0 && gate.scored == gate.eligible
+        let sideMissing = video.userSide == nil && video.showMaps
+        let status = video.match.placementStatus ?? "not_requested"
+        let handCut = video.match.cutSource == "manual"
+        let analysisPending = !handCut && status != "ready" && status != "final_failed"
+        let nextStep = !coachView
+            && ((scoredType && !fullyScored) || sideMissing || analysisPending)
+        let complete = coachView
+            ? fullyScored && (handCut || status == "ready")
+            : !nextStep
+        if nextStep {
+            cards.append(DeckCard(id: "next", view: AnyView(
+                NextStepCard(
+                    match: video.match,
+                    gate: gate,
+                    scoredType: scoredType,
+                    fullyScored: fullyScored,
+                    sideMissing: sideMissing,
+                    onScore: video.onScore,
+                    onChanged: video.onPlacementChanged
+                )
             )))
         }
-        if video.scoredType, !gate.open, !coachView {
-            cards.append(DeckCard(id: "gate", view: AnyView(GateCard(gate: gate, onScore: video.onScore))))
-        }
-        if video.scoredType {
+        if scoredType, complete {
             cards.append(DeckCard(id: "teaser", view: AnyView(ComingSoonCard())))
         }
         return cards

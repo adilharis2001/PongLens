@@ -27,6 +27,8 @@ struct PlacementMapCard: View {
     @Binding var shot: PlacementMapShot
     /// Open one point from a zone's list. Nil leaves the zones as pictures.
     var onOpenPoint: ((MatchPoint) -> Void)? = nil
+    /// The match is not scored yet, so who served is the camera's guess.
+    var serverEstimated = false
 
     /// The zone the owner tapped, with the points behind its number.
     @State private var zoneSheet: ZoneSheet?
@@ -69,9 +71,11 @@ struct PlacementMapCard: View {
             : placementHeatMapTitle(scored: scored)
         let tappable = page == .heat && onOpenPoint != nil && !shown.isEmpty
 
+        let baseHint = tappable ? "Tap a zone to see its points" : hint(shown)
+        let estimated = "Who served is estimated until the match is scored."
         ScoredCardStyle.card(
             title,
-            hint: tappable ? "Tap a zone to see its points" : hint(shown),
+            hint: serverEstimated ? (baseHint.map { $0 + " · " } ?? "") + estimated : baseHint,
             beta: true
         ) {
             VStack(alignment: .leading, spacing: 12) {

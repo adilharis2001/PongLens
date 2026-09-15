@@ -63,7 +63,7 @@ export function placementRequestUiTransition(
         sheetOpen: false,
         acknowledgement: {
           id: acknowledgementSequence,
-          message: "The detailed analysis is generating. We'll email you when it's ready.",
+          message: "The detailed analysis is generating. It takes a few minutes.",
         },
         acknowledgementSequence,
       };
@@ -169,8 +169,8 @@ const PLACEMENT_REQUEST_ERROR_COPY: Record<string, string> = {
   source_expired:
     "The detailed analysis couldn't be generated because the original video is no longer available.",
   generation_already_processing:
-    "The detailed analysis is generating. We'll email you when it's ready.",
-  already_retrying: "We're trying again. We'll email you when it's ready.",
+    "The detailed analysis is generating. It takes a few minutes.",
+  already_retrying: "We're trying again. It takes a few minutes.",
   retry_already_used: "The detailed analysis has already been requested.",
   generation_already_used:
     "The detailed analysis has already been requested for this match.",
@@ -275,8 +275,8 @@ export function placementLifecycleView(
       toolStatus: "Generate",
       sheetTitle: "Generate the detailed analysis?",
       sheetBody:
-        "The detailed analysis hasn't been generated for this match yet. You can "
-        + "generate it from Match analysis.",
+        "Reads the video for where each serve landed, how fast it was and "
+        + "where points ended. It takes a few minutes.",
       noticeTitle: "The detailed analysis hasn't been generated",
       noticeBody:
         "The detailed analysis hasn't been generated for this match yet. You can "
@@ -313,10 +313,10 @@ export function placementLifecycleView(
       toolStatus: "Generating…",
       sheetTitle: "Generating the detailed analysis…",
       sheetBody:
-        "The detailed analysis is generating. We'll email you when it's ready.",
+        "The detailed analysis is generating. It takes a few minutes.",
       noticeTitle: "Generating the detailed analysis…",
       noticeBody:
-        "The detailed analysis is generating. We'll email you when it's ready.",
+        "The detailed analysis is generating. It takes a few minutes.",
       actionKind: null,
       actionLabel: null,
       poll: true,
@@ -349,10 +349,10 @@ export function placementLifecycleView(
       toolStatus: "Retrying…",
       sheetTitle: "Retrying the detailed analysis…",
       sheetBody:
-        "We're trying again. We'll email you when it's ready.",
+        "We're trying again. It takes a few minutes.",
       noticeTitle: "Generating the detailed analysis…",
       noticeBody:
-        "We're trying again. We'll email you when it's ready.",
+        "We're trying again. It takes a few minutes.",
       actionKind: null,
       actionLabel: null,
       poll: true,

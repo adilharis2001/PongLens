@@ -494,7 +494,7 @@ struct PlacementRequestSheet: View {
                 Section {
                     if started {
                         Label(
-                            "Started. We'll email you when they're ready.",
+                            "Started. It takes a few minutes.",
                             systemImage: "checkmark.circle.fill"
                         )
                         .font(.plBody)
@@ -534,7 +534,7 @@ struct PlacementRequestSheet: View {
     private var body_: String {
         switch status {
         case "processing", "retrying":
-            "The detailed analysis is generating. We'll email you when it's ready."
+            "The detailed analysis is generating. It takes a few minutes."
         case "retry_available":
             "The detailed analysis couldn't be generated because the table was hard to detect in this video. You can try once more."
         case "final_failed":

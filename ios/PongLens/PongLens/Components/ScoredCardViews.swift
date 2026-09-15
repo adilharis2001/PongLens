@@ -299,134 +299,187 @@ struct EndingsCard: View {
     }
 }
 
-// MARK: - The gate
+// MARK: - What's next
 
-/// The video cards need most of the match scored, for a reason that has
-/// nothing to do with statistics: until the owner has scored a point, the
-/// pipeline's cut of it is unconfirmed, and the placement behind every card
-/// could belong to a split or a joined rally. The bar is the same one the
-/// highlights use.
-struct GateCard: View {
-    let gate: ScoredCardsGate
-    let onScore: (() -> Void)?
-
-    var body: some View {
-        let percent = Int((SCORED_CARDS_MIN_SHARE * 100).rounded())
-        ScoredCardStyle.card("Score the match to unlock more") {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Point length, serve speed, serve variety and where points ended need \(percent)% of the points scored, so the rallies behind them are confirmed.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text400)
-                    .fixedSize(horizontal: false, vertical: true)
-                GeometryReader { geo in
-                    Rectangle().fill(PL.cyan)
-                        .frame(width: geo.size.width * min(1, gate.share))
-                }
-                .frame(height: 6)
-                .background(PL.ink, in: Capsule())
-                .clipShape(Capsule())
-                .padding(.top, 14)
-                (Text("\(gate.scored) of \(gate.eligible) points scored")
-                    .foregroundStyle(PL.text300)
-                    + Text(" · \(gate.required) needed").foregroundStyle(PL.text500))
-                    .font(.plCaption)
-                    .monospacedDigit()
-                    .padding(.top, 8)
-                if let onScore {
-                    Button(action: onScore) {
-                        Text(gate.scored == 0 ? "Score the match" : "Keep scoring")
-                            .font(.plButton)
-                            .foregroundStyle(PL.ink)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .background(PL.cyan, in: Capsule())
-                    .padding(.top, 14)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Placement lifecycle
-
-/// The placement lifecycle as a card where the maps will be: generate,
-/// generating, try again, or the reason there will be none. The sheet it
-/// opens is the one the Tools row used to open, so the copy and the
-/// request path are the same.
-struct PlacementStatusCard: View {
+/// The one card that says what is still to do, always the last card until
+/// nothing is left: which end the owner played from (the maps cannot be
+/// oriented without it), scoring (the overview and the video cards need
+/// 75% of the points, the bar the highlights use, so the rallies behind
+/// them are confirmed), and the detailed analysis. The steps are in order,
+/// not side by side (Adil, 2026-09-15): scoring confirms the cuts, the
+/// servers and the winners, and the worker reads the corrected windows
+/// when it runs, so generating is offered only once the match is scored.
+/// An analysis that already exists, or is running, shows as a status row
+/// at any time. The web's NextStepCard.
+struct NextStepCard: View {
     let match: MatchRow
+    let gate: ScoredCardsGate
+    let scoredType: Bool
+    let fullyScored: Bool
+    let sideMissing: Bool
+    let onScore: (() -> Void)?
+    /// Re-read the match once the side or the analysis request changed.
     let onChanged: () -> Void
 
-    @State private var sheetOpen = false
+    @State private var analysisSheetOpen = false
+    @State private var sideSheetOpen = false
 
     private var status: String { match.placementStatus ?? "not_requested" }
-
-    private var title: String {
-        switch status {
-        case "processing": "Generating the detailed analysis…"
-        case "retrying": "Retrying the detailed analysis…"
-        case "retry_available": "Try the detailed analysis again?"
-        case "final_failed": "Detailed analysis unavailable"
-        default: "Generate the detailed analysis?"
-        }
+    private var handCut: Bool { match.cutSource == "manual" }
+    private var generating: Bool { status == "processing" || status == "retrying" }
+    /// Generate (or try again) comes after scoring; a practice match has
+    /// nothing to score and gets it straight away.
+    private var offerAnalysis: Bool { !scoredType || gate.open }
+    private var showAnalysis: Bool {
+        !handCut && (generating || status == "ready" || offerAnalysis)
     }
 
-    private var body_: String {
+    private var analysisBody: String {
         switch status {
+        case "ready": "Ready."
         case "processing", "retrying":
-            "The detailed analysis is generating. We'll email you when it's ready."
+            "The detailed analysis is generating. It takes a few minutes."
         case "retry_available":
             "The detailed analysis couldn't be generated because the table was hard to detect in this video. You can try once more."
         case "final_failed":
             "The detailed analysis couldn't be generated for this video."
         default:
-            "The detailed analysis reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes."
+            "Reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes."
         }
     }
 
-    private var actionLabel: String? {
+    private var analysisAction: String? {
         switch status {
         case "retry_available": "Try again"
-        case "processing", "retrying", "final_failed": nil
+        case "ready", "processing", "retrying", "final_failed": nil
         default: "Generate detailed analysis"
         }
     }
 
     var body: some View {
-        ScoredCardStyle.card(title, beta: true) {
+        let percent = Int((SCORED_CARDS_MIN_SHARE * 100).rounded())
+        ScoredCardStyle.card("What's next") {
             VStack(alignment: .leading, spacing: 0) {
-                Text(body_)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text400)
-                    .fixedSize(horizontal: false, vertical: true)
-                if status == "processing" || status == "retrying" {
-                    HStack(spacing: 8) {
-                        ProgressView().tint(PL.cyan)
-                        Text(status == "retrying" ? "Retrying…" : "Generating…")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text300)
-                    }
-                    .padding(.top, 14)
+                if scoredType, !gate.open {
+                    Text(!handCut && !generating && status != "ready"
+                        ? "Score the match first. The detailed analysis reads the scored points, and the overview, point length, serve speed and where points ended need \(percent)% of them."
+                        : "The overview, point length, serve speed and where points ended need \(percent)% of the points scored, so the rallies behind them are confirmed.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text400)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 14)
                 }
-                if let actionLabel {
-                    Button { sheetOpen = true } label: {
-                        Text(actionLabel)
-                            .font(.plButton)
-                            .foregroundStyle(PL.ink)
-                            .frame(maxWidth: .infinity, minHeight: 44)
+                if sideMissing {
+                    row("Which end did you play from?", done: false) {
+                        Text("So the serve maps are drawn from your end of the table.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text400)
+                            .fixedSize(horizontal: false, vertical: true)
+                        secondaryButton("Choose your end") { sideSheetOpen = true }
                     }
-                    .background(PL.cyan, in: Capsule())
-                    .padding(.top, 14)
+                }
+                if scoredType {
+                    row("Score the match", done: fullyScored) {
+                        GeometryReader { geo in
+                            Rectangle().fill(PL.cyan)
+                                .frame(width: geo.size.width * min(1, gate.share))
+                        }
+                        .frame(height: 6)
+                        .background(PL.ink, in: Capsule())
+                        .clipShape(Capsule())
+                        .padding(.top, 8)
+                        (Text("\(gate.scored) of \(gate.eligible) points scored")
+                            .foregroundStyle(PL.text300)
+                            + Text(gate.open ? "" : " · \(gate.required) needed").foregroundStyle(PL.text500))
+                            .font(.plCaption)
+                            .monospacedDigit()
+                            .padding(.top, 8)
+                        if let onScore, !fullyScored {
+                            primaryButton(gate.scored == 0 ? "Score the match" : "Keep scoring", action: onScore)
+                        }
+                    }
+                }
+                if showAnalysis {
+                    row("Detailed analysis", done: status == "ready") {
+                        Text(analysisBody)
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text400)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if generating {
+                            HStack(spacing: 8) {
+                                ProgressView().tint(PL.cyan)
+                                Text(status == "retrying" ? "Retrying…" : "Generating…")
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.text300)
+                            }
+                            .padding(.top, 10)
+                        }
+                        if offerAnalysis, let analysisAction {
+                            primaryButton(analysisAction) { analysisSheetOpen = true }
+                        }
+                    }
                 }
             }
         }
-        .sheet(isPresented: $sheetOpen) {
+        .sheet(isPresented: $analysisSheetOpen) {
             PlacementRequestSheet(match: match, onChanged: onChanged)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $sideSheetOpen) {
+            YourSideSheet(match: match, onSaved: onChanged)
+        }
+    }
+
+    /// One row: the title with a check once it is done, then its detail
+    /// and its action, divided like the stat rows above it.
+    private func row<Content: View>(
+        _ title: String, done: Bool, @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Text(title)
+                    .font(.plRowTitle)
+                    .foregroundStyle(PL.text100)
+                Spacer()
+                if done {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(PL.cyan)
+                        .frame(width: 20, height: 20)
+                        .background(PL.cyan.opacity(0.15), in: Circle())
+                }
+            }
+            content()
+            Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
+                .padding(.top, 12)
+        }
+        .padding(.bottom, 12)
+    }
+
+    private func primaryButton(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.plButton)
+                .foregroundStyle(PL.ink)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .background(PL.cyan, in: Capsule())
+        .padding(.top, 12)
+    }
+
+    private func secondaryButton(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.plButton)
+                .foregroundStyle(PL.text100)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+        .padding(.top, 12)
     }
 }
+
 
 // MARK: - What is still to come
 

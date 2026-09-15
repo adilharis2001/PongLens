@@ -77,7 +77,7 @@ test("accepted placement requests each receive a fresh acknowledgement sequence"
     sheetOpen: false,
     acknowledgement: {
       id: 1,
-      message: "The detailed analysis is generating. We'll email you when it's ready.",
+      message: "The detailed analysis is generating. It takes a few minutes.",
     },
     acknowledgementSequence: 1,
   });
@@ -88,7 +88,7 @@ test("accepted placement requests each receive a fresh acknowledgement sequence"
     sheetOpen: false,
     acknowledgement: {
       id: 2,
-      message: "The detailed analysis is generating. We'll email you when it's ready.",
+      message: "The detailed analysis is generating. It takes a few minutes.",
     },
     acknowledgementSequence: 2,
   });
@@ -227,11 +227,11 @@ test("placement request errors use plain user-facing copy", () => {
   );
   assert.equal(
     placementRequestErrorCopy("generation_already_processing"),
-    "The detailed analysis is generating. We'll email you when it's ready.",
+    "The detailed analysis is generating. It takes a few minutes.",
   );
   assert.equal(
     placementRequestErrorCopy("already_retrying"),
-    "We're trying again. We'll email you when it's ready.",
+    "We're trying again. It takes a few minutes.",
   );
   assert.equal(
     placementRequestErrorCopy("retry_already_used"),
@@ -319,7 +319,7 @@ test("live not-requested placement offers generation", () => {
       toolStatus: "Generate",
       sheetTitle: "Generate the detailed analysis?",
       sheetBody:
-        "The detailed analysis hasn't been generated for this match yet. You can generate it from Match analysis.",
+        "Reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes.",
       noticeTitle: "The detailed analysis hasn't been generated",
       noticeBody:
         "The detailed analysis hasn't been generated for this match yet. You can generate it from Match analysis.",
@@ -347,23 +347,27 @@ test("expired not-requested placement has no action", () => {
 });
 
 test("lifecycle states use approved plain-language copy", () => {
+  // The sheet sits inside the deck's next-step card, beside its Generate
+  // button, so it says what the analysis is; the notice appears elsewhere
+  // on the page and still points to Match analysis.
   const cases = [
     ["not_requested", 0, future,
+      "Reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes.",
       "The detailed analysis hasn't been generated for this match yet. You can generate it from Match analysis."],
     ["processing", 0, future,
-      "The detailed analysis is generating. We'll email you when it's ready."],
+      "The detailed analysis is generating. It takes a few minutes."],
     ["retry_available", 0, future,
       "The detailed analysis couldn't be generated because the table was hard to detect in this video. You can try once more from Match analysis."],
     ["retrying", 1, future,
-      "We're trying again. We'll email you when it's ready."],
+      "We're trying again. It takes a few minutes."],
     ["final_failed", 1, null,
       "The detailed analysis couldn't be generated because the table was hard to detect in this video."],
   ] as const;
 
-  for (const [status, count, expiry, copy] of cases) {
+  for (const [status, count, expiry, copy, notice] of cases) {
     const view = placementLifecycleView(status, count, expiry, now);
     assert.equal(view.sheetBody, copy, status);
-    assert.equal(view.noticeBody, copy, status);
+    assert.equal(view.noticeBody, notice ?? copy, status);
   }
 
   const sourceUnavailable = placementLifecycleView(
