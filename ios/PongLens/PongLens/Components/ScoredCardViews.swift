@@ -43,7 +43,9 @@ enum ScoredCardStyle {
             content()
                 .padding(.top, 12)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Fills the deck row, so cards swiped side by side share one bottom
+        // edge; the row is as tall as its tallest card.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .plCard(padding: 16)
     }
 
@@ -484,7 +486,7 @@ struct ComingSoonCard: View {
                 .foregroundStyle(PL.text100)
                 .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, 40)
         .padding(.horizontal, 24)
         .background(PL.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))

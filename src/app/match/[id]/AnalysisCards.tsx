@@ -277,16 +277,35 @@ export function AnalysisCards({
   const [active, setActive] = useState(0);
   const [gameFilter, setGameFilter] = useState<number | null>(null);
 
-  // Which card is centred, for the dots. Derived from scroll position rather
-  // than tracked on tap, so a swipe and a dot always agree.
+  // Distance between card origins: card width plus the deck's gap, read
+  // from the layout so the mobile and desktop gaps both count.
+  const stride = useCallback(() => {
+    const el = scroller.current;
+    const card = el?.firstElementChild as HTMLElement | null;
+    if (!el || !card) return 0;
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 12;
+    return card.offsetWidth + gap;
+  }, []);
+
+  // Which card is at the front, for the dots. Derived from scroll position
+  // rather than tracked on tap, so a swipe and a dot always agree.
   const onScroll = useCallback(() => {
     const el = scroller.current;
-    if (!el) return;
-    const card = el.firstElementChild as HTMLElement | null;
-    if (!card) return;
-    const stride = card.offsetWidth + 12;
-    setActive(Math.round(el.scrollLeft / stride));
-  }, []);
+    const step = stride();
+    if (!el || !step) return;
+    setActive(Math.round(el.scrollLeft / step));
+  }, [stride]);
+
+  // The desktop's way to swipe: one card at a time, either direction.
+  const page = useCallback(
+    (direction: 1 | -1) => {
+      const el = scroller.current;
+      const step = stride();
+      if (!el || !step) return;
+      el.scrollBy({ left: direction * step, behavior: "smooth" });
+    },
+    [stride],
+  );
 
   const gameCount = useMemo(() => {
     let max = -1;
@@ -549,7 +568,7 @@ export function AnalysisCards({
     scoredType ? (
       <div
         key="teaser"
-        className="flex w-[86%] shrink-0 snap-center flex-col items-center justify-center rounded-2xl border border-dashed border-edge bg-surface/60 p-6 text-center sm:h-[30rem] sm:w-full"
+        className="flex w-[86%] shrink-0 snap-center flex-col items-center justify-center rounded-2xl border border-dashed border-edge bg-surface/60 p-6 text-center sm:h-[30rem] sm:w-[calc(50%-0.5rem)] sm:snap-start"
       >
         <div className="flex items-end gap-1.5" aria-hidden="true">
           {[18, 30, 12, 24, 20].map((height, i) => (
@@ -569,28 +588,55 @@ export function AnalysisCards({
 
   return (
     <section className="mt-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h2 className="text-lg font-semibold">Match analysis</h2>
-        {gameCount >= 2 && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Game</span>
-            <Segmented
-              ariaLabel="Which games"
-              value={gameFilter === null ? "all" : String(gameFilter)}
-              onChange={(key) =>
-                setGameFilter(key === "all" ? null : Number(key))
-              }
-              options={[
-                { key: "all", label: "All", srLabel: "All games" },
-                ...Array.from({ length: gameCount }, (_, index) => ({
-                  key: String(index),
-                  label: String(index + 1),
-                  srLabel: `Game ${index + 1}`,
-                })),
-              ]}
-            />
+        <div className="flex items-center gap-3">
+          {gameCount >= 2 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500">Game</span>
+              <Segmented
+                ariaLabel="Which games"
+                value={gameFilter === null ? "all" : String(gameFilter)}
+                onChange={(key) =>
+                  setGameFilter(key === "all" ? null : Number(key))
+                }
+                options={[
+                  { key: "all", label: "All", srLabel: "All games" },
+                  ...Array.from({ length: gameCount }, (_, index) => ({
+                    key: String(index),
+                    label: String(index + 1),
+                    srLabel: `Game ${index + 1}`,
+                  })),
+                ]}
+              />
+            </div>
+          )}
+          {/* Arrows for a mouse; a trackpad or a finger swipes the deck
+              directly. Mobile has the swipe and the dots and needs no
+              buttons. */}
+          <div className="hidden items-center gap-1.5 sm:flex">
+            <button
+              type="button"
+              aria-label="Previous cards"
+              onClick={() => page(-1)}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-edge text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              aria-label="Next cards"
+              onClick={() => page(1)}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-edge text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
+              </svg>
+            </button>
           </div>
-        )}
+        </div>
       </div>
       {neutral && (
         <p className="mt-1 text-sm text-zinc-500">{youLabel}&apos;s analysis</p>
@@ -607,16 +653,17 @@ export function AnalysisCards({
       <div
         ref={scroller}
         onScroll={onScroll}
-        /* Mobile: a snap carousel, one card per screen. Desktop: a grid of
-           equal tiles, each absorbing its own overflow rather than pushing
-           the ones beside it around. */
-        className="mt-3 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible"
+        /* One snap carousel on every surface: one card per screen on a
+           phone, two per view on desktop, the same swipe either way. Each
+           card absorbs its own overflow rather than pushing the ones
+           beside it around. */
+        className="mt-3 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-4"
       >
         {cards}
       </div>
 
-      {/* dots: the swipe affordance, mobile only */}
-      <div className="mt-2 flex justify-center gap-1.5 sm:hidden">
+      {/* dots: where you are in the deck */}
+      <div className="mt-2 flex justify-center gap-1.5">
         {cards.map((_, i) => (
           <span
             key={i}

@@ -1,11 +1,17 @@
 import SwiftUI
 
-/// Match-level placement: where the ball landed across every point with a
-/// trusted bounce, always drawn with the user at the bottom — the web's
-/// PlacementAggregate, sized for the app. Landings and a heat map, chosen
-/// with a toggle rather than the web's swipe deck; the game filter stays
-/// web-only for now.
-struct PlacementAggregateSection: View {
+/// The serve maps as two cards of the Match analysis deck: where the
+/// serves landed, and the same landings as a heat map with win rates. A
+/// port of the web's PlacementAggregate, sized for the app; the two cards
+/// share whose serves are drawn through the bindings the deck owns, so
+/// switching on one switches the other, exactly as the web's control does.
+/// The game filter stays web-only for now.
+enum PlacementMapPage { case landings, heat }
+enum PlacementMapWho { case me, them }
+enum PlacementMapShot { case serves, rally }
+
+struct PlacementMapCard: View {
+    let page: PlacementMapPage
     let points: [MatchPoint]
     let userSide: String?
     let gameIndexByPoint: [UUID: Int]
@@ -15,17 +21,8 @@ struct PlacementAggregateSection: View {
     /// reads, so one match cannot show serves in the browser and every
     /// landing here.
     var servesOnly = false
-    /// Rendered as a card of the Match analysis deck: a card title with the
-    /// Beta chip instead of a section heading.
-    var embedded = false
-
-    private enum Who { case me, them }
-    private enum Shot { case serves, rally }
-    private enum Page { case landings, heat }
-
-    @State private var who: Who = .me
-    @State private var shot: Shot = .serves
-    @State private var page: Page = .landings
+    @Binding var who: PlacementMapWho
+    @Binding var shot: PlacementMapShot
 
     private let youColor = PL.cyan
     private let themColor = Color(hex: 0xF59E0B)
@@ -51,23 +48,15 @@ struct PlacementAggregateSection: View {
 
     var body: some View {
         let observations = allObservations
-        VStack(alignment: .leading, spacing: 12) {
-            if !embedded {
-                HStack(spacing: 8) {
-                    SectionHeading(servesOnly ? "Serve placement" : "Placement maps")
-                    BetaChip()
-                }
-            }
+        let shown = observations.filter { $0.filter == filter }
+        let tallies = placementZoneTallies(observations, filter: filter)
+        let scored = placementZonesAreScored(tallies)
+        let title = page == .landings
+            ? (servesOnly ? "Serve landings" : "Landings")
+            : placementHeatMapTitle(scored: scored)
 
+        ScoredCardStyle.card(title, hint: hint(shown), beta: true) {
             VStack(alignment: .leading, spacing: 12) {
-                if embedded {
-                    HStack(spacing: 8) {
-                        Text(servesOnly ? "Serve placement" : "Placement maps")
-                            .font(.plRowTitle)
-                            .foregroundStyle(PL.text100)
-                        BetaChip()
-                    }
-                }
                 if userSide == nil {
                     Text(servesOnly
                         ? "Tell us which side you played to orient the serve maps."
@@ -85,80 +74,52 @@ struct PlacementAggregateSection: View {
                         .multilineTextAlignment(.center)
                         .padding(.vertical, 20)
                 } else {
-                    mapBody(observations)
+                    controls
+                    Group {
+                        if page == .heat {
+                            heatCanvas(tallies, scored: scored)
+                        } else {
+                            landingsCanvas(shown)
+                        }
+                    }
+                    .aspectRatio(PlacementTable.viewW / PlacementTable.viewH, contentMode: .fit)
+                    .frame(maxWidth: 240)
+                    .frame(maxWidth: .infinity)
+                    if shown.isEmpty {
+                        Text("No trusted landings in this view.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                            .frame(maxWidth: .infinity)
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .plCard(padding: embedded ? 16 : 20)
         }
     }
 
-    @ViewBuilder
-    private func mapBody(_ observations: [TrustedPlacementObservation]) -> some View {
-        let shown = observations.filter { $0.filter == filter }
-        let used = trustedPlacementPointCount(observations)
-        let total = unflagged.count
-
-        Text(servesOnly
-            ? "Serves mapped for \(used) of \(total) \(total == 1 ? "point" : "points")."
-            : "Mapped for \(used) of \(total) \(total == 1 ? "point" : "points").")
-            .font(.plCaption)
-            .monospacedDigit()
-            .foregroundStyle(PL.text500)
-
-        HStack(spacing: 8) {
-            segmented(
-                [("Landings", Page.landings), ("Heat map", Page.heat)],
-                active: page
-            ) { page = $0 }
+    /// The one line under the title: what a dot means for this filter,
+    /// then how much data is behind it.
+    private func hint(_ shown: [TrustedPlacementObservation]) -> String? {
+        guard userSide != nil, !shown.isEmpty else { return nil }
+        let what = switch filter {
+        case .myServes: "Where your serves landed"
+        case .theirServes: "Where their serves landed"
+        case .myRally: "Your non-serve shots that bounced on their side"
+        case .theirRally: "Their non-serve shots that bounced on your side"
         }
+        let landings = shown.count
+        let pointCount = trustedPlacementPointCount(shown)
+        return "\(what) · \(landings) \(landings == 1 ? "landing" : "landings") from \(pointCount) \(pointCount == 1 ? "point" : "points")"
+    }
 
+    private var controls: some View {
         HStack(spacing: 8) {
-            segmented(
-                [("Me", Who.me), (opponentLabel, Who.them)], active: who
-            ) { who = $0 }
+            segmented([("Me", PlacementMapWho.me), (opponentLabel, .them)], active: who) { who = $0 }
             // Rally landings are not shown at the confidence they can be
             // reconstructed at, so there is no second thing to choose
             // between and the control comes off entirely.
             if !servesOnly {
-                segmented(
-                    [("Serves", Shot.serves), ("Rally", Shot.rally)], active: shot
-                ) { shot = $0 }
+                segmented([("Serves", PlacementMapShot.serves), ("Rally", .rally)], active: shot) { shot = $0 }
             }
-        }
-
-        let tallies = placementZoneTallies(observations, filter: filter)
-        let scored = placementZonesAreScored(tallies)
-
-        if page == .heat {
-            Text(placementHeatMapTitle(scored: scored))
-                .font(.plCaption)
-                .foregroundStyle(PL.text400)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-
-        Group {
-            if page == .heat {
-                heatCanvas(tallies, scored: scored)
-            } else {
-                landingsCanvas(shown)
-            }
-        }
-        .aspectRatio(PlacementTable.viewW / PlacementTable.viewH, contentMode: .fit)
-        .frame(maxWidth: 260)
-        .frame(maxWidth: .infinity)
-
-        if shown.isEmpty {
-            Text("No trusted landings in this view.")
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
-                .frame(maxWidth: .infinity)
-        } else {
-            Text(caption(shown))
-                .font(.system(size: 11))
-                .foregroundStyle(PL.text500)
-                .frame(maxWidth: .infinity)
-                .multilineTextAlignment(.center)
         }
     }
 
@@ -255,20 +216,6 @@ struct PlacementAggregateSection: View {
                 context.stroke(dot, with: .color(Color(hex: 0x0C1222)), lineWidth: 0.75 * s)
             }
         }
-    }
-
-    /// The one line under the map: what a dot means for this filter, then
-    /// how much data is behind it.
-    private func caption(_ shown: [TrustedPlacementObservation]) -> String {
-        let what = switch filter {
-        case .myServes: "Where your serves landed"
-        case .theirServes: "Where their serves landed"
-        case .myRally: "Your non-serve shots that bounced on their side"
-        case .theirRally: "Their non-serve shots that bounced on your side"
-        }
-        let landings = shown.count
-        let pointCount = trustedPlacementPointCount(shown)
-        return "\(what) · \(landings) \(landings == 1 ? "landing" : "landings") from \(pointCount) \(pointCount == 1 ? "point" : "points")"
     }
 
     private func segmented<T: Equatable>(
