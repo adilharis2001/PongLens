@@ -475,10 +475,8 @@ struct AccountScreen: View {
                     }
                     .padding(.top, 4)
                 }
-                Text("Everything you store counts: match videos and their cut versions, lesson videos, point clips and reels, voice notes, sketches and photos. Deleting a match or a lesson video frees its space.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                    .lineSpacing(3)
+                // No explanatory paragraph under the breakdown: the list
+                // already says what counts (Adil, 2026-09-14).
             }
             .padding(16)
             packRows(purchases.storagePacks)

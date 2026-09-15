@@ -127,11 +127,8 @@ export function StorageSection({
         </dl>
       )}
 
-      <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-        Everything you store counts: match videos and their cut versions,
-        lesson videos, point clips and reels, voice notes, sketches and
-        photos. Deleting a match or a lesson video frees its space.
-      </p>
+      {/* No explanatory paragraph under the breakdown: the list already
+          says what counts (Adil, 2026-09-14). */}
 
       {purchasesEnabled && packs.length > 0 && (
         <div className="mt-4">
