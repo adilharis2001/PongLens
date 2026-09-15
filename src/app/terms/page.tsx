@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function TermsPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Terms of Service" updated="September 14, 2026">
+    <LegalPage title="Terms of Service" updated="September 15, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -44,9 +44,10 @@ export default async function TermsPage() {
       <section>
         <h2>1. Who we are and what this covers</h2>
         <p>
-          These terms are an agreement between you and the operator of
-          PongLens (&quot;PongLens&quot;, &quot;we&quot;, &quot;us&quot;) and
-          cover your use of ponglens.com and the analysis services we provide.
+          These terms are an agreement between you and AH Labs LLC, a New
+          Jersey limited liability company that operates PongLens
+          (&quot;PongLens&quot;, &quot;we&quot;, &quot;us&quot;). They cover
+          your use of ponglens.com and the analysis services we provide.
           By creating an account or using the service, you agree to these
           terms and to our{" "}
           <Link href="/privacy">Privacy Policy</Link>.
@@ -500,6 +501,13 @@ export default async function TermsPage() {
           Continuing to use the service after changes take effect means you
           accept them.
         </p>
+        <p>
+          We may transfer these terms, together with your account and content,
+          to another company that takes over PongLens, for example if PongLens
+          moves into its own company or is acquired. We&apos;ll tell you in
+          the app or by email before that happens, and these terms and our
+          Privacy Policy will keep applying.
+        </p>
       </section>
 
       <section>
@@ -520,6 +528,7 @@ export default async function TermsPage() {
       <section>
         <h2>17. Contact</h2>
         <p>
+          PongLens is operated by AH Labs LLC, New Jersey, United States.
           Questions? Email{" "}
           <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
         </p>
