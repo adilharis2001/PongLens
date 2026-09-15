@@ -662,7 +662,6 @@ struct MatchDetailScreen: View {
     @State private var winnerFilter: WinnerFilter = .anyone
     @State private var onlyFilter: OnlyFilter = .everything
     @State private var watchKick = 0
-    @State private var placementOn = false
     // Trim window in raw-video seconds (web RawMatchView's trimStart /
     // trimEnd). End nil = untouched = the whole video.
     @State private var trimStart: Double = 0
@@ -1626,24 +1625,6 @@ struct MatchDetailScreen: View {
 
                     Divider().overlay(PL.edge)
 
-                    // One shape for both settings: name on the left, the
-                    // control on the right, the sentence underneath. They
-                    // used to be built differently from each other, which
-                    // is most of why the card read as unfinished.
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle(isOn: $placementOn) {
-                            Text("Placement maps")
-                                .font(.plRowTitle)
-                                .foregroundStyle(PL.text100)
-                        }
-                        .tint(PL.cyan)
-                        Text("Where each serve landed. Adds processing time.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
-                    }
-
-                    Divider().overlay(PL.edge)
-
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Cut strictness")
                             .font(.plRowTitle)
@@ -1754,7 +1735,7 @@ struct MatchDetailScreen: View {
     private func runProcess() async {
         processBusy = true
         processError = await model.process(
-            current, placement: placementOn,
+            current, placement: false,
             trimStart: trimmed ? trimStart : nil,
             trimEnd: trimmed ? trimEnd : nil,
             strictness: strictness

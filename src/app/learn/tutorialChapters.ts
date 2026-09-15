@@ -66,7 +66,7 @@ export const tutorialChapters: TutorialChapter[] = [
   playerChapter(
     "analysis",
     "Read your match",
-    "Read the score, momentum, tactical answers, and placement maps together.",
+    "Read the score, momentum, tactical answers, and serve maps together.",
     43,
     "match-analysis",
   ),

@@ -21,7 +21,7 @@ export const playerGuides: Guide[] = [
         steps: [
           "Open Upload from Home or Matches.",
           "Choose a video up to 45 minutes long, then add the opponent, location, session type, and which side of the video is yours.",
-          "Choose whether PongLens should break the video into points and generate placement maps.",
+          "Choose whether PongLens should break the video into points.",
           "Keep the page open until the upload finishes. You can leave once processing starts.",
           "Return when PongLens tells you the match is ready.",
         ],
@@ -42,7 +42,6 @@ export const playerGuides: Guide[] = [
         heading: "Choose what PongLens creates",
         bullets: [
           "Break it into points removes the time between rallies and creates the clips used for scoring, tags, and point-by-point review.",
-          "Placement maps asks PongLens to follow the ball. It works best when the full table is clear in the frame.",
           "Opponent, location, session type, and your side make the match easier to recognize and keep the score facing the right way.",
         ],
         tip: "Processing choices lock when processing begins. You can still edit the match details later.",
@@ -295,7 +294,7 @@ export const playerGuides: Guide[] = [
           "Open a match and choose Match analysis in Tools.",
           "Score the points to fill the result, score, serve, receive, and momentum views.",
           "Answer the optional Analysis questions to fill Serve, Mistakes, and Placement.",
-          "Open Where the ball landed for the placement maps made from the footage.",
+          "Open Match analysis for the serve maps and the cards made from the footage.",
         ],
         images: [
           { src: "/showcase/stats-d.jpg", alt: "Match analysis cards built from scored points", kind: "d" },
