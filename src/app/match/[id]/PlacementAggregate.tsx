@@ -171,6 +171,7 @@ export function usePlacementMapCards({
     filter,
     view.landingCount,
     view.pointCount,
+    { your: voice.your, their: voice.their },
   );
   const heatScored = placementViewIsScored(view.observations, filter);
   const mine = who === "me";

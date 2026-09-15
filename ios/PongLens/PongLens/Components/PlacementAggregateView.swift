@@ -168,8 +168,10 @@ struct PlacementMapCard: View {
         guard userSide != nil, !shown.isEmpty else { return nil }
         let what = switch filter {
         case .myServes: coachView ? "Where the player's serves landed" : "Where your serves landed"
-        case .theirServes: "Where their serves landed"
-        case .myRally: "Your non-serve shots that bounced on their side"
+        case .theirServes: coachView ? "Where the opponent's serves landed" : "Where their serves landed"
+        case .myRally: coachView
+            ? "The player's non-serve shots that bounced on the opponent's side"
+            : "Your non-serve shots that bounced on their side"
         case .theirRally: coachView
             ? "The opponent's non-serve shots that bounced on the player's side"
             : "Their non-serve shots that bounced on your side"
