@@ -11,6 +11,8 @@ OUT=$(mktemp -d)/scorelogic
 swiftc -O -o "$OUT" \
   "$CORE/Models.swift" \
   "$CORE/Placement.swift" \
+  "$CORE/MatchAnalysis.swift" \
+  "$CORE/ScoredCards.swift" \
   "$CORE/Serving.swift" \
   "$CORE/GameScore.swift" \
   "$CORE/Scorecard.swift" \
@@ -35,5 +37,5 @@ swiftc -O -o "$OUT" \
   "$CORE/ProcessingEstimate.swift" \
   ScoreLogicTests.swift ServePlacementTests.swift StarredTests.swift \
   HighlightsTests.swift PlayerTakeoverTests.swift CameraGuideGateTests.swift \
-  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift ScorerStateTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift UserFacingErrorTests.swift MatchToolsTests.swift LessonPreviewTests.swift CoachActionsTests.swift MatchPointLinkTests.swift SignupSourceTests.swift ProcessingFeedbackTests.swift main.swift
+  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift ScorerStateTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift UserFacingErrorTests.swift MatchToolsTests.swift LessonPreviewTests.swift CoachActionsTests.swift MatchPointLinkTests.swift SignupSourceTests.swift ProcessingFeedbackTests.swift ScoredCardsTests.swift main.swift
 "$OUT"

@@ -24,7 +24,6 @@ struct ToolsSection: View {
     @State private var exportOpen = false
     @State private var detailsOpen = false
     @State private var sideOpen = false
-    @State private var placementOpen = false
     @State private var automaticHighlights: AutomaticHighlightsResponse?
 
     var body: some View {
@@ -44,26 +43,16 @@ struct ToolsSection: View {
                     highlightsOpen = true
                 }
                 divider
-                if MatchTitle.tracksServe(match.matchType) {
+                // One row for the whole analysis section: the score cards,
+                // the video cards and the serve maps live under it, and its
+                // trailing text names whatever the section is waiting on.
+                // Generating maps is a card in that section now.
+                if MatchTitle.tracksServe(match.matchType) || match.placementStatus == "ready" {
                     toolRow("Match analysis", trailing: .text(analysisTrailing)) {
                         onScrollToAnalysis()
                     }
                     divider
                 }
-                toolRow(
-                    app.placementServesOnly ? "Serve placement" : "Placement maps",
-                    trailing: .text(placementTrailing), beta: true
-                ) {
-                    // Ready means there is something to scroll to; every
-                    // other state needs the sheet, which is the only place
-                    // generation can actually be started.
-                    if match.placementStatus == "ready" {
-                        onScrollToPlacement()
-                    } else {
-                        placementOpen = true
-                    }
-                }
-                divider
                 toolRow("Share a link", trailing: .text("Not shared")) { shareOpen = true }
                 divider
                 toolRow("Coach", trailing: .text("Invite your coach")) { coachOpen = true }
@@ -133,16 +122,6 @@ struct ToolsSection: View {
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $placementOpen) {
-            PlacementRequestSheet(match: match) {
-                // Same staleness as details/side: the row's "Generating…"
-                // comes from match.placementStatus, so the screen's copy
-                // must refresh or the tap looks like it did nothing.
-                onRowChanged()
-            }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-        }
         .task(id: match.id) { await loadAutomaticHighlights() }
     }
 
@@ -176,20 +155,23 @@ struct ToolsSection: View {
         score.confirmedCount > 0 ? .games(score.gamesYou, score.gamesThem) : .text("")
     }
 
-    private var placementTrailing: String {
-        switch match.placementStatus {
-        case "ready": "Ready"
-        case "processing": "Generating…"
-        case "retrying": "Retrying…"
-        case "retry_available": "Try again"
-        case "final_failed": "Unavailable"
-        default: "Generate"
-        }
-    }
-
-    /// The web's own summary: readiness first, then completeness. A bare
-    /// percentage here would read as a number the app invented.
+    /// What the section is waiting on: points to score, maps to generate,
+    /// or the detail still missing. The same gate as the deck (and as the
+    /// highlights), so the row and the card it jumps to never disagree
+    /// about what "unlocked" means.
     private var analysisTrailing: String {
+        if !MatchTitle.tracksServe(match.matchType) { return "Serve maps" }
+        let gate = scoredCardsGate(model.visible)
+        if !gate.open {
+            return gate.scored == 0
+                ? "Score points to unlock"
+                : "\(gate.scored) of \(gate.eligible) scored"
+        }
+        switch match.placementStatus {
+        case "processing": return "Generating maps…"
+        case "retrying": return "Retrying maps…"
+        default: break
+        }
         let serving = computeServing(
             model.visible, firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
         )

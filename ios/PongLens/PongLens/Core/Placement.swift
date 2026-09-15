@@ -18,13 +18,16 @@ let TABLE_L = 2.74
 struct PlacementEvent: Codable, Hashable {
     let u: Double?
     let v: Double?
+    /// Source-video seconds. The serve's two bounces carry it, which is
+    /// what serve speed and point length are measured from (ScoredCards).
+    let t: Double?
     let confidence: Double?
     /// Which detection this is, keyed into PlacementV3Data.candidates.
     /// The serve rule needs it to ask whether two bounces are adjacent.
     let eventId: String?
 
     enum CodingKeys: String, CodingKey {
-        case u, v, confidence
+        case u, v, t, confidence
         case eventId = "event_id"
     }
 }
@@ -91,6 +94,10 @@ struct PlacementCandidate: Codable, Hashable {
     let id: String?
     let kind: String?
     let t: Double?
+    /// Table coordinates when the detection projected onto the table;
+    /// nil for a ball seen off it. Read by the endings card (ScoredCards).
+    let u: Double?
+    let v: Double?
 }
 
 struct PlacementV3Data: Codable, Hashable {
