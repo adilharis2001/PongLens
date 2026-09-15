@@ -109,11 +109,10 @@ Sheet copy (web `components/AiConsentSheet.tsx`, iOS `AiConsentSheet.swift`,
 same bottom-sheet treatment as the share sheet):
 
 - Title: "AI features"
-- Body: "Some features send your content to two companies so they can do
-  their job: Deepgram turns voice notes into text, and OpenAI reads notes,
-  photos and lesson transcripts to write summaries, answer questions in Ask,
-  and tidy rough entries. They are not allowed to use your content to train
-  their models. You can switch this off any time in Account."
+- Body: "Deepgram turns voice notes into text. OpenAI reads notes, photos and
+  lesson recordings for summaries, Ask and Improve with AI. Neither may use
+  your content to train its models. Switch this off any time in Account."
+  (shortened 2026-09-15; the vendor names stay here and in the policy only)
 - Buttons: "Allow" (primary), "Not now".
 
 Allow writes `ai_features_enabled = true`, `ai_consent_at`,

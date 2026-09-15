@@ -6,7 +6,7 @@ import SwiftUI
 /// the grabber showing. Twin of src/components/AiConsentSheet.tsx; the
 /// copy is identical on both platforms.
 struct AiConsentSheet: View {
-    static let detentHeight: CGFloat = 440
+    static let detentHeight: CGFloat = 300
 
     @State private var saving = false
     @State private var failed = false
@@ -20,7 +20,7 @@ struct AiConsentSheet: View {
                 .foregroundStyle(PL.textBody)
                 .padding(.bottom, 4)
 
-            Text("Some features send your content to two companies so they can do their job: Deepgram turns voice notes into text, and OpenAI reads notes, photos and lesson transcripts to write summaries, answer questions in Ask, and tidy rough entries. They are not allowed to use your content to train their models. You can switch this off any time in Account.")
+            Text("Deepgram turns voice notes into text. OpenAI reads notes, photos and lesson recordings for summaries, Ask and Improve with AI. Neither may use your content to train its models. Switch this off any time in Account.")
                 .font(.plBody)
                 .foregroundStyle(PL.text300)
                 .fixedSize(horizontal: false, vertical: true)
@@ -54,7 +54,7 @@ struct AiConsentSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, 20)
-        .padding(.top, 36)
+        .padding(.top, 28)
         .padding(.bottom, 20)
         .background(PL.surface)
         .onDisappear {

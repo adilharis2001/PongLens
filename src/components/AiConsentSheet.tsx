@@ -202,17 +202,15 @@ export function AiConsentSheet({
         onClick={onNotNow}
         className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
       />
-      <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+      <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-6 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
         <h2 id="ai-consent-title" className="text-base font-semibold">
           AI features
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-          Some features send your content to two companies so they can do
-          their job: Deepgram turns voice notes into text, and OpenAI reads
-          notes, photos and lesson transcripts to write summaries, answer
-          questions in Ask, and tidy rough entries. They are not allowed to
-          use your content to train their models. You can switch this off
-          any time in Account.
+          Deepgram turns voice notes into text. OpenAI reads notes, photos and
+          lesson recordings for summaries, Ask and Improve with AI. Neither may
+          use your content to train its models. Switch this off any time in
+          Account.
         </p>
         {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
         <div className="mt-5 flex flex-col gap-2">
