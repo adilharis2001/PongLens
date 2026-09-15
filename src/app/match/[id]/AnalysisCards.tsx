@@ -5,7 +5,6 @@ import type { Point } from "@/lib/types";
 import {
   computeScoredCards,
   scoredCardsGate,
-  SCORED_CARDS_MIN_SHARE,
   type ScoredCardsGate,
 } from "@/lib/placement/scoredCards";
 import { computeMatchScore } from "./gameScore";
@@ -203,7 +202,6 @@ function NextStepCard({
   controller: PlacementLifecycleController | null;
   onScore?: () => void;
 }) {
-  const percent = Math.round(SCORED_CARDS_MIN_SHARE * 100);
   const view = controller?.view ?? null;
   const analysisDone = view !== null && !view.poll && view.actionKind === null;
   const analysisReady = view !== null && view.toolStatus === "Ready";
@@ -214,19 +212,9 @@ function NextStepCard({
     view !== null && (view.poll || analysisReady || offerAnalysis);
   return (
     <Card title="What's next">
-      {scoredType && !gate.open && (
-        <p className="mb-3 text-xs leading-relaxed text-zinc-400">
-          {view !== null && !view.poll && !analysisReady
-            ? `Score the match first. The detailed analysis reads the scored points, and the overview, point length, serve speed and where points ended need ${percent}% of them.`
-            : `The overview, point length, serve speed and where points ended need ${percent}% of the points scored, so the rallies behind them are confirmed.`}
-        </p>
-      )}
       <div className="divide-y divide-edge/60">
         {sideMissing && onSetUserSide && (
           <NextStepRow title="Which end did you play from?">
-            <p className="mt-0.5 text-xs text-zinc-400">
-              So the serve maps are drawn from your end of the table.
-            </p>
             <div className="mt-3 flex gap-2">
               <button type="button" className={SECONDARY_BUTTON} onClick={() => onSetUserSide("near")}>
                 Bottom of video
@@ -260,9 +248,12 @@ function NextStepCard({
         )}
         {controller && view && showAnalysis && (
           <NextStepRow title="Detailed analysis" done={analysisDone && analysisReady}>
-            <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">
-              {analysisReady ? "Ready." : view.sheetBody}
-            </p>
+            {!analysisReady && !view.poll && view.actionKind === null && (
+              <p className="mt-0.5 text-xs text-zinc-400">Not available for this video.</p>
+            )}
+            {view.actionKind === "retry" && (
+              <p className="mt-0.5 text-xs text-zinc-400">The table was hard to detect.</p>
+            )}
             {view.poll && (
               <p className="mt-3 flex items-center gap-2 text-xs text-zinc-300">
                 <span
