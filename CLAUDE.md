@@ -654,6 +654,76 @@ Lester 2. Roughly 1,100 scored points between them.
 
 ---
 
+## Canonical scored-match state and reconstructing production's cards
+
+**The database is becoming the one stored interpretation of the owner's score,
+games, serving and active timeline.** The additive foundation is migration
+`20260915190000_canonical_scored_match_state.sql`; its private
+`point_score_state` and `match_score_state` rows are shadow data until a later
+release explicitly promotes readers. Existing web, iOS, admin, worker, share,
+coach, statistics and export paths still behave as before during that shadow
+period. The full contract and rollout are in
+`docs/superpowers/specs/2026-09-15-canonical-scored-match-state-design.md`.
+
+- **Authority stays separated.** Owner outcomes, skips, first-server choices,
+  serve overrides and game-boundary overrides are canonical inputs. Worker
+  `points.server`, suggestions, detected side changes and rally evidence are
+  machine evidence only. Admin `fullmatch_labels` are research annotations and
+  never update owner revisions or projections.
+- **Project only the active processing version.** Ignore deleted points and
+  points from retired processing versions. If every active point has `t0`,
+  order by `(t0, idx, id)`; if even one lacks `t0`, order the whole match by
+  `(idx, id)`. Card numbers are contiguous one-based display numbers; `idx` is
+  not a user-facing point number.
+- **A skipped card scores and advances nothing.** `is_let` is the historical
+  column name for every skipped outcome; normalize its reason to `let`,
+  `misrecorded` or `other`. An unscored non-skipped visible card changes no
+  score but still consumes its position in the serve rotation. Deleted cards
+  are absent.
+- **Games use the existing positional walk.** Eleven clear by two ends a game.
+  `game_end_override = end` closes after that card even when it is unscored or
+  skipped; `continue` holds the game open until a later explicit end.
+  `game_winner_override` names a manually closed game the partial score cannot
+  prove. Detected side changes may suggest, never close, a canonical game.
+- **Serving uses only an owner-confirmed anchor.** `first_server_source = user`
+  enables the two-serve rotation and one-serve deuce rotation. A detected first
+  server remains a suggestion. An agreeing `server_override` is a pin; a
+  contradictory one restarts the block and flips current-game parity, exactly
+  like `computeServing`. The first server alternates at every canonical game
+  boundary.
+- **Revisions make a snapshot whole.** Score inputs increment
+  `matches.score_revision`; every point projection and the match summary carry
+  that revision. A reader may trust them only when it equals
+  `score_projection_revision` and status is `current` (or `empty` for no active
+  points). Shadow failures record sanitized health and leave legacy writes and
+  readers working; atomic commands in the next phase will fail closed.
+- **Manual cutter is source-clock human ground truth.** Its `mark.t0` is the
+  serve start after the documented reaction lead and `mark.t1` is the point
+  end. Normalize both into `point_timing_observations` with
+  `manual_cutter`/`owner_manual_boundary` provenance, preserving raw start tap,
+  playback rate and applied lead. These rows are valid training/evaluation
+  examples for the automatic worker; do not present them as independent
+  evaluation of the manual cutter itself. Playback adds structural/manual
+  padding and never trims these ends with a score tap.
+- **Fixture first, on every implementation.** The literal cases live in
+  `src/lib/scoring/fixtures/canonical-score-cases.json`; TypeScript, SQL, Swift
+  and Python must agree with them. Change the fixture deliberately before
+  changing semantics. Run `npm run test:scoring-state` and the real isolated
+  PostgreSQL checks documented beside the fixture; a source-string test is not
+  database proof.
+
+When reconstructing an already scored production match for research, start
+from the active processing version and active points, apply the total ordering
+above, then fold the owner's winner/skip and game overrides. Resolve serving
+from the owner-confirmed first server plus point overrides; translate
+`user`/`opponent` to camera `near`/`far` only afterward through `user_side` and
+the established side-change rule. For manual-cutter matches, `t0`/`t1` are the
+direct source-time start/end truth. For ordinary scored cards, scorekeeper taps
+are timing observations with their documented uncertainty, not permission to
+rewrite the structural point window.
+
+---
+
 ## What we refuse to process
 
 Two gates run before anything expensive. Both sit in `worker.py` and both

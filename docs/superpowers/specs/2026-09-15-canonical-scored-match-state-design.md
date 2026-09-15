@@ -2,9 +2,18 @@
 
 Store one versioned, database-derived answer for the owner-confirmed score, server, game and timeline state, while preserving the raw human inputs that produced it. Keep worker guesses, manual-cutter boundaries and admin research labels as explicitly named evidence sources so none can silently impersonate another. Roll this out additively across web, iOS, admin, worker, coach, sharing, statistics and exports before removing any existing calculation.
 
+> **Implementation status (2026-09-15):** The additive foundation is prepared
+> on `codex/canonical-score-state`: pure TypeScript projector, shared literal
+> fixtures, private SQL shadow projection, revision/health plumbing, RLS
+> contracts and manual-cutter source-clock normalization. TypeScript and static
+> migration contracts pass; the isolated real-PostgreSQL suite is pending a
+> running Docker engine. No production reader or writer has been switched.
+> Atomic scoring/structural commands, web/iOS reader migration, downstream
+> consumer migration and worker publication remain later release phases.
+
 | Document control | Value |
 | --- | --- |
-| Date / status | September 15, 2026. Recommendation draft for Adil's review; no implementation or deployment is authorized by this document alone. |
+| Date / status | September 15, 2026. Design approved; additive foundation implementation in progress. No production deployment is authorized by this document alone. |
 | Primary decision | Persist a canonical **derived projection**, not an editable `server` value copied onto each point. Human answers remain the authority; the projection makes every reader use the same interpretation. |
 | Scope | Owner scorekeeping, serve rotation, game boundaries, manual cutting, Split, Join, Adjust, Insert, delete/restore, web desktop, mobile web, native iOS, admin Upload Detail, research labelers, worker publication/reprocessing, coach views, shares, statistics, placement, highlights, reels and exports. |
 | Evidence | Current repository behavior, migration history, the deployed database schema inspected read-only on September 15, and the existing scorekeeper/playback and hand-cut designs. No production rows were changed. |

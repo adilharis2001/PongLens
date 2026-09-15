@@ -22,6 +22,7 @@ What is in it, so you can go straight to the part you need:
 | Placement maps | Where a ball landed, and what has already been measured dead. |
 | Ground truth: score, winner and who served | What Adil's own scoring proves, and what it cannot. |
 | **Reconstructing production's cards** | **Any experiment scored against the scorekeeper — how to read his cards, his taps and his ends back out.** |
+| **Canonical scored-match state** | **Any score, serve, game, point-order, manual-cutter timing or structural-edit change. Includes the shadow projection and parity fixture.** |
 | What we refuse to process | The two gates before anything expensive runs. |
 | Support email | Anything touching mail, in or out. |
 | What the public can read | Anything touching RLS or `app_config`. |
@@ -35,6 +36,9 @@ Two things that catch every new session, both covered in full there:
 - **State what you verified and what you did not.** "Typecheck passed" is
   the sentence most often used to skip a real check, so it is the one that
   must never be wrong.
+- **Manual-cutter `t0`/`t1` are source-clock human ground truth.** Preserve
+  their `manual_cutter` provenance and reaction metadata; read the canonical
+  scored-match section in `CLAUDE.md` before changing them.
 
 ## Required design and copy checkpoint
 
