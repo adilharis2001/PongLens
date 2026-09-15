@@ -305,10 +305,12 @@ struct EndingsCard: View {
 /// nothing is left: which end the owner played from (the maps cannot be
 /// oriented without it), scoring (the overview and the video cards need
 /// 75% of the points, the bar the highlights use, so the rallies behind
-/// them are confirmed), and the detailed analysis (generate, generating,
-/// try again). A finished row shows a check, so the card reads as a list
-/// being worked through rather than three separate nags. The web's
-/// NextStepCard.
+/// them are confirmed), and the detailed analysis. The steps are in order,
+/// not side by side (Adil, 2026-09-15): scoring confirms the cuts, the
+/// servers and the winners, and the worker reads the corrected windows
+/// when it runs, so generating is offered only once the match is scored.
+/// An analysis that already exists, or is running, shows as a status row
+/// at any time. The web's NextStepCard.
 struct NextStepCard: View {
     let match: MatchRow
     let gate: ScoredCardsGate
@@ -325,6 +327,12 @@ struct NextStepCard: View {
     private var status: String { match.placementStatus ?? "not_requested" }
     private var handCut: Bool { match.cutSource == "manual" }
     private var generating: Bool { status == "processing" || status == "retrying" }
+    /// Generate (or try again) comes after scoring; a practice match has
+    /// nothing to score and gets it straight away.
+    private var offerAnalysis: Bool { !scoredType || gate.open }
+    private var showAnalysis: Bool {
+        !handCut && (generating || status == "ready" || offerAnalysis)
+    }
 
     private var analysisBody: String {
         switch status {
@@ -353,7 +361,9 @@ struct NextStepCard: View {
         ScoredCardStyle.card("What's next") {
             VStack(alignment: .leading, spacing: 0) {
                 if scoredType, !gate.open {
-                    Text("The overview, point length, serve speed and where points ended need \(percent)% of the points scored, so the rallies behind them are confirmed.")
+                    Text(!handCut && !generating && status != "ready"
+                        ? "Score the match first. The detailed analysis reads the scored points, and the overview, point length, serve speed and where points ended need \(percent)% of them."
+                        : "The overview, point length, serve speed and where points ended need \(percent)% of the points scored, so the rallies behind them are confirmed.")
                         .font(.plCaption)
                         .foregroundStyle(PL.text400)
                         .fixedSize(horizontal: false, vertical: true)
@@ -389,7 +399,7 @@ struct NextStepCard: View {
                         }
                     }
                 }
-                if !handCut {
+                if showAnalysis {
                     row("Detailed analysis", done: status == "ready") {
                         Text(analysisBody)
                             .font(.plCaption)
@@ -404,7 +414,7 @@ struct NextStepCard: View {
                             }
                             .padding(.top, 10)
                         }
-                        if let analysisAction {
+                        if offerAnalysis, let analysisAction {
                             primaryButton(analysisAction) { analysisSheetOpen = true }
                         }
                     }

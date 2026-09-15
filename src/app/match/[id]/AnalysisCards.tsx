@@ -144,11 +144,14 @@ const ACTION_BUTTON =
  * card until nothing is left: which end the owner played (the maps cannot
  * be oriented without it), scoring (the overview and the video cards need
  * 75% of the points, the bar the highlights use, so the rallies behind
- * them are confirmed), and the detailed analysis (generate, generating,
- * try again). Each row shows its state and its action; a finished row
- * shows a check so the card reads as a list being worked through rather
- * than three separate nags. Copy for the analysis row is the lifecycle's
- * own (placementRetry.ts), so the Tools row and this card never disagree.
+ * them are confirmed), and the detailed analysis. The steps are in order,
+ * not side by side (Adil, 2026-09-15): scoring confirms the cuts, the
+ * servers and the winners, and the worker reads the corrected point
+ * windows when it runs, so generating is offered only once the match is
+ * scored. Until then the card asks for one thing. An analysis that already
+ * exists, or is running, shows as a status row at any time. Copy for the
+ * analysis row is the lifecycle's own (placementRetry.ts), so the Tools
+ * row and this card never disagree.
  */
 function Check() {
   return (
@@ -203,13 +206,19 @@ function NextStepCard({
   const percent = Math.round(SCORED_CARDS_MIN_SHARE * 100);
   const view = controller?.view ?? null;
   const analysisDone = view !== null && !view.poll && view.actionKind === null;
+  const analysisReady = view !== null && view.toolStatus === "Ready";
+  // Generate (or try again) comes after scoring; a practice match has
+  // nothing to score and gets it straight away.
+  const offerAnalysis = !scoredType || gate.open;
+  const showAnalysis =
+    view !== null && (view.poll || analysisReady || offerAnalysis);
   return (
     <Card title="What's next">
       {scoredType && !gate.open && (
         <p className="mb-3 text-xs leading-relaxed text-zinc-400">
-          The overview, point length, serve speed and where points ended need{" "}
-          {percent}% of the points scored, so the rallies behind them are
-          confirmed.
+          {view !== null && !view.poll && !analysisReady
+            ? `Score the match first. The detailed analysis reads the scored points, and the overview, point length, serve speed and where points ended need ${percent}% of them.`
+            : `The overview, point length, serve speed and where points ended need ${percent}% of the points scored, so the rallies behind them are confirmed.`}
         </p>
       )}
       <div className="divide-y divide-edge/60">
@@ -249,10 +258,10 @@ function NextStepCard({
             )}
           </NextStepRow>
         )}
-        {controller && view && (
-          <NextStepRow title="Detailed analysis" done={analysisDone && view.toolStatus === "Ready"}>
+        {controller && view && showAnalysis && (
+          <NextStepRow title="Detailed analysis" done={analysisDone && analysisReady}>
             <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">
-              {view.toolStatus === "Ready" ? "Ready." : view.sheetBody}
+              {analysisReady ? "Ready." : view.sheetBody}
             </p>
             {view.poll && (
               <p className="mt-3 flex items-center gap-2 text-xs text-zinc-300">
@@ -263,7 +272,7 @@ function NextStepCard({
                 {view.toolStatus}
               </p>
             )}
-            {view.actionKind && view.actionLabel && (
+            {offerAnalysis && view.actionKind && view.actionLabel && (
               <button
                 type="button"
                 disabled={controller.submitting}
