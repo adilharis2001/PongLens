@@ -73,11 +73,11 @@ export default async function OnboardingPage({
 
   return (
     <main className="bg-arena flex flex-1 items-center justify-center px-6 py-16">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex justify-center">
+      <div className="w-full max-w-sm md:max-w-lg">
+        <div className="mb-8 flex justify-center md:mb-10">
           <Logo />
         </div>
-        <div className="rounded-2xl border border-edge bg-surface p-8">
+        <div className="rounded-2xl border border-edge bg-surface p-8 md:p-10">
           <OnboardingFlow
             needsTerms={needsTerms}
             country={country}

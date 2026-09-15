@@ -143,7 +143,7 @@ const YEARS = (() => {
 })();
 
 const FIELD_CLASS =
-  "w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60";
+  "w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none md:py-3.5 md:text-base focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60";
 
 function Choice({
   selected,
@@ -161,7 +161,7 @@ function Choice({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`relative rounded-xl border px-3 py-3 text-sm font-medium transition-colors ${
+      className={`relative rounded-xl border px-3 py-3 text-sm font-medium transition-colors md:py-3.5 md:text-base ${
         selected
           ? "border-cyan-glow/60 bg-cyan-glow/10 text-white"
           : "border-edge bg-surface-2/40 text-zinc-300 hover:border-cyan-glow/40"
@@ -169,7 +169,7 @@ function Choice({
     >
       {children}
       {hint && (
-        <span className="mt-1 block text-[10px] font-normal leading-tight text-cyan-glow/80">
+        <span className="mt-1 block text-[10px] font-normal leading-tight md:text-xs text-cyan-glow/80">
           {hint}
         </span>
       )}
@@ -451,17 +451,17 @@ export function OnboardingFlow({
   if (underAge != null) {
     return (
       <>
-        <h1 className="text-center text-xl font-semibold sm:text-2xl">
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
           PongLens is for players {underAge} and over.
         </h1>
-        <p className="mt-4 text-center text-sm text-zinc-400">
+        <p className="mt-4 text-center text-sm text-zinc-400 md:text-base">
           A parent or guardian can create an account and add you.
         </p>
         <button
           type="button"
           onClick={() => void signOutUnderAge()}
           disabled={saving}
-          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saving ? "Signing out…" : "Sign out"}
         </button>
@@ -472,11 +472,11 @@ export function OnboardingFlow({
   if (!termsDone) {
     return (
       <>
-        <h1 className="text-center text-xl font-semibold sm:text-2xl">
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
           When were you born?
         </h1>
         <form onSubmit={acceptTerms} className="mt-7">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 md:gap-3">
             <select
               aria-label="Month"
               required
@@ -508,7 +508,7 @@ export function OnboardingFlow({
               ))}
             </select>
           </div>
-          <p className="mt-4 text-center text-xs leading-relaxed text-zinc-400">
+          <p className="mt-4 text-center text-xs leading-relaxed text-zinc-400 md:text-sm">
             By continuing you agree to the{" "}
             <Link
               href="/terms"
@@ -533,7 +533,7 @@ export function OnboardingFlow({
           <button
             type="submit"
             disabled={!birthMonth || !birthYear || saving}
-            className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
+            className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saving ? "Saving…" : "Agree and continue"}
           </button>
@@ -570,7 +570,7 @@ export function OnboardingFlow({
     };
     return (
       <>
-        <h1 className="text-center text-xl font-semibold sm:text-2xl">
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
           How will you use PongLens?
         </h1>
         <div className="mt-7 space-y-3">
@@ -605,7 +605,7 @@ export function OnboardingFlow({
           type="button"
           onClick={() => void continueFromRole()}
           disabled={!role || saving}
-          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-40"
         >
           {saving ? "Saving…" : "Continue"}
         </button>
@@ -616,10 +616,10 @@ export function OnboardingFlow({
   if (step === "name") {
     return (
       <>
-        <h1 className="text-center text-xl font-semibold">
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
           What should we call you?
         </h1>
-        <p className="mt-2 text-center text-sm text-zinc-400">
+        <p className="mt-2 text-center text-sm text-zinc-400 md:text-base">
           We&apos;ll use this across PongLens.
         </p>
         <form onSubmit={submitName} className="mt-7">
@@ -634,7 +634,7 @@ export function OnboardingFlow({
             onChange={(event) => setName(event.target.value)}
             placeholder="Alex"
             aria-label="Your name"
-            className="w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none md:py-3.5 md:text-base placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60"
           />
           {error && (
             <p role="alert" className="mt-3 text-center text-xs text-red-400">
@@ -644,7 +644,7 @@ export function OnboardingFlow({
           <button
             type="submit"
             disabled={saving}
-            className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+            className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Continue"}
           </button>
@@ -664,7 +664,7 @@ export function OnboardingFlow({
     };
     return (
       <>
-        <h1 className="text-center text-xl font-semibold">
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
           How did you hear about us?
         </h1>
 
@@ -694,7 +694,7 @@ export function OnboardingFlow({
           <div className="mt-4">
             <label
               htmlFor="signup-source-detail"
-              className="block text-sm font-medium text-zinc-200"
+              className="block text-sm font-medium text-zinc-200 md:text-base"
             >
               {picked.detailLabel}
             </label>
@@ -711,7 +711,7 @@ export function OnboardingFlow({
               value={sourceDetail}
               onChange={(event) => setSourceDetail(event.target.value)}
               placeholder={picked.detailPlaceholder ?? ""}
-              className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none md:py-3.5 md:text-base placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60"
             />
           </div>
         )}
@@ -728,7 +728,7 @@ export function OnboardingFlow({
           type="button"
           onClick={continueFromSource}
           disabled={saving}
-          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saving ? "Saving…" : source ? "Continue" : "Skip for now"}
         </button>
@@ -738,10 +738,10 @@ export function OnboardingFlow({
 
   return (
     <>
-      <h1 className="text-center text-xl font-semibold">How do you play?</h1>
+      <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">How do you play?</h1>
 
-      <p className="mt-6 text-sm font-medium text-zinc-200">Handedness</p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <p className="mt-6 text-sm font-medium text-zinc-200 md:text-base">Handedness</p>
+      <div className="mt-2 grid grid-cols-2 gap-2 md:gap-3">
         <Choice
           selected={handedness === "right"}
           onClick={() => setHandedness("right")}
@@ -756,8 +756,8 @@ export function OnboardingFlow({
         </Choice>
       </div>
 
-      <p className="mt-5 text-sm font-medium text-zinc-200">Grip</p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <p className="mt-5 text-sm font-medium text-zinc-200 md:text-base">Grip</p>
+      <div className="mt-2 grid grid-cols-2 gap-2 md:gap-3">
         <Choice
           selected={grip === "shakehand"}
           onClick={() => setGrip("shakehand")}
@@ -769,10 +769,10 @@ export function OnboardingFlow({
         </Choice>
       </div>
 
-      <p className="mt-5 text-sm font-medium text-zinc-200">Your level</p>
+      <p className="mt-5 text-sm font-medium text-zinc-200 md:text-base">Your level</p>
       {/* The rungs overlap by design — an advanced player who turns out
           for a league is both. One line settles it. */}
-      <p className="mt-0.5 text-xs text-zinc-500">
+      <p className="mt-0.5 text-xs text-zinc-500 md:text-sm">
         Pick the highest one that&apos;s true.
       </p>
       {/* grid, not space-y: a button is inline-block, so a plain stack
@@ -786,7 +786,7 @@ export function OnboardingFlow({
             onClick={() => setLevel(l.value)}
           >
             <span className="block text-left">{l.label}</span>
-            <span className="mt-0.5 block text-left text-xs font-normal text-zinc-400">
+            <span className="mt-0.5 block text-left text-xs font-normal text-zinc-400 md:text-sm">
               {l.blurb}
             </span>
           </Choice>
@@ -807,7 +807,7 @@ export function OnboardingFlow({
         type="button"
         onClick={() => void finish({ handedness, grip, level })}
         disabled={saving}
-        className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+        className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-60"
       >
         {saving
           ? "Saving…"
@@ -815,7 +815,7 @@ export function OnboardingFlow({
             ? "Done"
             : "Skip for now"}
       </button>
-      <p className="mt-3 text-center text-xs text-zinc-500">
+      <p className="mt-3 text-center text-xs text-zinc-500 md:text-sm">
         You can change any of this later in Account.
       </p>
     </>
@@ -849,14 +849,14 @@ function RoleCard({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition-all ${
+      className={`flex w-full items-center gap-4 rounded-2xl border p-4 text-left md:p-5 transition-all ${
         selected
           ? "border-cyan-glow/70 bg-cyan-glow/[0.08] shadow-[0_0_28px_rgba(34,211,238,0.18)]"
           : "border-edge bg-surface-2/60 hover:border-zinc-500"
       }`}
     >
       <span
-        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${
+        className={`flex h-11 w-11 shrink-0 items-center md:h-12 md:w-12 justify-center rounded-full transition-colors ${
           selected ? "bg-cyan-glow text-ink" : "bg-cyan-glow/10 text-cyan-glow"
         }`}
       >
@@ -874,8 +874,8 @@ function RoleCard({
         </svg>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-base font-semibold text-zinc-100">{title}</span>
-        <span className="mt-0.5 block text-sm leading-snug text-zinc-400">{blurb}</span>
+        <span className="block text-base font-semibold text-zinc-100 md:text-lg">{title}</span>
+        <span className="mt-0.5 block text-sm leading-snug text-zinc-400 md:text-base">{blurb}</span>
       </span>
       <svg
         viewBox="0 0 24 24"
