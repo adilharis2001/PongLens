@@ -140,87 +140,149 @@ const ACTION_BUTTON =
   "glow-cta mt-4 min-h-11 w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60 sm:w-auto";
 
 /**
- * The video cards need most of the match scored, for a reason that has
- * nothing to do with statistics: until the owner has scored a point, the
- * pipeline's cut of it is unconfirmed, and the placement behind every card
- * could belong to a split or a joined rally. The bar is the same one the
- * highlights use (public.highlight_generation_eligibility).
+ * The one card that says what is still to do, and it is always the last
+ * card until nothing is left: which end the owner played (the maps cannot
+ * be oriented without it), scoring (the overview and the video cards need
+ * 75% of the points, the bar the highlights use, so the rallies behind
+ * them are confirmed), and the detailed analysis (generate, generating,
+ * try again). Each row shows its state and its action; a finished row
+ * shows a check so the card reads as a list being worked through rather
+ * than three separate nags. Copy for the analysis row is the lifecycle's
+ * own (placementRetry.ts), so the Tools row and this card never disagree.
  */
-function GateCard({
-  gate,
-  onScore,
-}: {
-  gate: ScoredCardsGate;
-  onScore?: () => void;
-}) {
-  const percent = Math.round(SCORED_CARDS_MIN_SHARE * 100);
+function Check() {
   return (
-    <Card title="Score the match to unlock more">
-      <p className="text-xs leading-relaxed text-zinc-400">
-        Point length, serve speed, serve variety and where points ended need{" "}
-        {percent}% of the points scored, so the rallies behind them are
-        confirmed.
-      </p>
-      <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-ink">
-        <div
-          className="h-full bg-cyan-glow"
-          style={{ width: `${Math.min(100, Math.round(gate.share * 100))}%` }}
-        />
-      </div>
-      <p className="mt-2 text-xs tabular-nums text-zinc-300">
-        {gate.scored} of {gate.eligible} points scored
-        <span className="text-zinc-500"> · {gate.required} needed</span>
-      </p>
-      {onScore && (
-        <button type="button" onClick={onScore} className={ACTION_BUTTON}>
-          {gate.scored === 0 ? "Score the match" : "Keep scoring"}
-        </button>
-      )}
-    </Card>
+    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-glow/15 text-cyan-glow">
+      <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+    </span>
   );
 }
 
-/**
- * The placement lifecycle, as a card where the maps will be: generate,
- * generating, try again, or the reason there will be none. The copy is
- * the lifecycle's own (placementRetry.ts), so the Tools row that used to
- * carry it and this card can never say two different things.
- */
-function PlacementStatusCard({
-  controller,
+const SECONDARY_BUTTON =
+  "min-h-11 flex-1 rounded-full border border-edge px-4 py-2.5 text-sm font-semibold text-zinc-100 transition-colors hover:border-cyan-glow/50 sm:flex-none";
+
+function NextStepRow({
+  title,
+  done,
+  children,
 }: {
-  controller: PlacementLifecycleController;
+  title: string;
+  done?: boolean;
+  children: React.ReactNode;
 }) {
-  const { view } = controller;
   return (
-    <Card title={view.sheetTitle} beta>
-      <p className="text-xs leading-relaxed text-zinc-400">{view.sheetBody}</p>
-      {view.poll && (
-        <p className="mt-4 flex items-center gap-2 text-xs text-zinc-300">
-          <span
-            aria-hidden="true"
-            className="h-3 w-3 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
-          />
-          {view.toolStatus}
+    <div className="py-3 first:pt-0 last:pb-0">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-zinc-100">{title}</p>
+        {done && <Check />}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function NextStepCard({
+  gate,
+  scoredType,
+  fullyScored,
+  sideMissing,
+  onSetUserSide,
+  controller,
+  onScore,
+}: {
+  gate: ScoredCardsGate;
+  scoredType: boolean;
+  fullyScored: boolean;
+  sideMissing: boolean;
+  onSetUserSide?: (side: Side) => void;
+  controller: PlacementLifecycleController | null;
+  onScore?: () => void;
+}) {
+  const percent = Math.round(SCORED_CARDS_MIN_SHARE * 100);
+  const view = controller?.view ?? null;
+  const analysisDone = view !== null && !view.poll && view.actionKind === null;
+  return (
+    <Card title="What's next">
+      {scoredType && !gate.open && (
+        <p className="mb-3 text-xs leading-relaxed text-zinc-400">
+          The overview, point length, serve speed and where points ended need{" "}
+          {percent}% of the points scored, so the rallies behind them are
+          confirmed.
         </p>
       )}
-      {view.actionKind && view.actionLabel && (
-        <button
-          type="button"
-          disabled={controller.submitting}
-          onClick={() => {
-            void controller.requestAction();
-          }}
-          className={ACTION_BUTTON}
-        >
-          {controller.submitting ? "Starting…" : view.actionLabel}
-        </button>
-      )}
-      {controller.error && (
-        <p aria-live="polite" className="mt-3 text-sm text-red-300">
-          {controller.error}
-        </p>
-      )}
+      <div className="divide-y divide-edge/60">
+        {sideMissing && onSetUserSide && (
+          <NextStepRow title="Which end did you play from?">
+            <p className="mt-0.5 text-xs text-zinc-400">
+              So the serve maps are drawn from your end of the table.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button type="button" className={SECONDARY_BUTTON} onClick={() => onSetUserSide("near")}>
+                Bottom of video
+              </button>
+              <button type="button" className={SECONDARY_BUTTON} onClick={() => onSetUserSide("far")}>
+                Top of video
+              </button>
+            </div>
+          </NextStepRow>
+        )}
+        {scoredType && (
+          <NextStepRow title="Score the match" done={fullyScored}>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink">
+              <div
+                className="h-full bg-cyan-glow"
+                style={{ width: `${Math.min(100, Math.round(gate.share * 100))}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs tabular-nums text-zinc-300">
+              {gate.scored} of {gate.eligible} points scored
+              {!gate.open && (
+                <span className="text-zinc-500"> · {gate.required} needed</span>
+              )}
+            </p>
+            {onScore && !fullyScored && (
+              <button type="button" onClick={onScore} className={ACTION_BUTTON}>
+                {gate.scored === 0 ? "Score the match" : "Keep scoring"}
+              </button>
+            )}
+          </NextStepRow>
+        )}
+        {controller && view && (
+          <NextStepRow title="Detailed analysis" done={analysisDone && view.toolStatus === "Ready"}>
+            <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">
+              {view.toolStatus === "Ready" ? "Ready." : view.sheetBody}
+            </p>
+            {view.poll && (
+              <p className="mt-3 flex items-center gap-2 text-xs text-zinc-300">
+                <span
+                  aria-hidden="true"
+                  className="h-3 w-3 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
+                />
+                {view.toolStatus}
+              </p>
+            )}
+            {view.actionKind && view.actionLabel && (
+              <button
+                type="button"
+                disabled={controller.submitting}
+                onClick={() => {
+                  void controller.requestAction();
+                }}
+                className={ACTION_BUTTON}
+              >
+                {controller.submitting ? "Starting…" : view.actionLabel}
+              </button>
+            )}
+            {controller.error && (
+              <p aria-live="polite" className="mt-3 text-sm text-red-300">
+                {controller.error}
+              </p>
+            )}
+          </NextStepRow>
+        )}
+      </div>
     </Card>
   );
 }
@@ -260,6 +322,7 @@ export function AnalysisCards({
   placement = null,
   onOpenPoint,
   onScore,
+  onSetUserSide,
   viewer,
 }: {
   stats: MatchStats;
@@ -286,6 +349,8 @@ export function AnalysisCards({
   onOpenPoint?: (pointId: string) => void;
   /** Open the scorer, for the card that asks for more scoring. */
   onScore?: () => void;
+  /** Record which end the owner played from, for the next-step card. */
+  onSetUserSide?: (side: Side) => void;
   /**
    * Set for a coach or a share link: the deck is read-only and speaks in
    * the players' names. The public page also drops the teaser, which is a
@@ -372,6 +437,7 @@ export function AnalysisCards({
   );
 
   const gate = useMemo(() => scoredCardsGate(points), [points]);
+  const fullyScored = gate.eligible > 0 && gate.scored === gate.eligible;
   const scoredCards = useMemo(
     () =>
       scoredType && gate.open
@@ -412,16 +478,13 @@ export function AnalysisCards({
     enabled: placement !== null && !placement.flagged,
     onOpenPoint,
     voice,
+    // Until the match is scored the server behind "Me / Them" is the
+    // camera's guess, checked only by the serve's own first bounce.
+    serverEstimated: scoredType && !gate.open,
   });
 
   const { momentum, serve, mistakes } = viewAnalysis;
   const whose = neutral ? `${youLabel}'s` : "your";
-  const scoredCount = viewStats.won + viewStats.lost;
-  // Only the owner can act on missing detail, so only the owner is told.
-  const incomplete =
-    !viewer
-    && scoredType
-    && (!viewStats.hasData || viewStats.detailed < scoredCount);
 
   /**
    * How much a cut needs before it earns a card.
@@ -433,25 +496,32 @@ export function AnalysisCards({
    */
   const MIN_SAMPLES = 3;
 
-  // The lifecycle card stands where the maps will be, only while there is
-  // something to say: an action to take, a reason there will be no maps,
-  // or a job under way. A ready placement that drew nothing says nothing.
+  // What is still to do, for the owner: an end to name (the maps cannot
+  // be oriented without it), points to score, an analysis to generate or
+  // retry. While any of it is open the deck ends on the next-step card;
+  // once none is, and only then, it ends on the teaser. A viewer gets the
+  // teaser only for a match that is complete, and never the card.
   const placementView = placement?.controller?.view ?? null;
-  const showPlacementStatus =
-    placement !== null
-    && placement.controller !== undefined
-    && !placement.flagged
-    && !maps.hasMaps
-    && placementView !== null
-    && (placementView.actionKind !== null
-      || placementView.noticeBody !== null
-      || placementView.poll);
+  const sideMissing =
+    userSide === null && placement !== null && placement.trusted;
+  const analysisPending =
+    placementView !== null
+    && !placement?.flagged
+    && (placementView.poll || placementView.actionKind !== null);
+  const nextStep =
+    !viewer
+    && ((scoredType && !fullyScored)
+      || (sideMissing && onSetUserSide !== undefined)
+      || analysisPending);
+  const complete = viewer
+    ? fullyScored && (placement === null || placement.trusted)
+    : !nextStep;
 
   const cards: React.ReactNode[] = [
     /* Momentum and the numbers are one card: both come free from the
        confirmed winners, both are always populated, and neither fills a card
        on its own. The chart says what happened, the rows say by how much. */
-    scoredType ? (
+    scoredType && gate.open ? (
       <Card key="overview" title="Overview">
         {momentum.steps.length > 0 && (
           <div className="mb-3">
@@ -588,20 +658,24 @@ export function AnalysisCards({
     ...maps.cards,
     ...buildScoredCards(scoredCards, labels, "endings", voice),
 
-    showPlacementStatus && placement?.controller ? (
-      <PlacementStatusCard key="placement-status" controller={placement.controller} />
-    ) : null,
-
-    /* The gate is an instruction to score, which only the owner can do. */
-    scoredType && !gate.open && !viewer ? (
-      <GateCard key="gate" gate={gate} onScore={onScore} />
+    nextStep ? (
+      <NextStepCard
+        key="next"
+        gate={gate}
+        scoredType={scoredType}
+        fullyScored={fullyScored}
+        sideMissing={sideMissing}
+        onSetUserSide={onSetUserSide}
+        controller={placement?.controller ?? null}
+        onScore={onScore}
+      />
     ) : null,
 
     /* The deck ends on what is still to come. A placeholder card rather than
        a line of copy, so the swipe reaches a real last card and the promise
        sits where the next card will. Dashed border: it is a space, not a
        result. */
-    scoredType && viewer !== "public" ? (
+    scoredType && complete && viewer !== "public" ? (
       <div
         key="teaser"
         className="flex w-[86%] shrink-0 snap-center flex-col items-center justify-center rounded-2xl border border-dashed border-edge bg-surface/60 p-6 text-center sm:h-[30rem] sm:w-[calc(50%-0.5rem)] sm:snap-start"
@@ -621,6 +695,8 @@ export function AnalysisCards({
       </div>
     ) : null,
   ].filter(Boolean);
+
+  if (cards.length === 0) return null;
 
   return (
     <section className="mt-8">
@@ -676,14 +752,6 @@ export function AnalysisCards({
       </div>
       {neutral && (
         <p className="mt-1 text-sm text-zinc-500">{youLabel}&apos;s analysis</p>
-      )}
-      {/* The cards are only as good as what has been confirmed, so say so
-          while there is still detail missing — and stop saying it once
-          there isn't, rather than nagging forever. */}
-      {incomplete && (
-        <p className="mt-1 text-sm text-zinc-500">
-          Score the points and answer the follow-ups to fill this in.
-        </p>
       )}
 
       <div

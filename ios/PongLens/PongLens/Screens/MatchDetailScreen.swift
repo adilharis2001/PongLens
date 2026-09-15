@@ -935,7 +935,7 @@ struct MatchDetailScreen: View {
                             // One section: the serve maps are cards of the
                             // analysis deck now, so a practice with maps gets
                             // the section too, holding just those.
-                            if tracksServe || showPlacementAggregate {
+                            if tracksServe || showPlacementAggregate || current.cutSource != "manual" {
                                 analysisSection(coachView: !isOwner)
                             }
                             overallNotesSection

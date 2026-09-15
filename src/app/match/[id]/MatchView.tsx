@@ -4343,7 +4343,7 @@ export function MatchView({
           the owner's controls: no gate, no generate button, no flag, and
           the players' names where the owner reads "you". The #ball-map
           anchor stays for the links that used to target the maps. */}
-      {(scored || (!handCut && placementMappedPoints > 0)) && (
+      {(scored || !handCut) && (
         <div ref={matchStatsRef} id="ball-map" className="scroll-mt-32">
           <AnalysisCards
             stats={stats}
@@ -4383,6 +4383,11 @@ export function MatchView({
             onScore={
               isOwner && hasCutOffsets && scored
                 ? () => playerRef.current?.openScore()
+                : undefined
+            }
+            onSetUserSide={
+              isOwner && hasCutOffsets
+                ? (side) => void handleSetUserSide(side)
                 : undefined
             }
           />

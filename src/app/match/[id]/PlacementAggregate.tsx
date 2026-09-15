@@ -85,6 +85,15 @@ export function mappedPointCount(
  * cards; the maps cannot be a component that renders two siblings into
  * someone else's grid. The zone sheet it returns is rendered by the deck.
  */
+/** One honest line under an unscored match's maps: "Me / Them" is a guess. */
+function EstimatedServerNote() {
+  return (
+    <p className="mt-3 text-center text-[11px] text-zinc-600">
+      Who served is estimated until the match is scored.
+    </p>
+  );
+}
+
 export function usePlacementMapCards({
   points: allPoints,
   gameFilter,
@@ -97,6 +106,7 @@ export function usePlacementMapCards({
   enabled = true,
   onOpenPoint,
   voice = OWNER_VOICE,
+  serverEstimated = false,
 }: {
   points: Point[];
   gameFilter: number | null;
@@ -113,6 +123,8 @@ export function usePlacementMapCards({
   onOpenPoint?: (pointId: string) => void;
   /** "you" for the owner; the players' names for a coach or a share link. */
   voice?: Voice;
+  /** The match is not scored yet, so who served is the camera's guess. */
+  serverEstimated?: boolean;
 }): {
   cards: ReactNode[];
   /** The zone sheet, rendered by the deck so it can sit over every card. */
@@ -165,7 +177,10 @@ export function usePlacementMapCards({
     () => trustedPlacementPointCount(allObservations),
     [allObservations],
   );
-  const hasMaps = allObservations.length > 0;
+  // Too little to draw reads as broken rather than empty: a table with two
+  // dots on it. Three placed points is the floor, the same one the share
+  // page and the per-view sparse check use.
+  const hasMaps = mapped >= 3;
 
   const caption = placementAggregateCaption(
     filter,
@@ -239,6 +254,7 @@ export function usePlacementMapCards({
           No trusted landings in this view.
         </p>
       )}
+      {serverEstimated && <EstimatedServerNote />}
     </Card>,
     <Card
       key="heatmap"
@@ -266,6 +282,7 @@ export function usePlacementMapCards({
           />
         </div>
       )}
+      {serverEstimated && <EstimatedServerNote />}
     </Card>,
   ];
 

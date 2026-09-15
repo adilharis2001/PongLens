@@ -505,6 +505,16 @@ placement reduced to what the cards read (`slimPlacementForShare`);
 cards as the full one, so a card that starts reading a new field fails
 there rather than drawing a thinner map for strangers. ShareStats and
 SharePlacement are gone; do not bring a second set of cards back.
+**What earns a card (Adil, 2026-09-15 pm):** the serve maps are the
+worker's own evidence and show whenever the analysis is ready, the end is
+known and three or more points placed, with one line saying the server is
+estimated until the match is scored. Everything that reads the score
+(Overview, point length, serve speed, endings) waits for the 75% gate;
+a momentum chart of a half-scored match is the "half-assed card" he
+refused. The deck ends on ONE next-step card (which end, score the match,
+detailed analysis, each row with its state and action) until nothing is
+left, and only then on the teaser. Viewers never see the next-step card.
+Scoring re-runs nothing: the worker's records are read at view time.
 
 They show **serves only** (132, `app_config.placement_serves_only`). The
 full record is `docs/research/2026-08-23-placement-yield.md` and

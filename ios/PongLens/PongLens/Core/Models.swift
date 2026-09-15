@@ -291,6 +291,10 @@ struct MatchRow: Codable, Identifiable, Hashable {
     let firstServer: String?
     let clipPads: ClipPad?
     let placementStatus: String?
+    /// How the points were cut: "manual" is a hand-cut match, which has no
+    /// ball track and so no detailed analysis to offer. Fetched with the
+    /// detail select only; nil on library rows.
+    var cutSource: String? = nil
     var activeProcessingVersionId: UUID? = nil
     /// The game-end detector's evidence (140/146). Optional and defaulted
     /// so every construction of MatchRow in tests and previews stands.
@@ -319,6 +323,7 @@ struct MatchRow: Codable, Identifiable, Hashable {
         case firstServer = "first_server"
         case clipPads = "clip_pads"
         case placementStatus = "placement_status"
+        case cutSource = "cut_source"
         case activeProcessingVersionId = "active_processing_version_id"
         case matchStructure = "match_structure"
         case spokenScores = "spoken_scores"
@@ -331,7 +336,7 @@ struct MatchRow: Codable, Identifiable, Hashable {
     /// One match, opened. Adds the game-end detector's evidence, which the
     /// library list has no use for — it is a JSONB blob per row and the
     /// list fetches every match the player owns.
-    static let detailSelect = librarySelect + ",match_structure"
+    static let detailSelect = librarySelect + ",match_structure,cut_source"
 }
 
 
