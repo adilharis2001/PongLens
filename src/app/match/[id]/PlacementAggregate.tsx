@@ -257,6 +257,7 @@ export function usePlacementMapCards({
             observations={view.observations}
             filter={filter}
             labels={labels}
+            sidesOwner={voice.your.charAt(0).toUpperCase() + voice.your.slice(1)}
             onSelectZone={
               onOpenPoint
                 ? (zone, pointIds) => setZoneSheet({ zone, pointIds })

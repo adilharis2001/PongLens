@@ -33,10 +33,13 @@ export function PlacementHeatMap({
   filter,
   labels,
   onSelectZone,
+  sidesOwner = "Your",
 }: {
   observations: readonly TrustedPlacementObservation[];
   filter: PlacementAggregateFilter;
   labels: MapLabels;
+  /** Whose left and right the sidelines are: "Your" for the owner, a name's possessive for a viewer. */
+  sidesOwner?: string;
   /**
    * A zone with landings in it becomes a button. The points behind its
    * number are handed over in timeline order, so the caller can list them
@@ -162,8 +165,8 @@ export function PlacementHeatMap({
         })}
       </Table>
       <div className="-mt-1 flex justify-between px-6 text-[10px] text-zinc-500">
-        <span>Your left</span>
-        <span>Your right</span>
+        <span>{sidesOwner} left</span>
+        <span>{sidesOwner} right</span>
       </div>
     </div>
   );
