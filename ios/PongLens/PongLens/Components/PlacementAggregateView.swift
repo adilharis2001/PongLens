@@ -15,6 +15,9 @@ struct PlacementAggregateSection: View {
     /// reads, so one match cannot show serves in the browser and every
     /// landing here.
     var servesOnly = false
+    /// Rendered as a card of the Match analysis deck: a card title with the
+    /// Beta chip instead of a section heading.
+    var embedded = false
 
     private enum Who { case me, them }
     private enum Shot { case serves, rally }
@@ -49,19 +52,22 @@ struct PlacementAggregateSection: View {
     var body: some View {
         let observations = allObservations
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                SectionHeading(servesOnly ? "Serve placement" : "Placement maps")
-                Text("BETA")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.5)
-                    .foregroundStyle(PL.warningText.opacity(0.9))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(PL.warning.opacity(0.1), in: Capsule())
-                    .overlay(Capsule().strokeBorder(PL.warning.opacity(0.25), lineWidth: 1))
+            if !embedded {
+                HStack(spacing: 8) {
+                    SectionHeading(servesOnly ? "Serve placement" : "Placement maps")
+                    BetaChip()
+                }
             }
 
             VStack(alignment: .leading, spacing: 12) {
+                if embedded {
+                    HStack(spacing: 8) {
+                        Text(servesOnly ? "Serve placement" : "Placement maps")
+                            .font(.plRowTitle)
+                            .foregroundStyle(PL.text100)
+                        BetaChip()
+                    }
+                }
                 if userSide == nil {
                     Text(servesOnly
                         ? "Tell us which side you played to orient the serve maps."
@@ -83,7 +89,7 @@ struct PlacementAggregateSection: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .plCard()
+            .plCard(padding: embedded ? 16 : 20)
         }
     }
 

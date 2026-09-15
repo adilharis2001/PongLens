@@ -19,27 +19,114 @@ struct MatchAnalysisBundle {
     var incomplete: Bool { !stats.hasData || stats.detailed < stats.scored }
 }
 
-/// The three cards themselves, shown inline on the match page for both
-/// owner and coach. `coachView` turns "you" into "the player" throughout.
+/// What the video cards need beyond the score bundle: the match and its
+/// points, the rotation, and the owner's two actions (score, regenerate).
+struct VideoCardsInput {
+    let match: MatchRow
+    let points: [MatchPoint]
+    let userSide: String?
+    let gameIndexByPoint: [UUID: Int]
+    let serving: [UUID: ServeInfo]
+    let pad: ClipPad
+    let opponentLabel: String
+    /// app_config placement_serves_only (132).
+    let servesOnly: Bool
+    /// The match type keeps a score; a practice gets the maps only.
+    let scoredType: Bool
+    /// Placement ran, or any point carries data.
+    let showMaps: Bool
+    /// Placement is ready: the video cards may read it.
+    let placementTrusted: Bool
+    let onScore: (() -> Void)?
+    let onPlacementChanged: () -> Void
+}
+
+/// The deck, shown inline on the match page for both owner and coach.
+/// `coachView` turns "you" into "the player" throughout. One deck for
+/// everything the match can say (Adil, 2026-09-15): the score's cards,
+/// then the video's once 75% of the points are scored, with the serve
+/// maps among them, then what is still to come. Stacked rather than
+/// swiped, as every card list on this screen is.
 struct AnalysisCards: View {
     let bundle: MatchAnalysisBundle
     var coachView = false
+    var video: VideoCardsInput? = nil
 
     var body: some View {
         let stats = bundle.stats
         let analysis = bundle.analysis
 
         VStack(alignment: .leading, spacing: 16) {
-            overviewCard(stats, analysis.momentum)
+            if video?.scoredType ?? true {
+                overviewCard(stats, analysis.momentum)
 
-            // Three self-reported reasons is where a pattern starts;
-            // below that the card is absent rather than padded out.
-            if analysis.mistakes.reasonsGiven >= 3 {
-                mistakesCard(analysis.mistakes)
+                // Three self-reported reasons is where a pattern starts;
+                // below that the card is absent rather than padded out.
+                if analysis.mistakes.reasonsGiven >= 3 {
+                    mistakesCard(analysis.mistakes)
+                }
+                if analysis.serve.described >= 3 {
+                    serveCard(analysis.serve)
+                }
             }
-            if analysis.serve.described >= 3 {
-                serveCard(analysis.serve)
+            if let video {
+                videoCards(video)
             }
+        }
+    }
+
+    // MARK: - The video's cards
+
+    /// Serve cards first, then the maps, then the endings, so the deck
+    /// walks from the serve into the point. Below the bar, one card says
+    /// how many points are scored and how many the bar asks for.
+    @ViewBuilder
+    private func videoCards(_ video: VideoCardsInput) -> some View {
+        let gate = scoredCardsGate(video.points)
+        let result: ScoredCardsResult? = video.scoredType && gate.open
+            ? computeScoredCards(
+                points: video.points,
+                userSide: video.userSide,
+                gameIndexByPoint: video.gameIndexByPoint,
+                serving: video.serving,
+                prePad: { effectivePad(video.pad, tightStart: $0.tightStart, tightEnd: $0.tightEnd).pre },
+                placementTrusted: video.placementTrusted
+            )
+            : nil
+        if let result {
+            if result.pointLength.covered >= SCORED_CARDS_MIN_SAMPLES {
+                PointLengthCard(result: result.pointLength)
+            }
+            if !result.serveSpeedMine.isEmpty || !result.serveSpeedTheirs.isEmpty {
+                ServeSpeedCard(mine: result.serveSpeedMine, theirs: result.serveSpeedTheirs)
+            }
+            if result.varietyMine != nil || result.varietyTheirs != nil {
+                ServeVarietyCard(mine: result.varietyMine, theirs: result.varietyTheirs)
+            }
+        }
+        if video.showMaps {
+            PlacementAggregateSection(
+                points: video.points,
+                userSide: video.userSide,
+                gameIndexByPoint: video.gameIndexByPoint,
+                serving: video.serving,
+                opponentLabel: video.opponentLabel,
+                servesOnly: video.servesOnly,
+                embedded: true
+            )
+            .id("placement-maps")
+        }
+        if let result, result.endings.shown {
+            EndingsCard(endings: result.endings, opponentLabel: video.opponentLabel)
+        }
+        if !video.showMaps, !coachView, video.match.placementStatus != "ready" {
+            PlacementStatusCard(match: video.match, onChanged: video.onPlacementChanged)
+        }
+        if video.scoredType, !gate.open, !coachView {
+            GateCard(gate: gate, onScore: video.onScore)
+        }
+        if video.scoredType {
+            ComingSoonCard()
         }
     }
 

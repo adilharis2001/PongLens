@@ -932,19 +932,11 @@ struct MatchDetailScreen: View {
                                 )
                             }
                             pointsSection(proxy: proxy)
-                            if tracksServe {
+                            // One section: the serve maps are cards of the
+                            // analysis deck now, so a practice with maps gets
+                            // the section too, holding just those.
+                            if tracksServe || showPlacementAggregate {
                                 analysisSection(coachView: !isOwner)
-                            }
-                            if showPlacementAggregate {
-                                PlacementAggregateSection(
-                                    points: model.visible,
-                                    userSide: current.userSide,
-                                    gameIndexByPoint: gameIndexByPoint,
-                                    serving: serving,
-                                    opponentLabel: current.opponentName ?? "Them",
-                                    servesOnly: app.placementServesOnly
-                                )
-                                .id("placement-maps")
                             }
                             overallNotesSection
                         } else {
@@ -1850,7 +1842,30 @@ struct MatchDetailScreen: View {
             SectionHeading("Match analysis")
             AnalysisCards(
                 bundle: MatchAnalysisBundle(match: current, model: model, score: score),
-                coachView: coachView
+                coachView: coachView,
+                video: VideoCardsInput(
+                    match: current,
+                    points: model.visible,
+                    userSide: current.userSide,
+                    gameIndexByPoint: gameIndexByPoint,
+                    serving: serving,
+                    pad: pad,
+                    opponentLabel: current.opponentName ?? "Them",
+                    servesOnly: app.placementServesOnly,
+                    scoredType: tracksServe,
+                    showMaps: showPlacementAggregate,
+                    placementTrusted: current.placementStatus == "ready",
+                    onScore: isOwner && tracksServe
+                        ? {
+                            if let url = model.videoURL {
+                                playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
+                            }
+                        }
+                        : nil,
+                    onPlacementChanged: {
+                        Task { await refreshMatch(refreshLibrary: true) }
+                    }
+                )
             )
         }
         .id("match-analysis")
