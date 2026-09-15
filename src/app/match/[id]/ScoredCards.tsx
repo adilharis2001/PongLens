@@ -13,7 +13,7 @@ import {
   type ScoredTally,
   type SpeedBand,
 } from "@/lib/placement/scoredCards";
-import { Card, SplitBar, StatRow } from "./cards";
+import { Card, OWNER_VOICE, SplitBar, StatRow, type Voice } from "./cards";
 import type { MapLabels } from "./PlacementMap";
 import { Table, TH, TW, TX, TY } from "./placementTable";
 
@@ -134,6 +134,7 @@ export function buildScoredCards(
   result: ScoredCardsResult | null,
   labels: MapLabels,
   part: "serves" | "endings",
+  voice: Voice = OWNER_VOICE,
 ): ReactNode[] {
   if (!result) return [];
   const cards: ReactNode[] = [];
@@ -149,10 +150,10 @@ export function buildScoredCards(
             <EndingsMap endings={endings} labels={labels} />
           </div>
           <div className="divide-y divide-edge/60">
-            <StatRow label="Points you won, on their side">
+            <StatRow label={`Points ${voice.you} won, on ${voice.their} side`}>
               <span className="text-cyan-glow">{endings.won}</span>
             </StatRow>
-            <StatRow label="Points you lost, on your side">
+            <StatRow label={`Points ${voice.you} lost, on ${voice.your} side`}>
               <span className="text-magenta-soft">{endings.lost}</span>
             </StatRow>
           </div>
@@ -170,14 +171,14 @@ export function buildScoredCards(
     const mine = withData(pointLength.mine);
     const theirs = withData(pointLength.theirs);
     cards.push(
-      <Card key="length" title="Point length" hint="Share of those points you won" beta>
+      <Card key="length" title="Point length" hint={`Share of those points ${voice.you} won`} beta>
         {mine.length > 0 && (
-          <Group title={`My serves (${count(pointLength.mine)})`} first>
+          <Group title={`${voice.myServes} (${count(pointLength.mine)})`} first>
             {mine.map((row) => <SplitBar key={row.label} row={row} />)}
           </Group>
         )}
         {theirs.length > 0 && (
-          <Group title={`Their serves (${count(pointLength.theirs)})`} first={mine.length === 0}>
+          <Group title={`${voice.theirServes} (${count(pointLength.theirs)})`} first={mine.length === 0}>
             {theirs.map((row) => <SplitBar key={row.label} row={row} />)}
           </Group>
         )}
@@ -191,16 +192,16 @@ export function buildScoredCards(
 
   if (serveSpeed.mine.length > 0 || serveSpeed.theirs.length > 0) {
     cards.push(
-      <Card key="speed" title="Serve speed" hint="Share of those points you won" beta>
+      <Card key="speed" title="Serve speed" hint={`Share of those points ${voice.you} won`} beta>
         {serveSpeed.mine.length > 0 && (
-          <Group title={`My serves (${count(serveSpeed.mine)})`} first>
+          <Group title={`${voice.myServes} (${count(serveSpeed.mine)})`} first>
             {serveSpeed.mine.map((band) => (
               <SplitBar key={band.label} row={{ ...band, label: speedLabel(band) }} />
             ))}
           </Group>
         )}
         {serveSpeed.theirs.length > 0 && (
-          <Group title={`Their serves (${count(serveSpeed.theirs)})`} first={serveSpeed.mine.length === 0}>
+          <Group title={`${voice.theirServes} (${count(serveSpeed.theirs)})`} first={serveSpeed.mine.length === 0}>
             {serveSpeed.theirs.map((band) => (
               <SplitBar key={band.label} row={{ ...band, label: speedLabel(band) }} />
             ))}

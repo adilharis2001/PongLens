@@ -133,11 +133,11 @@ struct AnalysisCards: View {
             : nil
         if let result {
             if result.pointLength.covered >= SCORED_CARDS_MIN_SAMPLES {
-                cards.append(DeckCard(id: "length", view: AnyView(PointLengthCard(result: result.pointLength))))
+                cards.append(DeckCard(id: "length", view: AnyView(PointLengthCard(result: result.pointLength, coachView: coachView))))
             }
             if !result.serveSpeedMine.isEmpty || !result.serveSpeedTheirs.isEmpty {
                 cards.append(DeckCard(id: "speed", view: AnyView(
-                    ServeSpeedCard(mine: result.serveSpeedMine, theirs: result.serveSpeedTheirs)
+                    ServeSpeedCard(mine: result.serveSpeedMine, theirs: result.serveSpeedTheirs, coachView: coachView)
                 )))
             }
         }
@@ -151,6 +151,7 @@ struct AnalysisCards: View {
                         gameIndexByPoint: video.gameIndexByPoint,
                         serving: video.serving,
                         opponentLabel: video.opponentLabel,
+                        coachView: coachView,
                         servesOnly: video.servesOnly,
                         who: $mapsWho,
                         shot: $mapsShot,
@@ -161,7 +162,7 @@ struct AnalysisCards: View {
         }
         if let result, result.endings.shown {
             cards.append(DeckCard(id: "endings", view: AnyView(
-                EndingsCard(endings: result.endings, opponentLabel: video.opponentLabel)
+                EndingsCard(endings: result.endings, opponentLabel: video.opponentLabel, coachView: coachView)
             )))
         }
         if !video.showMaps, !coachView, video.match.placementStatus != "ready" {

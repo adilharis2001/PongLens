@@ -29,7 +29,7 @@ import {
   THEM_COLOR,
   YOU_COLOR,
 } from "./placementTable";
-import { Card } from "./cards";
+import { Card, OWNER_VOICE, type Voice } from "./cards";
 
 const SHOTS: { key: PlacementAggregateShot; label: string }[] = [
   { key: "serves", label: "Serves" },
@@ -96,6 +96,7 @@ export function usePlacementMapCards({
   servesOnly = false,
   enabled = true,
   onOpenPoint,
+  voice = OWNER_VOICE,
 }: {
   points: Point[];
   gameFilter: number | null;
@@ -110,6 +111,8 @@ export function usePlacementMapCards({
   enabled?: boolean;
   /** Open one point from a heat map zone's list. Without it the zones stay pictures. */
   onOpenPoint?: (pointId: string) => void;
+  /** "you" for the owner; the players' names for a coach or a share link. */
+  voice?: Voice;
 }): {
   cards: ReactNode[];
   /** The zone sheet, rendered by the deck so it can sit over every card. */
@@ -273,7 +276,7 @@ export function usePlacementMapCards({
         zoneSheet
           ? `${zonePoints.length} ${zonePoints.length === 1 ? "point" : "points"} with a ${
               servesOnly ? "serve" : "shot"
-            } by ${mine ? "you" : labels.them} landing here.`
+            } by ${mine ? voice.you : labels.them} landing here.`
           : undefined
       }
       onClose={closeZoneSheet}
@@ -284,9 +287,9 @@ export function usePlacementMapCards({
           const game = (gameIndexByPoint.get(point.id) ?? 0) + 1;
           const outcome =
             point.confirmed_winner === "user"
-              ? "You won"
+              ? voice.youWon
               : point.confirmed_winner === "opponent"
-                ? "They won"
+                ? voice.theyWon
                 : "Not scored";
           return (
             <li key={point.id}>

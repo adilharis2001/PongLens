@@ -190,3 +190,51 @@ export function CountBar({
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ voice */
+
+/**
+ * Who the cards are talking to. The owner reads "you" and "them"; a coach
+ * or someone opening a share link reads the players' names, because "you"
+ * on their screen would mean them. One object carries every form a card
+ * needs, so a viewer's deck cannot say "you" in one card and a name in
+ * the next.
+ */
+export interface Voice {
+  /** As a subject: "you" or the player's name. */
+  you: string;
+  them: string;
+  /** Possessive: "your" or "Adil's". */
+  your: string;
+  their: string;
+  /** Group headings on the serve cards. */
+  myServes: string;
+  theirServes: string;
+  /** A point's outcome in a list. */
+  youWon: string;
+  theyWon: string;
+}
+
+export const OWNER_VOICE: Voice = {
+  you: "you",
+  them: "them",
+  your: "your",
+  their: "their",
+  myServes: "My serves",
+  theirServes: "Their serves",
+  youWon: "You won",
+  theyWon: "They won",
+};
+
+export function viewerVoice(you: string, them: string): Voice {
+  return {
+    you,
+    them,
+    your: `${you}'s`,
+    their: `${them}'s`,
+    myServes: `${you}'s serves`,
+    theirServes: `${them}'s serves`,
+    youWon: `${you} won`,
+    theyWon: `${them} won`,
+  };
+}

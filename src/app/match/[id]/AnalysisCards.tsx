@@ -27,10 +27,12 @@ import {
   Card,
   CountBar,
   Empty,
+  OWNER_VOICE,
   Pair,
   Pct,
   SplitBar,
   StatRow,
+  viewerVoice,
 } from "./cards";
 
 export {
@@ -61,6 +63,11 @@ export {
  * Every card states what it doesn't know. A cut with no data says so in
  * plain words rather than drawing an empty chart, because an empty chart
  * reads as "you have no weaknesses" instead of "you haven't filled this in".
+ *
+ * The same deck is what a coach and a share-link viewer get (Adil,
+ * 2026-09-15), read-only: no gate, no lifecycle card, no flag button, and
+ * the players' names where the owner reads "you". The cards themselves are
+ * shared, so the three surfaces cannot drift apart.
  */
 
 /* -------------------------------------------------------------- momentum */
@@ -221,14 +228,19 @@ function PlacementStatusCard({
 /* ------------------------------------------------------------------ deck */
 
 export interface AnalysisPlacement {
-  controller: PlacementLifecycleController;
-  matchId: string;
-  /** The owner said this match's maps are wrong (matches.placement_flagged). */
-  flagged: boolean;
-  onFlagChange: (flagged: boolean) => void;
   /** Placement is ready and unflagged: the video cards may read it. */
   trusted: boolean;
+  /** The owner said this match's maps are wrong (matches.placement_flagged). */
+  flagged: boolean;
+  /** The owner's generate / generating / try-again lifecycle. A viewer has none. */
+  controller?: PlacementLifecycleController;
+  matchId?: string;
+  /** The owner's flag button. A viewer cannot mark the maps wrong. */
+  onFlagChange?: (flagged: boolean) => void;
 }
+
+/** Who is reading: the owner (undefined), their coach, or a share link. */
+export type AnalysisViewer = "coach" | "public";
 
 export function AnalysisCards({
   stats,
@@ -248,6 +260,7 @@ export function AnalysisCards({
   placement = null,
   onOpenPoint,
   onScore,
+  viewer,
 }: {
   stats: MatchStats;
   analysis: Analysis;
@@ -273,6 +286,12 @@ export function AnalysisCards({
   onOpenPoint?: (pointId: string) => void;
   /** Open the scorer, for the card that asks for more scoring. */
   onScore?: () => void;
+  /**
+   * Set for a coach or a share link: the deck is read-only and speaks in
+   * the players' names. The public page also drops the teaser, which is a
+   * promise to the owner.
+   */
+  viewer?: AnalysisViewer;
 }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(0);
@@ -379,6 +398,8 @@ export function AnalysisCards({
     ],
   );
 
+  const voice = viewer ? viewerVoice(youLabel, labels.them) : OWNER_VOICE;
+
   const maps = usePlacementMapCards({
     points,
     gameFilter,
@@ -390,13 +411,17 @@ export function AnalysisCards({
     servesOnly,
     enabled: placement !== null && !placement.flagged,
     onOpenPoint,
+    voice,
   });
 
   const { momentum, serve, mistakes } = viewAnalysis;
   const whose = neutral ? `${youLabel}'s` : "your";
   const scoredCount = viewStats.won + viewStats.lost;
+  // Only the owner can act on missing detail, so only the owner is told.
   const incomplete =
-    scoredType && (!viewStats.hasData || viewStats.detailed < scoredCount);
+    !viewer
+    && scoredType
+    && (!viewStats.hasData || viewStats.detailed < scoredCount);
 
   /**
    * How much a cut needs before it earns a card.
@@ -411,9 +436,10 @@ export function AnalysisCards({
   // The lifecycle card stands where the maps will be, only while there is
   // something to say: an action to take, a reason there will be no maps,
   // or a job under way. A ready placement that drew nothing says nothing.
-  const placementView = placement?.controller.view ?? null;
+  const placementView = placement?.controller?.view ?? null;
   const showPlacementStatus =
     placement !== null
+    && placement.controller !== undefined
     && !placement.flagged
     && !maps.hasMaps
     && placementView !== null
@@ -436,7 +462,11 @@ export function AnalysisCards({
           </div>
         )}
         {!viewStats.hasData ? (
-          <Empty>Score a full game to see {whose} stats.</Empty>
+          <Empty>
+            {viewer
+              ? "Stats appear once a full game is scored."
+              : `Score a full game to see ${whose} stats.`}
+          </Empty>
         ) : (
           <div className="divide-y divide-edge/60">
             {momentum.bestRun && (
@@ -450,7 +480,7 @@ export function AnalysisCards({
                 >
                   {momentum.bestRun.len} in a row
                   <span className="ml-1.5 text-[11px] font-normal text-zinc-500">
-                    {momentum.bestRun.who === "user" ? "you" : "them"}
+                    {momentum.bestRun.who === "user" ? voice.you : voice.them}
                   </span>
                 </span>
               </StatRow>
@@ -497,7 +527,11 @@ export function AnalysisCards({
     /* Right after the overview: it is the one question the scorecard still
        asks, so it comes before the serve breakdown rather than behind it. */
     scoredType && mistakes.reasonsGiven >= MIN_SAMPLES ? (
-      <Card key="mistakes" title="Why you lost" hint="Only points you lost">
+      <Card
+        key="mistakes"
+        title={viewer ? `Why ${youLabel} lost` : "Why you lost"}
+        hint={`Only points ${voice.you} lost`}
+      >
         {mistakes.reasons.slice(0, 8).map((r) => (
           <CountBar
             key={r.label}
@@ -513,11 +547,11 @@ export function AnalysisCards({
     ) : null,
 
     scoredType && serve.described >= MIN_SAMPLES ? (
-      <Card key="serve" title="Serve" hint="Share of those points you won">
+      <Card key="serve" title="Serve" hint={`Share of those points ${voice.you} won`}>
         {serve.mine.spins.length > 0 && (
           <>
             <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-              My serves ({serve.mine.count})
+              {voice.myServes} ({serve.mine.count})
             </p>
             {serve.mine.spins.map((r) => (
               <SplitBar key={r.label} row={r} />
@@ -534,7 +568,7 @@ export function AnalysisCards({
         {serve.theirs.spins.length > 0 && (
           <>
             <p className="mb-1 mt-4 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-              Their serves ({serve.theirs.count})
+              {voice.theirServes} ({serve.theirs.count})
             </p>
             {serve.theirs.spins.map((r) => (
               <SplitBar key={r.label} row={r} />
@@ -550,15 +584,16 @@ export function AnalysisCards({
 
     /* The video's cards: serve stats first, then the maps, then the
        endings, so the deck walks from the serve into the point. */
-    ...buildScoredCards(scoredCards, labels, "serves"),
+    ...buildScoredCards(scoredCards, labels, "serves", voice),
     ...maps.cards,
-    ...buildScoredCards(scoredCards, labels, "endings"),
+    ...buildScoredCards(scoredCards, labels, "endings", voice),
 
-    showPlacementStatus && placement ? (
+    showPlacementStatus && placement?.controller ? (
       <PlacementStatusCard key="placement-status" controller={placement.controller} />
     ) : null,
 
-    scoredType && !gate.open ? (
+    /* The gate is an instruction to score, which only the owner can do. */
+    scoredType && !gate.open && !viewer ? (
       <GateCard key="gate" gate={gate} onScore={onScore} />
     ) : null,
 
@@ -566,7 +601,7 @@ export function AnalysisCards({
        a line of copy, so the swipe reaches a real last card and the promise
        sits where the next card will. Dashed border: it is a space, not a
        result. */
-    scoredType ? (
+    scoredType && viewer !== "public" ? (
       <div
         key="teaser"
         className="flex w-[86%] shrink-0 snap-center flex-col items-center justify-center rounded-2xl border border-dashed border-edge bg-surface/60 p-6 text-center sm:h-[30rem] sm:w-[calc(50%-0.5rem)] sm:snap-start"
@@ -678,18 +713,18 @@ export function AnalysisCards({
       {/* The whole-match escape hatch: when the table calibration is off
           every camera card is wrong together, so the flag belongs to the
           deck, not to any one card. */}
-      {placement && placement.flagged && (
+      {placement?.flagged && placement.onFlagChange && placement.matchId && (
         <MarkedWrongNotice
           className="mt-3"
           matchId={placement.matchId}
-          onUndo={() => placement.onFlagChange(false)}
+          onUndo={() => placement.onFlagChange?.(false)}
         />
       )}
-      {placement && !placement.flagged && maps.cards.length > 0 && (
+      {placement && !placement.flagged && placement.onFlagChange && maps.cards.length > 0 && (
         <div className="mt-3 flex justify-center">
           <LooksWrongButton
             label="This match's placement maps are wrong"
-            onFlag={() => placement.onFlagChange(true)}
+            onFlag={() => placement.onFlagChange?.(true)}
           />
         </div>
       )}
