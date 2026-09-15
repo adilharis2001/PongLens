@@ -9,6 +9,12 @@ import {
   type CanonicalMatchInput,
   type CanonicalProjection,
 } from "./canonical.ts";
+import {
+  computeMatchScore,
+  resolvedGameWinner,
+  runningScoreByPoint,
+} from "../../app/match/[id]/gameScore.ts";
+import { computeServing } from "../../app/match/[id]/serving.ts";
 
 function point(
   number: number,
@@ -316,5 +322,117 @@ test("shared hand-checked fixtures match exactly", () => {
       fixture.expected,
       fixture.name
     );
+  }
+});
+
+test("deterministic corpus stays in parity with the shipped web folds", () => {
+  let seed = 0x51c0_1234;
+  const random = () => {
+    seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+    return seed / 0x1_0000_0000;
+  };
+
+  for (let caseNumber = 0; caseNumber < 250; caseNumber += 1) {
+    const firstServer = random() < 0.5 ? "user" : "opponent";
+    const sourceRoll = random();
+    const firstServerSource: CanonicalMatchInput["firstServerSource"] =
+      sourceRoll < 0.7 ? "user" : sourceRoll < 0.9 ? "detected" : null;
+    const count = 5 + Math.floor(random() * 70);
+    const points: CanonicalPointInput[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const skipped = random() < 0.08;
+      const winnerRoll = random();
+      const gameRoll = random();
+      points.push({
+        id: `case-${caseNumber}-point-${index}`,
+        idx: index + 1,
+        t0: random() < 0.04 ? null : index * 4 + Math.floor(random() * 3),
+        deleted: random() < 0.05,
+        isLet: skipped,
+        confirmedHow: skipped
+          ? random() < 0.5
+            ? "let"
+            : random() < 0.5
+              ? "misrecorded"
+              : "other"
+          : null,
+        confirmedWinner: skipped
+          ? null
+          : winnerRoll < 0.42
+            ? "user"
+            : winnerRoll < 0.84
+              ? "opponent"
+              : null,
+        serverOverride:
+          random() < 0.04 ? (random() < 0.5 ? "user" : "opponent") : null,
+        gameEndOverride:
+          gameRoll < 0.025 ? "end" : gameRoll < 0.04 ? "continue" : null,
+        gameWinnerOverride:
+          gameRoll < 0.025 && random() < 0.6
+            ? random() < 0.5
+              ? "user"
+              : "opponent"
+            : null,
+      });
+    }
+
+    const projection = projectCanonicalScore({
+      firstServer,
+      firstServerSource,
+      points,
+    });
+    const ordered = orderCanonicalPoints(points);
+    const shippedPoints = ordered.map((entry) => ({
+      id: entry.id,
+      is_let: entry.isLet ?? false,
+      confirmed_winner: entry.confirmedWinner ?? null,
+      confirmed_how: entry.confirmedHow ?? null,
+      server_override: entry.serverOverride ?? null,
+      game_end_override: entry.gameEndOverride ?? null,
+      game_winner_override: entry.gameWinnerOverride ?? null,
+    }));
+    const score = computeMatchScore(
+      shippedPoints as unknown as Parameters<typeof computeMatchScore>[0]
+    );
+    const serving = computeServing(
+      shippedPoints as unknown as Parameters<typeof computeServing>[0],
+      firstServerSource === "user" ? firstServer : null
+    );
+    const running = runningScoreByPoint(shippedPoints);
+
+    assert.deepEqual(
+      [
+        projection.match.gamesUser,
+        projection.match.gamesOpponent,
+        projection.match.currentScoreUser,
+        projection.match.currentScoreOpponent,
+      ],
+      [score.gamesYou, score.gamesThem, score.current.you, score.current.them],
+      `match fold case ${caseNumber}`
+    );
+    for (const state of projection.points) {
+      const shippedScore = running.get(state.pointId);
+      assert.deepEqual(
+        [state.scoreUserAfter, state.scoreOpponentAfter],
+        [shippedScore?.you, shippedScore?.them],
+        `running score case ${caseNumber} ${state.pointId}`
+      );
+      assert.equal(
+        state.endsGame,
+        score.boundaryAfter.has(state.pointId),
+        `boundary case ${caseNumber} ${state.pointId}`
+      );
+      assert.equal(
+        state.resolvedServer,
+        serving.get(state.pointId)?.server ?? null,
+        `server case ${caseNumber} ${state.pointId}`
+      );
+      const boundary = score.boundaryAfter.get(state.pointId);
+      assert.equal(
+        state.resolvedGameWinner,
+        boundary ? resolvedGameWinner(boundary) : null,
+        `game winner case ${caseNumber} ${state.pointId}`
+      );
+    }
   }
 });
