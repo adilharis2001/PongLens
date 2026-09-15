@@ -1,0 +1,24 @@
+=== POINT LENGTH: serve's first bounce -> earlier of rally end and your score tap; uploader win rate ===
+  all
+     short <3s  n= 628  you won 44%
+     mid 3-6s   n= 331  you won 40%
+     long 6s+   n= 134  you won 52%
+  your serve
+     short <3s  n= 321  you won 45%
+     mid 3-6s   n= 157  you won 42%
+     long 6s+   n=  66  you won 48%
+  their serve
+     short <3s  n= 307  you won 43%
+     mid 3-6s   n= 174  you won 39%
+     long 6s+   n=  68  you won 56%
+  coverage 83% of 1320 scored points  (start from a drawn serve 665, from the first in-table bounce 451)
+
+=== SERVE SPEED by player, thirds within each ===
+  your serve: n=287 median 4.2 m/s
+     slow    n=  95  server won 39%
+     medium  n=  96  server won 47%
+     fast    n=  96  server won 56%
+  their serve: n=290 median 4.5 m/s
+     slow    n=  96  server won 60%
+     medium  n=  97  server won 56%
+     fast    n=  97  server won 61%
