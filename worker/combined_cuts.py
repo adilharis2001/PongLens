@@ -1,6 +1,102 @@
 """Reviewed combined point-attempt policy; consumes detector evidence, never scores."""
+import copy
+import itertools
+import math
+
 import numpy as np
 from points_v2 import W_M
+
+
+def join_defensive_continuations(cards, players, crossings, table_bounces):
+ """Restore only short, actively played seams with raw two-player continuity.
+
+ This is deliberately separate from the broader body probability. A defensive
+ player can dive or wait deep enough that the chosen near/far identities drop,
+ while the raw person boxes and the ball still show one uninterrupted rally.
+ """
+ frames=(players or {}).get('frames') or []
+ cr=sorted(set(float(x) for x in crossings if math.isfinite(float(x))))
+ bt=sorted(set(float(x) for x in table_bounces if math.isfinite(float(x))))
+
+ def box_height(box):return float(box[3])-float(box[1])
+ def center(box):return ((float(box[0])+float(box[2]))/2,
+                         (float(box[1])+float(box[3]))/2)
+ def cost(left,right):
+  ax,ay=center(left);bx,by=center(right)
+  return (math.hypot(ax-bx,ay-by)/max(1.,box_height(left))
+          +.4*abs(math.log(max(1.,box_height(right))/max(1.,box_height(left)))))
+ def coverage(a,b):
+  seeds=[i for i,row in enumerate(frames)
+         if float(row['t'])<=a-1 and row.get('near') and row.get('far')]
+  if not seeds:return 0.
+  seed=seeds[-1]
+  state=[frames[seed]['near']['box'],frames[seed]['far']['box']]
+  good=total=0
+  for row in frames[seed+1:]:
+   t=float(row['t'])
+   if t>b+.8:break
+   boxes=[box for box in row.get('all',[]) if box_height(box)>=45]
+   best=None
+   for i,j in itertools.permutations(range(len(boxes)),2):
+    c1,c2=cost(state[0],boxes[i]),cost(state[1],boxes[j])
+    candidate=(c1+c2,c1,c2,boxes[i],boxes[j])
+    if best is None or candidate[0]<best[0]:best=candidate
+   if best is not None and max(best[1],best[2])<=.75:
+    state=[best[3],best[4]]
+    if t>=a:good+=1
+   if t>=a:total+=1
+  return good/max(1,total)
+
+ def decision(left,right,index):
+  a,b=float(left['t1']),float(right['t0']);gap=b-a;mid=(a+b)/2
+  row=dict(left_index=index,right_index=index+1,gap=[a,b],accepted=False)
+  lserve=left.get('serve_s');rserve=right.get('serve_s')
+  shared=(lserve is not None and rserve is not None and
+          abs(float(lserve)-float(rserve))<=.02)
+  if shared and 0<gap<=1.25:
+   row.update(accepted=True,reason='same serve stamped on both fragments',
+              track_coverage=None)
+   return row
+  if not 0<gap<=1.25:
+   row['reason']='gap outside defensive repair scope';return row
+  support=.9
+  before=max((x for x in bt if x<=mid),default=None)
+  after=min((x for x in bt if x>mid),default=None)
+  pair=(before is not None and after is not None and before>=a-support and
+        after<=b+support and after-before<=2.05)
+  events=[x for x in sorted(set(cr+bt)) if a-support<=x<=b+support]
+  chain=(len(events)>=2 and any(x<=mid for x in events) and
+         any(x>mid for x in events) and
+         max(y-x for x,y in zip(events,events[1:]))<=2.05)
+  start=float(lserve) if lserve is not None else float(left['t0'])
+  momentum=(sum(start<=x<=a for x in cr)>=2 or
+            sum(start<=x<=a for x in bt)>=4)
+  right_offset=None if rserve is None else float(rserve)-float(right['t0'])
+  # A serve in the first five seconds is a credible restart even when the
+  # body card opened early. Brian's reviewed false mid-rally serve is later.
+  no_new_serve=right_offset is None or right_offset>=5
+  tracked=coverage(a,b)
+  row.update(table_pair=pair,event_chain=chain,momentum=momentum,
+             right_serve_offset=right_offset,track_coverage=tracked)
+  accepted=pair and chain and momentum and no_new_serve and tracked>=.9
+  row['accepted']=bool(accepted)
+  row['reason']=('ball, rally momentum and two raw player tracks bridge seam'
+                 if accepted else 'defensive continuation evidence incomplete')
+  return row
+
+ out=[];decisions=[]
+ for index,card in enumerate(cards):
+  if index:
+   row=decision(cards[index-1],card,index-1);decisions.append(row)
+   if row['accepted']:
+    out[-1]['t1']=card['t1']
+    out[-1]['end_evidence_s']=card.get('end_evidence_s')
+    why=out[-1].get('why') or 'bodies'
+    phrase='defensive continuation restored'
+    out[-1]['why']=why if phrase in why else why+', '+phrase
+    continue
+  out.append(copy.deepcopy(card))
+ return out,decisions
 
 def propose(d, base):
  cr=np.array(d['crossings']);bt=np.array(d['bounces']);ev=np.unique(np.r_[cr,bt]);T=np.array(d['body_T']);P=np.array(d['body_p']);sequences=d['sequences']
@@ -160,7 +256,7 @@ def propose(d, base):
 
 
 
-METHOD_VERSION = 'combined-cuts-v1'
+METHOD_VERSION = 'combined-cuts-v2'
 
 
 def final_cards(result, baseline):
@@ -198,7 +294,7 @@ def terminal_for_card(result, card):
 
 
 def process_cards(cards, predictions, evidence, corners, width, serves,
-                  restart_evidence, body_evidence, gap4_cards):
+                  restart_evidence, body_evidence, gap4_cards, *, players=None):
     """Build reviewed evidence in the worker, and fail open to its prior cards.
 
     Predictions are re-evaluated per final attempt. Unchanged cards retain
@@ -244,8 +340,29 @@ def process_cards(cards, predictions, evidence, corners, width, serves,
                                              terminal=terminal_for_card(result,c))
                 prediction['evidence']['card_policy'] = METHOD_VERSION
                 updated.append(prediction)
+        continuation_info=dict(status='not_applied',repaired=0,
+                               reason='players_unavailable')
+        if players:
+            repaired,continuation_decisions=join_defensive_continuations(
+                final,players,evidence.cross,evidence.bt_table)
+            previous_predictions={(c['t0'],c['t1']): prediction
+                                  for c,prediction in zip(final,updated)}
+            rebuilt=[]
+            for card in repaired:
+                retained=previous_predictions.get((card['t0'],card['t1']))
+                if retained is None:
+                    retained=N.predict_winner(
+                        card,sequences,evidence.cross,serves,
+                        terminal=terminal_for_card(result,card))
+                    retained['evidence']['card_policy']=METHOD_VERSION
+                rebuilt.append(retained)
+            final,updated=repaired,rebuilt
+            accepted=[d for d in continuation_decisions if d['accepted']]
+            continuation_info=dict(status='used',repaired=len(accepted),
+                                   decisions=continuation_decisions)
         return final, updated, dict(info, status='used', added_cards=len(final)-original_count,
             decisions=result['decisions'], tails=result['tails'], heads=result['heads'],
-            removed_preparations=result['preparations'])
+            removed_preparations=result['preparations'],
+            defensive_continuations=continuation_info)
     except Exception as exc:
         return cards, predictions, dict(info, status='error', reason=type(exc).__name__)

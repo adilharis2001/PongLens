@@ -2,10 +2,13 @@
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+import numpy as np
 import pytest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import combined_cuts as C
 FIXTURES=Path(__file__).parent/'fixtures/combined_cuts'
+DEFENSIVE_FIXTURE=Path(__file__).parent/'fixtures/defensive_continuations/brian.json'
 
 
 def test_archived_ball_track_preserves_confirmed_live_first_rally():
@@ -78,6 +81,75 @@ def test_in_table_net_contact_is_outside_surgical_fix_scope():
                  motifs=[],long_bounces=[],cards_gap4=[])
     result=C.propose(context,[dict(idx=2,t0=9.48,t1=15.97,serve_s=10.19)])
     assert [[c['t0'],c['t1']] for c in result['cards']]==[[9.48,13.12]]
+
+
+def test_rescored_brian_repairs_only_four_confirmed_defensive_seams():
+    """Catch either losing an approved repair or joining any other seam."""
+    fixture=json.loads(DEFENSIVE_FIXTURE.read_text())
+    cards,decisions=C.join_defensive_continuations(
+        fixture['cards'],fixture['players'],fixture['crossings'],
+        fixture['table_bounces'])
+    accepted=[row['left_index'] for row in decisions if row['accepted']]
+    joined=[[card['t0'],card['t1']] for card in cards
+            if [card['t0'],card['t1']] in fixture['expected_windows']]
+    assert accepted==fixture['expected_join_left_indices']
+    assert joined==fixture['expected_windows']
+    assert len(cards)==len(fixture['cards'])-4
+
+
+def test_rescored_brian_keeps_the_two_accepted_remaining_misses_separate():
+    """The release intentionally leaves points 51 and 62 for later work."""
+    fixture=json.loads(DEFENSIVE_FIXTURE.read_text())
+    _cards,decisions=C.join_defensive_continuations(
+        fixture['cards'],fixture['players'],fixture['crossings'],
+        fixture['table_bounces'])
+    by_left={row['left_index']:row for row in decisions}
+    assert all(not by_left[index]['accepted']
+               for index in fixture['known_remaining_miss_left_indices'])
+
+
+def test_combined_policy_publishes_the_four_defensive_repairs():
+    """Catch a correct helper being packaged but never called by the worker."""
+    fixture=json.loads(DEFENSIVE_FIXTURE.read_text())
+    cards=fixture['cards']
+    evidence=SimpleNamespace(track={},fps=30.,cross=fixture['crossings'],
+                             bt_table=fixture['table_bounces'],
+                             bt_endline=[],serves=[])
+    predictions=[{'status':'abstained'} for _ in cards]
+    corners={'A_near_1':[0.,10.],'B_near_2':[10.,10.],
+             'C_far_2':[10.,0.],'D_far_1':[0.,0.]}
+    actual,private,info=C.process_cards(
+        cards,predictions,evidence,corners,1920,[],
+        {'candidate_features':[],'gate_log':[]},{'body_T':[],'body_p':[]},
+        cards,players=fixture['players'])
+    assert len(actual)==len(cards)-4
+    assert len(private)==len(actual)
+    assert info['defensive_continuations']['repaired']==4
+
+
+def test_matching_stale_serve_cannot_join_across_a_long_gap():
+    """Catch a duplicated serve stamp bridging unrelated distant cards."""
+    cards=[{'t0':10.,'t1':20.,'serve_s':11.},
+           {'t0':22.,'t1':30.,'serve_s':11.}]
+    actual,decisions=C.join_defensive_continuations(cards,{'frames':[]},[],[])
+    assert actual==cards
+    assert not decisions[0]['accepted']
+
+
+def test_ishan_real_restart_five_seconds_into_second_card_stays_separate():
+    """Catch joining two LYTTC points whose second card opened too early."""
+    cards=[{'t0':275.56,'t1':281.227,'serve_s':275.91},
+           {'t0':282.177,'t1':291.50,'serve_s':287.02}]
+    frames=[]
+    for t in np.arange(280.1,283.1,.1):
+        frames.append({'t':float(t),'near':{'box':[0,0,60,120]},
+                       'far':{'box':[200,0,260,120]},
+                       'all':[[0,0,60,120],[200,0,260,120]]})
+    actual,decisions=C.join_defensive_continuations(
+        cards,{'frames':frames},[277.72,279.16,281.69,281.96,283.23],
+        [280.96,281.69,281.96,282.55])
+    assert actual==cards
+    assert not decisions[0]['accepted']
 
 @pytest.mark.parametrize('path',sorted(FIXTURES.glob('*.json')),ids=lambda p:p.stem)
 def test_owner_reviewed_attempts(path):

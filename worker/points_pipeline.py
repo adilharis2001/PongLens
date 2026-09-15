@@ -3093,7 +3093,7 @@ def cmd_points(args):
                                 body_cards, private_predictions, combined_info = combined_cuts.process_cards(
                                     body_cards, private_predictions, v2_E, body_corners,
                                     meta['width'], v3_serves or [], v3['restart_evidence'],
-                                    body_evidence, gap4)
+                                    body_evidence, gap4, players=players)
                             except Exception as exc:
                                 combined_info.update(status='error', reason=type(exc).__name__)
                         processing['combined_cuts'] = combined_info
