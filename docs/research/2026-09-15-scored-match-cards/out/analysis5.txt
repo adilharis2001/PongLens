@@ -1,0 +1,36 @@
+=== 'ENDED ON THE RECEIVE' with a time gate (drawn serves with a rally end) === 589
+  no return landing and rally ended within 1.0s of the serve landing: n=  95  receiver lost 67%
+  no return landing and rally ended within 1.5s of the serve landing: n= 120  receiver lost 67%
+  no return landing and rally ended within 2.0s of the serve landing: n= 138  receiver lost 65%
+  strict (also no ball seen 1.2 s after the serve landing):                  n= 105  receiver lost 65%   share of drawn serves 18%
+  of all k=0 points, rally continued past 1.5 s (a missed return bounce): 50% of 241
+  'ended on the third ball' (one return landing, then the end within 1.5 s): n=121  server lost 72%
+
+  per match, strict receive errors: n and agreement with the score
+    lester                 n=  8  ok 62%   of 57 drawn
+    rowel                  n=  8  ok 62%   of 53 drawn
+    prabhas                n=  8  ok 88%   of 32 drawn
+    ishan                  n= 11  ok 55%   of 34 drawn
+    ali                    n=  6  ok 50%   of 25 drawn
+    chris_aug22            n=  9  ok 100%   of 67 drawn
+    julian_aug23           n=  4  ok 100%   of 32 drawn
+    yuyulin                n= 18  ok 67%   of 66 drawn
+    brian                  n=  0  ok -   of 26 drawn
+    anton                  n=  2  ok 50%   of 19 drawn
+    vaibhav_sep4           n= 15  ok 47%   of 54 drawn
+    chris_aug14            n=  7  ok 71%   of 63 drawn
+    julian_aug11_pinkrim   n=  9  ok 44%   of 61 drawn
+
+=== RECEIVE ERRORS by their serve zone, strict gate (you receiving) ===
+  longM    faced   10  receive error 100%
+  halfM    faced   10  receive error 60%
+  longL    faced    7  receive error 86%
+  halfL    faced    5  receive error 60%
+  longR    faced    5  receive error 40%
+  halfR    faced    3  receive error 33%
+  shortM   faced    3  receive error 100%
+  shortL   faced    3  receive error 67%
+
+=== YOUR SCORE TAP minus the worker's rally end (s), points with both === 934
+  p5=-3.82  p10=-1.73  p25=0.37  median=1.33  p75=1.90  p90=2.53
+  rally end AFTER the tap (dead play would show here): 20%   rally end more than 4 s before the tap: 0%

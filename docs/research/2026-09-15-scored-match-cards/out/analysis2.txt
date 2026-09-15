@@ -1,0 +1,53 @@
+=== EDGE-BAND bounces by edge, and share within 2.5 frames of a contact ===
+  far end line             586   near a contact: 9%
+  camera-left sideline     512   near a contact: 18%
+  camera-right sideline    135   near a contact: 19%
+  near end line            113   near a contact: 60%
+
+=== INSIDE bounces by depth bin (near end -> far end): share near a contact ===
+  bin 0 v=0.00-0.46m  n=  863  near contact 33%
+  bin 1 v=0.46-0.91m  n= 1413  near contact 8%
+  bin 2 v=0.91-1.37m  n=  825  near contact 4%
+  bin 3 v=1.37-1.83m  n=  598  near contact 9%
+  bin 4 v=1.83-2.28m  n=  881  near contact 1%
+  bin 5 v=2.28-2.74m  n= 1418  near contact 3%
+
+=== drawn serves whose bounce is within 2.5 frames of a contact: first=60 landing=58 of 757
+
+=== boundary matches: drawn-serve points lasting >3 s with NO inside bounce after the serve landing: 12 of 104
+
+=== CARD YIELDS (share of scored points) ===
+match                   pts  serve  receive  ending  duration  rallyEnd  serveTap  scoredTap
+lester                  104    63%      42%     68%       80%       82%        0%        99%
+rowel                    80    74%      45%     74%       80%       84%       94%        99%
+prabhas                  55    60%      33%     76%       93%       96%       95%        98%
+ishan                    79    47%      29%     24%       89%       91%       97%        94%
+ali                      44    57%      32%     39%       91%       93%        0%       100%
+chris_aug22              89    82%      58%     83%       89%       90%        0%       100%
+julian_aug23             75    53%      36%     73%       73%       76%        0%       100%
+yuyulin                  92    72%      38%     68%       92%       95%        0%       100%
+brian                    90    33%       4%     46%       87%       91%        0%        74%
+anton                    51    45%      20%     61%       86%       90%        2%        94%
+vaibhav_sep4            146    42%      16%     48%       83%       84%        1%        93%
+chris_aug14              79    80%      44%     73%      100%      100%        0%        70%
+julian_oct25             49    49%      22%     65%        0%        0%        0%        90%
+terry2                   39    18%       3%     44%        0%        0%        0%       100%
+vaibhav_wtc              32    16%       6%     59%        0%        0%        0%         0%
+chris_jul26b             37    81%      57%     68%        0%        0%        0%         0%
+chris_jul26a             27    78%      63%     81%        0%        0%        0%         0%
+chris_jul26c             34    82%      59%     74%        0%        0%        0%         0%
+julian_aug11_pinkrim    118    55%      36%     61%       91%       95%        1%       100%
+TOTAL                  1320    57%      33%     62%       72%       74%       16%        85%
+  ending candidates that were on the loser's half: 65% of 1253
+
+=== SERVE DEPTH (drawn serves) and server win rate ===
+  short      n= 104  server won 52%
+  half-long  n= 362  server won 51%
+  long       n= 291  server won 55%
+
+=== POINT DURATION (serve first bounce -> worker rally end) and uploader win rate ===
+  short <3s  n= 506  user won 43%
+  mid 3-6s   n= 273  user won 42%
+  long 6s+   n= 177  user won 53%
+
+=== ENDING depth on loser's half === {'short': 154, 'half-long': 336, 'long': 322}

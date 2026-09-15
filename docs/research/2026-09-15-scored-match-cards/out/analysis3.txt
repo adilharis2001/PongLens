@@ -1,0 +1,25 @@
+=== sideline bounces per match (within 8 cm of the line) ===
+  lester                 left   56  right    2  of inside   531   left share 11%
+  rowel                  left   40  right    3  of inside   419   left share 10%
+  prabhas                left   29  right    3  of inside   237   left share 12%
+  ishan                  left   23  right    0  of inside   322   left share 7%
+  ali                    left    0  right    3  of inside   179   left share 0%
+  chris_aug22            left   54  right    4  of inside   510   left share 11%
+  julian_aug23           left    0  right   35  of inside   354   left share 0%
+  yuyulin                left   27  right    0  of inside   430   left share 6%
+  brian                  left   39  right    0  of inside   319   left share 12%
+  anton                  left   16  right    3  of inside   200   left share 8%
+  vaibhav_sep4           left  108  right   11  of inside   493   left share 22%
+  chris_aug14            left   51  right    3  of inside   500   left share 10%
+  julian_oct25           left   37  right    3  of inside   228   left share 16%
+  terry2                 left    7  right    6  of inside    90   left share 8%
+  vaibhav_wtc            left   53  right    3  of inside   122   left share 43%
+  chris_jul26b           left    0  right   16  of inside   185   left share 0%
+  chris_jul26a           left    0  right   10  of inside   146   left share 0%
+  chris_jul26c           left    0  right   12  of inside   183   left share 0%
+  julian_aug11_pinkrim   left    3  right   56  of inside   550   left share 1%
+
+=== point-ending rule variants (points with a worker rally end) === 952
+  C raw last inside bounce in clip:              cand  952  on loser half 65%
+  A last clean bounce before rally end:          cand  952  on loser half 64%
+  B ... and within 1.5 s of rally end:           cand  780  on loser half 65%   (share of points 82%)

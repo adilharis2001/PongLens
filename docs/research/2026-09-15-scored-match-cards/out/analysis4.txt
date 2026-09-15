@@ -1,0 +1,95 @@
+=== FIRST THREE BALLS: does the bounce count agree with the scored winner? (drawn-serve points) ===
+k = clean alternating in-table bounces after the serve landing. k=0 -> receiver should have lost, k=1 -> server, k=2 -> receiver, 3+ pooled
+match                           k=0          k=1          k=2          k=3  unbroken
+lester                   68%/22      62%/29      92%/12     100%/3      73%
+rowel                    61%/23      77%/22      50%/6       88%/8      59%
+prabhas                  86%/14     100%/10      75%/4       60%/5      67%
+ishan                    50%/14      27%/15      20%/5      100%/3      76%
+ali                      64%/11      44%/9        0%/2        0%/3      72%
+chris_aug22              76%/21      65%/26     100%/14      83%/12     66%
+julian_aug23             62%/13      55%/11      50%/10      67%/6      75%
+yuyulin                  61%/31      71%/17      58%/12      67%/6      65%
+brian                    54%/26      75%/4         -/0         -/0      93%
+anton                    58%/12      80%/5      100%/3       33%/3      78%
+vaibhav_sep4             46%/39      80%/15      40%/5       67%/3      73%
+chris_aug14              63%/27      73%/11     100%/10      60%/15     57%
+julian_oct25             75%/12      40%/5      100%/3       50%/4      83%
+terry2                   67%/6      100%/1         -/0         -/0      71%
+vaibhav_wtc               0%/3       50%/2         -/0         -/0      40%
+chris_jul26b            100%/9       62%/8       60%/5       75%/8      67%
+chris_jul26a            100%/4       86%/7      100%/4       83%/6      67%
+chris_jul26c             71%/7       82%/11      80%/5      100%/5      68%
+julian_aug11_pinkrim     55%/20      68%/25      80%/10      40%/10     60%
+ALL                      62%/314     67%/233     74%/110     68%/100  
+
+=== SERVE SPEED from the two serve bounces (m/s along the table plane) ===
+  n=671  p10=2.7  p25=3.6  median=4.4  p75=5.2  p90=6.5   serve dt median=0.42s
+  slow    n= 223  server won 47%   depth mix short:64, half:99, long:60
+  medium  n= 224  server won 53%   depth mix short:25, half:149, long:50
+  fast    n= 224  server won 58%   depth mix short:2, half:84, long:138
+  histogram m/s: 0:5 1:24 2:66 3:153 4:220 5:114 6:58 7:28 8:2 11:1
+
+=== DURATION ANCHORS: worker rally end minus last clean bounce (s) ===
+  n=589  p10=0.02  p25=0.23  median=1.04  p75=2.55  p90=5.04   within 1.5 s: 59%
+=== WIN RATE by bounce-measured duration (first serve bounce -> last clean bounce), uploader ===
+  short <2s  n= 626  won 45%
+  mid 2-4s   n= 111  won 34%
+  long 4s+   n=  20  won 60%
+
+=== SHOT-SPEED PROXY: contact -> landing time for rally shots ===
+  n=713  dt p10=0.27 p25=0.33 median=0.43 p75=0.50 p90=0.57
+  dt histogram (50 ms bins): 150:6 200:32 250:45 300:112 350:70 400:168 450:86 500:102 550:32 600:23 650:4 700:10 750:8 800:9 850:6
+  implied speed m/s p10=4.4 median=5.9 p90=9.1
+
+=== RECEIVE ERRORS by their serve zone (you receiving; k=0 and you lost) ===
+  halfM    faced   90  missed 24%
+  longM    faced   70  missed 31%
+  halfL    faced   61  missed 21%
+  longL    faced   41  missed 32%
+  longR    faced   36  missed 33%
+  halfR    faced   30  missed 10%
+  shortM   faced   24  missed 38%
+  shortL   faced   22  missed 32%
+  shortR   faced    6  missed 50%
+
+=== SERVE VARIETY: zone entropy (bits, max 3.17 over 9 zones) and top zone, per server ===
+  lester                 near: H=2.73 n=32 top=halfM 22%   far: H=2.82 n=34 top=halfL 26%
+  rowel                  near: H=2.21 n=27 top=longM 41%   far: H=2.13 n=32 top=halfL 38%
+  prabhas                near: H=2.43 n=16 top=longR 31%   far: H=1.76 n=17 top=halfL 47%
+  ishan                  far: H=2.39 n=22 top=halfM 36%   near: H=2.74 n=15 top=longR 20%
+  ali                    far: H=2.38 n=14 top=halfL 29%   near: H=2.37 n=11 top=longM 36%
+  chris_aug22            near: H=2.53 n=34 top=longM 26%   far: H=2.31 n=39 top=halfL 33%
+  julian_aug23           near: H=2.18 n=18 top=longM 33%   far: H=2.13 n=22 top=halfM 45%
+  yuyulin                near: H=2.04 n=35 top=halfM 34%   far: H=2.35 n=31 top=halfM 39%
+  brian                  far: H=1.81 n=23 top=shortL 48%   near: H=1.38 n=7 top=longL 57%
+  anton                  far: H=2.75 n=14 top=halfM 29%   near: H=1.89 n=9 top=longM 33%
+  vaibhav_sep4           near: H=2.36 n=31 top=longR 39%   far: H=2.14 n=31 top=shortL 42%
+  chris_aug14            near: H=2.36 n=34 top=longM 29%   far: H=2.22 n=29 top=halfL 34%
+  julian_oct25           far: H=2.15 n=15 top=halfM 33%   near: H=2.42 n=9 top=longL 33%
+  terry2                 far: H=1.0 n=2 top=halfL 50%   near: H=1.37 n=5 top=longR 60%
+  vaibhav_wtc            near: H=0.81 n=4 top=shortM 75%   far: H=-0.0 n=1 top=longL 100%
+  chris_jul26b           far: H=2.13 n=17 top=longM 29%   near: H=2.41 n=13 top=halfM 31%
+  chris_jul26a           far: H=2.69 n=12 top=halfR 25%   near: H=1.89 n=9 top=longM 33%
+  chris_jul26c           far: H=1.88 n=16 top=longR 38%   near: H=2.36 n=12 top=halfR 33%
+  julian_aug11_pinkrim   far: H=2.38 n=42 top=halfM 45%   near: H=2.67 n=23 top=halfM 26%
+
+=== ENDING self-check per match (last chain landing on loser's half, drawn-serve points) ===
+  lester                   71% of 66
+  rowel                    69% of 59
+  prabhas                  85% of 33
+  ishan                    41% of 37
+  ali                      44% of 25
+  chris_aug22              78% of 73
+  julian_aug23             58% of 40
+  yuyulin                  64% of 66
+  brian                    57% of 30
+  anton                    65% of 23
+  vaibhav_sep4             55% of 62
+  chris_aug14              70% of 63
+  julian_oct25             67% of 24
+  terry2                   71% of 7
+  vaibhav_wtc              20% of 5
+  chris_jul26b             77% of 30
+  chris_jul26a             90% of 21
+  chris_jul26c             82% of 28
+  julian_aug11_pinkrim     62% of 65
