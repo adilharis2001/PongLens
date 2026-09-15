@@ -519,6 +519,10 @@ because scoring confirms the cuts and the worker reads the corrected
 windows when it runs; a practice match has nothing to score and gets it
 at once. Viewers never see the next-step card.
 Scoring re-runs nothing: the worker's records are read at view time.
+**The upload-time "Placement maps" toggle is gone (2026-09-15):** the
+analysis has one entry point, the next-step card after scoring, so it
+runs on confirmed cuts. The `placement` job option still exists for the
+worker and admin backfills; the apps always send false.
 
 They show **serves only** (132, `app_config.placement_serves_only`). The
 full record is `docs/research/2026-08-23-placement-yield.md` and

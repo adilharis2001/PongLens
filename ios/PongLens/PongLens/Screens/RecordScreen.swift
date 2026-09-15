@@ -614,7 +614,7 @@ struct RecordScreen: View {
                     fileURL: url, durationS: duration, sessionId: sessionId,
                     metadata: draft,
                     processOn: kind.forcesProcessingOff ? false : settings.processAfterUpload,
-                    placementOn: kind.forcesProcessingOff ? false : settings.placementMaps
+                    placementOn: false
                 )
             }
             recorder.onSessionEnd = {
@@ -732,7 +732,7 @@ struct RecordScreen: View {
                 recentVenues: library.recentValues(\.venue),
                 kind: kind,
                 processOn: kind.forcesProcessingOff ? false : settings.processAfterUpload,
-                placementOn: kind.forcesProcessingOff ? false : settings.placementMaps
+                placementOn: false
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
@@ -1584,10 +1584,6 @@ private struct RecordSettingsSheet: View {
                         get: { settings.processAfterUpload },
                         set: { settings.processAfterUpload = $0; settings.save() }
                     ))
-                    Toggle("Placement maps", isOn: Binding(
-                        get: { settings.placementMaps },
-                        set: { settings.placementMaps = $0; settings.save() }
-                    ))
                 } footer: {
                     Text("Video records at 1080p HEVC. A 45-minute match is about 4 GB at 60 fps, or 2 GB at 30.")
                 }
@@ -1702,9 +1698,6 @@ struct MatchDetailsSheet: View {
                 Section {
                     Toggle("Process when the upload finishes", isOn: Binding(
                         get: { processOn }, set: { processingChoice.chooseProcess($0) }))
-                    Toggle("Placement maps", isOn: Binding(
-                        get: { placementOn }, set: { processingChoice.choosePlacement($0) }))
-                        .disabled(!processOn)
                 } header: {
                     Text("Processing")
                 } footer: {
@@ -2068,9 +2061,6 @@ struct MatchDetailsSheet: View {
             : "Its length in minutes comes off your balance."
         if let minutesBalance {
             text += " You have \(minutesBalance)."
-        }
-        if placementOn {
-            text += " Placement maps show where every ball landed and add processing time."
         }
         return text
     }

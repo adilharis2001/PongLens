@@ -74,7 +74,6 @@ type FormState = {
   venue: string;
   matchType: MatchType;
   points: boolean;
-  placement: boolean;
   strictness: Strictness;
   /** Which end the uploader played from; rides on meta.user_side. */
   userSide: Side | null;
@@ -87,7 +86,6 @@ const DEFAULT_FORM: FormState = {
   venue: "",
   matchType: "",
   points: true,
-  placement: false,
   strictness: "normal",
   userSide: null,
   firstServer: null,
@@ -423,9 +421,6 @@ export function UploadCard({
   const [autoProcess, setAutoProcess] = useState(false);
   const autoProcessRef = useRef(false);
   autoProcessRef.current = autoProcess;
-  const [autoPlacement, setAutoPlacement] = useState(false);
-  const autoPlacementRef = useRef(false);
-  autoPlacementRef.current = autoPlacement;
   // Trim, decided here rather than after the fact. The browser can play
   // the picked file straight off disk, so the whole video is scrubbable
   // before a byte moves — the same trick the side picker already uses —
@@ -730,7 +725,6 @@ export function UploadCard({
     const next = {
       ...base,
       points: f.points,
-      placement: f.points && f.placement,
       strictness: f.strictness,
       meta: {
         opponent_name: f.opponent.trim() || null,
@@ -832,7 +826,6 @@ export function UploadCard({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           matchId,
-          placement: autoPlacementRef.current,
           // Only when they actually moved a handle. Sending the full
           // window would be the same charge, but the job would then
           // record a trim nobody asked for.
@@ -887,7 +880,6 @@ export function UploadCard({
       status: "queued",
       options: {
         points: f.points,
-        placement: f.points && f.placement,
         strictness: f.strictness,
         meta: {
           opponent_name: f.opponent.trim() || null,
@@ -1658,25 +1650,6 @@ export function UploadCard({
               label="Process when the upload finishes"
             />
           </div>
-          <div className="flex items-center justify-between gap-4 p-3.5">
-            <div className="min-w-0">
-              <p
-                className={`flex items-center gap-2 text-sm ${autoProcess ? "text-zinc-200" : "text-zinc-500"}`}
-              >
-                Placement maps
-                <BetaPill />
-              </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                Where each serve landed. Adds processing time.
-              </p>
-            </div>
-            <Toggle
-              on={autoProcess && autoPlacement}
-              onChange={setAutoPlacement}
-              disabled={!autoProcess || committed}
-              label="Placement maps"
-            />
-          </div>
 
           {/* Trim, in the block that already carries the cost, because
             trimming is a cost decision. Closed by default so the card does
@@ -2019,7 +1992,6 @@ export function UploadCard({
                     // changed straight afterwards.
                     const scored = tracksServe(next || null);
                     setField("points", scored, true);
-                    setField("placement", scored, true);
                   }}
                   className={`rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
                     form.matchType === t.value
@@ -2049,25 +2021,6 @@ export function UploadCard({
                   onChange={(v) => setField("points", v, true)}
                   disabled={processingLocked}
                   label="Break it into points"
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4 p-3.5">
-                <div>
-                  <p
-                    className={`flex items-center gap-2 text-sm ${form.points ? "text-zinc-200" : "text-zinc-500"}`}
-                  >
-                    Placement maps
-                    <BetaPill />
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    Adds processing time
-                  </p>
-                </div>
-                <Toggle
-                  on={form.points && form.placement}
-                  onChange={(v) => setField("placement", v, true)}
-                  disabled={!form.points || processingLocked}
-                  label="Placement maps"
                 />
               </div>
               <div className="p-3.5">

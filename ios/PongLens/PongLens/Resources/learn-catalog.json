@@ -36,7 +36,7 @@
           "steps": [
             "Open Upload from Home or Matches.",
             "Choose a video up to 45 minutes long, then add the opponent, location, session type, and which side of the video is yours.",
-            "Choose whether PongLens should break the video into points and generate placement maps.",
+            "Choose whether PongLens should break the video into points.",
             "Keep the page open until the upload finishes. You can leave once processing starts.",
             "Return when PongLens tells you the match is ready."
           ]
@@ -53,7 +53,6 @@
           "heading": "Choose what PongLens creates",
           "bullets": [
             "Break it into points removes the time between rallies and creates the clips used for scoring, tags, and point-by-point review.",
-            "Placement maps asks PongLens to follow the ball. It works best when the full table is clear in the frame.",
             "Opponent, location, session type, and your side make the match easier to recognize and keep the score facing the right way."
           ],
           "tip": "Processing choices lock when processing begins. You can still edit the match details later."
@@ -302,7 +301,7 @@
             "Open a match and choose Match analysis in Tools.",
             "Score the points to fill the result, score, serve, receive, and momentum views.",
             "Answer the optional Analysis questions to fill Serve, Mistakes, and Placement.",
-            "Open Where the ball landed for the placement maps made from the footage."
+            "Open Match analysis for the serve maps and the cards made from the footage."
           ]
         },
         {
@@ -782,14 +781,14 @@
             "Open a student and choose one of the matches they shared.",
             "Watch the cut match or open Original for the upload exactly as the player sent it.",
             "Move point by point and follow the score the player recorded.",
-            "Open Match analysis and placement maps when you need the player's wider read of the match."
+            "Open Match analysis when you need the player's wider read of the match."
           ]
         },
         {
           "heading": "Use the same evidence as the player",
           "paragraphs": [
             "The cut removes the time between rallies, while Original keeps the complete upload. Open individual points to connect an observation to the exact rally.",
-            "The score, match analysis, and placement maps reflect the player's scoring and processing choices."
+            "The score and match analysis reflect the player's scoring."
           ]
         },
         {
@@ -894,7 +893,7 @@
       "audience": "player",
       "slug": "analysis",
       "title": "Read your match",
-      "blurb": "Read the score, momentum, tactical answers, and placement maps together.",
+      "blurb": "Read the score, momentum, tactical answers, and serve maps together.",
       "seconds": 43,
       "guide": "match-analysis",
       "mediaKey": "tutorial/player/analysis.mp4"
