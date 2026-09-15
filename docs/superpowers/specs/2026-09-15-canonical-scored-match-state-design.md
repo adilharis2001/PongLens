@@ -5,9 +5,9 @@ Store one versioned, database-derived answer for the owner-confirmed score, serv
 > **Implementation status (2026-09-15):** The additive foundation is prepared
 > on `codex/canonical-score-state`: pure TypeScript projector, shared literal
 > fixtures, private SQL shadow projection, revision/health plumbing, RLS
-> contracts and manual-cutter source-clock normalization. TypeScript and static
-> migration contracts pass; the isolated real-PostgreSQL suite is pending a
-> running Docker engine. No production reader or writer has been switched.
+> contracts and manual-cutter source-clock normalization. TypeScript, static
+> migration and isolated real-PostgreSQL contracts pass. No production reader
+> or writer has been switched.
 > Atomic scoring/structural commands, web/iOS reader migration, downstream
 > consumer migration and worker publication remain later release phases.
 

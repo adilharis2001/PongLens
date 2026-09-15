@@ -6,6 +6,10 @@ const migrationUrl = new URL(
   "../../../supabase/migrations/20260915190000_canonical_scored_match_state.sql",
   import.meta.url
 );
+const setupUrl = new URL(
+  "../../../scripts/scoring/setup-local-db.mjs",
+  import.meta.url
+);
 
 function migrationSql(): string {
   assert.equal(
@@ -147,4 +151,13 @@ test("existing manual matches are offered to the normalizer without blocking mig
     sql,
     /normalize_manual_cut_observations[\s\S]{0,300}exception when others/i
   );
+});
+
+test("database setup waits for the requested database, not only the server socket", () => {
+  const setup = readFileSync(setupUrl, "utf8");
+  assert.match(
+    setup,
+    /"exec", CONTAINER, "psql", "-At", "-U", "postgres", "-d", DATABASE,\s*"-c", "select 1"/
+  );
+  assert.doesNotMatch(setup, /pg_isready/);
 });

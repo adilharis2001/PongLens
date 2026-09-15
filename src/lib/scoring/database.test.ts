@@ -70,11 +70,11 @@ databaseTest("SQL projector matches literal score, boundary, serve, and revision
   assert.equal(
     rows,
     [
-      "1|1|0-0|1-0|user|f",
-      "2|1|1-0|2-0|user|f",
-      "3|1|2-0|3-0|opponent|f",
-      "11|1|10-0|11-0|opponent|t",
-      "12|2|0-0|0-0|opponent|f",
+      "1|1|0-0|1-0|user|false",
+      "2|1|1-0|2-0|user|false",
+      "3|1|2-0|3-0|opponent|false",
+      "11|1|10-0|11-0|opponent|true",
+      "12|2|0-0|0-0|opponent|false",
     ].join("\n")
   );
   assert.equal(
@@ -82,7 +82,7 @@ databaseTest("SQL projector matches literal score, boundary, serve, and revision
                 current_score_user || '-' || current_score_opponent || '|' ||
                 visible_point_count || '|' || score_revision
            from public.match_score_state where match_id='${MATCH}';`),
-    "1|2|0-0|12|1"
+    "1|2|0-0|12|12"
   );
   assert.equal(
     sql(`select score_revision=score_projection_revision and
@@ -128,22 +128,25 @@ databaseTest("RLS exposes projections to owner and accepted coach but not strang
     assert.equal(
       sql(`begin; set local role authenticated;
            select set_config('request.jwt.claim.sub','${actor}',true);
-           select count(*) from public.point_score_state where match_id='${MATCH}';
-           rollback;`).split("\n").at(-1),
-      "1"
+           select 'COUNT:' || count(*) from public.point_score_state where match_id='${MATCH}';
+           rollback;`).split("\n").find((line) => line.startsWith("COUNT:")),
+      "COUNT:1"
     );
   }
   assert.equal(
     sql(`begin; set local role authenticated;
          select set_config('request.jwt.claim.sub','${STRANGER}',true);
-         select count(*) from public.point_score_state where match_id='${MATCH}';
-         rollback;`).split("\n").at(-1),
-    "0"
+         select 'COUNT:' || count(*) from public.point_score_state where match_id='${MATCH}';
+         rollback;`).split("\n").find((line) => line.startsWith("COUNT:")),
+    "COUNT:0"
   );
 
   const anon = spawnSync(
     "docker",
-    ["exec", "-i", CONTAINER, "psql", "-At", "-U", "postgres", "-d", DATABASE],
+    [
+      "exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1",
+      "-At", "-U", "postgres", "-d", DATABASE,
+    ],
     {
       input: `set role anon; select count(*) from public.point_score_state;`,
       encoding: "utf8",
@@ -181,8 +184,33 @@ databaseTest("manual cutter normalization is idempotent source-clock ground trut
     sql(`select count(*) || '|' || bool_and(eligible_for_training) || '|' ||
                 bool_and(eligible_for_playback)
            from public.point_timing_observations where match_id='${MATCH}';`),
-    "2|t|t"
+    "2|true|true"
   );
+});
+
+databaseTest("shadow projection failure preserves the legacy write and records health", () => {
+  resetFixture();
+  sql(`alter table public.point_score_state
+       add constraint point_score_state_test_failure check (false) not valid;`);
+  try {
+    sql(`insert into public.points(
+           id,match_id,processing_version_id,idx,t0,t1,confirmed_winner
+         ) values (
+           '30000000-0000-0000-0000-000000000001','${MATCH}','${VERSION}',1,
+           1,2,'user'
+         );`);
+
+    assert.equal(
+      sql(`select (select count(*) from public.points where match_id='${MATCH}') || '|' ||
+                  score_revision || '|' || score_projection_revision || '|' ||
+                  score_projection_status || '|' || (score_projection_error is not null)
+             from public.matches where id='${MATCH}';`),
+      "1|1|0|error|true"
+    );
+  } finally {
+    sql(`alter table public.point_score_state
+         drop constraint if exists point_score_state_test_failure;`);
+  }
 });
 
 databaseTest("admin research labels never change owner projection revision", () => {

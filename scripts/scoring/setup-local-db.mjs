@@ -35,7 +35,10 @@ docker([
 let ready = false;
 for (let attempt = 0; attempt < 40; attempt += 1) {
   const status = docker(
-    ["exec", CONTAINER, "pg_isready", "-U", "postgres", "-d", DATABASE],
+    [
+      "exec", CONTAINER, "psql", "-At", "-U", "postgres", "-d", DATABASE,
+      "-c", "select 1",
+    ],
     { allowFailure: true }
   );
   if (status.status === 0) {

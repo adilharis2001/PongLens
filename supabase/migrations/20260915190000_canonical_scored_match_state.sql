@@ -358,9 +358,9 @@ begin
     if not v_point.is_let then
       v_serves_in_block := v_serves_in_block + 1;
       if v_current_server is not null and
-         v_serves_in_block >= case
+         v_serves_in_block >= (case
            when v_score_user >= 10 and v_score_opponent >= 10 then 1 else 2
-         end then
+         end) then
         v_current_server := case when v_current_server = 'user'
           then 'opponent' else 'user' end;
         v_serves_in_block := 0;
