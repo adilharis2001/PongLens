@@ -88,13 +88,13 @@ function pointServerWon(
   return winner == null ? null : winner === server;
 }
 
-function otherSide(
+export function otherSide(
   side: PlacementPhysicalSide,
 ): PlacementPhysicalSide {
   return side === "near" ? "far" : "near";
 }
 
-function physicalSideForGame(
+export function physicalSideForGame(
   initialSide: PlacementPhysicalSide,
   gameIndex: number,
 ): PlacementPhysicalSide {

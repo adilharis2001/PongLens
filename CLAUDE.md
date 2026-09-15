@@ -483,6 +483,21 @@ at this level:
 
 ## Placement maps
 
+**One deck since 2026-09-15.** The serve maps are two cards of the Match
+analysis deck (`usePlacementMapCards` in `PlacementAggregate.tsx`), not a
+section of their own, and the Tools card has one "Match analysis" row
+whose status names what the section is waiting on. The video cards
+(`ScoredCards.tsx`, numbers from `src/lib/placement/scoredCards.ts`) open
+only once 75% of scoreable points carry a winner: the same integer rule as
+`public.highlight_generation_eligibility`, mirrored in `scoredCardsGate`,
+so change both or neither. What those cards may and may not claim was
+measured first: `docs/research/2026-09-15-scored-match-cards/`. Receive
+errors, third-ball outcomes, rally length in shots and attack-versus-push
+were rejected there (the return bounce is missed on half the points that
+show none); do not add them without new bounce data. A heat-map zone opens
+the list of its points; a point opened that way gets a "Back to match
+analysis" pill.
+
 They show **serves only** (132, `app_config.placement_serves_only`). The
 full record is `docs/research/2026-08-23-placement-yield.md` and
 `docs/research/2026-08-23-serve-placement-verification.md`.
