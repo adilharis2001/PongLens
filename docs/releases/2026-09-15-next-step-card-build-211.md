@@ -9,7 +9,7 @@ The Match analysis deck no longer draws half-filled cards on a partly scored mat
 | Serve landings, Heat map | Analysis ready, the owner's end known, three or more placed points. A line says who served is estimated until the match is scored. |
 | Overview, Point length, Serve speed, Where points ended | 75 percent of scorable points scored, plus each card's own minimum. |
 | Why you lost, Serve follow-ups | Unchanged: three or more answered. |
-| What's next | Owner only. Rows: which end did you play from, score the match (progress, needed count, button), detailed analysis (generate, generating, ready, try again). Until every row is done. |
+| What's next | Owner only. Rows in order: which end did you play from, score the match (progress, needed count, button), then the detailed analysis. Generate or Try again is offered only once the match is scored; an analysis that exists or is running shows as a status row at any time. Until every row is done. |
 | More cards coming soon | Only when fully scored and the analysis is ready or has finally failed. |
 
 ## Checks

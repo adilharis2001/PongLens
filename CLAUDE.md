@@ -513,7 +513,11 @@ estimated until the match is scored. Everything that reads the score
 a momentum chart of a half-scored match is the "half-assed card" he
 refused. The deck ends on ONE next-step card (which end, score the match,
 detailed analysis, each row with its state and action) until nothing is
-left, and only then on the teaser. Viewers never see the next-step card.
+left, and only then on the teaser. The steps are in order, not side by
+side: Generate (or Try again) is offered only once the match is scored,
+because scoring confirms the cuts and the worker reads the corrected
+windows when it runs; a practice match has nothing to score and gets it
+at once. Viewers never see the next-step card.
 Scoring re-runs nothing: the worker's records are read at view time.
 
 They show **serves only** (132, `app_config.placement_serves_only`). The
