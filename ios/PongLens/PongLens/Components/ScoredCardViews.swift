@@ -154,18 +154,20 @@ private func speedLabel(_ band: SpeedBand) -> String {
 
 struct PointLengthCard: View {
     let result: PointLengthResult
+    /// A coach reads the player's match: "the player" where the owner reads "you".
+    var coachView = false
 
     var body: some View {
         let mine = result.mine.filter { $0.won + $0.lost > 0 }
         let theirs = result.theirs.filter { $0.won + $0.lost > 0 }
-        ScoredCardStyle.card("Point length", hint: "Share of those points you won", beta: true) {
+        ScoredCardStyle.card("Point length", hint: coachView ? "Share of those points the player won" : "Share of those points you won", beta: true) {
             VStack(alignment: .leading, spacing: 0) {
                 if !mine.isEmpty {
-                    ScoredCardStyle.eyebrow("My serves (\(count(result.mine)))")
+                    ScoredCardStyle.eyebrow(coachView ? "Player's serves (\(count(result.mine)))" : "My serves (\(count(result.mine)))")
                     ForEach(mine, id: \.label) { ScoredCardStyle.splitBar($0.label, won: $0.won, lost: $0.lost) }
                 }
                 if !theirs.isEmpty {
-                    ScoredCardStyle.eyebrow("Their serves (\(count(result.theirs)))")
+                    ScoredCardStyle.eyebrow(coachView ? "Opponent's serves (\(count(result.theirs)))" : "Their serves (\(count(result.theirs)))")
                         .padding(.top, mine.isEmpty ? 0 : 14)
                     ForEach(theirs, id: \.label) { ScoredCardStyle.splitBar($0.label, won: $0.won, lost: $0.lost) }
                 }
@@ -184,16 +186,17 @@ struct PointLengthCard: View {
 struct ServeSpeedCard: View {
     let mine: [SpeedBand]
     let theirs: [SpeedBand]
+    var coachView = false
 
     var body: some View {
-        ScoredCardStyle.card("Serve speed", hint: "Share of those points you won", beta: true) {
+        ScoredCardStyle.card("Serve speed", hint: coachView ? "Share of those points the player won" : "Share of those points you won", beta: true) {
             VStack(alignment: .leading, spacing: 0) {
                 if !mine.isEmpty {
-                    ScoredCardStyle.eyebrow("My serves (\(count(mine)))")
+                    ScoredCardStyle.eyebrow(coachView ? "Player's serves (\(count(mine)))" : "My serves (\(count(mine)))")
                     ForEach(mine, id: \.label) { ScoredCardStyle.splitBar(speedLabel($0), won: $0.won, lost: $0.lost) }
                 }
                 if !theirs.isEmpty {
-                    ScoredCardStyle.eyebrow("Their serves (\(count(theirs)))")
+                    ScoredCardStyle.eyebrow(coachView ? "Opponent's serves (\(count(theirs)))" : "Their serves (\(count(theirs)))")
                         .padding(.top, mine.isEmpty ? 0 : 14)
                     ForEach(theirs, id: \.label) { ScoredCardStyle.splitBar(speedLabel($0), won: $0.won, lost: $0.lost) }
                 }
@@ -216,6 +219,7 @@ struct ServeSpeedCard: View {
 struct EndingsCard: View {
     let endings: EndingsResult
     let opponentLabel: String
+    var coachView = false
 
     var body: some View {
         ScoredCardStyle.card("Where points ended", hint: "The last bounce before the point was scored", beta: true) {
@@ -225,11 +229,11 @@ struct EndingsCard: View {
                     .frame(maxWidth: 220)
                     .frame(maxWidth: .infinity)
                 ScoredCardStyle.statRow(
-                    "Points you won, on their side",
+                    coachView ? "Points the player won, on the opponent's side" : "Points you won, on their side",
                     value: Text("\(endings.won)").foregroundStyle(PL.cyan)
                 )
                 ScoredCardStyle.statRow(
-                    "Points you lost, on your side",
+                    coachView ? "Points the player lost, on the player's side" : "Points you lost, on your side",
                     value: Text("\(endings.lost)").foregroundStyle(PL.magentaSoft)
                 )
                 ScoredCardStyle.footnote(
@@ -242,7 +246,7 @@ struct EndingsCard: View {
     private var canvas: some View {
         Canvas { context, size in
             let s = size.width / PlacementTable.viewW
-            drawPlacementTable(context, scale: s, topLabel: opponentLabel, bottomLabel: "Me")
+            drawPlacementTable(context, scale: s, topLabel: opponentLabel, bottomLabel: coachView ? "Player" : "Me")
             let maxCount = max(1, (endings.wonCounts.values.max() ?? 0), (endings.lostCounts.values.max() ?? 0))
             let net = TABLE_L / 2
             let depthStep = net / 3

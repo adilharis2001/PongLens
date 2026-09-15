@@ -147,3 +147,19 @@ test("the two web surfaces get their title and count from one place", () => {
     "Serves mapped for 1 of 1 point.",
   );
 });
+
+test("captions take a viewer's names in place of your and their", () => {
+  const voice = { your: "Adil's", their: "Lester's" };
+  assert.equal(
+    placementAggregateFilterCopy("myServes", voice),
+    "Where Adil's serves landed.",
+  );
+  assert.equal(
+    placementAggregateFilterCopy("theirRally", voice),
+    "Lester's non-serve shots that bounced on Adil's side.",
+  );
+  assert.equal(
+    placementAggregateCaption("theirServes", 2, 2, voice),
+    "Where Lester's serves landed · 2 landings from 2 points",
+  );
+});

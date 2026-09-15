@@ -17,6 +17,8 @@ struct PlacementMapCard: View {
     let gameIndexByPoint: [UUID: Int]
     let serving: [UUID: ServeInfo]
     let opponentLabel: String
+    /// A coach reads the player's match: "Player" where the owner reads "Me".
+    var coachView = false
     /// app_config placement_serves_only (132). The same switch the web
     /// reads, so one match cannot show serves in the browser and every
     /// landing here.
@@ -126,8 +128,9 @@ struct PlacementMapCard: View {
                 points: sheet.points,
                 gameIndexByPoint: gameIndexByPoint,
                 allPoints: points,
-                whose: who == .me ? "you" : opponentLabel,
+                whose: who == .me ? (coachView ? "the player" : "you") : opponentLabel,
                 servesOnly: servesOnly,
+                coachView: coachView,
                 onOpen: { point in
                     zoneSheet = nil
                     onOpenPoint?(point)
@@ -164,10 +167,14 @@ struct PlacementMapCard: View {
     private func hint(_ shown: [TrustedPlacementObservation]) -> String? {
         guard userSide != nil, !shown.isEmpty else { return nil }
         let what = switch filter {
-        case .myServes: "Where your serves landed"
-        case .theirServes: "Where their serves landed"
-        case .myRally: "Your non-serve shots that bounced on their side"
-        case .theirRally: "Their non-serve shots that bounced on your side"
+        case .myServes: coachView ? "Where the player's serves landed" : "Where your serves landed"
+        case .theirServes: coachView ? "Where the opponent's serves landed" : "Where their serves landed"
+        case .myRally: coachView
+            ? "The player's non-serve shots that bounced on the opponent's side"
+            : "Your non-serve shots that bounced on their side"
+        case .theirRally: coachView
+            ? "The opponent's non-serve shots that bounced on the player's side"
+            : "Their non-serve shots that bounced on your side"
         }
         let landings = shown.count
         let pointCount = trustedPlacementPointCount(shown)
@@ -176,7 +183,7 @@ struct PlacementMapCard: View {
 
     private var controls: some View {
         HStack(spacing: 8) {
-            segmented([("Me", PlacementMapWho.me), (opponentLabel, .them)], active: who) { who = $0 }
+            segmented([(coachView ? "Player" : "Me", PlacementMapWho.me), (opponentLabel, .them)], active: who) { who = $0 }
             // Rally landings are not shown at the confidence they can be
             // reconstructed at, so there is no second thing to choose
             // between and the control comes off entirely.
@@ -196,7 +203,8 @@ struct PlacementMapCard: View {
         Canvas { context, size in
             let s = size.width / PlacementTable.viewW
             drawPlacementTable(
-                context, scale: s, topLabel: opponentLabel, bottomLabel: "Me"
+                context, scale: s, topLabel: opponentLabel,
+                bottomLabel: coachView ? "Player" : "Me"
             )
             let tone = who == .me ? youColor : themColor
             let maxTotal = max(1, tallies.values.map(\.total).max() ?? 0)
@@ -266,7 +274,8 @@ struct PlacementMapCard: View {
         Canvas { context, size in
             let s = size.width / PlacementTable.viewW
             drawPlacementTable(
-                context, scale: s, topLabel: opponentLabel, bottomLabel: "Me"
+                context, scale: s, topLabel: opponentLabel,
+                bottomLabel: coachView ? "Player" : "Me"
             )
             let tone = who == .me ? youColor : themColor
             for observation in shown {
@@ -317,6 +326,7 @@ struct ZonePointsSheet: View {
     let allPoints: [MatchPoint]
     let whose: String
     let servesOnly: Bool
+    var coachView = false
     let onOpen: (MatchPoint) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -356,8 +366,8 @@ struct ZonePointsSheet: View {
 
     private func outcome(_ point: MatchPoint) -> String {
         switch point.confirmedWinner {
-        case .user: "You won"
-        case .opponent: "They won"
+        case .user: coachView ? "Player won" : "You won"
+        case .opponent: coachView ? "Opponent won" : "They won"
         default: "Not scored"
         }
     }

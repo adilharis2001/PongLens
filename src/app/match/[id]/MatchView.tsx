@@ -45,13 +45,6 @@ import { usePlacementLifecycle } from "./usePlacementLifecycle";
 import { AnalysisCards } from "./AnalysisCards";
 import { scoredCardsGate } from "@/lib/placement/scoredCards";
 import { ShareResult } from "@/app/s/[token]/ShareResult";
-import { ShareStats } from "@/app/s/[token]/ShareStats";
-import { SharePlacement } from "@/app/s/[token]/SharePlacement";
-import {
-  collectServePlacementObservations,
-  collectTrustedPlacementObservations,
-  trustedPlacementPointCount,
-} from "@/lib/placement/placementAggregate";
 import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
 import { mergeSkipSpans, paddedEnd,
@@ -1199,29 +1192,6 @@ export function MatchView({
   const placementNotice = handCut
     ? null
     : placementNoticeForViewer(placement.view, isOwner);
-  // A coach's maps are the public share page's maps (Adil, 2026-09-02):
-  // the same collectors, the same three-point floor, the same read-only
-  // deck. The owner keeps the interactive aggregate below.
-  const coachPlacement = useMemo(() => {
-    if (isOwner) return null;
-    if (match.placement_status !== "ready" || placementFlagged) return null;
-    const observations = (
-      placementServesOnly
-        ? collectServePlacementObservations
-        : collectTrustedPlacementObservations
-    )({ points: visiblePoints, userSide, gameIndexByPoint, serving });
-    const mapped = trustedPlacementPointCount(observations);
-    return mapped < 3 ? null : { observations, mapped };
-  }, [
-    isOwner,
-    match.placement_status,
-    placementFlagged,
-    placementServesOnly,
-    visiblePoints,
-    userSide,
-    gameIndexByPoint,
-    serving,
-  ]);
   const showPointPlacementNotice =
     !handCut && showPlacementDeepDive(placement.view, false);
   const serveGuess = useMemo(
@@ -4351,16 +4321,8 @@ export function MatchView({
         )}
       </div>
 
-      {/* Match analysis: the card deck summarises what the confirmed score
-          knows (swipe on mobile, grid on desktop). Owner-only, and only on
-          scored types — every card derives from confirmed winners, and a
-          practice never collects any, so for it this whole section could
-          only ever say "score a full game", which is an instruction to do
-          the one thing practice removed. */}
-      {/* A coach sees the scored half of the match the way a share link
-          shows it (Adil, 2026-09-02): the result, the stats and the maps,
-          in the public page's own components, so the two never drift. The
-          owner keeps the interactive deck below. */}
+      {/* A coach gets the result line the share page shows, above the
+          same deck the owner has (Adil, 2026-09-15). */}
       {!isOwner && scored && score.games.length > 0 && (
         <ShareResult
           you={mapLabels.you}
@@ -4370,33 +4332,18 @@ export function MatchView({
           gamesThem={score.gamesThem}
         />
       )}
-      {!isOwner && scored && (
-        <ShareStats
-          stats={stats}
-          momentum={analysis.momentum}
-          you={mapLabels.you}
-          them={mapLabels.them}
-        />
-      )}
-      {!isOwner && coachPlacement && (
-        <SharePlacement
-          observations={coachPlacement.observations}
-          mappedPoints={coachPlacement.mapped}
-          totalPoints={visiblePoints.length}
-          labels={mapLabels}
-          servesOnly={placementServesOnly}
-        />
-      )}
 
       {/* Match analysis: one deck for everything the match can say. The
           score cards, the video cards and the serve maps swipe together;
-          the Game filter on the section reaches all of them. Owner-only,
-          below the points so the timeline stays the page's spine. A
-          practice match keeps the maps it has (the camera's own data)
-          without the score cards or the gate; a hand-cut match has no
-          ball track, so nothing from the video is offered. The #ball-map
+          the Game filter on the section reaches all of them. Below the
+          points so the timeline stays the page's spine. A practice match
+          keeps the maps it has (the camera's own data) without the score
+          cards or the gate; a hand-cut match has no ball track, so nothing
+          from the video is offered. A coach reads the same deck without
+          the owner's controls: no gate, no generate button, no flag, and
+          the players' names where the owner reads "you". The #ball-map
           anchor stays for the links that used to target the maps. */}
-      {isOwner && (scored || (!handCut && placementMappedPoints > 0)) && (
+      {(scored || (!handCut && placementMappedPoints > 0)) && (
         <div ref={matchStatsRef} id="ball-map" className="scroll-mt-32">
           <AnalysisCards
             stats={stats}
@@ -4413,21 +4360,28 @@ export function MatchView({
             labels={mapLabels}
             ownerHandedness={ownerHandedness ?? null}
             servesOnly={placementServesOnly}
+            viewer={isOwner ? undefined : "coach"}
             placement={
               handCut
                 ? null
-                : {
-                    controller: placement,
-                    matchId: match.id,
-                    flagged: placementFlagged,
-                    onFlagChange: savePlacementFlagged,
-                    trusted:
-                      match.placement_status === "ready" && !placementFlagged,
-                  }
+                : isOwner
+                  ? {
+                      controller: placement,
+                      matchId: match.id,
+                      flagged: placementFlagged,
+                      onFlagChange: savePlacementFlagged,
+                      trusted:
+                        match.placement_status === "ready" && !placementFlagged,
+                    }
+                  : {
+                      flagged: placementFlagged,
+                      trusted:
+                        match.placement_status === "ready" && !placementFlagged,
+                    }
             }
             onOpenPoint={openPointFromAnalysis}
             onScore={
-              hasCutOffsets && scored
+              isOwner && hasCutOffsets && scored
                 ? () => playerRef.current?.openScore()
                 : undefined
             }

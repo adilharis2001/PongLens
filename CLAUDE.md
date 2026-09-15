@@ -496,7 +496,15 @@ errors, third-ball outcomes, rally length in shots and attack-versus-push
 were rejected there (the return bounce is missed on half the points that
 show none); do not add them without new bounce data. A heat-map zone opens
 the list of its points; a point opened that way gets a "Back to match
-analysis" pill.
+analysis" pill. **The coach view and the public share link show the same
+deck** (`viewer` on `AnalysisCards`, since 2026-09-15): read-only, no
+gate or lifecycle card, the players' names where the owner reads "you"
+(`Voice` in `cards.tsx`). The share page runs it in the browser on a
+placement reduced to what the cards read (`slimPlacementForShare`);
+`sharePlacement.test.ts` proves the slim record draws the same maps and
+cards as the full one, so a card that starts reading a new field fails
+there rather than drawing a thinner map for strangers. ShareStats and
+SharePlacement are gone; do not bring a second set of cards back.
 
 They show **serves only** (132, `app_config.placement_serves_only`). The
 full record is `docs/research/2026-08-23-placement-yield.md` and
