@@ -148,6 +148,9 @@ export function PlacementHeatMap({
                   fontSize={scored && cell.scored > 0 ? "10" : "11"}
                   fontWeight="700"
                   fill="#f8fafc"
+                  /* The underline is the tap affordance: a number you can
+                     open, not a label (Adil, 2026-09-15). */
+                  textDecoration={tappable ? "underline" : undefined}
                 >
                   {scored && cell.scored > 0
                     ? `${cell.won}/${cell.scored}`

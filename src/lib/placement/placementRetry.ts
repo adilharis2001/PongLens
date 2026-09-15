@@ -63,7 +63,7 @@ export function placementRequestUiTransition(
         sheetOpen: false,
         acknowledgement: {
           id: acknowledgementSequence,
-          message: "Placement maps are generating. We'll email you when they're ready.",
+          message: "The detailed analysis is generating. We'll email you when it's ready.",
         },
         acknowledgementSequence,
       };
@@ -167,23 +167,23 @@ export function scrollToReadyPlacement(
 
 const PLACEMENT_REQUEST_ERROR_COPY: Record<string, string> = {
   source_expired:
-    "Placement maps couldn't be generated because the original video is no longer available.",
+    "The detailed analysis couldn't be generated because the original video is no longer available.",
   generation_already_processing:
-    "Placement maps are generating. We'll email you when they're ready.",
-  already_retrying: "We're trying again. We'll email you when they're ready.",
-  retry_already_used: "Placement maps have already been requested.",
+    "The detailed analysis is generating. We'll email you when it's ready.",
+  already_retrying: "We're trying again. We'll email you when it's ready.",
+  retry_already_used: "The detailed analysis has already been requested.",
   generation_already_used:
-    "Placement maps have already been requested for this match.",
-  generation_unavailable: "Placement maps aren't available for this match.",
-  retry_unavailable: "The placement retry is no longer available.",
+    "The detailed analysis has already been requested for this match.",
+  generation_unavailable: "The detailed analysis isn't available for this match.",
+  retry_unavailable: "The retry is no longer available.",
   match_not_found: "We couldn't find this match.",
-  not_owner: "Only the match owner can request placement maps.",
-  not_authenticated: "Please sign in again before requesting placement maps.",
+  not_owner: "Only the match owner can request the detailed analysis.",
+  not_authenticated: "Please sign in again before requesting the detailed analysis.",
 };
 
 export function placementRequestErrorCopy(code?: string): string {
   return PLACEMENT_REQUEST_ERROR_COPY[code ?? ""]
-    ?? "Placement maps couldn't be generated. Please try again.";
+    ?? "The detailed analysis couldn't be generated. Please try again.";
 }
 
 export function isPlacementTerminal(status: MatchPlacementStatus): boolean {
@@ -200,7 +200,7 @@ export function placementNoticeForViewer(
 ): string | null {
   if (isOwner || view.actionKind === null) return view.noticeBody;
   if (view.actionKind === "generate") {
-    return "The match owner can generate placement maps.";
+    return "The match owner can generate the detailed analysis.";
   }
   return "The match owner can try again.";
 }
@@ -273,16 +273,16 @@ export function placementLifecycleView(
     return {
       tone: "muted",
       toolStatus: "Generate",
-      sheetTitle: "Generate placement maps?",
+      sheetTitle: "Generate the detailed analysis?",
       sheetBody:
-        "Placement maps haven't been generated for this match. You can "
-        + "generate them from Tools.",
-      noticeTitle: "Placement maps haven't been generated",
+        "The detailed analysis hasn't been generated for this match yet. You can "
+        + "generate it from Match analysis.",
+      noticeTitle: "The detailed analysis hasn't been generated",
       noticeBody:
-        "Placement maps haven't been generated for this match. You can "
-        + "generate them from Tools.",
+        "The detailed analysis hasn't been generated for this match yet. You can "
+        + "generate it from Match analysis.",
       actionKind: "generate",
-      actionLabel: "Generate placement maps",
+      actionLabel: "Generate detailed analysis",
       poll: false,
       showAggregate: false,
     };
@@ -292,13 +292,13 @@ export function placementLifecycleView(
     return {
       tone: "muted",
       toolStatus: "Unavailable",
-      sheetTitle: "Placement maps unavailable",
+      sheetTitle: "Detailed analysis unavailable",
       sheetBody:
-        "Placement maps couldn't be generated because the original video "
+        "The detailed analysis couldn't be generated because the original video "
         + "is no longer available.",
-      noticeTitle: "Placement maps unavailable",
+      noticeTitle: "Detailed analysis unavailable",
       noticeBody:
-        "Placement maps couldn't be generated because the original video "
+        "The detailed analysis couldn't be generated because the original video "
         + "is no longer available.",
       actionKind: null,
       actionLabel: null,
@@ -311,12 +311,12 @@ export function placementLifecycleView(
     return {
       tone: "progress",
       toolStatus: "Generating…",
-      sheetTitle: "Generating placement maps…",
+      sheetTitle: "Generating the detailed analysis…",
       sheetBody:
-        "Placement maps are generating. We'll email you when they're ready.",
-      noticeTitle: "Generating placement maps…",
+        "The detailed analysis is generating. We'll email you when it's ready.",
+      noticeTitle: "Generating the detailed analysis…",
       noticeBody:
-        "Placement maps are generating. We'll email you when they're ready.",
+        "The detailed analysis is generating. We'll email you when it's ready.",
       actionKind: null,
       actionLabel: null,
       poll: true,
@@ -328,16 +328,16 @@ export function placementLifecycleView(
     return {
       tone: "warning",
       toolStatus: "Try again",
-      sheetTitle: "Try placement again?",
+      sheetTitle: "Try the detailed analysis again?",
       sheetBody:
-        "Placement maps couldn't be generated because the table was hard to "
-        + "detect in this video. You can try once more from Tools.",
-      noticeTitle: "Placement maps need another try",
+        "The detailed analysis couldn't be generated because the table was hard to "
+        + "detect in this video. You can try once more from Match analysis.",
+      noticeTitle: "The detailed analysis needs another try",
       noticeBody:
-        "Placement maps couldn't be generated because the table was hard to "
-        + "detect in this video. You can try once more from Tools.",
+        "The detailed analysis couldn't be generated because the table was hard to "
+        + "detect in this video. You can try once more from Match analysis.",
       actionKind: "retry",
-      actionLabel: "Try placement again",
+      actionLabel: "Try again",
       poll: false,
       showAggregate: false,
     };
@@ -347,12 +347,12 @@ export function placementLifecycleView(
     return {
       tone: "progress",
       toolStatus: "Retrying…",
-      sheetTitle: "Retrying placement maps…",
+      sheetTitle: "Retrying the detailed analysis…",
       sheetBody:
-        "We're trying again. We'll email you when they're ready.",
-      noticeTitle: "Generating placement maps…",
+        "We're trying again. We'll email you when it's ready.",
+      noticeTitle: "Generating the detailed analysis…",
       noticeBody:
-        "We're trying again. We'll email you when they're ready.",
+        "We're trying again. We'll email you when it's ready.",
       actionKind: null,
       actionLabel: null,
       poll: true,
@@ -364,8 +364,8 @@ export function placementLifecycleView(
     return {
       tone: "muted",
       toolStatus: "Ready",
-      sheetTitle: "Placement maps ready",
-      sheetBody: "Placement maps are ready to explore.",
+      sheetTitle: "Detailed analysis ready",
+      sheetBody: "The detailed analysis is ready.",
       noticeTitle: null,
       noticeBody: null,
       actionKind: null,
@@ -379,13 +379,13 @@ export function placementLifecycleView(
     return {
       tone: "muted",
       toolStatus: "Unavailable",
-      sheetTitle: "Placement retry is no longer available",
+      sheetTitle: "The retry is no longer available",
       sheetBody:
-        "Placement maps couldn't be generated because the original video "
+        "The detailed analysis couldn't be generated because the original video "
         + "is no longer available.",
-      noticeTitle: "Placement retry is no longer available",
+      noticeTitle: "The retry is no longer available",
       noticeBody:
-        "Placement maps couldn't be generated because the original video "
+        "The detailed analysis couldn't be generated because the original video "
         + "is no longer available.",
       actionKind: null,
       actionLabel: null,
@@ -401,13 +401,13 @@ export function placementLifecycleView(
     return {
       tone: "muted",
       toolStatus: "Unavailable",
-      sheetTitle: "Placement maps couldn't be generated",
+      sheetTitle: "The detailed analysis couldn't be generated",
       sheetBody:
-        "Placement maps couldn't be generated because the original video "
+        "The detailed analysis couldn't be generated because the original video "
         + "is no longer available.",
-      noticeTitle: "Placement maps couldn't be generated",
+      noticeTitle: "The detailed analysis couldn't be generated",
       noticeBody:
-        "Placement maps couldn't be generated because the original video "
+        "The detailed analysis couldn't be generated because the original video "
         + "is no longer available.",
       actionKind: null,
       actionLabel: null,
@@ -424,14 +424,14 @@ export function placementLifecycleView(
     return {
       tone: "muted",
       toolStatus: "Unavailable",
-      sheetTitle: "No placement maps for this match",
+      sheetTitle: "No detailed analysis for this match",
       sheetBody:
-        "We couldn't find the table in this video, so there are no placement "
-        + "maps. Everything else in the match is unaffected.",
-      noticeTitle: "No placement maps for this match",
+        "We couldn't find the table in this video, so there is no detailed "
+        + "analysis. Everything else in the match is unaffected.",
+      noticeTitle: "No detailed analysis for this match",
       noticeBody:
-        "We couldn't find the table in this video, so there are no placement "
-        + "maps. Everything else in the match is unaffected.",
+        "We couldn't find the table in this video, so there is no detailed "
+        + "analysis. Everything else in the match is unaffected.",
       actionKind: null,
       actionLabel: null,
       poll: false,
@@ -443,13 +443,13 @@ export function placementLifecycleView(
     return {
       tone: "muted",
       toolStatus: "Unavailable",
-      sheetTitle: "Placement maps couldn't be generated",
+      sheetTitle: "The detailed analysis couldn't be generated",
       sheetBody:
-        "Placement maps couldn't be generated because the table was hard to "
+        "The detailed analysis couldn't be generated because the table was hard to "
         + "detect in this video.",
-      noticeTitle: "Placement maps couldn't be generated",
+      noticeTitle: "The detailed analysis couldn't be generated",
       noticeBody:
-        "Placement maps couldn't be generated because the table was hard to "
+        "The detailed analysis couldn't be generated because the table was hard to "
         + "detect in this video.",
       actionKind: null,
       actionLabel: null,
@@ -461,13 +461,13 @@ export function placementLifecycleView(
   return {
     tone: "muted",
     toolStatus: "Unavailable",
-    sheetTitle: "Placement maps couldn't be generated",
+    sheetTitle: "The detailed analysis couldn't be generated",
     sheetBody:
-      "Placement maps couldn't be generated because the table was hard to "
+      "The detailed analysis couldn't be generated because the table was hard to "
       + "detect in this video.",
-    noticeTitle: "Placement maps couldn't be generated",
+    noticeTitle: "The detailed analysis couldn't be generated",
     noticeBody:
-      "Placement maps couldn't be generated because the table was hard to "
+      "The detailed analysis couldn't be generated because the table was hard to "
       + "detect in this video.",
     actionKind: null,
     actionLabel: null,

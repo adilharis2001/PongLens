@@ -23,6 +23,17 @@ struct PlacementMapCard: View {
     var servesOnly = false
     @Binding var who: PlacementMapWho
     @Binding var shot: PlacementMapShot
+    /// Open one point from a zone's list. Nil leaves the zones as pictures.
+    var onOpenPoint: ((MatchPoint) -> Void)? = nil
+
+    /// The zone the owner tapped, with the points behind its number.
+    @State private var zoneSheet: ZoneSheet?
+
+    private struct ZoneSheet: Identifiable {
+        let id = UUID()
+        let zone: PlacementZone
+        let points: [MatchPoint]
+    }
 
     private let youColor = PL.cyan
     private let themColor = Color(hex: 0xF59E0B)
@@ -54,8 +65,13 @@ struct PlacementMapCard: View {
         let title = page == .landings
             ? (servesOnly ? "Serve landings" : "Landings")
             : placementHeatMapTitle(scored: scored)
+        let tappable = page == .heat && onOpenPoint != nil && !shown.isEmpty
 
-        ScoredCardStyle.card(title, hint: hint(shown), beta: true) {
+        ScoredCardStyle.card(
+            title,
+            hint: tappable ? "Tap a zone to see its points" : hint(shown),
+            beta: true
+        ) {
             VStack(alignment: .leading, spacing: 12) {
                 if userSide == nil {
                     Text(servesOnly
@@ -77,7 +93,11 @@ struct PlacementMapCard: View {
                     controls
                     Group {
                         if page == .heat {
-                            heatCanvas(tallies, scored: scored)
+                            heatCanvas(tallies, scored: scored, tappable: tappable)
+                                .onTapGesture { location in
+                                    guard tappable else { return }
+                                    openZone(at: location, shown: shown)
+                                }
                         } else {
                             landingsCanvas(shown)
                         }
@@ -90,10 +110,53 @@ struct PlacementMapCard: View {
                             .font(.plCaption)
                             .foregroundStyle(PL.text500)
                             .frame(maxWidth: .infinity)
+                    } else if tappable {
+                        Text(hint(shown) ?? "")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PL.text500)
+                            .frame(maxWidth: .infinity)
+                            .multilineTextAlignment(.center)
                     }
                 }
             }
         }
+        .sheet(item: $zoneSheet) { sheet in
+            ZonePointsSheet(
+                zone: sheet.zone,
+                points: sheet.points,
+                gameIndexByPoint: gameIndexByPoint,
+                allPoints: points,
+                whose: who == .me ? "you" : opponentLabel,
+                servesOnly: servesOnly,
+                onOpen: { point in
+                    zoneSheet = nil
+                    onOpenPoint?(point)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// A tap on the drawn table: which square, and which points landed in
+    /// it. Geometry mirrors heatCanvas exactly, in the canvas's own points.
+    private func openZone(at location: CGPoint, shown: [TrustedPlacementObservation]) {
+        let width = 240.0
+        let s = width / PlacementTable.viewW
+        let x = location.x / s
+        let y = location.y / s
+        guard x >= PlacementTable.x, x <= PlacementTable.x + PlacementTable.w,
+              y >= PlacementTable.y, y <= PlacementTable.y + PlacementTable.h
+        else { return }
+        let u = (x - PlacementTable.x) / PlacementTable.w * TABLE_W
+        let v = (1 - (y - PlacementTable.y) / PlacementTable.h) * TABLE_L
+        guard let zone = placementZone(u: u, v: v, filter: filter) else { return }
+        let ids = shown
+            .filter { placementZone(u: $0.u, v: $0.v, filter: filter) == zone }
+            .map(\.pointId)
+        guard !ids.isEmpty else { return }
+        let byIndex = points.enumerated().filter { ids.contains($0.element.id) }
+        zoneSheet = ZoneSheet(zone: zone, points: byIndex.map(\.element))
     }
 
     /// The one line under the title: what a dot means for this filter,
@@ -128,7 +191,7 @@ struct PlacementMapCard: View {
     /// A port of buildPlacementHeatCells + PlacementHeatMap on the web,
     /// down to the thirds and the opacity ramp.
     private func heatCanvas(
-        _ tallies: [PlacementZone: PlacementZoneTally], scored: Bool
+        _ tallies: [PlacementZone: PlacementZoneTally], scored: Bool, tappable: Bool
     ) -> some View {
         Canvas { context, size in
             let s = size.width / PlacementTable.viewW
@@ -182,12 +245,15 @@ struct PlacementMapCard: View {
                     let label = scored && tally.scored > 0
                         ? "\(tally.won)/\(tally.scored)"
                         : "\(tally.total)"
+                    // The underline is the tap affordance: a number you can
+                    // open, not a label.
                     context.draw(
                         Text(label)
                             .font(.system(
                                 size: (scored && tally.scored > 0 ? 10 : 11) * s,
                                 weight: .bold
                             ))
+                            .underline(tappable)
                             .foregroundStyle(Color(hex: 0xF8FAFC)),
                         at: CGPoint(x: rect.midX, y: rect.midY)
                     )
@@ -237,5 +303,70 @@ struct PlacementMapCard: View {
         .padding(2)
         .background(PL.ink.opacity(0.4), in: Capsule())
         .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+    }
+}
+
+
+/// The points behind one heat-map square, in timeline order, each opening
+/// the point. The web's zone sheet, as a PLSheetScaffold + Form like every
+/// other sheet on this screen.
+struct ZonePointsSheet: View {
+    let zone: PlacementZone
+    let points: [MatchPoint]
+    let gameIndexByPoint: [UUID: Int]
+    let allPoints: [MatchPoint]
+    let whose: String
+    let servesOnly: Bool
+    let onOpen: (MatchPoint) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        PLSheetScaffold(title: readableZone(zone).capitalized) {
+            Form {
+                Section {
+                    ForEach(points, id: \.id) { point in
+                        Button {
+                            dismiss()
+                            onOpen(point)
+                        } label: {
+                            HStack(spacing: 12) {
+                                (Text("Point \((allPoints.firstIndex { $0.id == point.id } ?? 0) + 1)")
+                                    .font(.plRowTitle)
+                                    .foregroundStyle(PL.text100)
+                                    + Text("  Game \((gameIndexByPoint[point.id] ?? 0) + 1)")
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.text500))
+                                Spacer()
+                                Text(outcome(point))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(outcomeColor(point))
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } footer: {
+                    Text("\(points.count) \(points.count == 1 ? "point" : "points") with a \(servesOnly ? "serve" : "shot") by \(whose) landing here.")
+                }
+            }
+        }
+    }
+
+    private func outcome(_ point: MatchPoint) -> String {
+        switch point.confirmedWinner {
+        case .user: "You won"
+        case .opponent: "They won"
+        default: "Not scored"
+        }
+    }
+
+    private func outcomeColor(_ point: MatchPoint) -> Color {
+        switch point.confirmedWinner {
+        case .user: PL.cyan
+        case .opponent: PL.magentaSoft
+        default: PL.text500
+        }
     }
 }

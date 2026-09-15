@@ -12,9 +12,8 @@ import {
   type ScoredCardsResult,
   type ScoredTally,
   type SpeedBand,
-  type VarietySummary,
 } from "@/lib/placement/scoredCards";
-import { Card, CountBar, SplitBar, StatRow } from "./cards";
+import { Card, SplitBar, StatRow } from "./cards";
 import type { MapLabels } from "./PlacementMap";
 import { Table, TH, TW, TX, TY } from "./placementTable";
 
@@ -59,31 +58,6 @@ function speedLabel(band: SpeedBand) {
   if (from === null && to !== null) return `${band.label} · under ${to} km/h`;
   if (to === null && from !== null) return `${band.label} · over ${from} km/h`;
   return `${band.label} · ${from} to ${to} km/h`;
-}
-
-function VarietyBlock({ summary, tone }: {
-  summary: VarietySummary;
-  tone: "cyan" | "magenta";
-}) {
-  const [top] = summary.top;
-  return (
-    <>
-      <p className="mb-1 text-xs text-zinc-300">
-        Most often <span className="font-semibold text-zinc-100">{top.label}</span>
-        <span className="text-zinc-500">
-          {" "}· {Math.round(summary.topShare * 100)}% of {summary.count} · {summary.zonesUsed} of 9 zones
-        </span>
-      </p>
-      {summary.top.map((row) => (
-        <CountBar
-          key={row.zone}
-          row={{ label: row.label, count: row.count }}
-          max={top.count}
-          tone={tone}
-        />
-      ))}
-    </>
-  );
 }
 
 const WON_TONE = "#22d3ee";
@@ -163,7 +137,7 @@ export function buildScoredCards(
 ): ReactNode[] {
   if (!result) return [];
   const cards: ReactNode[] = [];
-  const { pointLength, serveSpeed, serveVariety, endings } = result;
+  const { pointLength, serveSpeed, endings } = result;
 
   if (part === "endings") {
     if (endings.shown) {
@@ -235,26 +209,6 @@ export function buildScoredCards(
         <p className="mt-3 text-[11px] text-zinc-600">
           Speed along the table between the serve&apos;s two bounces. Slow,
           medium and fast are each a third of that player&apos;s serves.
-        </p>
-      </Card>,
-    );
-  }
-
-  if (serveVariety.mine || serveVariety.theirs) {
-    cards.push(
-      <Card key="variety" title="Serve variety" hint="Where the serves went" beta>
-        {serveVariety.mine && (
-          <Group title={`My serves (${serveVariety.mine.count})`} first>
-            <VarietyBlock summary={serveVariety.mine} tone="cyan" />
-          </Group>
-        )}
-        {serveVariety.theirs && (
-          <Group title={`Their serves (${serveVariety.theirs.count})`} first={!serveVariety.mine}>
-            <VarietyBlock summary={serveVariety.theirs} tone="magenta" />
-          </Group>
-        )}
-        <p className="mt-3 text-[11px] text-zinc-600">
-          Left and right are your left and right, as on the maps.
         </p>
       </Card>,
     );

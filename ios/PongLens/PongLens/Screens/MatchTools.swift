@@ -168,8 +168,8 @@ struct ToolsSection: View {
                 : "\(gate.scored) of \(gate.eligible) scored"
         }
         switch match.placementStatus {
-        case "processing": return "Generating maps…"
-        case "retrying": return "Retrying maps…"
+        case "processing": return "Generating…"
+        case "retrying": return "Retrying…"
         default: break
         }
         let serving = computeServing(
@@ -489,7 +489,7 @@ struct PlacementRequestSheet: View {
     private var status: String { match.placementStatus ?? "not_requested" }
 
     var body: some View {
-        PLSheetScaffold(title: "Placement maps") {
+        PLSheetScaffold(title: "Detailed analysis") {
             Form {
                 Section {
                     if started {
@@ -534,22 +534,22 @@ struct PlacementRequestSheet: View {
     private var body_: String {
         switch status {
         case "processing", "retrying":
-            "Placement maps are generating. We'll email you when they're ready."
+            "The detailed analysis is generating. We'll email you when it's ready."
         case "retry_available":
-            "Placement maps couldn't be generated because the table was hard to detect in this video. You can try once more."
+            "The detailed analysis couldn't be generated because the table was hard to detect in this video. You can try once more."
         case "final_failed":
-            "Placement maps couldn't be generated for this video."
+            "The detailed analysis couldn't be generated for this video."
         default:
-            "Placement maps haven't been generated for this match yet."
+            "The detailed analysis reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes."
         }
     }
 
     /// nil while a run is in flight or the match is past retrying.
     private var actionLabel: String? {
         switch status {
-        case "retry_available": "Try placement again"
+        case "retry_available": "Try again"
         case "processing", "retrying", "final_failed": nil
-        default: "Generate placement maps"
+        default: "Generate detailed analysis"
         }
     }
 

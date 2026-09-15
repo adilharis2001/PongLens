@@ -39,6 +39,9 @@ struct VideoCardsInput {
     let placementTrusted: Bool
     let onScore: (() -> Void)?
     let onPlacementChanged: () -> Void
+    /// Open one point from a heat-map zone's list. Nil leaves the zones
+    /// as pictures.
+    var onOpenPoint: ((MatchPoint) -> Void)? = nil
 }
 
 /// One card of the deck, boxed so a heterogeneous list can be paged and
@@ -137,11 +140,6 @@ struct AnalysisCards: View {
                     ServeSpeedCard(mine: result.serveSpeedMine, theirs: result.serveSpeedTheirs)
                 )))
             }
-            if result.varietyMine != nil || result.varietyTheirs != nil {
-                cards.append(DeckCard(id: "variety", view: AnyView(
-                    ServeVarietyCard(mine: result.varietyMine, theirs: result.varietyTheirs)
-                )))
-            }
         }
         if video.showMaps {
             for page in [PlacementMapPage.landings, .heat] {
@@ -155,7 +153,8 @@ struct AnalysisCards: View {
                         opponentLabel: video.opponentLabel,
                         servesOnly: video.servesOnly,
                         who: $mapsWho,
-                        shot: $mapsShot
+                        shot: $mapsShot,
+                        onOpenPoint: video.onOpenPoint
                     )
                 )))
             }
