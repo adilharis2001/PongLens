@@ -25,10 +25,14 @@ This is a narrow opt-in combined-policy correction, not new bounce detection, a 
 | Owner fixtures | All 20 approved real detector-window outputs unchanged |
 | Broader intermediate guard, rejected | Nine full composed cached replays: 755 retained cards, 67/68 tail trims preserved; one Julian endpoint changed. This was NOT packaged for activation. |
 | Julian 6d55dfb7, card 15 | The intermediate version extended 152.12 to 153.69s. The contact sheet shows later strokes but cannot conclusively distinguish continued play from post-point returns. Do not treat the earlier AI interpretation as an owner quality verdict. The final off-table restriction preserves this original cut. |
-| Final nine-recording replay | Running after the additional off-table restriction; update with the fresh result before activation. |
+| Final nine-recording replay | All 755 retained cards unchanged across nine complete cached assembly/export replays, including all 68 existing tail trims and four cleanup removals. No fresh model inference in this corpus replay. |
 | Regression | Real archived ball-track fixture fails against sealed 44cfebbf and passes on correction. Unit cases cover rapid double bounces, genuine endings, and isolated cleanup crossings. |
-| Verification | Broad worker suite: 216 passed plus seven subtests and three existing missing-data warnings; afterward the added archived-track case passed in the 31-test combined suite. Real isolated `npm run build` passed with existing warnings. Independent read-only review found no Critical, Important or Minor issues. |
-| Rollout state | Not yet packaged or activated at this checkpoint. Update the release section after verified activation. |
+| Verification | Earlier broad worker suite: 216 passed plus seven subtests and three existing missing-data warnings. Final narrowed code: 77 combined/net-ending/reviewed-split/cleanup tests passed, including the archived-track fixture and in-table preservation test. 25 package tests and real isolated `npm run build` passed. Independent final read-only review found no Critical or Important issues; its ambiguous-footage label correction is included here. |
+| Candidate package | `99ae3e008f2a2298b360ded74660ff8924ac6831ecae4016161fc21d63518df2`, worker source `b9cb59ab2d7b13239be8c3baa3668a6293fb9b7c`, pushed to the existing approved GitHub branch. Exactly three payload paths changed: combined policy, its tests and numerical regression fixture. Runtime, model assets and all sealed behavior settings match live 44cfebbf. |
+| Rollout state | LIVE, freshly verified 2026-09-15T00:18:05.926678Z. Main PID 47993 accepted queued job 4d14a4df-b527-45ed-b204-ec3da92981b6; fast PID 47991 idle and accepting. Both exact-release process identities and fresh pulses verified, monitor fresh, both startup drain files absent. Brian finished including post-ready analysis before guarded stop/install/start. |
+| Startup recovery | The host stopped returning commands during paused startup. Initial resume refused because the new monitor had not yet run. After access recovered, read-only checks verified monitor time after startup and both fresh drained identities; guarded resume then succeeded. No safety checks bypassed. |
+| Rollback | Exact release 44cfebbf5c7075dd7bdab39024257ec5ecf246967a009ea15ba6ad8174e0e91d; whole signed launcher backups in `/Users/adil/Library/Application Support/PongLens/launcher-backups/20260914-net-continuity-99ae3e008f2a`. Use this rollout directory's separately guarded rollback phases, not a historical hardcoded recipe. Never activate rejected intermediate package 16e7fd0b. |
+| Preserved | No active job interrupted, no scored match overwritten or requeued, no flags/schema/UI/other-lane changes. Existing mail-control state preserved. No recurring production-change automation created. |
 
 | Reproduction / evidence | Location |
 | --- | --- |
@@ -36,4 +40,4 @@ This is a narrow opt-in combined-policy correction, not new bounce detection, a 
 | Final corpus comparison | `surgical-corpus-comparison.json` there; `final-corpus-comparison.json` belongs to the rejected broader intermediate guard |
 | Exact first-rally extraction and paired tail stage | `replay_yuyulin.py`, `yuyulin-replay.json` there |
 | Visual checks of broader guard false positives | `19a1efc7-284.jpg`, `d59d7610-836.jpg`, `d59d7610-1023.jpg`, `9e15ed10-308.jpg` there; final rule preserves these cuts |
-| Additional genuine continuation | `6d55dfb7-150.jpg` there |
+| Ambiguous Julian footage, original cut preserved | `6d55dfb7-150.jpg` there |

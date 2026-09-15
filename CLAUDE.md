@@ -7,9 +7,13 @@ All final owner reviews are complete. Combined rally rules and narrow whole-clip
 cleanup are integrated, with applied-policy provenance preserved by publication.
 Both options remain explicit pilot opt-ins; do not mistake installation for
 activation. No table fail-safe or global ball-filter rewrite is included.
-Sealed `44cfebbf5c7075dd7bdab39024257ec5ecf246967a009ea15ba6ad8174e0e91d`
-is live on main/fast and the monitor, verified resumed at 21:25:37 UTC.
-Rollback is b8e07c89; owner-pilot queue and validation status is in RELEASE.md.
+Sealed `99ae3e008f2a2298b360ded74660ff8924ac6831ecae4016161fc21d63518df2`
+is live on main/fast and the monitor, verified resumed at 2026-09-15 00:18:05 UTC.
+Worker source is `b9cb59ab`; rollback is 44cfebbf. Main PID 47993 is processing
+a queued job, fast PID 47991 is accepting work, and the monitor is fresh.
+Read `docs/research/2026-09-14-combined-cuts-worker/NET-CONTINUATION-FIX.md`
+for the narrow off-table false-net-ending guard, regression evidence and
+rollout record. No scored matches were reprocessed or overwritten for this fix.
 
 Standards that were learned the expensive way. Each rule below cost a round
 of rework at least once, so the reasoning is kept with it: a rule you

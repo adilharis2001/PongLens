@@ -1,5 +1,16 @@
 # Combined worker release, September 14
 
+**Current release supersedes the historical integration record below:**
+`99ae3e008f2a2298b360ded74660ff8924ac6831ecae4016161fc21d63518df2`
+is live on main/fast and the monitor, verified at 2026-09-15 00:18:05 UTC.
+Worker source `b9cb59ab` adds only the surgical false-net-ending correction
+and its regression tests; exact rollback is 44cfebbf. Main has accepted a
+queued job, fast is accepting work, and both worker identities and monitor
+are fresh. See [NET-CONTINUATION-FIX.md](NET-CONTINUATION-FIX.md) for the
+tests, immutable release details, signed rollback backups and startup recovery.
+
+## Historical 44cfebbf integration and pilot record
+
 The combined worker is installed and accepting work on main and fast, with its independent monitor healthy.
 The reviewed rally rules and whole-clip cleanup remain explicit per-job options for the owner pilot; table-calibration rejection is excluded.
 Scored originals are preserved, and production pilot quality still requires the owner's review.
