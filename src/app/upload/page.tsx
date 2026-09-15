@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { BalancesCard } from "@/components/BalancesCard";
 import { UploadCard } from "@/app/dashboard/UploadCard";
-import { YouTubeImport } from "@/components/YouTubeImport";
 import { RecordingBriefFirstRun } from "@/components/RecordingBriefFirstRun";
 import { RECORDING_BRIEF_METADATA_KEY } from "@/lib/cameraGuideGate";
 import { UpLink } from "@/components/UpLink";
@@ -49,9 +48,19 @@ export default async function UploadPage({
   // in it has plainly worked out where the camera goes and is seeded
   // straight past both showings. RLS scopes the count to the owner, so no
   // user filter is needed here.
-  const { count: matchCount } = await supabase
-    .from("matches")
-    .select("id", { head: true, count: "exact" });
+  //
+  // The first-upload confirmation (new accounts only; existing rows were
+  // backfilled) is read here for the same reason: the checkbox and the
+  // disabled button have to be there in the first frame, not appear
+  // after the page has painted an enabled one.
+  const [{ count: matchCount }, { data: profile }] = await Promise.all([
+    supabase.from("matches").select("id", { head: true, count: "exact" }),
+    supabase
+      .from("player_profiles")
+      .select("upload_confirmed_at")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+  ]);
 
   return (
     <AppShell avatarUrl={avatarUrl}>
@@ -86,6 +95,7 @@ export default async function UploadPage({
         <UploadCard
           userId={user.id}
           commerceEnabled={commerceEnabled}
+          uploadConfirmed={!!profile?.upload_confirmed_at}
           orderId={
             commerceEnabled && order && /^[0-9a-f-]{36}$/i.test(order)
               ? order
@@ -97,12 +107,8 @@ export default async function UploadPage({
       {/* Everything below is an exit. While a video is going up, the page
           shows the upload and nothing else. */}
       <HideWhileUploading>
-        <div className="mt-6">
-          <YouTubeImport userId={user.id} commerceEnabled={commerceEnabled} />
-        </div>
-
-        {/* Same card as the home page: uploads and imports both land in
-            storage, so the balances belong to the page, not to one card. */}
+        {/* Same card as the home page: the balances belong to the page,
+            not to the upload card. */}
         {commerceEnabled && (
           <div className="mt-6">
             <BalancesCard />

@@ -38,8 +38,8 @@ struct HomeScreen: View {
 
     private var processingWork: [ProcessingWork] {
         // A match counts as working when its own row says so OR a job of its
-        // own is still queued or running; a job tied to no visible row (a
-        // YouTube download, a commerce upload the worker hasn't linked yet)
+        // own is still queued or running; a job tied to no visible row (an
+        // older link import, a commerce upload the worker hasn't linked yet)
         // counts once on its own. Counting rows and jobs separately made one
         // video read as "2 matches are processing" — the bug the web's
         // HomeOverview fixed the same way.

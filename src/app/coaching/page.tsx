@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
+import { getCoachReviewsEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import type {
   CoachProfileRow,
@@ -65,6 +66,8 @@ export default async function CoachingPage() {
   ]);
 
   const { workspace } = await rememberedWorkspace();
+  // Off hides the whole ordering experience; open orders stay reachable.
+  const reviewsEnabled = await getCoachReviewsEnabled();
 
   // The coach's first-steps checklist, derived from product state (the
   // same way the dashboard's is). Only asked for on the coaching side.
@@ -140,6 +143,7 @@ export default async function CoachingPage() {
         )}
         userId={user.id}
         firstSteps={firstSteps}
+        reviewsEnabled={reviewsEnabled}
       />
     </AppShell>
   );

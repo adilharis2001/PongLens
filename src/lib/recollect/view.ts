@@ -70,7 +70,18 @@ export function buildTopicQueue(
 export async function loadRecollectView(
   ownerId: string,
   suppliedAdmin?: SupabaseClient,
+  /** The global switch, injectable for tests; read from config otherwise. */
+  suppliedGloballyEnabled?: boolean,
 ): Promise<RecollectView> {
+  // Off for everyone reads as off, empty and idle, so the web tab and the
+  // iOS app both hide it from the same /api/recollect answer.
+  const globallyEnabled =
+    suppliedGloballyEnabled ??
+    (await (await import("../config.ts")).getRecollectEnabled());
+  if (!globallyEnabled) {
+    return { enabled: false, noticeSeen: false, processing: false, topics: [] };
+  }
+
   const admin =
     suppliedAdmin ??
     (await import("../supabase/admin.ts")).createAdminClient();

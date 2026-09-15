@@ -15,7 +15,7 @@ struct RootView: View {
 
     enum OnboardingGate: Equatable {
         case checking
-        case needed(needsName: Bool, isCoach: Bool, isNew: Bool)
+        case needed(needsName: Bool, isCoach: Bool, isNew: Bool, needsTerms: Bool)
         case done
     }
 
@@ -85,8 +85,10 @@ struct RootView: View {
                         ProgressView().tint(PL.cyan)
                     }
                     .task { await checkOnboarding() }
-                case .needed(let needsName, let isCoach, let isNew):
-                    OnboardingScreen(needsName: needsName, isCoach: isCoach, isNew: isNew) { gate = .done }
+                case .needed(let needsName, let isCoach, let isNew, let needsTerms):
+                    OnboardingScreen(
+                        needsName: needsName, isCoach: isCoach, isNew: isNew, needsTerms: needsTerms
+                    ) { gate = .done }
                 case .done:
                     // One account, two workspaces. The remembered choice
                     // decides which side of the app stands up; Account
@@ -209,6 +211,14 @@ struct RootView: View {
             try? await Task.sleep(nanoseconds: 1_100_000_000)
             withAnimation(.easeOut(duration: 0.35)) { splashDone = true }
         }
+        .onChange(of: UploadConsent.shared.termsRequired) { _, required in
+            // A route refused with terms_required: the account never
+            // accepted the terms, whatever the cached gate said. Re-run
+            // the check, which lands on the terms screen.
+            guard required else { return }
+            UploadConsent.shared.termsRequired = false
+            gate = .checking
+        }
         .onChange(of: app.userId) { previous, next in
             guard previous != next else { return }
             ProcessingServiceStore.shared.stop()
@@ -233,6 +243,8 @@ struct RootView: View {
             coaching = CoachingStore()
             coach = CoachStore()
             coachWorkspace = CoachWorkspaceStore()
+            AiConsent.shared.reset()
+            UploadConsent.shared.reset()
             gate = .checking
         }
         .onChange(of: scenePhase) { _, phase in
@@ -310,10 +322,15 @@ struct RootView: View {
         // is answered by somebody else's row: a coach who also plays would
         // have skipped their own onboarding entirely once a student
         // accepted them.
-        struct ProfileRow: Decodable { let setup_done_at: String? }
+        struct ProfileRow: Decodable {
+            let setup_done_at: String?
+            let terms_accepted_at: String?
+            let ai_features_enabled: Bool?
+            let upload_confirmed_at: String?
+        }
         async let profileQuery: [ProfileRow]? = try? await supa
             .from("player_profiles")
-            .select("setup_done_at")
+            .select("setup_done_at,terms_accepted_at,ai_features_enabled,upload_confirmed_at")
             .eq("user_id", value: uid)
             .execute().value
         // A coach answers the name and nothing else — same rule as the web
@@ -325,14 +342,26 @@ struct RootView: View {
             .limit(1)
             .execute()
         let (profile, coachLink) = await (profileQuery, coachQuery)
-        let hasProfile = !(profile ?? []).isEmpty
+        let row = profile?.first
+        let hasProfile = row != nil
         let isCoach = (coachLink?.count ?? 0) > 0
-        app.playerSetupPending = hasProfile && profile?.first?.setup_done_at == nil
-        if name.isEmpty || !hasProfile {
+        app.playerSetupPending = hasProfile && row?.setup_done_at == nil
+        // The terms screen is for accounts that never accepted them: no
+        // row yet, or a row without the stamp. Existing rows were
+        // backfilled by the migration, so they never see it.
+        let needsTerms = row?.terms_accepted_at == nil
+        // The two permissions the rest of the app asks about, cached from
+        // the same read. Unknown (the read failed) means "not asked" for
+        // the sheet and "do not show" for the upload row.
+        AiConsent.shared.seed(enabled: row?.ai_features_enabled)
+        UploadConsent.shared.seed(confirmedAt: row?.upload_confirmed_at, loaded: profile != nil)
+        if name.isEmpty || !hasProfile || needsTerms {
             // isNew: no profile row yet, whatever the name says. Google and
             // Apple hand us a name, so "needs a name" is NOT "brand new" —
             // keying the role question on it skipped every such account.
-            gate = .needed(needsName: name.isEmpty, isCoach: isCoach, isNew: !hasProfile)
+            gate = .needed(
+                needsName: name.isEmpty, isCoach: isCoach, isNew: !hasProfile, needsTerms: needsTerms
+            )
         } else {
             gate = .done
         }

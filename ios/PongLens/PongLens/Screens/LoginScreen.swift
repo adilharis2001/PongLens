@@ -94,9 +94,11 @@ struct LoginScreen: View {
 
                     Spacer(minLength: 36)
 
-                    // Markdown links, so Terms and Privacy actually open.
+                    // Markdown links, so Terms and Privacy actually open. The
+                    // acceptance itself is the first onboarding screen; this
+                    // is only the way to read them first.
                     Text(.init(
-                        "By signing in you agree to our [Terms](https://www.ponglens.com/terms) and [Privacy Policy](https://www.ponglens.com/privacy)."
+                        "[Terms](https://www.ponglens.com/terms) · [Privacy](https://www.ponglens.com/privacy)"
                     ))
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)

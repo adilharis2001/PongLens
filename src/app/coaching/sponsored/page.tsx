@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
 import {
+  getCoachReviewsEnabled,
   getCommerceEnabled,
   getSponsoredEnabled,
   getSponsoredPacks,
@@ -22,6 +23,8 @@ export const metadata: Metadata = {
  * unused links, and top the balance up when the free allowance runs out.
  */
 export default async function SponsoredPage() {
+  // coach_reviews_enabled off: the page is gone, not just its entrance.
+  if (!(await getCoachReviewsEnabled())) notFound();
   const supabase = await createClient();
   const {
     data: { user },

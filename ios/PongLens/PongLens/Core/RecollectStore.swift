@@ -76,9 +76,16 @@ final class RecollectStore {
         }
     }
 
-    func load() async {
+    /// `available` is app_config recollect_enabled. Off, the section is
+    /// the disabled state without a request: no view fetch, and the drain
+    /// loop never starts.
+    func load(available: Bool = true) async {
         drained = 0
         failed = false
+        guard available else {
+            view = RecollectViewState(enabled: false, noticeSeen: true, processing: false, topics: [])
+            return
+        }
         do {
             view = try await fetchView()
             if view?.processing == true { await drain() }

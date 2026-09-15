@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCommerceEnabled } from "@/lib/config";
+import { requireUploadConfirmed } from "@/lib/consent";
 import { createClient } from "@/lib/supabase/server";
 import { checkUploadAllowed } from "@/lib/quota";
 import {
@@ -45,6 +46,11 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+  // The consent gates (src/lib/consent.ts): terms accepted and the
+  // first-upload confirmation. A 403 carries a code the card answers by
+  // showing the checkbox or sending the account back to onboarding.
+  const denied = await requireUploadConfirmed(supabase, user.id);
+  if (denied) return denied;
 
   let body: Record<string, unknown>;
   try {

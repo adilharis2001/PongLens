@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { displayNameError, normalizeDisplayName } from "@/lib/auth/profile";
@@ -11,12 +12,18 @@ import {
   signupSourceOption,
   type SignupSource,
 } from "@/lib/auth/signupSource";
+import { isUnderAge, minimumAgeForCountry } from "@/lib/consent";
 import { createClient } from "@/lib/supabase/client";
 import { setWorkspace } from "@/lib/workspace";
 
 /**
  * First-login setup, cut to what actually changes something:
  *
+ *   start  — birth month and year plus the terms, once, for any account
+ *            whose terms_accepted_at is still null. Under the minimum
+ *            age (13, 16 in the EEA) the flow stops here, signs out and
+ *            removes the empty account. First for everyone, ahead of the
+ *            role card, and the coach auto-finish waits on it.
  *   name   — only when the account has none (email sign-ins; Google
  *            arrives with one).
  *   source — how did you hear about us. Brand-new accounts only, and a
@@ -111,6 +118,33 @@ const LEVELS: { value: Level; label: string; blurb: string }[] = [
   },
 ];
 
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** This year down to 1920. Nothing is pre-selected: a wheel that starts
+ *  on a plausible year is a tap away from a wrong age either way. */
+const YEARS = (() => {
+  const current = new Date().getUTCFullYear();
+  const years: number[] = [];
+  for (let y = current; y >= 1920; y -= 1) years.push(y);
+  return years;
+})();
+
+const FIELD_CLASS =
+  "w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60";
+
 function Choice({
   selected,
   onClick,
@@ -144,11 +178,20 @@ function Choice({
 }
 
 export function OnboardingFlow({
+  needsTerms,
+  country,
+  termsVersion,
   needsName,
   isCoach,
   isNew,
   next,
 }: {
+  /** player_profiles.terms_accepted_at is null: show the start screen. */
+  needsTerms: boolean;
+  /** ISO country from the request, or null; decides the age threshold. */
+  country: string | null;
+  /** Stamped alongside terms_accepted_at so a bump can re-prompt. */
+  termsVersion: string;
   needsName: boolean;
   isCoach: boolean;
   /** No player_profiles row yet. The role question keys on this, not on
@@ -168,6 +211,13 @@ export function OnboardingFlow({
   const [step, setStep] = useState<"name" | "source" | "play">(
     needsName ? "name" : isNew && !isCoach ? "source" : "play"
   );
+  // The start screen. `termsDone` flips on "Agree and continue"; until
+  // then nothing else renders and the coach auto-finish stays quiet.
+  const [termsDone, setTermsDone] = useState(!needsTerms);
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthYear, setBirthYear] = useState("");
+  // The threshold the account missed, once known. Null means not under.
+  const [underAge, setUnderAge] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [handedness, setHandedness] = useState<Handedness | null>(null);
   const [grip, setGrip] = useState<Grip | null>(null);
@@ -258,6 +308,92 @@ export function OnboardingFlow({
     router.refresh();
   };
 
+  /** "Agree and continue". Checks the age first and writes nothing for
+   *  an account that is under it. Otherwise the birthdate goes to its
+   *  owner-only table and the terms stamp goes on the profile row, which
+   *  finish() will fill in later (upsert merges; setup_done_at is left
+   *  alone here so the playing questions are still offered). */
+  const acceptTerms = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const month = Number(birthMonth);
+    const year = Number(birthYear);
+    if (!month || !year || saving) return;
+    if (isUnderAge(year, month, country)) {
+      setUnderAge(minimumAgeForCountry(country));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
+    const now = new Date().toISOString();
+    const { error: birthError } = await supabase
+      .from("player_birthdates")
+      .upsert(
+        { user_id: user.id, birth_year: year, birth_month: month, updated_at: now },
+        { onConflict: "user_id" }
+      );
+    if (birthError) {
+      setSaving(false);
+      setError("We couldn't save that. Try again.");
+      return;
+    }
+    const { error: termsError } = await supabase
+      .from("player_profiles")
+      .upsert(
+        {
+          user_id: user.id,
+          terms_accepted_at: now,
+          terms_version: termsVersion,
+          updated_at: now,
+        },
+        { onConflict: "user_id" }
+      );
+    setSaving(false);
+    if (termsError) {
+      setError("We couldn't save that. Try again.");
+      return;
+    }
+    setTermsDone(true);
+  };
+
+  /** The under-age exit. An account with no matches is removed through
+   *  the same route Account uses; anything else, or a failure, still
+   *  signs out. */
+  const signOutUnderAge = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/delete-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview" }),
+      });
+      const preview = res.ok
+        ? ((await res.json()) as { matches?: number })
+        : null;
+      if (preview && (preview.matches ?? 0) === 0) {
+        await fetch("/api/delete-account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "delete", confirm: "DELETE" }),
+        });
+      }
+    } catch {
+      // The sign-out below is what matters; a failed removal is retried
+      // the next time the account is signed in and reaches this screen.
+    }
+    await createClient().auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  };
+
   const submitName = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const validationError = displayNameError(name);
@@ -302,13 +438,109 @@ export function OnboardingFlow({
 
   // A coach who arrived with a name (Google) has nothing to answer:
   // write the all-null row and move on without showing player questions.
+  // Not before the start screen is done, though: the terms come first
+  // for everyone.
   useEffect(() => {
-    if (isCoach && !needsName && !autoFinished.current) {
+    if (termsDone && isCoach && !needsName && !autoFinished.current) {
       autoFinished.current = true;
       void finish({}, next, false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCoach, needsName]);
+  }, [termsDone, isCoach, needsName]);
+
+  if (underAge != null) {
+    return (
+      <>
+        <h1 className="text-center text-xl font-semibold sm:text-2xl">
+          PongLens is for players {underAge} and over.
+        </h1>
+        <p className="mt-4 text-center text-sm text-zinc-400">
+          A parent or guardian can create an account and add you.
+        </p>
+        <button
+          type="button"
+          onClick={() => void signOutUnderAge()}
+          disabled={saving}
+          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? "Signing out…" : "Sign out"}
+        </button>
+      </>
+    );
+  }
+
+  if (!termsDone) {
+    return (
+      <>
+        <h1 className="text-center text-xl font-semibold sm:text-2xl">
+          When were you born?
+        </h1>
+        <form onSubmit={acceptTerms} className="mt-7">
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              aria-label="Month"
+              required
+              disabled={saving}
+              value={birthMonth}
+              onChange={(event) => setBirthMonth(event.target.value)}
+              className={`${FIELD_CLASS} ${birthMonth ? "" : "text-zinc-500"}`}
+            >
+              <option value="">Month</option>
+              {MONTHS.map((label, index) => (
+                <option key={label} value={index + 1}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Year"
+              required
+              disabled={saving}
+              value={birthYear}
+              onChange={(event) => setBirthYear(event.target.value)}
+              className={`${FIELD_CLASS} ${birthYear ? "" : "text-zinc-500"}`}
+            >
+              <option value="">Year</option>
+              {YEARS.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="mt-4 text-center text-xs leading-relaxed text-zinc-400">
+            By continuing you agree to the{" "}
+            <Link
+              href="/terms"
+              className="text-zinc-300 underline underline-offset-2 hover:text-cyan-glow"
+            >
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link
+              href="/privacy"
+              className="text-zinc-300 underline underline-offset-2 hover:text-cyan-glow"
+            >
+              Privacy Policy
+            </Link>
+            .
+          </p>
+          {error && (
+            <p role="alert" className="mt-3 text-center text-xs text-red-400">
+              {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={!birthMonth || !birthYear || saving}
+            className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Agree and continue"}
+          </button>
+        </form>
+      </>
+    );
+  }
 
   if (isCoach && !needsName) {
     return (

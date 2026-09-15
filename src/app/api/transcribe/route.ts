@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { deepgramUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { shouldPersistTranscription } from "@/lib/journal/transcription";
 import { createClient } from "@/lib/supabase/server";
+import { requireAiConsent } from "@/lib/consent";
 import { MEDIA_BUCKET, presignGet, putObject } from "@/lib/r2";
 import { checkUploadAllowed, MEDIA_UPLOAD_RULES, refusalStatus } from "@/lib/quota";
 
@@ -141,6 +142,8 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+  const denied = await requireAiConsent(supabase, user.id);
+  if (denied) return denied;
 
   const apiKey = process.env.DEEPGRAM_API_KEY;
   if (!apiKey) {

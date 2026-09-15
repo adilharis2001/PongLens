@@ -24,17 +24,20 @@ export const metadata: Metadata = {
 export default async function TermsPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Terms of Service" updated="August 25, 2026">
+    <LegalPage title="Terms of Service" updated="September 14, 2026">
       <section>
         <h2>The short version</h2>
         <p>
           Creating a PongLens account is free, and every account includes
           free video storage and free processing to start. You keep
           ownership of your videos and notes. You must have the right to
-          upload them. You control who you share your matches with. You can
-          buy more processing minutes and storage when you need them, and
-          coaches can sell match reviews. We can change the service while
-          it&apos;s in early access. Don&apos;t abuse it.
+          upload them, which includes a parent&apos;s consent for anyone under
+          18 in the footage. A player under 13, or under 16 in Europe, uses
+          PongLens through a parent&apos;s account. You control who you share
+          your matches with. You can buy more processing minutes and storage
+          when you need them, and coaches can sell match reviews. We can
+          change the service while it&apos;s in early access. Don&apos;t abuse
+          it.
         </p>
       </section>
 
@@ -60,21 +63,20 @@ export default async function TermsPage() {
           voice notes that we transcribe, and you can share your matches with
           a coach. Recollect can automatically turn useful guidance from
           eligible lesson and practice notes into reminders that return over
-          time. It is enabled by default, and you can turn it off in Account.
+          time. It is currently switched off.
         </p>
         <p>
-          Most video processing happens on hardware we operate directly (a
-          private workstation controlled by the service operator). As part of
-          processing, a small number of still frames from your video are
-          checked by an automated vision service to confirm the footage is
-          table tennis we can work with and, when needed, to locate the
-          table. Your video files are stored with Cloudflare R2. Your
-          account, match data, and notes are stored with Supabase. Voice
-          notes are transcribed by Deepgram, which may not use your
-          recordings to improve its own products. Some product features,
-          including Recollect, lesson summaries, and Ask, send the content
-          needed for that feature to OpenAI for automated processing. The
-          full list of providers, and what each one does, is in section 11.
+          Video processing happens on hardware we control in the United
+          States. Automated checks during processing confirm the footage is
+          table tennis we can work with. Voice notes are transcribed by
+          Deepgram, and some product features, including Recollect, lesson
+          summaries, and Ask, send the content needed for that feature to
+          OpenAI. We ask you in the app before the first time that happens,
+          and you can switch it off in Account. Neither company may use your
+          content to train or improve its own models. Section 11 lists the
+          categories of provider we use, and our{" "}
+          <Link href="/privacy">Privacy Policy</Link> explains where your data
+          is held.
         </p>
       </section>
 
@@ -167,13 +169,23 @@ export default async function TermsPage() {
       </section>
 
       <section>
-        <h2>4. Your account</h2>
+        <h2>4. Your account and your age</h2>
         <p>
-          You sign in through Google or a one-time email sign-in link via our
-          authentication provider, Supabase. PongLens does not collect an
-          account password. You&apos;re responsible for activity that happens
-          under your account. You must be at least 13 years old (or the
-          minimum age of digital consent in your country) to use PongLens.
+          You sign in through Google, Apple, or a one-time email sign-in link.
+          PongLens does not collect an account password. You&apos;re
+          responsible for activity that happens under your account.
+        </p>
+        <p>
+          You can hold your own PongLens account if you are at least 13, or at
+          least 16 if you live in the European Economic Area, unless your
+          country sets a lower age. A younger player uses PongLens through an
+          account created and held by a parent or legal guardian. The guardian
+          accepts these terms on the player&apos;s behalf, is responsible for
+          what happens in that account, decides what is shared and which
+          AI-assisted features are used, and can delete everything at any
+          time. If we learn that someone below the required age holds their
+          own account, we will ask a parent or guardian to take it over, or we
+          will delete it.
         </p>
       </section>
 
@@ -201,8 +213,8 @@ export default async function TermsPage() {
         <ul>
           <li>Anything unlawful or that infringes someone else&apos;s rights.</li>
           <li>
-            Footage of minors without the consent of a parent or legal
-            guardian.
+            Footage of anyone under 18 without the consent of their parent or
+            legal guardian.
           </li>
           <li>
             Recordings made without the knowledge or consent of the people
@@ -210,18 +222,53 @@ export default async function TermsPage() {
           </li>
         </ul>
         <p>
-          If you import a video by pasting a link (for example a YouTube
-          URL) instead of uploading a file, the imported footage counts as
-          content you uploaded and the same promises above apply to it,
-          including that you own it or have permission from whoever recorded
-          it.
+          <strong>People under 18 in your videos.</strong> Table tennis is a
+          junior sport, so this one matters. If anyone in a video you upload
+          is under 18, you confirm that you have consent from that
+          person&apos;s parent or legal guardian to record them and to have
+          the footage processed, stored, and shared inside PongLens as these
+          terms describe. You are solely responsible for obtaining that
+          consent and for keeping it current, and you will delete the footage
+          from PongLens if it is withdrawn. You also confirm you had the right
+          to film where you filmed. Uploading footage of someone under 18
+          without that consent is a material breach of these terms, and we may
+          remove the content and suspend the account.
         </p>
         <p>
           You grant us a limited license to store, copy, and process your
-          content solely to provide the service to you, including
-          transcribing your voice notes, generating Recollect reminders and
-          lesson summaries, and showing your matches to people you share them
-          with. We claim no other rights in your content.
+          content to provide the service to you, including transcribing your
+          voice notes, generating Recollect reminders and lesson summaries,
+          and showing your matches to people you share them with.
+        </p>
+        <p>
+          We may also use your footage to test and improve how accurately
+          PongLens finds the ball, the table, and the points. That is the only
+          additional use we make of it, and we set hard limits on it:
+        </p>
+        <ul>
+          <li>
+            We do not train generative AI models on your footage, and we do
+            not give your footage to AI model companies for their own
+            purposes.
+          </li>
+          <li>
+            We do not use your footage in marketing or on our website without
+            asking you first.
+          </li>
+          <li>
+            We do not publish it, sell it, or pass it to anyone outside the
+            people you shared it with.
+          </li>
+          <li>
+            You can opt out at any time. Email{" "}
+            <a href={`mailto:${supportEmail}`}>{supportEmail}</a> and
+            we&apos;ll exclude your account. Opting out changes nothing else
+            about your service.
+          </li>
+        </ul>
+        <p>
+          If a parent or guardian holds the account, that decision is theirs
+          to make for the player. We claim no other rights in your content.
         </p>
       </section>
 
@@ -254,7 +301,31 @@ export default async function TermsPage() {
             video, means you confirm you have the right to share footage of
             everyone who appears in it.
           </li>
+          <li>
+            A share link works for anyone who has it, without signing in.
+            Treat it like a key: send it only to people you want to see the
+            footage, and revoke it when you are done.
+          </li>
         </ul>
+      </section>
+
+      <section>
+        <h2>6a. Coaches and their students</h2>
+        <p>
+          A coach decides what to record and write about their students, and
+          is responsible for that content and for having whatever consents the
+          law requires, including a parent or guardian&apos;s consent for a
+          student under 18. PongLens stores and processes it on the
+          coach&apos;s instructions.
+        </p>
+        <p>
+          A student, or the parent or guardian of a student under 18, can ask
+          us to remove footage or notes about that student from any coach&apos;s
+          workspace, and we will honour the request. When a student leaves a
+          coach, the coach loses access to the student&apos;s matches but keeps
+          the notes they wrote themselves, which remain their own record of
+          the lessons they gave.
+        </p>
       </section>
 
       <section>
@@ -331,55 +402,57 @@ export default async function TermsPage() {
       </section>
 
       <section>
-        <h2>10. Takedown requests</h2>
+        <h2>10. Reporting content and takedown requests</h2>
         <p>
-          If you believe a video on PongLens includes you without your
-          consent, or infringes your rights, email{" "}
+          Anyone can report content on PongLens that they believe is unlawful
+          or breaks these terms, whether or not they have an account. Email{" "}
           <a href={`mailto:${supportEmail}`}>{supportEmail}</a>{" "}
-          with enough detail to identify the content. We&apos;ll review
-          promptly and remove content that violates these terms or the law,
-          typically within a few business days.
+          with enough detail to identify the content and to explain the
+          problem. We&apos;ll review promptly and remove content that violates
+          these terms or the law, typically within a few business days, and
+          we&apos;ll tell you what we decided. If we remove something, we tell
+          the person who uploaded it why.
+        </p>
+        <p>
+          The same address is the route to use if you believe a video includes
+          you, or your child, without consent, or that it infringes your
+          rights.
         </p>
       </section>
 
       <section>
-        <h2>11. Subprocessors</h2>
+        <h2>11. Service providers</h2>
         <p>
           We use a small set of providers to run the service. Each one
-          processes only what it needs for its role:
+          processes only what it needs for its role, and none may use your
+          content to train or improve their own models:
         </p>
         <ul>
+          <li>Authentication, database, and job queue.</li>
           <li>
-            <strong>Supabase</strong>: authentication, database, and job
-            queue.
+            Private storage for video files, point clips, and voice note
+            audio.
           </li>
+          <li>Website hosting and cookieless, aggregate analytics.</li>
           <li>
-            <strong>Cloudflare R2</strong>: storage for video files, point
-            clips, and voice note audio.
+            Email delivery, including one-time sign-in links and
+            notifications when your match is ready.
           </li>
+          <li>Deepgram, for voice note transcription only.</li>
           <li>
-            <strong>Vercel</strong>: website hosting and aggregate analytics.
-          </li>
-          <li>
-            <strong>Resend</strong>: transactional email, including one-time
-            sign-in links and notifications when your match is ready.
-          </li>
-          <li>
-            <strong>Deepgram</strong>: transcription of voice notes. It may
-            not use your audio to improve its own products.
-          </li>
-          <li>
-            <strong>OpenAI</strong>: automated checks during video
-            processing (confirming the footage is table tennis and locating
-            the table, from a small number of still frames), plus Recollect,
-            lesson summaries, Journal photo reading, Ask, feedback
-            assistance, and page drafting for coaches.
+            OpenAI, for automated checks during video processing
+            and for the AI-assisted features described in section 2.
           </li>
           <li>
             <strong>Stripe</strong>: payment processing for purchases and
             coach payouts.
           </li>
         </ul>
+        <p>
+          If you want to know which companies these are, email{" "}
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a> and we will
+          tell you.
+        </p>
       </section>
 
       <section>
@@ -430,10 +503,17 @@ export default async function TermsPage() {
       </section>
 
       <section>
-        <h2>16. Governing law</h2>
+        <h2>16. Governing law and disputes</h2>
         <p>
           These terms are governed by the laws of the State of New Jersey,
-          without regard to conflict-of-law rules.
+          without regard to conflict-of-law rules, and claims are brought in
+          the state or federal courts located in New Jersey.
+        </p>
+        <p>
+          If you live in the European Union, the United Kingdom, or anywhere
+          else whose consumer law cannot be signed away, nothing here takes
+          those protections from you, and you can bring a claim in the courts
+          where you live.
         </p>
       </section>
 

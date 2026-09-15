@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getRecollectEnabled } from "../config.ts";
 import { createAdminClient } from "../supabase/admin.ts";
 import {
   RECOLLECT_PROCESSOR_VERSION,
@@ -98,6 +99,10 @@ export function createRecollectRepository(
     },
 
     async isEnabled(ownerId) {
+      // The global switch (app_config.recollect_enabled) outranks the
+      // account's own preference: off for everyone means nothing is
+      // stored, whatever the row says.
+      if (!(await getRecollectEnabled())) return false;
       const { data, error } = await admin
         .from("recollect_preferences")
         .select("enabled")

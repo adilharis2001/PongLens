@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 
 /**
  * Feedback 2.0 composer + board (SPEC: Feedback system).
@@ -70,6 +71,7 @@ function useVoiceInput(onTranscript: (text: string) => void) {
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onTranscriptRef = useRef(onTranscript);
+  const { ensure } = useAiConsent();
   onTranscriptRef.current = onTranscript;
 
   useEffect(
@@ -91,7 +93,11 @@ function useVoiceInput(onTranscript: (text: string) => void) {
       const form = new FormData();
       const ext = blob.type.includes("mp4") ? "note.mp4" : "note.webm";
       form.append("audio", blob, ext);
-      const res = await fetch("/api/transcribe", { method: "POST", body: form });
+      const res = await fetchWithAiConsent(ensure, "/api/transcribe", {
+        method: "POST",
+        body: form,
+      });
+      if (!res) return;
       const data = res.ok ? await res.json() : null;
       const transcript = String(data?.transcript ?? "").trim();
       if (!transcript) throw new Error("empty transcript");
@@ -101,7 +107,7 @@ function useVoiceInput(onTranscript: (text: string) => void) {
     } finally {
       setRecState("idle");
     }
-  }, []);
+  }, [ensure]);
 
   const start = useCallback(async () => {
     setError(null);
@@ -109,6 +115,8 @@ function useVoiceInput(onTranscript: (text: string) => void) {
       setError("Voice input isn't supported in this browser.");
       return;
     }
+    // The sheet before the microphone, so nobody records to be refused.
+    if (!(await ensure())) return;
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -146,7 +154,7 @@ function useVoiceInput(onTranscript: (text: string) => void) {
     setElapsed(0);
     setRecState("recording");
     timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
-  }, [transcribe]);
+  }, [ensure, transcribe]);
 
   const stop = useCallback(() => {
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
@@ -245,6 +253,7 @@ export function FeedbackForm({
   // screenshot attachments (private to admin + author)
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const { ensure } = useAiConsent();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // post-send assist state
@@ -420,14 +429,15 @@ export function FeedbackForm({
     setAttachError(null);
     onPosted?.();
 
-    // Background polish; the item is already saved.
+    // Background polish; the item is already saved. The text goes to
+    // OpenAI, so the sheet may appear here once; Not now skips it.
     try {
-      const res = await fetch("/api/feedback/assist", {
+      const res = await fetchWithAiConsent(ensure, "/api/feedback/assist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body: trimmed, itemId: newId }),
       });
-      const parsed: AssistResponse = res.ok
+      const parsed: AssistResponse = res?.ok
         ? await res.json()
         : { questions: [], similar: null, visibility: "board" };
       setAssist({
@@ -439,7 +449,7 @@ export function FeedbackForm({
       setAssist({ questions: [], similar: null, visibility: "board" });
     }
     onPosted?.();
-  }, [body, matchId, userId, attachments, isQa, severity, onPosted]);
+  }, [body, matchId, userId, attachments, isQa, severity, onPosted, ensure]);
 
   const mergeIntoSimilar = useCallback(async () => {
     if (!assist?.similar || !itemId) return;

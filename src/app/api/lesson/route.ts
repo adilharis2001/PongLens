@@ -1,6 +1,8 @@
 import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
+import { getRecollectEnabled } from "@/lib/config";
+import { requireAiConsent } from "@/lib/consent";
 import { processNextRecollectJob } from "@/lib/recollect/processor";
 import { enqueueRecollectSource } from "@/lib/recollect/repository";
 import { createClient } from "@/lib/supabase/server";
@@ -146,6 +148,7 @@ async function distillOnce(
     },
     body: JSON.stringify({
       model: DISTILL_MODEL,
+      store: false,
       reasoning_effort: "low",
       response_format: { type: "json_object" },
       messages: [
@@ -267,6 +270,9 @@ async function distill(
 }
 
 async function beginRecollect(ownerId: string, lessonId: string) {
+  // The global switch (recollect_enabled). Off means nothing is queued and
+  // nothing is sorted; the entry itself is saved exactly as before.
+  if (!(await getRecollectEnabled())) return;
   try {
     const queued = await enqueueRecollectSource(ownerId, lessonId);
     if (!queued) return;
@@ -340,6 +346,14 @@ export async function POST(req: Request) {
     preview = body.preview === true;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Anything that distils goes through OpenAI: a preview, a retry, or a
+  // save with "Improve with AI" on. A plain save (summarize: false) sends
+  // nothing anywhere, so it is not asked.
+  if (preview || lessonId || summarize) {
+    const denied = await requireAiConsent(supabase, user.id);
+    if (denied) return denied;
   }
 
   // Preview: distil and hand it straight back, writing nothing.
@@ -527,6 +541,11 @@ export async function PATCH(req: Request) {
   }
   if (!lessonId || !transcript || transcript.length > 200000) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+  // Same rule as POST: only an improved edit goes to OpenAI.
+  if (summarize) {
+    const denied = await requireAiConsent(supabase, user.id);
+    if (denied) return denied;
   }
 
   // RLS answers "is this yours": a row the caller cannot read is a 404,

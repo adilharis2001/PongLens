@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { AutoTextarea } from "@/components/AutoTextarea";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 import { BriefField } from "@/components/BriefField";
 import { UpLink } from "@/components/UpLink";
 import {
@@ -871,16 +872,22 @@ function DescribeBox({
   const [brief, setBrief] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const { ensure } = useAiConsent();
 
   async function run() {
     if (busy || brief.trim().length < 15) return;
     setBusy(true);
     setNote(null);
-    const res = await fetch("/api/offerings/draft", {
+    // null is Not now (stop quietly); undefined is a failed request.
+    const res = await fetchWithAiConsent(ensure, "/api/offerings/draft", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ brief: brief.trim(), count }),
-    }).catch(() => null);
+    }).catch(() => undefined);
+    if (res === null) {
+      setBusy(false);
+      return;
+    }
     const data = (await res?.json().catch(() => null)) as {
       drafts?: Drafted[];
       code?: string;

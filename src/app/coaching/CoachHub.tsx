@@ -18,6 +18,7 @@ import type {
   StudentOrderItem,
 } from "@/lib/reviews/types";
 import { orderStatusLabel } from "@/lib/reviews/types";
+import { isOpenOrder } from "@/components/reviews/openOrder";
 import type { NoteFeedRow } from "@/lib/types";
 import { CoachStart } from "./CoachStart";
 
@@ -192,6 +193,7 @@ export function CoachHub({
   coachNotes,
   userId,
   firstSteps,
+  reviewsEnabled,
 }: {
   /** The side the server resolved (158). */
   workspace: Workspace;
@@ -204,6 +206,10 @@ export function CoachHub({
   userId: string;
   /** The coach's checklist state, or null on the playing side. */
   firstSteps: CoachFirstStepsState | null;
+  /** coach_reviews_enabled. Off hides the Orders section and the list of
+   *  bought reviews, keeping only the open ones so their buyer can still
+   *  reach them. */
+  reviewsEnabled: boolean;
 }) {
   const router = useRouter();
   const bootRan = useRef(false);
@@ -286,6 +292,11 @@ export function CoachHub({
   // — the same switch that changes the nav — never a toggle of its own.
   const coachWorkspace = useWorkspace(workspace) === "coach";
   const showPlayer = !coachWorkspace;
+  // The reviews a player bought, as the feed shows them. With the switch
+  // off only the open ones stay, so their buyer can still reach them.
+  const boughtOrders = reviewsEnabled
+    ? studentOrders
+    : studentOrders.filter((o) => isOpenOrder(o.status));
 
   return (
     <>
@@ -306,7 +317,7 @@ export function CoachHub({
         <CoachFirstSteps state={firstSteps} />
       )}
 
-      {coachWorkspace && profile && (
+      {coachWorkspace && profile && reviewsEnabled && (
         <div className="mt-6">
           <SectionLabel>Orders</SectionLabel>
           <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
@@ -344,7 +355,7 @@ export function CoachHub({
         <PlayerCoaching
           userId={userId}
           coachNotes={coachNotes}
-          studentOrders={studentOrders}
+          studentOrders={boughtOrders}
         />
       )}
 

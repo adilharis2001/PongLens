@@ -568,6 +568,8 @@ private struct ToolsCard: View {
     }
 
     private func run(_ action: String) async {
+        // Tidy and Review are OpenAI's: permission first.
+        guard await AiConsent.shared.ensure() else { return }
         busyTool = action
         toolNote = nil
         toolNote = await store.runAssist(action)

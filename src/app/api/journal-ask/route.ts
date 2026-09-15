@@ -11,6 +11,7 @@ import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { aggregateStats, type MatchLite } from "@/app/stats/aggregate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { requireAiConsent } from "@/lib/consent";
 import type { Lesson, NoteFeedRow, Point } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -309,6 +310,7 @@ function callModel(
     },
     body: JSON.stringify({
       model: ASK_MODEL,
+      store: false,
       reasoning_effort: "low",
       response_format: { type: "json_object" },
       max_completion_tokens: MAX_OUTPUT_TOKENS,
@@ -351,6 +353,8 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ code: "not_signed_in" }, { status: 401 });
   }
+  const denied = await requireAiConsent(supabase, user.id);
+  if (denied) return denied;
 
   let question: string;
   try {

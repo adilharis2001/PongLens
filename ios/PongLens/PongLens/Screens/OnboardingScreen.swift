@@ -4,9 +4,9 @@ import Supabase
 /// First-login setup, mirroring the web's steps and its gate: a missing
 /// display name OR a missing player_profiles row routes here.
 ///
-/// Four steps at most — which side of the table you are on, your name, how
-/// you heard about us, how you play — and the ones that do not apply are
-/// skipped. A coach answers all but the last and lands on the coaching side;
+/// Five steps at most — when you were born and the terms (new accounts),
+/// which side of the table you are on, your name, how you heard about us,
+/// how you play — and the ones that do not apply are skipped. A coach answers all but the last and lands on the coaching side;
 /// "both" answers everything and starts on the playing side with coaching
 /// one switch away.
 struct OnboardingScreen: View {
@@ -20,6 +20,10 @@ struct OnboardingScreen: View {
     /// whichever sign-in brought it here. The role question keys on this,
     /// not on the name — Google and Apple arrive with a name.
     let isNew: Bool
+    /// player_profiles.terms_accepted_at is null: the account never tapped
+    /// "Agree and continue". Step 0, ahead of everything else, coaches
+    /// included. Existing rows were backfilled, so only new accounts.
+    let needsTerms: Bool
     let onDone: () -> Void
 
     @Environment(AppState.self) private var app
@@ -44,19 +48,33 @@ struct OnboardingScreen: View {
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var autoFinished = false
+    /// The terms screen is behind us: either it was never needed, or
+    /// "Agree and continue" wrote the stamp. Every other step waits on it.
+    @State private var termsDone: Bool
+    @State private var birthMonth: Int
+    @State private var birthYear: Int
+    /// Set when the birthdate fails the age rule, with the minimum it
+    /// failed: the screen becomes the sign-out screen.
+    @State private var underAgeMinimum: Int?
+    @State private var signingOut = false
 
     /// 0 name, 1 how you heard about us, 2 how you play. The role card is
-    /// its own gate ahead of all three.
+    /// its own gate ahead of all three, and the terms screen (`termsDone`)
+    /// is a gate ahead of the role card.
     private enum Step {
         static let name = 0
         static let source = 1
         static let play = 2
     }
 
-    init(needsName: Bool, isCoach: Bool = false, isNew: Bool = true, onDone: @escaping () -> Void) {
+    init(
+        needsName: Bool, isCoach: Bool = false, isNew: Bool = true, needsTerms: Bool = false,
+        onDone: @escaping () -> Void
+    ) {
         self.needsName = needsName
         self.isCoach = isCoach
         self.isNew = isNew
+        self.needsTerms = needsTerms
         self.onDone = onDone
         // A brand-new account that arrived with a name answers the source
         // question first; an invite-born coach is never asked and goes
@@ -64,6 +82,10 @@ struct OnboardingScreen: View {
         _step = State(initialValue: needsName
             ? Step.name
             : (isNew && !isCoach ? Step.source : Step.play))
+        _termsDone = State(initialValue: !needsTerms)
+        let now = Calendar.current.dateComponents([.year, .month], from: Date())
+        _birthMonth = State(initialValue: now.month ?? 1)
+        _birthYear = State(initialValue: now.year ?? Self.currentYear)
     }
 
     /// Web caps the field at 120 characters and rejects anything over 80 on
@@ -108,6 +130,7 @@ struct OnboardingScreen: View {
     /// the row does not resize while choosing.
     private var stepCount: Int {
         var n = 0
+        if needsTerms { n += 1 }
         if asksSource { n += 1 }
         if needsName { n += 1 }
         if asksSource { n += 1 }
@@ -115,8 +138,10 @@ struct OnboardingScreen: View {
         return n
     }
     private var stepIndex: Int {
-        if askingRole { return 0 }
-        var i = asksSource ? 1 : 0
+        if !termsDone { return 0 }
+        let base = needsTerms ? 1 : 0
+        if askingRole { return base }
+        var i = base + (asksSource ? 1 : 0)
         if step == Step.name { return i }
         if needsName { i += 1 }
         if step == Step.source { return i }
@@ -132,7 +157,7 @@ struct OnboardingScreen: View {
                     LogoWordmark()
                         .padding(.top, 40)
 
-                    if stepCount > 1 {
+                    if stepCount > 1, underAgeMinimum == nil {
                         HStack(spacing: 6) {
                             ForEach(0..<stepCount, id: \.self) { i in
                                 Capsule()
@@ -144,7 +169,13 @@ struct OnboardingScreen: View {
                         .accessibilityHidden(true)
                     }
 
-                    if isCoach && !needsName {
+                    if !termsDone {
+                        if let underAgeMinimum {
+                            underAgeStep(minimum: underAgeMinimum)
+                        } else {
+                            termsStep
+                        }
+                    } else if isCoach && !needsName {
                         // Nothing to ask. Write the row and get out of the
                         // way; the gate is what this screen exists for.
                         VStack(spacing: 12) {
@@ -198,14 +229,175 @@ struct OnboardingScreen: View {
             .allowsHitTesting(false)
         }
         .plKeyboardDismiss()
-        .task {
-            guard isCoach, !needsName, !autoFinished else { return }
+        .task(id: termsDone) {
+            // Never before the terms screen: the row it would write
+            // carries no acceptance, and the gate would only ask again.
+            guard termsDone, isCoach, !needsName, !autoFinished else { return }
             autoFinished = true
             await saveProfile(setupDone: false)
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) { cardsShown = true }
         }
+    }
+
+    // MARK: - Terms and age
+
+    private static let months: [String] = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        return formatter.monthSymbols
+    }()
+    private static let currentYear = Calendar.current.component(.year, from: Date())
+
+    private var termsStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("When were you born?")
+                .font(.plPageTitle)
+                .tracking(-0.6)
+                .foregroundStyle(PL.textBody)
+
+            HStack(spacing: 0) {
+                Picker("Month", selection: $birthMonth) {
+                    ForEach(1...12, id: \.self) { month in
+                        Text(Self.months[month - 1]).tag(month)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                Picker("Year", selection: $birthYear) {
+                    ForEach(Array(stride(from: Self.currentYear, through: 1920, by: -1)), id: \.self) { year in
+                        Text(String(year)).tag(year)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .frame(maxWidth: .infinity)
+                .clipped()
+            }
+            .frame(height: 160)
+
+            // Markdown links, the same treatment as the sign-in screen.
+            Text(.init(
+                "By continuing you agree to the [Terms](https://www.ponglens.com/terms) and [Privacy Policy](https://www.ponglens.com/privacy)."
+            ))
+            .font(.plCaption)
+            .foregroundStyle(PL.text500)
+            .tint(PL.text300)
+            .fixedSize(horizontal: false, vertical: true)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.dangerText)
+            }
+
+            Button {
+                Task { await agree() }
+            } label: {
+                Text(saving ? "Saving…" : "Agree and continue")
+                    .frame(maxWidth: .infinity, minHeight: 20)
+            }
+            .buttonStyle(PLPrimaryButtonStyle())
+            .disabled(saving)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 24)
+    }
+
+    private func underAgeStep(minimum: Int) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("PongLens is for players \(minimum) and over.")
+                .font(.plPageTitle)
+                .tracking(-0.6)
+                .foregroundStyle(PL.textBody)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("A parent or guardian can create an account and add you.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                Task { await signOutUnderAge() }
+            } label: {
+                Text(signingOut ? "Signing out…" : "Sign out")
+                    .frame(maxWidth: .infinity, minHeight: 20)
+            }
+            .buttonStyle(PLPrimaryButtonStyle())
+            .disabled(signingOut)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 24)
+    }
+
+    /// "Agree and continue". The age rule first, on the device's region;
+    /// then the birth month and year to their owner-only table and the
+    /// acceptance stamp to the profile, and on to the existing steps.
+    /// setup_done_at is left alone: the playing questions still decide it.
+    private func agree() async {
+        guard let uid = app.userId else { return }
+        let region = Locale.current.region?.identifier
+        if AgeGate.isUnderAge(birthYear: birthYear, birthMonth: birthMonth, region: region) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                underAgeMinimum = AgeGate.minimumAge(region: region)
+            }
+            return
+        }
+        saving = true
+        errorMessage = nil
+        if app.termsVersion == nil { await app.refreshConfigFlags() }
+        let version = app.termsVersion ?? AiConsent.fallbackVersion
+        struct Birthdate: Encodable {
+            let user_id: String
+            let birth_year: Int
+            let birth_month: Int
+        }
+        struct Acceptance: Encodable {
+            let user_id: String
+            let terms_accepted_at: String
+            let terms_version: String
+        }
+        let id = uid.uuidString.lowercased()
+        do {
+            try await supa
+                .from("player_birthdates")
+                .upsert(Birthdate(user_id: id, birth_year: birthYear, birth_month: birthMonth))
+                .execute()
+            try await supa
+                .from("player_profiles")
+                .upsert(Acceptance(
+                    user_id: id,
+                    terms_accepted_at: ISO8601DateFormatter().string(from: Date()),
+                    terms_version: version
+                ))
+                .execute()
+            // The row exists now and has no upload confirmation yet: the
+            // checkbox shows at the first upload.
+            UploadConsent.shared.seed(confirmedAt: nil, loaded: true)
+            termsDone = true
+        } catch {
+            errorMessage = "We couldn't save that. Try again."
+        }
+        saving = false
+    }
+
+    /// Sign out, and first delete the account when there is nothing in
+    /// it: the same route and the same two steps Account's delete sheet
+    /// uses, minus the typed word, because an empty account has nothing
+    /// to protect. An account with matches is only signed out.
+    private func signOutUnderAge() async {
+        signingOut = true
+        struct PreviewReq: Encodable { let action: String }
+        struct Preview: Decodable { let matches: Int }
+        struct DeleteReq: Encodable { let action: String; let confirm: String }
+        struct Deleted: Decodable { let ok: Bool? }
+        if let preview: Preview = try? await API.post("api/delete-account", PreviewReq(action: "preview")),
+           preview.matches == 0 {
+            let _: Deleted? = try? await API.post(
+                "api/delete-account", DeleteReq(action: "delete", confirm: "DELETE")
+            )
+        }
+        await app.signOut()
+        signingOut = false
     }
 
     // MARK: - Which side

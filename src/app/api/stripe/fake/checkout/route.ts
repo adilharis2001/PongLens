@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCoachReviewsEnabled } from "@/lib/config";
 import { randomUUID } from "node:crypto";
 
 import { paymentsFake } from "@/lib/payments/gateway";
@@ -69,6 +70,11 @@ async function orderForTestStudent(orderId: string, sessionId: string) {
 }
 
 export async function GET(req: Request) {
+  // coach_reviews_enabled off: nothing under /api/stripe answers except
+  // the webhooks, which keep landing events for existing orders.
+  if (!(await getCoachReviewsEnabled())) {
+    return NextResponse.json({ code: "not_found" }, { status: 404 });
+  }
   const url = new URL(req.url);
   const orderId = url.searchParams.get("order") ?? "";
   const sessionId = url.searchParams.get("session") ?? "";
@@ -118,6 +124,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  // coach_reviews_enabled off: nothing under /api/stripe answers except
+  // the webhooks, which keep landing events for existing orders.
+  if (!(await getCoachReviewsEnabled())) {
+    return NextResponse.json({ code: "not_found" }, { status: 404 });
+  }
   const url = new URL(req.url);
   const orderId = url.searchParams.get("order") ?? "";
   const sessionId = url.searchParams.get("session") ?? "";

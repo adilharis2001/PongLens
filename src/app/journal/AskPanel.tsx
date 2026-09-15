@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 
 export { askExamples } from "@/lib/ask/examples";
 
@@ -130,6 +131,7 @@ export function AskPanel({
   const answerRef = useRef<HTMLDivElement | null>(null);
   // Guards a double tap racing itself into two paid requests.
   const inFlight = useRef(false);
+  const { ensure } = useAiConsent();
 
   // An override lets an example question fire directly, without a round
   // trip through the parent's state. Tapping one is still a deliberate
@@ -138,16 +140,25 @@ export function AskPanel({
     const question = (override ?? query).trim();
     if (!askable(question) || inFlight.current) return;
     inFlight.current = true;
+    // The question and the journal go to OpenAI: the sheet first, once.
+    if (!(await ensure())) {
+      inFlight.current = false;
+      return;
+    }
     setLoading(true);
     setError(null);
     setResult(null);
     setAsked(question);
     try {
-      const res = await fetch("/api/journal-ask", {
+      const res = await fetchWithAiConsent(ensure, "/api/journal-ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
       });
+      if (!res) {
+        setAsked(null);
+        return;
+      }
       const data = (await res.json().catch(() => null)) as AskResponse | null;
       if (!res.ok || !data) {
         setError(errorFor(data?.code));
@@ -160,7 +171,7 @@ export function AskPanel({
       setLoading(false);
       inFlight.current = false;
     }
-  }, [query]);
+  }, [query, ensure]);
 
   useEffect(() => {
     onReady?.((question?: string) => void ask(question));

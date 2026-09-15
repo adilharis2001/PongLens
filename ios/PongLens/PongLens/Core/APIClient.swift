@@ -109,6 +109,7 @@ enum API {
         _ build: (_ accessToken: String) -> URLRequest
     ) async throws -> Data {
         var recovered = false
+        var consentAsked = false
         while true {
             let session = try await supa.auth.session
             #if DEBUG && targetEnvironment(simulator)
@@ -132,7 +133,29 @@ enum API {
                 // Two error dialects: older routes {error: "sentence"}, newer
                 // commerce/review routes {code: "stable_code"}.
                 let fields = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
-                throw APIError.http(http.statusCode, fields["error"] ?? fields["code"] ?? "")
+                let code = fields["error"] ?? fields["code"] ?? ""
+                if http.statusCode == 403 {
+                    switch code {
+                    case "ai_consent_required":
+                        // The route wants the AI features sheet. Show it
+                        // once and go again with the answer; Not now, or a
+                        // second refusal, throws like any other 403.
+                        if !consentAsked {
+                            consentAsked = true
+                            if await AiConsent.shared.serverRequired() { continue }
+                        }
+                    case "upload_confirmation_required":
+                        // The screens show the checkbox row instead of a
+                        // generic error once this is set.
+                        UploadConsent.shared.noteConfirmationRequired()
+                    case "terms_required":
+                        // RootView sends the account back through onboarding.
+                        UploadConsent.shared.termsRequired = true
+                    default:
+                        break
+                    }
+                }
+                throw APIError.http(http.statusCode, code)
             }
             return data
         }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 
 /**
  * The app's one dictate idiom (Notes composer): a round mic button, a
@@ -28,6 +29,7 @@ export function DictateButton({
   const [seconds, setSeconds] = useState(0);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
+  const { ensure } = useAiConsent();
 
   useEffect(() => {
     if (!recording) return;
@@ -41,6 +43,8 @@ export function DictateButton({
   }, [recording, transcribing, onBusyChange]);
 
   async function start() {
+    // Asked before the microphone opens, not after the recording is made.
+    if (!(await ensure())) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -66,12 +70,16 @@ export function DictateButton({
             `dictation${mime === "audio/webm" ? ".webm" : ".mp4"}`,
           );
           form.append("persist", "false");
-          const res = await fetch("/api/transcribe", {
+          const res = await fetchWithAiConsent(ensure, "/api/transcribe", {
             method: "POST",
             body: form,
           });
-          const data = (await res.json()) as { transcript?: string };
-          if (res.ok && data.transcript) {
+          const data = res
+            ? ((await res.json()) as { transcript?: string })
+            : null;
+          if (!res) {
+            // Not now: dropped quietly.
+          } else if (res.ok && data?.transcript) {
             onTranscript(data.transcript);
           } else if (!res.ok) {
             onError("Could not process the recording.");

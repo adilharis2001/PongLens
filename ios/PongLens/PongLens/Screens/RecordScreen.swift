@@ -800,6 +800,9 @@ struct RecordScreen: View {
                 uploadsShelf.padding(.horizontal, 16)
             }
 
+            uploadConfirmation
+                .padding(.horizontal, 16)
+
             shutterRow(recordingAllowed: sideways)
                 .padding(.bottom, 26)
         }
@@ -821,6 +824,9 @@ struct RecordScreen: View {
                         .frame(maxWidth: 420)
                         .padding(.bottom, 16)
                 }
+                uploadConfirmation
+                    .frame(maxWidth: 420)
+                    .padding(.bottom, 16)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 16)
@@ -853,6 +859,22 @@ struct RecordScreen: View {
     /// the zoom pill grows with the number of lenses and the shutter must
     /// stay in the middle of the screen regardless.
     private static let slotWidth: CGFloat = 132
+
+    /// The first-upload checkbox (new accounts only), above the shutter.
+    /// The shutter waits for it: a segment enqueued without it would be
+    /// refused by the upload route. Ticked stays ticked for this visit.
+    @State private var uploadTicked = false
+    private var uploadAllowed: Bool { !UploadConsent.shared.needed || uploadTicked }
+
+    @ViewBuilder
+    private var uploadConfirmation: some View {
+        if recorder.state != .recording, UploadConsent.shared.needed || uploadTicked {
+            UploadConfirmationRow(ticked: $uploadTicked)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(PL.ink.opacity(0.75), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
 
     private var hasVisibleUploads: Bool {
         #if DEBUG
@@ -1251,7 +1273,7 @@ struct RecordScreen: View {
 
     private func shutter(recordingAllowed: Bool) -> some View {
         let enabled = recorder.state == .recording
-            || (recorder.state == .ready && recorder.preflightBlock == nil && recordingAllowed)
+            || (recorder.state == .ready && recorder.preflightBlock == nil && recordingAllowed && uploadAllowed)
         return Button {
             if recorder.state == .recording {
                 recorder.stop()

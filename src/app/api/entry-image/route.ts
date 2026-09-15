@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { entryImageDeleteRequest } from "@/lib/journal/entryImage";
 import { createClient } from "@/lib/supabase/server";
+import { requireAiConsent } from "@/lib/consent";
 import { deleteObjects, MEDIA_BUCKET, putObject } from "@/lib/r2";
 import { checkUploadAllowed, MEDIA_UPLOAD_RULES, refusalStatus } from "@/lib/quota";
 
@@ -49,6 +50,8 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+  const denied = await requireAiConsent(supabase, user.id);
+  if (denied) return denied;
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     return NextResponse.json(
@@ -95,6 +98,7 @@ export async function POST(req: Request) {
     },
     body: JSON.stringify({
       model: CHECK_MODEL,
+      store: false,
       reasoning_effort: "low",
       response_format: { type: "json_object" },
       messages: [

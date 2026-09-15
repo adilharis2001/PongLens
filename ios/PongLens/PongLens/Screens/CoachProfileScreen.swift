@@ -465,6 +465,8 @@ private struct ProfileDrafter: View {
     }
 
     private func write() async {
+        // OpenAI writes the draft: permission first.
+        guard await AiConsent.shared.ensure() else { return }
         busy = true
         note = nil
         struct Req: Encodable { let brief: String }

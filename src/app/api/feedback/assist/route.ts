@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { createClient } from "@/lib/supabase/server";
+import { requireAiConsent } from "@/lib/consent";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,7 @@ const MODEL = "gpt-5-nano";
 
 // Compact app context so the model can tell bugs from ideas from
 // account/support issues (condensed from SPEC.md).
-const APP_CONTEXT = `PongLens: match analysis for table tennis players. Users upload a match video (or import from YouTube) and get:
+const APP_CONTEXT = `PongLens: match analysis for table tennis players. Users upload a match video and get:
 - a "pure play" cut, playtime only (download from dashboard or match page)
 - the match broken into per-point clips with a vertical point timeline
 - per-point notes (text + voice notes with transcription) and an optional scorecard ("who won this point / how it ended") with AI suggestions
@@ -84,6 +85,8 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+  const denied = await requireAiConsent(supabase, user.id);
+  if (denied) return denied;
 
   let body = "";
   let itemId = "";
@@ -129,6 +132,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: MODEL,
+        store: false,
         reasoning_effort: "low",
         max_completion_tokens: 3000,
         messages: [

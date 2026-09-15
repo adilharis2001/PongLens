@@ -88,6 +88,22 @@ export const getCommerceEnabled = cache(async (): Promise<boolean> => {
   return (await getConfigValue("commerce_enabled")) === "true";
 });
 
+/** Global Recollect switch. Off hides the tab and the Account toggle on
+ *  every surface and stops generation at the source. A failed read is off. */
+export const getRecollectEnabled = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("recollect_enabled")) === "true";
+});
+
+/** Version stamps written with the "Agree and continue" tap and the AI
+ *  features sheet. Bumping the config value re-prompts on both platforms. */
+export const FALLBACK_TERMS_VERSION = "2026-09-14";
+export const getTermsVersion = cache(async (): Promise<string> => {
+  return (await getConfigValue("terms_version")) ?? FALLBACK_TERMS_VERSION;
+});
+export const getAiConsentVersion = cache(async (): Promise<string> => {
+  return (await getConfigValue("ai_consent_version")) ?? FALLBACK_TERMS_VERSION;
+});
+
 /** Purchase availability is separate from metering and must be read fresh. */
 export const getPurchasesEnabled = cache(async (): Promise<boolean> => {
   try {

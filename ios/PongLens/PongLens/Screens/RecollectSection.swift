@@ -8,6 +8,7 @@ struct RecollectSection: View {
     /// Brings the journal to the entry a revealed point came from.
     var onOpenSource: (RecollectSource) -> Void
 
+    @Environment(AppState.self) private var app
     @State private var store = RecollectStore()
     @State private var attempt = 0
 
@@ -21,7 +22,7 @@ struct RecollectSection: View {
                 skeleton
             }
         }
-        .task(id: attempt) { await store.load() }
+        .task(id: attempt) { await store.load(available: app.recollectEnabled) }
     }
 
     // MARK: - States

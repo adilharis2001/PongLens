@@ -453,6 +453,9 @@ private struct FeedbackComposer: View {
             // the dismiss on purpose: nobody waits on a rewrite.
             struct AssistReq: Encodable { let itemId: String }
             struct AssistRes: Decodable { let ok: Bool? }
+            // The polish is OpenAI's: permission first. The feedback is
+            // already sent either way.
+            guard await AiConsent.shared.ensure() else { return }
             let _: AssistRes? = try? await API.post(
                 "api/feedback/assist", AssistReq(itemId: row.id.uuidString.lowercased())
             )

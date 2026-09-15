@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { getRecollectEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { NotesFeed } from "./NotesFeed";
@@ -32,11 +33,16 @@ export default async function ImprovePage({
   }
 
   const { match, entry } = await searchParams;
-  const { data: recollectPreference } = await supabase
-    .from("recollect_preferences")
-    .select("enabled")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  // The global switch decides whether the Recollect tab exists at all;
+  // the account's own preference only matters while it is on.
+  const recollectGloballyEnabled = await getRecollectEnabled();
+  const { data: recollectPreference } = recollectGloballyEnabled
+    ? await supabase
+        .from("recollect_preferences")
+        .select("enabled")
+        .eq("user_id", user.id)
+        .maybeSingle()
+    : { data: null };
 
   const accountName =
     (
@@ -60,7 +66,9 @@ export default async function ImprovePage({
           userId={user.id}
           accountName={accountName}
           initialMatch={match ?? null}
-          initialRecollectEnabled={recollectPreference?.enabled !== false}
+          initialRecollectEnabled={
+            recollectGloballyEnabled && recollectPreference?.enabled !== false
+          }
         />
       </div>
     </AppShell>

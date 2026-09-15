@@ -14,7 +14,7 @@ export const playerGuides: Guide[] = [
     summary: "Choose a video, set up processing, and know what happens next.",
     group: "Get started",
     visibility: { audiences: ["player"], platforms: ["web", "ios"] },
-    related: ["upload-from-youtube", "record-a-match", "match-viewer"],
+    related: ["record-a-match", "match-viewer"],
     sections: [
       {
         heading: "Quick steps",
@@ -60,47 +60,6 @@ export const playerGuides: Guide[] = [
         paragraphs: [
           "The match appears on Home and in Matches while PongLens processes it. You can use the rest of PongLens after the upload completes, and PongLens lets you know when the match is ready.",
         ],
-      },
-    ],
-  },
-  {
-    slug: "upload-from-youtube",
-    title: "Import a video from YouTube",
-    summary: "Bring in a public or unlisted video without downloading it first.",
-    group: "Get started",
-    visibility: { audiences: ["player"], platforms: ["web"] },
-    related: ["upload-a-video", "match-viewer"],
-    sections: [
-      {
-        heading: "Quick steps",
-        steps: [
-          "Open Upload and scroll to Import from YouTube.",
-          "Paste a link to one public or unlisted YouTube video.",
-          "Choose Import.",
-          "Add match details and choose the processing options while PongLens fetches the video.",
-          "When the page says “We’re fetching it,” you can leave. PongLens emails you when the match is ready.",
-        ],
-        images: [
-          { src: "/learn/youtube-d.jpg", alt: "The Import from YouTube form", kind: "d" },
-          { src: "/learn/youtube-m.jpg", alt: "The YouTube link field and Import button on a phone", kind: "m", phoneTwin: true },
-        ],
-      },
-      {
-        heading: "Which links work",
-        bullets: [
-          "The video must be public or unlisted. Private and unavailable videos cannot be imported.",
-          "The video can be up to 45 minutes long.",
-          "Use your own footage, or footage you have permission to use.",
-          "Paste a link to the video itself, not a channel or playlist page.",
-        ],
-      },
-      {
-        heading: "Set up the match while it downloads",
-        paragraphs: [
-          "The form has the same choices as a file upload: opponent, location, match type, Break it into points, Placement maps, and Cut strictness.",
-          "Processing choices stay editable while the YouTube video downloads. They lock when PongLens begins processing. The opponent, location, and match type remain editable.",
-        ],
-        tip: "A YouTube import does not need this page to stay open. Once the import is queued, you can close it or use another part of PongLens.",
       },
     ],
   },

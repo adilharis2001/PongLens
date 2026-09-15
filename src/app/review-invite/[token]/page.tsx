@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { getCoachReviewsEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { ClaimInvite } from "./ClaimInvite";
 
@@ -27,6 +28,8 @@ export default async function ReviewInvitePage({
 }) {
   const { token } = await params;
   if (!UUID_RE.test(token)) notFound();
+  // coach_reviews_enabled off: the page is gone, not just its entrance.
+  if (!(await getCoachReviewsEnabled())) notFound();
 
   const supabase = await createClient();
   const {

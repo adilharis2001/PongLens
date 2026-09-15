@@ -94,11 +94,39 @@ final class AccountStore {
     var purchasesEnabled = false
     var supportEmail = "support@ponglens.com"
     /// No preference row means enabled, the same reading the web makes.
+    /// Only read while app_config recollect_enabled is on; off, the row
+    /// is not shown and the preference is never asked for.
     var recollectEnabled = true
     var shareLinks: [ShareLinkRow] = []
     var loaded = false
 
-    func load(userId: UUID?) async {
+    private struct RecollectPref: Decodable { let enabled: Bool }
+
+    private static func readRecollectPreference(_ available: Bool) async -> [RecollectPref]? {
+        guard available else { return nil }
+        return try? await supa
+            .from("recollect_preferences")
+            .select("enabled")
+            .execute().value
+    }
+
+    private struct ConsentRow: Decodable {
+        let ai_features_enabled: Bool?
+        let upload_confirmed_at: String?
+    }
+
+    /// The account's own profile row. Filtered by user_id on purpose:
+    /// an accepted coach can read their students' rows too.
+    private static func readConsent(_ userId: UUID?) async -> [ConsentRow]? {
+        guard let userId else { return nil }
+        return try? await supa
+            .from("player_profiles")
+            .select("ai_features_enabled,upload_confirmed_at")
+            .eq("user_id", value: userId.uuidString.lowercased())
+            .execute().value
+    }
+
+    func load(userId: UUID?, recollectAvailable: Bool = false) async {
         struct ConfigRow: Decodable {
             let key: String
             let value: String?
@@ -119,13 +147,10 @@ final class AccountStore {
             .order("created_at", ascending: false)
             .execute().value
 
-        struct RecollectPref: Decodable { let enabled: Bool }
-        async let recollectQ: [RecollectPref]? = try? supa
-            .from("recollect_preferences")
-            .select("enabled")
-            .execute().value
+        async let recollectQ: [RecollectPref]? = Self.readRecollectPreference(recollectAvailable)
+        async let consentQ: [ConsentRow]? = Self.readConsent(userId)
 
-        let (config, s, p, links, recollect) = await (configQ, storageQ, processingQ, linksQ, recollectQ)
+        let (config, s, p, links, recollect, consent) = await (configQ, storageQ, processingQ, linksQ, recollectQ, consentQ)
         for row in config ?? [] {
             if row.key == "purchases_enabled" { purchasesEnabled = row.value == "true" }
             if row.key == "commerce_enabled" {
@@ -139,6 +164,12 @@ final class AccountStore {
         processing = p?.first
         shareLinks = links ?? []
         recollectEnabled = recollect?.first?.enabled ?? true
+        if let consent {
+            // The same two facts RootView seeds at sign-in, refreshed
+            // whenever Account opens, so the switch shows what the row says.
+            AiConsent.shared.seed(enabled: consent.first?.ai_features_enabled)
+            UploadConsent.shared.seed(confirmedAt: consent.first?.upload_confirmed_at, loaded: true)
+        }
         loaded = true
     }
 

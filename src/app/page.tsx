@@ -59,8 +59,8 @@ const chapters: Chapter[] = [
     title: "Upload it",
     caption: (
       <>
-        Upload the file, or paste a YouTube link if the match is already
-        online. {glow("You get an email when it is ready")}.
+        Upload the file from your phone or computer.{" "}
+        {glow("You get an email when it is ready")}.
       </>
     ),
   },
@@ -144,7 +144,7 @@ const faqs = [
   },
   {
     q: "What video formats can I upload?",
-    a: "MP4 or MOV files up to 2 GB. A normal phone recording of a full match fits comfortably. You can also import a match straight from a YouTube link.",
+    a: "MP4 or MOV files up to 2 GB. A normal phone recording of a full match fits comfortably.",
   },
   {
     q: "Does it work on my phone?",
@@ -208,7 +208,7 @@ const jsonLd = (supportEmail: string) => ({
       "@id": "https://www.ponglens.com/#walkthrough",
       name: "How PongLens works",
       description:
-        "A walkthrough of PongLens: upload a table tennis match from your phone or YouTube, get it back with the dead time between points removed, score it in about ten minutes, and read what the match says about your game.",
+        "A walkthrough of PongLens: upload a table tennis match from your phone, get it back with the dead time between points removed, score it in about ten minutes, and read what the match says about your game.",
       thumbnailUrl: ["https://www.ponglens.com/demo/walkthrough-desktop.jpg"],
       uploadDate: WALKTHROUGH.uploaded,
       duration: WALKTHROUGH.duration,

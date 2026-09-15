@@ -529,7 +529,9 @@ enum NoteMedia {
     /// Voice note: upload the recording, get back its storage path and a
     /// transcript to drop into the composer (the web's /api/transcribe).
     static func transcribe(audio: Data) async throws -> TranscribeResult {
-        try await API.postMultipart(
+        // Deepgram does the transcribing: permission first.
+        guard await AiConsent.shared.ensure() else { throw AiConsent.Declined() }
+        return try await API.postMultipart(
             "api/transcribe", field: "audio", filename: "note.mp4",
             mime: "audio/mp4", data: audio
         )

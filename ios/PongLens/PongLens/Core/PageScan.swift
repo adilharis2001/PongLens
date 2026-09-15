@@ -54,6 +54,8 @@ enum PageScan {
     /// about — no signal, or the daily allowance spent — so a single
     /// unreadable page never sinks the rest of the batch.
     static func read(_ jpeg: Data) async throws -> Page {
+        // OpenAI reads the page: permission first.
+        guard await AiConsent.shared.ensure() else { throw AiConsent.Declined() }
         let response: Response = try await API.postMultipart(
             "api/journal-ocr", field: "pages", filename: "page.jpg",
             mime: "image/jpeg", data: jpeg

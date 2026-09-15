@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCoachReviewsEnabled } from "@/lib/config";
 
 import { paymentsFake } from "@/lib/payments/gateway";
 import { callerBillingMode } from "@/lib/payments/mode";
@@ -20,6 +21,11 @@ export const runtime = "nodejs";
  */
 
 export async function GET(req: Request) {
+  // coach_reviews_enabled off: nothing under /api/stripe answers except
+  // the webhooks, which keep landing events for existing orders.
+  if (!(await getCoachReviewsEnabled())) {
+    return NextResponse.json({ code: "not_found" }, { status: 404 });
+  }
   const supabase = await createClient();
   if (!paymentsFake() && (await callerBillingMode(supabase)) !== "test") {
     return NextResponse.json({ code: "not_here" }, { status: 404 });

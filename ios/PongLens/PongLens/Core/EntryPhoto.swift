@@ -40,6 +40,8 @@ enum EntryPhoto {
     /// says which of "not a journal photo", "too big" and "that is today's
     /// allowance" happened.
     static func upload(_ jpeg: Data) async throws -> String {
+        // The route checks the photo with a vision call: permission first.
+        guard await AiConsent.shared.ensure() else { throw AiConsent.Declined() }
         let res: Uploaded = try await API.postMultipart(
             "api/entry-image", field: "image", filename: "photo.jpg",
             mime: "image/jpeg", data: jpeg

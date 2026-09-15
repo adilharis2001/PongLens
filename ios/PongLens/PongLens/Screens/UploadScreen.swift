@@ -33,23 +33,15 @@ struct UploadScreen: View {
     /// upload while the Record tab honoured it — so turning placement on
     /// did nothing here and nobody could see why.
     @State private var placementOn = false
-    @State private var youtubeURL = ""
-    @State private var youtubeState: YouTubeState = .idle
-    @State private var youtubeJobID: UUID?
-    private var youtubeStorageBlocked: Bool {
-        if case .failed(let message) = youtubeState { return AllowanceLimit.isStorage(message) }
-        return false
-    }
+    /// The first-upload checkbox (new accounts only). Ticked here stays
+    /// ticked for this visit even once the row is no longer needed.
+    @State private var uploadTicked = false
+    private var uploadAllowed: Bool { !UploadConsent.shared.needed || uploadTicked }
 
     enum ImportStage: Equatable {
         case idle
         case exporting // Photos is handing the file over
         case probing // reading duration, checking the caps
-    }
-
-    enum YouTubeState: Equatable {
-        case idle, sending, queued
-        case failed(String)
     }
 
     private var queue: RecordingQueue { RecordingQueue.shared }
@@ -97,12 +89,6 @@ struct UploadScreen: View {
                     }
 
                     pickCard
-                    // YouTube import stays web-only. Apps that pull video
-                    // off YouTube run against YouTube's terms whoever owns
-                    // the footage, and App Review has a long history of
-                    // rejecting for it (5.2.3) — not an argument to invite
-                    // on a first submission. The card and its plumbing are
-                    // kept below, unrendered, for if that call changes.
                     balanceCard
                     reportRow
                 }
@@ -228,6 +214,10 @@ struct UploadScreen: View {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 26, weight: .medium))
                         .foregroundStyle(PL.text500)
+                    if UploadConsent.shared.needed || uploadTicked {
+                        UploadConfirmationRow(ticked: $uploadTicked)
+                            .padding(.horizontal, 4)
+                    }
                     Button {
                         loadError = nil
                         pickerOpen = true
@@ -238,9 +228,11 @@ struct UploadScreen: View {
                             .padding(.horizontal, 22)
                             .padding(.vertical, 12)
                             .background(PL.cyan, in: Capsule())
-                            .shadow(color: PL.cyan.opacity(0.5), radius: 14)
+                            .shadow(color: PL.cyan.opacity(uploadAllowed ? 0.5 : 0), radius: 14)
+                            .opacity(uploadAllowed ? 1 : 0.5)
                     }
                     .buttonStyle(.plain)
+                    .disabled(!uploadAllowed)
                 case .exporting:
                     VStack(spacing: 10) {
                         HStack(spacing: 10) {
@@ -379,101 +371,6 @@ struct UploadScreen: View {
         // Give the transition a beat to finish before the details ride up.
         try? await Task.sleep(for: .milliseconds(700))
         detailsOpen = true
-    }
-
-    // MARK: - YouTube import
-
-    private var youtubeCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Import from YouTube")
-                .font(.plCardTitle)
-                .foregroundStyle(PL.text100)
-            Text("Public or unlisted videos, up to 45 minutes. It must be your footage or footage you have the rights to.")
-                .font(.plBody)
-                .foregroundStyle(PL.text400)
-
-            switch youtubeState {
-            case .queued:
-                if let youtubeJobID {
-                    ImportedVideoStatusView(jobID: youtubeJobID)
-                } else {
-                Text("Queued. It shows up in your library once the download finishes.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.successText)
-                }
-                Button("Import another") {
-                    youtubeURL = ""
-                    youtubeJobID = nil
-                    youtubeState = .idle
-                }
-                .buttonStyle(PLSecondaryButtonStyle())
-            default:
-                if let notice = ProcessingServiceStore.shared.notice(context: .beforeImport) {
-                    ProcessingAvailabilityNoticeView(notice: notice)
-                }
-                HStack(spacing: 8) {
-                    TextField("Paste a YouTube link", text: $youtubeURL)
-                        .plField()
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    Button("Paste") {
-                        if let s = UIPasteboard.general.string {
-                            youtubeURL = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                }
-                if case .failed(let message) = youtubeState {
-                    Text(AllowanceLimit.isStorage(message) ? "There isn't enough storage to import this video. Your link is still here." : message)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.dangerText)
-                    if AllowanceLimit.isStorage(message) {
-                        AllowanceRecoveryView(resource: "storage", retryLabel: "Try import again") {
-                            await importFromYouTube()
-                        }
-                    }
-                }
-                if !youtubeStorageBlocked {
-                Button(youtubeState == .sending ? "Importing…" : "Import") {
-                    Task { await importFromYouTube() }
-                }
-                .buttonStyle(PLCyanGhostButtonStyle())
-                .frame(maxWidth: .infinity)
-                .disabled(
-                    youtubeState == .sending
-                        || youtubeURL.trimmingCharacters(in: .whitespaces).isEmpty
-                )
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard(padding: 18)
-    }
-
-    private func importFromYouTube() async {
-        youtubeState = .sending
-        struct Req: Encodable {
-            let url: String
-            let points: Bool
-            let placement: Bool
-        }
-        struct Res: Decodable { let ok: Bool?; let jobId: UUID? }
-        do {
-            let result: Res = try await API.post("api/import-url", Req(
-                url: youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines),
-                points: true,
-                placement: false
-            ))
-            youtubeJobID = result.jobId
-            youtubeState = .queued
-        } catch {
-            youtubeState = .failed(
-                (error as? APIError).map { $0.errorDescription ?? "" }
-                    .flatMap { $0.isEmpty ? nil : $0 }
-                    ?? "Couldn't queue that link. Check it and try again."
-            )
-        }
     }
 
     // MARK: - Balance / report

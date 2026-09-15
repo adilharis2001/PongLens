@@ -169,9 +169,16 @@ final class LessonVideoQueue: NSObject {
     private func fail(_ id: UUID, _ error: Error) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         items[i].state = "failed"
-        // A cancelled part is the upload being interrupted, not broken —
-        // resume picks it up from the last completed part.
-        items[i].error = UserFacingError.message(error)
+        // A 403 from the consent gate (terms, upload confirmation) reads as
+        // the sentence that says what to do, not as a transport error.
+        if let api = error as? APIError, case .http(_, let code) = api,
+           let consent = UploadConsent.refusalCopy(code) {
+            items[i].error = consent
+        } else {
+            // A cancelled part is the upload being interrupted, not broken —
+            // resume picks it up from the last completed part.
+            items[i].error = UserFacingError.message(error)
+        }
         try? persist()
     }
 

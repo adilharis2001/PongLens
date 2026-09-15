@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
+import { getCoachReviewsEnabled } from "@/lib/config";
 import { formatUsd } from "@/lib/reviews/money";
 import type { StudentOrderItem } from "@/lib/reviews/types";
 import { orderStatusLabel } from "@/lib/reviews/types";
@@ -15,6 +16,8 @@ export const metadata: Metadata = {
 
 /** Every review the student has commissioned, newest first. */
 export default async function OrdersPage() {
+  // coach_reviews_enabled off: the page is gone, not just its entrance.
+  if (!(await getCoachReviewsEnabled())) notFound();
   const supabase = await createClient();
   const {
     data: { user },

@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="September 5, 2026">
+    <LegalPage title="Privacy Policy" updated="September 14, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -38,9 +38,18 @@ export default async function PrivacyPage() {
           match data stay available while your account is active. Payments go
           to Stripe directly; we never see card details. Nothing is sold or
           shared for advertising. You control who your matches are shared
-          with. Recollect is enabled by default and uses eligible lesson and
-          practice notes to create private reminders; you can turn it off in
-          Account.
+          with. We do not use facial recognition and cannot identify anyone
+          from your footage. Recollect is currently switched off.
+        </p>
+      </section>
+
+      <section>
+        <h2>Who is responsible for your data</h2>
+        <p>
+          PongLens is operated from New Jersey, in the United States, and is
+          the controller of the personal data described here. For any privacy
+          question or request, including the ones listed in section 11, email{" "}
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
         </p>
       </section>
 
@@ -49,11 +58,15 @@ export default async function PrivacyPage() {
         <ul>
           <li>
             <strong>Account information.</strong> We receive your email
-            address through Supabase, our authentication provider. If you sign
-            in with Google, we also receive the name and profile picture that
-            Google provides. If you sign in by email, Supabase emails you a
+            address through our authentication provider. If you sign in with
+            Google or Apple, we also receive the name and profile picture
+            that they provide. If you sign in by email, we send you a
             one-time sign-in link. PongLens does not collect or store an
-            account password for either method.
+            account password for any of these methods.
+          </li>
+          <li>
+            <strong>Your birth month and year.</strong> Asked once at signup to
+            confirm you meet the minimum age.
           </li>
           <li>
             <strong>iPhone beta requests.</strong> If you request the iPhone
@@ -90,10 +103,10 @@ export default async function PrivacyPage() {
             We use these to show your job history and debug failures.
           </li>
           <li>
-            <strong>Aggregate usage.</strong> We use Vercel Web Analytics,
-            which is privacy-friendly and cookieless: it counts page views and
-            visits in aggregate without setting cookies and without profiling
-            or identifying you individually.
+            <strong>Aggregate usage.</strong> Our website analytics are
+            cookieless: they count page views and visits in aggregate,
+            without setting cookies and without profiling or identifying you
+            individually.
           </li>
         </ul>
         <p>
@@ -104,26 +117,82 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>2. Where processing happens</h2>
+        <h2>2. Where your data is held and processed</h2>
         <p>
-          Video files, point clips, and voice note audio are stored in
-          private buckets hosted by Cloudflare R2. Your account, match data,
-          and notes are stored with Supabase. Video processing is performed
-          on operator-controlled hardware: a private workstation run by the
-          person who operates PongLens. The video is downloaded to that
-          machine, processed, and the results are uploaded back to private
-          storage. During processing, a small number of still frames from
-          the video are sent to OpenAI to confirm the footage is table
-          tennis we can work with and, when needed, to locate the table.
-          Voice-note audio is sent to Deepgram to produce a transcript, and
-          for nothing else. OpenAI also receives the content needed for
-          features you choose to use: lesson summaries, Journal photo
-          reading, Ask, Recollect, feedback assistance, and page drafting
-          for coaches. For Recollect, that means the relevant text from
-          eligible lesson and practice notes. Stripe processes payments and
-          coach payouts. These providers process content for PongLens to
-          return the product result, and they may not use your content to
-          train or improve their own models.
+          Video files, point clips, and voice note audio are held in private,
+          encrypted cloud storage operated by a provider based in the United
+          States. Your account, match data, and notes are held in a managed
+          database in Canada. Video processing runs on hardware we control in
+          the United States: your video is brought to that hardware,
+          processed, and the results are returned to private storage.
+        </p>
+        <p>
+          Some steps send a limited amount of your content to two providers
+          so we can give you the result. Deepgram turns voice note audio into
+          text. OpenAI runs automated checks during video processing and the
+          AI-assisted features you choose to use, which are lesson summaries,
+          Journal photo reading, Ask, Recollect, feedback assistance, and page
+          drafting for coaches. Each receives only what that step needs,
+          returns the result to us, and is contractually barred from using
+          your content to train or improve its own models. Section 8
+          lists the categories of provider we use. Before the first time a
+          feature sends your content to one of these providers, we ask you in
+          the app, and you can switch it off in Account.
+        </p>
+      </section>
+
+      <section>
+        <h2>2a. Why we are allowed to use your data</h2>
+        <p>
+          If you are in the European Economic Area or the United Kingdom, data
+          protection law requires us to tell you the legal basis for each
+          purpose:
+        </p>
+        <ul>
+          <li>
+            <strong>Running your account and processing your videos:</strong>{" "}
+            performing our contract with you.
+          </li>
+          <li>
+            <strong>
+              Keeping the service secure, debugging failures, and improving the
+              accuracy of our analysis:
+            </strong>{" "}
+            our legitimate interest in running a reliable service. You can
+            object to this.
+          </li>
+          <li>
+            <strong>AI-assisted features, including Recollect:</strong> your
+            consent, which you can withdraw at any time in Account.
+          </li>
+          <li>
+            <strong>Purchase and payment records:</strong> our legal
+            obligations, including tax and accounting.
+          </li>
+        </ul>
+        <p>
+          Where we rely on consent, withdrawing it does not affect anything we
+          did before you withdrew it, and it does not affect the rest of the
+          service.
+        </p>
+      </section>
+
+      <section>
+        <h2>2b. If you are in Europe or the UK</h2>
+        <p>
+          PongLens is operated from the United States, so using it means your
+          data is held and processed there, and in Canada. The European
+          Commission has decided that Canada provides an adequate level of
+          protection for personal data.
+        </p>
+        <p>
+          Every provider we use is bound by a data processing agreement that
+          limits them to acting on our instructions, and those agreements
+          include the European Commission&apos;s standard contractual clauses
+          where they are required. If you want to know what applies to your
+          data, email{" "}
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a> and we will
+          tell you.
         </p>
       </section>
 
@@ -160,6 +229,17 @@ export default async function PrivacyPage() {
             Recollect is on and your account is active. Turning it off deletes
             this generated Recollect data.
           </li>
+          <li>
+            <strong>Server and processing logs:</strong> kept for up to 90
+            days, then deleted.
+          </li>
+          <li>
+            <strong>
+              Records of the terms you accepted and the consents you gave:
+            </strong>{" "}
+            kept while your account is active and for one year afterward, so
+            we can show what was agreed and when.
+          </li>
         </ul>
         <p>
           You can delete your account yourself from the Account page, or
@@ -174,9 +254,11 @@ export default async function PrivacyPage() {
         <h2>4. Voice notes</h2>
         <p>
           When you record a voice note, the audio is uploaded to private
-          storage and sent to Deepgram to produce a transcript. Deepgram may
-          not use your recordings to improve its own models; it transcribes
-          them and nothing more. The audio is deleted after 90 days. The transcript stays with your account like
+          storage and sent to a speech-to-text provider to produce a
+          transcript. That provider may not use your recordings to improve its
+          own models; it transcribes them and nothing more. We do not create a
+          voiceprint and cannot recognise anyone by their voice. The audio is
+          deleted after 90 days. The transcript stays with your account like
           any other note, and you can edit or delete it yourself at any time.
           If you want a specific recording or transcript deleted sooner,
           email us and we&apos;ll remove it.
@@ -186,11 +268,14 @@ export default async function PrivacyPage() {
       <section>
         <h2>5. Recollect</h2>
         <p>
-          Recollect is enabled by default. When you save an eligible lesson or
-          practice note, PongLens may send its text to OpenAI to identify a
-          small number of useful, source-linked training reminders. A note may
-          produce no reminder when it does not contain genuinely useful
-          coaching or practice guidance.
+          Recollect is currently switched off. When it is on, it is off for new
+          accounts until you turn it on. When you save an eligible lesson or
+          practice note, PongLens may send its text to an AI provider to
+          identify a small number of useful, source-linked training reminders.
+          A note may produce no reminder when it does not contain genuinely
+          useful coaching or practice guidance. Reminders are generated
+          automatically, so check the note they link to before relying on
+          them.
         </p>
         <p>
           You can turn Recollect off at any time in Account. Generated
@@ -242,44 +327,51 @@ export default async function PrivacyPage() {
 
       <section>
         <h2>8. Service providers</h2>
-        <p>We rely on a small set of providers to run PongLens:</p>
+        <p>
+          We rely on a small set of providers to run PongLens. Each one
+          processes only what it needs to perform its role, and none of them
+          may use your content to train or improve their own models:
+        </p>
         <ul>
           <li>
-            <strong>Supabase</strong>: authentication, database, and job
-            queue.
+            <strong>Authentication, database, and job queue</strong>, hosted
+            in Canada.
           </li>
           <li>
-            <strong>Cloudflare R2</strong>: private storage for video files,
-            point clips, and voice note audio.
+            <strong>Private cloud storage</strong> in the United States, for
+            video files, point clips, and voice note audio.
           </li>
           <li>
-            <strong>Deepgram</strong>: transcription of voice notes. It
-            receives the audio only to produce the transcript, and may not
-            use it to improve its own models.
+            <strong>Deepgram</strong>, in the United States, for voice note
+            transcription only.
           </li>
           <li>
-            <strong>OpenAI</strong>: automated checks during video
-            processing (a small number of still frames, to confirm the
-            footage is table tennis and to locate the table), plus lesson
-            summaries, Journal photo reading, Ask, Recollect reminders,
-            feedback assistance, and page drafting for coaches.
+            <strong>OpenAI</strong>, in the United States, for automated
+            checks during video processing and for the AI-assisted features
+            listed in section 2.
           </li>
           <li>
-            <strong>Google</strong>: sign-in (OAuth). Google&apos;s own
-            privacy policy governs your Google account.
+            <strong>Website hosting</strong> and cookieless, aggregate traffic
+            analytics.
           </li>
           <li>
-            <strong>Vercel</strong>: website hosting and cookieless,
-            aggregate traffic analytics.
+            <strong>Email delivery</strong>, for one-time sign-in links,
+            match-ready notifications, and requested iPhone beta invitations.
           </li>
           <li>
-            <strong>Resend</strong>: transactional email, including one-time
-            sign-in links, match-ready notifications, and requested iPhone
-            beta invitations.
+            <strong>Sign-in with Google or Apple</strong>, if you choose it.
+            Their own privacy policies govern your Google or Apple account.
+          </li>
+          <li>
+            <strong>Stripe</strong>, for payments and coach payouts. See
+            section 9a.
           </li>
         </ul>
         <p>
-          Each provider processes only what it needs to perform its role.
+          If you want to know exactly which companies these are, email{" "}
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a> and we will
+          tell you. Clubs and coaching organisations can also request the full
+          list as part of a data processing agreement.
         </p>
       </section>
 
@@ -329,25 +421,64 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
-        <h2>11. Your rights</h2>
+        <h2>10a. What our analysis does, and what it does not do</h2>
         <p>
-          You can request a copy of your data, correction of inaccurate data,
-          or deletion of your account and everything tied to it, across every
-          retention tier listed above. Email{" "}
-          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>{" "}
-          and we&apos;ll respond within 30 days. Depending on where you live
-          (for example the EU/UK under GDPR, or California under CCPA), you
-          may have additional statutory rights; we honor reasonable requests
-          regardless of jurisdiction.
+          Our software finds the ball, the table, and where the players are
+          standing, so it can cut a match into points and show you where
+          serves landed. It does not use facial recognition, does not create
+          voiceprints, and cannot work out who anyone is. We do not keep the
+          body-position data it uses along the way, and we never use your
+          footage to identify a person.
+        </p>
+        <p>
+          The analysis is automated, and it produces no legal effect and
+          nothing that similarly significantly affects you. It is a training
+          aid, not an official record of play. Summaries, reminders, and
+          transcripts produced by AI are marked as such where they appear.
         </p>
       </section>
 
       <section>
-        <h2>12. Children</h2>
+        <h2>11. Your rights</h2>
         <p>
-          PongLens is not directed at children under 13, and we don&apos;t
-          knowingly collect their data. If you believe a child&apos;s account
-          exists, contact us and we&apos;ll remove it.
+          Wherever you live, you can ask us to give you a copy of your data,
+          correct it, or delete your account and everything tied to it across
+          every retention tier listed above. If you are in the European
+          Economic Area or the United Kingdom, you can also ask us to restrict
+          how we use your data, object to our use of it where we rely on
+          legitimate interests, receive it in a portable form, and withdraw
+          any consent you have given.
+        </p>
+        <p>
+          Email <a href={`mailto:${supportEmail}`}>{supportEmail}</a> and
+          we&apos;ll respond within 30 days. If you are in the EEA or the UK
+          and you are not satisfied with our response, you can complain to the
+          data protection authority where you live or work. Residents of
+          California and other US states may have further statutory rights; we
+          honour reasonable requests regardless of where you live.
+        </p>
+      </section>
+
+      <section>
+        <h2>12. Children and young players</h2>
+        <p>
+          A player needs to be at least 13 to have their own PongLens account,
+          or at least 16 in the European Economic Area unless their country
+          sets a lower age. A younger player uses PongLens through an account
+          created and held by a parent or legal guardian, who accepts the{" "}
+          <Link href="/terms">Terms</Link> for them, decides what is shared,
+          and can delete everything at any time.
+        </p>
+        <p>
+          We do not knowingly collect data directly from a child below those
+          ages, and we do not advertise or profile anyone. If you believe a
+          child holds their own account, contact us and we will move it to a
+          parent or delete it. If you are a parent or guardian and you want to
+          see, correct, or delete what we hold about your child, or you
+          believe your child appears in someone else&apos;s video without your
+          consent, email{" "}
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a> and we will
+          deal with it.
         </p>
       </section>
 

@@ -795,6 +795,9 @@ struct LessonRecordScreen: View {
         #if DEBUG
         guard !tutorialCaptureActive else { return }
         #endif
+        // The summary is OpenAI's: permission first. Declined, the words
+        // stay on screen and nothing is reported as failed.
+        guard await AiConsent.shared.ensure() else { return }
         saving = true
         saveFailed = false
         let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)

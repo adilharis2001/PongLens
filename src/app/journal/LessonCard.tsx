@@ -5,6 +5,7 @@ import type { Lesson, Tag } from "@/lib/types";
 import { entryThemes, recapIdOf } from "@/lib/lessonVideo/entries";
 import { previewPoints, previewTruncates } from "@/lib/journal/preview";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 import { PointTags } from "@/app/match/[id]/Tags";
 import { ShareEntrySheet } from "./ShareEntrySheet";
 import { EntryImage } from "@/components/entryPhoto";
@@ -64,6 +65,7 @@ export function LessonCard({
   const [showTranscript, setShowTranscript] = useState(false);
   const [copied, setCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const { ensure } = useAiConsent();
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -124,11 +126,13 @@ export function LessonCard({
   const retry = async () => {
     setRetrying(true);
     try {
-      const res = await fetch("/api/lesson", {
+      // A retry distils the transcript again, so it goes through OpenAI.
+      const res = await fetchWithAiConsent(ensure, "/api/lesson", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lessonId: lesson.id }),
       });
+      if (!res) return;
       const data = res.ok ? await res.json() : null;
       onUpdated({
         ...lesson,

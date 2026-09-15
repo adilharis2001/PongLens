@@ -6,6 +6,7 @@ import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { scrub, tells } from "@/lib/reviews/scrub";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { requireAiConsent } from "@/lib/consent";
 
 export const runtime = "nodejs";
 
@@ -98,6 +99,8 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ code: "not_signed_in" }, { status: 401 });
   }
+  const denied = await requireAiConsent(supabase, user.id);
+  if (denied) return denied;
 
   let body: { orderId?: string; action?: string };
   try {
@@ -180,6 +183,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: MODEL,
+        store: false,
         max_completion_tokens: maxTokens,
         messages: [
           { role: "system", content: system },

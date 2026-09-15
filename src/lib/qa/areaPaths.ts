@@ -56,9 +56,7 @@ export const AREA_PATHS: Record<TestArea, string[]> = {
   upload: [
     "src/app/upload",
     "src/app/dashboard/UploadCard.tsx",
-    "src/components/YouTubeImport.tsx",
     "src/app/api/upload-url",
-    "src/app/api/import-url",
     "src/app/api/process",
     "src/lib/uploadGuard.ts",
     "src/lib/quota.ts",

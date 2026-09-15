@@ -83,12 +83,6 @@ struct ProcessingAvailabilityFixtureView: View {
                                         .presentationBackground(PL.surface)
                                         .presentationDragIndicator(.visible)
                                 }
-                        case "import-status":
-                            ZStack {
-                                ArenaBackground()
-                                ImportedVideoStatusView(jobID: AvailabilityQAData.importID)
-                                    .padding(20).plCard().padding(20)
-                            }
                         default: componentPreview
                         }
                     }

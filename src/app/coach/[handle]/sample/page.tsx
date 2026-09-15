@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
+import { loginPathForDestination } from "@/lib/auth/paths";
 import { createClient } from "@/lib/supabase/server";
 import { SampleFinding } from "./SampleFinding";
 
@@ -51,6 +52,13 @@ export default async function SampleReviewPage({
   if (!/^[a-z0-9][a-z0-9-]{2,29}$/i.test(handle)) notFound();
 
   const supabase = await createClient();
+  // A real review, so a real session: the page asks for sign-in the way
+  // every protected page does, and comes back here afterwards.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect(loginPathForDestination(`/coach/${handle}/sample`));
+
   const { data } = await supabase.rpc("resolve_sample_review", {
     p_handle: handle.toLowerCase(),
   });

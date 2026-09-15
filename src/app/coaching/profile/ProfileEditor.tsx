@@ -11,6 +11,7 @@ import type {
 } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
 import { AutoTextarea } from "@/components/AutoTextarea";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 
 /**
  * Everything the storefront shows, editable in one place. The text fields
@@ -358,16 +359,22 @@ function ProfileDrafter({
   const [brief, setBrief] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const { ensure } = useAiConsent();
 
   async function run() {
     if (busy || brief.trim().length < 15) return;
     setBusy(true);
     setNote(null);
-    const res = await fetch("/api/profile/draft", {
+    // null is Not now (stop quietly); undefined is a failed request.
+    const res = await fetchWithAiConsent(ensure, "/api/profile/draft", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ brief: brief.trim() }),
-    }).catch(() => null);
+    }).catch(() => undefined);
+    if (res === null) {
+      setBusy(false);
+      return;
+    }
     const data = (await res?.json().catch(() => null)) as
       | (DraftedProfile & { code?: string })
       | null;

@@ -75,6 +75,7 @@ export async function sortRecollectPoints(args: {
       },
       body: JSON.stringify({
         model: RECOLLECT_MODEL,
+        store: false,
         reasoning_effort: "low",
         response_format: { type: "json_object" },
         messages: [

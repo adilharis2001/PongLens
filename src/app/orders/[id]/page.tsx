@@ -8,7 +8,8 @@ import type {
   ReviewMessageRow,
   ReviewOrderDetail,
 } from "@/lib/reviews/types";
-import { getReviewIncludedMinutes } from "@/lib/config";
+import { getCoachReviewsEnabled, getReviewIncludedMinutes } from "@/lib/config";
+import { isOpenOrder } from "@/components/reviews/openOrder";
 import { createClient } from "@/lib/supabase/server";
 import { OrderView } from "./OrderView";
 
@@ -45,6 +46,11 @@ export default async function OrderPage({
   const detail = data as ReviewOrderDetail | null;
   if (!detail) notFound();
   if (detail.coach_id === user.id) redirect(`/coaching/orders/${id}`);
+  // With coach reviews switched off only an open order stays reachable,
+  // for its buyer and its coach (the RPC already scopes it to the two).
+  if (!(await getCoachReviewsEnabled()) && !isOpenOrder(detail.status)) {
+    notFound();
+  }
 
   const delivered =
     detail.status === "delivered" || detail.status === "completed";
