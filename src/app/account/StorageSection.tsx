@@ -25,8 +25,10 @@ function gb(n: number, decimals = 1) {
 function breakdownRows(state: StorageState | null) {
   const b = state?.breakdown;
   if (!b) return [];
+  // A kind that would read "0 GB" is left off the list: a few kilobytes of
+  // sketches is not something to show a row for.
   return STORAGE_CATEGORIES.map((key) => ({ key, label: CATEGORY_LABELS[key], bytes: b[key] ?? 0 }))
-    .filter((r) => r.bytes > 0)
+    .filter((r) => gb(r.bytes) !== "0")
     .sort((a, b) => b.bytes - a.bytes);
 }
 

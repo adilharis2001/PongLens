@@ -67,8 +67,12 @@ final class AccountStore {
                 ("notes_media", "Voice notes, sketches and photos"),
                 ("coach_media", "Coaching files"),
             ]
+            // A kind that would read "0.0 GB" is left off the list, the same
+            // rule as the web Account page: a few kilobytes of sketches is
+            // not something to show a row for.
             return labels.compactMap { key, label -> BreakdownRow? in
-                guard let bytes = breakdown?[key], bytes > 0 else { return nil }
+                guard let bytes = breakdown?[key],
+                      Double(bytes) / 1_073_741_824 >= 0.05 else { return nil }
                 return BreakdownRow(id: key, label: label, bytes: bytes)
             }.sorted { $0.bytes > $1.bytes }
         }
