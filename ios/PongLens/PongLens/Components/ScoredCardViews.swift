@@ -334,17 +334,12 @@ struct NextStepCard: View {
         !handCut && (generating || status == "ready" || offerAnalysis)
     }
 
-    private var analysisBody: String {
+    /// One short line only where the state needs explaining.
+    private var analysisBody: String? {
         switch status {
-        case "ready": "Ready."
-        case "processing", "retrying":
-            "The detailed analysis is generating. It takes a few minutes."
-        case "retry_available":
-            "The detailed analysis couldn't be generated because the table was hard to detect in this video. You can try once more."
-        case "final_failed":
-            "The detailed analysis couldn't be generated for this video."
-        default:
-            "Reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes."
+        case "retry_available": "The table was hard to detect."
+        case "final_failed": "Not available for this video."
+        default: nil
         }
     }
 
@@ -357,24 +352,10 @@ struct NextStepCard: View {
     }
 
     var body: some View {
-        let percent = Int((SCORED_CARDS_MIN_SHARE * 100).rounded())
         ScoredCardStyle.card("What's next") {
             VStack(alignment: .leading, spacing: 0) {
-                if scoredType, !gate.open {
-                    Text(!handCut && !generating && status != "ready"
-                        ? "Score the match first. The detailed analysis reads the scored points, and the overview, point length, serve speed and where points ended need \(percent)% of them."
-                        : "The overview, point length, serve speed and where points ended need \(percent)% of the points scored, so the rallies behind them are confirmed.")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text400)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.bottom, 14)
-                }
                 if sideMissing {
                     row("Which end did you play from?", done: false) {
-                        Text("So the serve maps are drawn from your end of the table.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text400)
-                            .fixedSize(horizontal: false, vertical: true)
                         secondaryButton("Choose your end") { sideSheetOpen = true }
                     }
                 }
@@ -401,10 +382,12 @@ struct NextStepCard: View {
                 }
                 if showAnalysis {
                     row("Detailed analysis", done: status == "ready") {
-                        Text(analysisBody)
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text400)
-                            .fixedSize(horizontal: false, vertical: true)
+                        if let analysisBody {
+                            Text(analysisBody)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.text400)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if generating {
                             HStack(spacing: 8) {
                                 ProgressView().tint(PL.cyan)
