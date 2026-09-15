@@ -41,47 +41,82 @@ struct VideoCardsInput {
     let onPlacementChanged: () -> Void
 }
 
+/// One card of the deck, boxed so a heterogeneous list can be paged and
+/// counted. Nine cards at most; the box costs nothing that matters.
+private struct DeckCard: Identifiable {
+    let id: String
+    let view: AnyView
+}
+
 /// The deck, shown inline on the match page for both owner and coach.
 /// `coachView` turns "you" into "the player" throughout. One deck for
 /// everything the match can say (Adil, 2026-09-15): the score's cards,
 /// then the video's once 75% of the points are scored, with the serve
-/// maps among them, then what is still to come. Stacked rather than
-/// swiped, as every card list on this screen is.
+/// maps among them, then what is still to come. Swiped sideways, one card
+/// per screen with the next one peeking, the same deck as the web.
 struct AnalysisCards: View {
     let bundle: MatchAnalysisBundle
     var coachView = false
     var video: VideoCardsInput? = nil
 
+    @State private var mapsWho: PlacementMapWho = .me
+    @State private var mapsShot: PlacementMapShot = .serves
+    @State private var activeCard: Int? = 0
+
     var body: some View {
-        let stats = bundle.stats
-        let analysis = bundle.analysis
+        let cards = deck()
 
-        VStack(alignment: .leading, spacing: 16) {
-            if video?.scoredType ?? true {
-                overviewCard(stats, analysis.momentum)
-
-                // Three self-reported reasons is where a pattern starts;
-                // below that the card is absent rather than padded out.
-                if analysis.mistakes.reasonsGiven >= 3 {
-                    mistakesCard(analysis.mistakes)
+        VStack(spacing: 10) {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                        card.view
+                            .containerRelativeFrame(.horizontal) { width, _ in width * 0.86 }
+                            .id(index)
+                    }
                 }
-                if analysis.serve.described >= 3 {
-                    serveCard(analysis.serve)
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $activeCard)
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
+
+            // Dots: where you are in the deck.
+            HStack(spacing: 6) {
+                ForEach(0..<cards.count, id: \.self) { index in
+                    Capsule()
+                        .fill(index == (activeCard ?? 0) ? PL.cyan : PL.edge)
+                        .frame(width: index == (activeCard ?? 0) ? 16 : 6, height: 6)
+                        .animation(.easeOut(duration: 0.15), value: activeCard)
                 }
             }
-            if let video {
-                videoCards(video)
-            }
+            .frame(maxWidth: .infinity)
         }
     }
 
-    // MARK: - The video's cards
+    /// The cards in their fixed order, so the swipe is predictable: what
+    /// the score says, then what the video says (serve cards, the maps,
+    /// the endings), then the lifecycle and gate cards, then the teaser.
+    private func deck() -> [DeckCard] {
+        let stats = bundle.stats
+        let analysis = bundle.analysis
+        var cards: [DeckCard] = []
+        let scoredType = video?.scoredType ?? true
 
-    /// Serve cards first, then the maps, then the endings, so the deck
-    /// walks from the serve into the point. Below the bar, one card says
-    /// how many points are scored and how many the bar asks for.
-    @ViewBuilder
-    private func videoCards(_ video: VideoCardsInput) -> some View {
+        if scoredType {
+            cards.append(DeckCard(id: "overview", view: AnyView(overviewCard(stats, analysis.momentum))))
+            // Three self-reported reasons is where a pattern starts;
+            // below that the card is absent rather than padded out.
+            if analysis.mistakes.reasonsGiven >= 3 {
+                cards.append(DeckCard(id: "mistakes", view: AnyView(mistakesCard(analysis.mistakes))))
+            }
+            if analysis.serve.described >= 3 {
+                cards.append(DeckCard(id: "serve", view: AnyView(serveCard(analysis.serve))))
+            }
+        }
+
+        guard let video else { return cards }
         let gate = scoredCardsGate(video.points)
         let result: ScoredCardsResult? = video.scoredType && gate.open
             ? computeScoredCards(
@@ -95,39 +130,53 @@ struct AnalysisCards: View {
             : nil
         if let result {
             if result.pointLength.covered >= SCORED_CARDS_MIN_SAMPLES {
-                PointLengthCard(result: result.pointLength)
+                cards.append(DeckCard(id: "length", view: AnyView(PointLengthCard(result: result.pointLength))))
             }
             if !result.serveSpeedMine.isEmpty || !result.serveSpeedTheirs.isEmpty {
-                ServeSpeedCard(mine: result.serveSpeedMine, theirs: result.serveSpeedTheirs)
+                cards.append(DeckCard(id: "speed", view: AnyView(
+                    ServeSpeedCard(mine: result.serveSpeedMine, theirs: result.serveSpeedTheirs)
+                )))
             }
             if result.varietyMine != nil || result.varietyTheirs != nil {
-                ServeVarietyCard(mine: result.varietyMine, theirs: result.varietyTheirs)
+                cards.append(DeckCard(id: "variety", view: AnyView(
+                    ServeVarietyCard(mine: result.varietyMine, theirs: result.varietyTheirs)
+                )))
             }
         }
         if video.showMaps {
-            PlacementAggregateSection(
-                points: video.points,
-                userSide: video.userSide,
-                gameIndexByPoint: video.gameIndexByPoint,
-                serving: video.serving,
-                opponentLabel: video.opponentLabel,
-                servesOnly: video.servesOnly,
-                embedded: true
-            )
-            .id("placement-maps")
+            for page in [PlacementMapPage.landings, .heat] {
+                cards.append(DeckCard(id: page == .landings ? "landings" : "heat", view: AnyView(
+                    PlacementMapCard(
+                        page: page,
+                        points: video.points,
+                        userSide: video.userSide,
+                        gameIndexByPoint: video.gameIndexByPoint,
+                        serving: video.serving,
+                        opponentLabel: video.opponentLabel,
+                        servesOnly: video.servesOnly,
+                        who: $mapsWho,
+                        shot: $mapsShot
+                    )
+                )))
+            }
         }
         if let result, result.endings.shown {
-            EndingsCard(endings: result.endings, opponentLabel: video.opponentLabel)
+            cards.append(DeckCard(id: "endings", view: AnyView(
+                EndingsCard(endings: result.endings, opponentLabel: video.opponentLabel)
+            )))
         }
         if !video.showMaps, !coachView, video.match.placementStatus != "ready" {
-            PlacementStatusCard(match: video.match, onChanged: video.onPlacementChanged)
+            cards.append(DeckCard(id: "placement-status", view: AnyView(
+                PlacementStatusCard(match: video.match, onChanged: video.onPlacementChanged)
+            )))
         }
         if video.scoredType, !gate.open, !coachView {
-            GateCard(gate: gate, onScore: video.onScore)
+            cards.append(DeckCard(id: "gate", view: AnyView(GateCard(gate: gate, onScore: video.onScore))))
         }
         if video.scoredType {
-            ComingSoonCard()
+            cards.append(DeckCard(id: "teaser", view: AnyView(ComingSoonCard())))
         }
+        return cards
     }
 
     // MARK: - Overview
@@ -319,7 +368,7 @@ struct AnalysisCards: View {
             content()
                 .padding(.top, 12)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .plCard(padding: 16)
     }
 

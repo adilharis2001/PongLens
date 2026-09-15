@@ -917,7 +917,7 @@ struct MatchDetailScreen: View {
                                         withAnimation { proxy.scrollTo("match-analysis", anchor: .top) }
                                     },
                                     onScrollToPlacement: {
-                                        withAnimation { proxy.scrollTo("placement-maps", anchor: .top) }
+                                        withAnimation { proxy.scrollTo("match-analysis", anchor: .top) }
                                     },
                                     onRowChanged: {
                                         // The Tools rows render from this

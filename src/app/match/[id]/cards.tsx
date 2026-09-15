@@ -45,9 +45,15 @@ export function CardBody({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Mobile: a snap target sized by its content. Desktop: a fixed-height tile in the grid. */
+/**
+ * One card of the deck. Mobile: a snap target sized by its content, one
+ * per screen with the next one peeking. Desktop: two per view at a fixed
+ * height, snapping to card starts, so the deck is the same swipe on every
+ * surface (Adil, 2026-09-15) rather than a grid on one and a carousel on
+ * the other.
+ */
 export const CARD_CLASS =
-  "flex w-[86%] shrink-0 snap-center flex-col rounded-2xl border border-edge bg-surface p-4 sm:h-[30rem] sm:w-full";
+  "flex w-[86%] shrink-0 snap-center flex-col rounded-2xl border border-edge bg-surface p-4 sm:h-[30rem] sm:w-[calc(50%-0.5rem)] sm:snap-start";
 
 export function Card({
   title,
