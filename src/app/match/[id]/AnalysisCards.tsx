@@ -1,190 +1,67 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { MatchAnalysis as Analysis, Count, Tally } from "./matchAnalysis";
-import type { MatchStats } from "./matchStats";
+import { useCallback, useMemo, useRef, useState } from "react";
+import type { Point } from "@/lib/types";
+import {
+  computeScoredCards,
+  scoredCardsGate,
+  SCORED_CARDS_MIN_SHARE,
+  type ScoredCardsGate,
+} from "@/lib/placement/scoredCards";
+import { computeMatchScore } from "./gameScore";
+import {
+  computeMatchAnalysis,
+  type MatchAnalysis as Analysis,
+} from "./matchAnalysis";
+import { computeMatchStats, type MatchStats } from "./matchStats";
+import type { CustomReasonLabels } from "./scorecard";
+import type { ServeInfo } from "./serving";
+import type { Side } from "./sides";
+import type { MapLabels } from "./PlacementMap";
+import { LooksWrongButton, MarkedWrongNotice } from "./PlacementFeedback";
+import { usePlacementMapCards } from "./PlacementAggregate";
+import { Segmented } from "./placementTable";
+import { buildScoredCards } from "./ScoredCards";
+import type { PlacementLifecycleController } from "./usePlacementLifecycle";
+import {
+  Card,
+  CountBar,
+  Empty,
+  Pair,
+  Pct,
+  SplitBar,
+  StatRow,
+} from "./cards";
+
+export {
+  Card,
+  CardBody,
+  CountBar,
+  Empty,
+  Pair,
+  Pct,
+  SplitBar,
+  StatRow,
+} from "./cards";
 
 /**
- * Match analysis as a deck of cards: one per screen on mobile with a
- * scroll-snap swipe, a two-column grid on desktop where there's room to see
- * them at once.
+ * Match analysis as ONE deck of cards: one per screen on mobile with a
+ * scroll-snap swipe, a two-column grid on desktop where there's room to
+ * see them at once.
+ *
+ * Everything the match can say lives here, in a fixed order so the swipe
+ * is predictable: what the score says (Overview, why you lost, the serve
+ * follow-ups), then what the video says once enough of the match is
+ * scored (point length, serve speed and variety, the serve maps, where
+ * points ended), then a placeholder for what is still to come. The serve
+ * maps used to be a section of their own with a second dot pager; the
+ * Beta chip now rides on each card the ball engine feeds, not on a
+ * heading (Adil, 2026-09-15).
  *
  * Every card states what it doesn't know. A cut with no data says so in
  * plain words rather than drawing an empty chart, because an empty chart
  * reads as "you have no weaknesses" instead of "you haven't filled this in".
  */
-
-/* ---------------------------------------------------------------- shells */
-
-/**
- * The scrolling part of a card. A fixed tile that clips its content would
- * otherwise just look truncated, so a fade sits over the bottom edge while
- * there is more to reach, and clears once you get there.
- */
-function CardBody({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [more, setMore] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const check = () =>
-      setMore(el.scrollHeight - el.scrollTop > el.clientHeight + 4);
-    check();
-    el.addEventListener("scroll", check, { passive: true });
-    window.addEventListener("resize", check);
-    return () => {
-      el.removeEventListener("scroll", check);
-      window.removeEventListener("resize", check);
-    };
-  }, []);
-
-  return (
-    <div className="relative mt-3 sm:min-h-0 sm:flex-1">
-      <div ref={ref} className="sm:h-full sm:overflow-y-auto sm:pr-1">
-        {children}
-      </div>
-      {more && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-10 bg-gradient-to-t from-surface via-surface/80 to-transparent sm:block" />
-      )}
-    </div>
-  );
-}
-
-function Card({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    /* Mobile: a snap target sized by its content, so the page scrolls
-       normally and nothing is hidden behind a nested scroller.
-       Desktop: a fixed-height tile in the 2x2, with the BODY scrolling when
-       a card has more in it than the others. Equal tiles beat honest
-       heights here — four different heights in a grid leave holes that read
-       as broken rather than as data. */
-    <div className="flex w-[86%] shrink-0 snap-center flex-col rounded-2xl border border-edge bg-surface p-4 sm:h-[30rem] sm:w-full">
-      <h3 className="shrink-0 text-sm font-semibold text-zinc-100">{title}</h3>
-      {hint && <p className="mt-0.5 shrink-0 text-xs text-zinc-500">{hint}</p>}
-      <CardBody>{children}</CardBody>
-    </div>
-  );
-}
-
-export function Empty({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="py-6 text-center text-xs leading-relaxed text-zinc-500">
-      {children}
-    </p>
-  );
-}
-
-/* ------------------------------------------------------------------ rows */
-
-export function StatRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
-      <span className="text-xs text-zinc-400">{label}</span>
-      <span className="shrink-0 text-xs font-semibold tabular-nums">
-        {children}
-      </span>
-    </div>
-  );
-}
-
-export function Pct({
-  played,
-  won,
-  pct,
-}: {
-  played: number;
-  won: number;
-  pct: number | null;
-}) {
-  if (pct === null) return <span className="text-zinc-500">—</span>;
-  return (
-    <>
-      <span className="text-cyan-glow">{pct}%</span>
-      <span className="ml-1.5 text-[11px] font-normal text-zinc-500">
-        {won}/{played}
-      </span>
-    </>
-  );
-}
-
-export function Pair({ you, them }: { you: number; them: number }) {
-  return (
-    <>
-      <span className="text-cyan-glow">{you}</span>
-      <span className="text-zinc-600">–</span>
-      <span className="text-magenta-soft">{them}</span>
-    </>
-  );
-}
-
-/** A won/lost split bar: cyan for points won, magenta for points lost. */
-export function SplitBar({ row }: { row: Tally }) {
-  const total = row.won + row.lost;
-  const pct = total > 0 ? Math.round((row.won / total) * 100) : 0;
-  return (
-    <div className="py-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-xs text-zinc-300">{row.label}</span>
-        <span className="shrink-0 text-[11px] tabular-nums text-zinc-500">
-          <span className="font-semibold text-cyan-glow">{pct}%</span> · {total}
-        </span>
-      </div>
-      <div className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-ink">
-        <div
-          className="bg-cyan-glow"
-          style={{ width: `${total ? (row.won / total) * 100 : 0}%` }}
-        />
-        <div
-          className="bg-magenta-glow/70"
-          style={{ width: `${total ? (row.lost / total) * 100 : 0}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-/** A plain count bar, sized against the biggest count in its group. */
-export function CountBar({
-  row,
-  max,
-  tone = "magenta",
-}: {
-  row: Count;
-  max: number;
-  tone?: "magenta" | "cyan";
-}) {
-  return (
-    <div className="py-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-xs text-zinc-300">{row.label}</span>
-        <span className="shrink-0 text-[11px] font-semibold tabular-nums text-zinc-400">
-          {row.count}
-        </span>
-      </div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink">
-        <div
-          className={tone === "cyan" ? "h-full bg-cyan-glow" : "h-full bg-magenta-glow/70"}
-          style={{ width: `${max ? (row.count / max) * 100 : 0}%` }}
-        />
-      </div>
-    </div>
-  );
-}
 
 /* -------------------------------------------------------------- momentum */
 
@@ -249,22 +126,156 @@ export function MomentumChart({ momentum }: { momentum: Analysis["momentum"] }) 
   );
 }
 
+/* ------------------------------------------------------- state cards */
+
+const ACTION_BUTTON =
+  "glow-cta mt-4 min-h-11 rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60";
+
+/**
+ * The video cards need most of the match scored, for a reason that has
+ * nothing to do with statistics: until the owner has scored a point, the
+ * pipeline's cut of it is unconfirmed, and the placement behind every card
+ * could belong to a split or a joined rally. The bar is the same one the
+ * highlights use (public.highlight_generation_eligibility).
+ */
+function GateCard({
+  gate,
+  onScore,
+}: {
+  gate: ScoredCardsGate;
+  onScore?: () => void;
+}) {
+  const percent = Math.round(SCORED_CARDS_MIN_SHARE * 100);
+  return (
+    <Card title="Score the match to unlock more">
+      <p className="text-xs leading-relaxed text-zinc-400">
+        Point length, serve speed, serve variety and where points ended need{" "}
+        {percent}% of the points scored, so the rallies behind them are
+        confirmed.
+      </p>
+      <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-ink">
+        <div
+          className="h-full bg-cyan-glow"
+          style={{ width: `${Math.min(100, Math.round(gate.share * 100))}%` }}
+        />
+      </div>
+      <p className="mt-2 text-xs tabular-nums text-zinc-300">
+        {gate.scored} of {gate.eligible} points scored
+        <span className="text-zinc-500"> · {gate.required} needed</span>
+      </p>
+      {onScore && (
+        <button type="button" onClick={onScore} className={ACTION_BUTTON}>
+          {gate.scored === 0 ? "Score the match" : "Keep scoring"}
+        </button>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * The placement lifecycle, as a card where the maps will be: generate,
+ * generating, try again, or the reason there will be none. The copy is
+ * the lifecycle's own (placementRetry.ts), so the Tools row that used to
+ * carry it and this card can never say two different things.
+ */
+function PlacementStatusCard({
+  controller,
+}: {
+  controller: PlacementLifecycleController;
+}) {
+  const { view } = controller;
+  return (
+    <Card title={view.sheetTitle} beta>
+      <p className="text-xs leading-relaxed text-zinc-400">{view.sheetBody}</p>
+      {view.poll && (
+        <p className="mt-4 flex items-center gap-2 text-xs text-zinc-300">
+          <span
+            aria-hidden="true"
+            className="h-3 w-3 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
+          />
+          {view.toolStatus}
+        </p>
+      )}
+      {view.actionKind && view.actionLabel && (
+        <button
+          type="button"
+          disabled={controller.submitting}
+          onClick={() => {
+            void controller.requestAction();
+          }}
+          className={ACTION_BUTTON}
+        >
+          {controller.submitting ? "Starting…" : view.actionLabel}
+        </button>
+      )}
+      {controller.error && (
+        <p aria-live="polite" className="mt-3 text-sm text-red-300">
+          {controller.error}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 /* ------------------------------------------------------------------ deck */
+
+export interface AnalysisPlacement {
+  controller: PlacementLifecycleController;
+  matchId: string;
+  /** The owner said this match's maps are wrong (matches.placement_flagged). */
+  flagged: boolean;
+  onFlagChange: (flagged: boolean) => void;
+  /** Placement is ready and unflagged: the video cards may read it. */
+  trusted: boolean;
+}
 
 export function AnalysisCards({
   stats,
   analysis,
   neutral = false,
   youLabel = "Me",
+  scoredType,
+  points,
+  userSide,
+  gameIndexByPoint,
+  serving,
+  prePad,
+  customReasonLabels,
+  labels,
+  ownerHandedness = null,
+  servesOnly = false,
+  placement = null,
+  onOpenPoint,
+  onScore,
 }: {
   stats: MatchStats;
   analysis: Analysis;
   /** Neutral / third-party match: the stats belong to a named player. */
   neutral?: boolean;
   youLabel?: string;
+  /** The match type keeps a score; practice does not, and gets maps only. */
+  scoredType: boolean;
+  points: Point[];
+  userSide: Side | null;
+  gameIndexByPoint: Map<string, number>;
+  serving: Map<string, ServeInfo>;
+  /** Effective pre pad of a point's clip, seconds (clipEdit.effectivePad). */
+  prePad: (point: Point) => number;
+  customReasonLabels: CustomReasonLabels;
+  labels: MapLabels;
+  ownerHandedness?: "right" | "left" | null;
+  /** app_config placement_serves_only (132). */
+  servesOnly?: boolean;
+  /** Null on a hand-cut match: no ball track, no table, nothing to offer. */
+  placement?: AnalysisPlacement | null;
+  /** Open one point from a heat map zone's list. */
+  onOpenPoint?: (pointId: string) => void;
+  /** Open the scorer, for the card that asks for more scoring. */
+  onScore?: () => void;
 }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(0);
+  const [gameFilter, setGameFilter] = useState<number | null>(null);
 
   // Which card is centred, for the dots. Derived from scroll position rather
   // than tracked on tap, so a swipe and a dot always agree.
@@ -277,168 +288,310 @@ export function AnalysisCards({
     setActive(Math.round(el.scrollLeft / stride));
   }, []);
 
-  const { momentum, serve, mistakes } = analysis;
+  const gameCount = useMemo(() => {
+    let max = -1;
+    for (const point of points) {
+      max = Math.max(max, gameIndexByPoint.get(point.id) ?? 0);
+    }
+    return max + 1;
+  }, [points, gameIndexByPoint]);
+
+  // The Game filter reaches every card. The score cards are recomputed
+  // for one game from the same functions the whole-match numbers came
+  // from, so a filtered Overview is the real thing and not an estimate.
+  const filteredPoints = useMemo(
+    () =>
+      gameFilter === null
+        ? points
+        : points.filter(
+            (point) => (gameIndexByPoint.get(point.id) ?? 0) === gameFilter,
+          ),
+    [points, gameFilter, gameIndexByPoint],
+  );
+  const viewStats = useMemo(
+    () =>
+      gameFilter === null
+        ? stats
+        : computeMatchStats(
+            filteredPoints,
+            serving,
+            computeMatchScore(filteredPoints),
+          ),
+    [gameFilter, stats, filteredPoints, serving],
+  );
+  const viewAnalysis = useMemo(
+    () =>
+      gameFilter === null
+        ? analysis
+        : computeMatchAnalysis(
+            filteredPoints,
+            serving,
+            new Map(),
+            customReasonLabels,
+          ),
+    [gameFilter, analysis, filteredPoints, serving, customReasonLabels],
+  );
+
+  const gate = useMemo(() => scoredCardsGate(points), [points]);
+  const scoredCards = useMemo(
+    () =>
+      scoredType && gate.open
+        ? computeScoredCards({
+            points,
+            userSide,
+            gameIndexByPoint,
+            serving,
+            prePad,
+            placementTrusted: placement?.trusted ?? false,
+            gameFilter,
+          })
+        : null,
+    [
+      scoredType,
+      gate.open,
+      points,
+      userSide,
+      gameIndexByPoint,
+      serving,
+      prePad,
+      placement?.trusted,
+      gameFilter,
+    ],
+  );
+
+  const maps = usePlacementMapCards({
+    points,
+    gameFilter,
+    userSide,
+    gameIndexByPoint,
+    serving,
+    labels,
+    ownerHandedness,
+    servesOnly,
+    enabled: placement !== null && !placement.flagged,
+    onOpenPoint,
+  });
+
+  const { momentum, serve, mistakes } = viewAnalysis;
   const whose = neutral ? `${youLabel}'s` : "your";
-  const scored = stats.won + stats.lost;
-  const incomplete = !stats.hasData || stats.detailed < scored;
+  const scoredCount = viewStats.won + viewStats.lost;
+  const incomplete =
+    scoredType && (!viewStats.hasData || viewStats.detailed < scoredCount);
 
   /**
    * How much a cut needs before it earns a card.
    *
    * Two data points do not make a pattern — "Misread the spin: 1" beside
-   * "Lost focus: 1" is a chart of nothing, and a deck of three cards where
-   * two say "nothing recorded yet" reads as a broken feature rather than an
-   * empty one. Three is the same floor the placement views already use for
-   * "not enough to draw" (placementAggregateView's `sparse`), so the two
-   * surfaces agree on what counts as too little.
-   *
-   * The section's own subtitle still says what is missing, so nothing
-   * silently disappears — the deck just stops padding itself out.
+   * "Lost focus: 1" is a chart of nothing, and a deck where two cards say
+   * "nothing recorded yet" reads as a broken feature rather than an empty
+   * one. Three is the floor the placement views already use.
    */
   const MIN_SAMPLES = 3;
+
+  // The lifecycle card stands where the maps will be, only while there is
+  // something to say: an action to take, a reason there will be no maps,
+  // or a job under way. A ready placement that drew nothing says nothing.
+  const placementView = placement?.controller.view ?? null;
+  const showPlacementStatus =
+    placement !== null
+    && !placement.flagged
+    && !maps.hasMaps
+    && placementView !== null
+    && (placementView.actionKind !== null
+      || placementView.noticeBody !== null
+      || placementView.poll);
 
   const cards: React.ReactNode[] = [
     /* Momentum and the numbers are one card: both come free from the
        confirmed winners, both are always populated, and neither fills a card
        on its own. The chart says what happened, the rows say by how much. */
-    <Card key="overview" title="Overview">
-      {momentum.steps.length > 0 && (
-        <div className="mb-3">
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-            Point differential
-          </p>
-          <MomentumChart momentum={momentum} />
-        </div>
-      )}
-      {!stats.hasData ? (
-        <Empty>Score a full game to see {whose} stats.</Empty>
-      ) : (
-        <div className="divide-y divide-edge/60">
-          {momentum.bestRun && (
-            <StatRow label="Best run">
-              <span
-                className={
-                  momentum.bestRun.who === "user"
-                    ? "text-cyan-glow"
-                    : "text-magenta-soft"
-                }
-              >
-                {momentum.bestRun.len} in a row
-                <span className="ml-1.5 text-[11px] font-normal text-zinc-500">
-                  {momentum.bestRun.who === "user" ? "you" : "them"}
-                </span>
-              </span>
-            </StatRow>
-          )}
-          {stats.serverKnown ? (
-            <>
-              <StatRow label="Serve win %">
-                <Pct {...stats.serve} />
-              </StatRow>
-              <StatRow label="Receive win %">
-                <Pct {...stats.receive} />
-              </StatRow>
-            </>
-          ) : (
-            <p className="py-2 text-xs text-zinc-500">
-              Set who served first to see serve stats.
+    scoredType ? (
+      <Card key="overview" title="Overview">
+        {momentum.steps.length > 0 && (
+          <div className="mb-3">
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+              Point differential
             </p>
-          )}
-          <StatRow label="At 9+ in the game">
-            <Pct {...stats.pressure} />
-          </StatRow>
-          <StatRow label="After losing a point">
-            <Pct {...stats.bounceBack} />
-          </StatRow>
-          <StatRow label="Points won–lost">
-            <Pair you={stats.won} them={stats.lost} />
-          </StatRow>
-          <StatRow label="Furthest ahead / behind">
-            <Pair you={momentum.peak} them={-momentum.trough} />
-          </StatRow>
-          <StatRow label="Lead changes">
-            <span className="text-zinc-200">{momentum.leadChanges}</span>
-          </StatRow>
-          {stats.gamesYou + stats.gamesThem > 0 && (
-            <StatRow label="Games won">
-              <Pair you={stats.gamesYou} them={stats.gamesThem} />
-            </StatRow>
-          )}
-        </div>
-      )}
-    </Card>,
-
-    /* Second, right after the overview: it is the one question the
-       scorecard still asks, so it comes before the serve breakdown rather
-       than behind it. */
-    mistakes.reasonsGiven >= MIN_SAMPLES ? (
-    <Card key="mistakes" title="Why you lost" hint="Only points you lost">
-      <>
-        <>
-          {mistakes.reasons.length > 0 && (
-            <>
-              {mistakes.reasons.slice(0, 8).map((r) => (
-                <CountBar
-                  key={r.label}
-                  row={r}
-                  max={Math.max(...mistakes.reasons.map((e) => e.count))}
-                />
-              ))}
-              <p className="mt-3 text-[11px] text-zinc-600">
-                Self-reported on {mistakes.reasonsGiven} of {mistakes.totalLost}{" "}
-                lost points.
+            <MomentumChart momentum={momentum} />
+          </div>
+        )}
+        {!viewStats.hasData ? (
+          <Empty>Score a full game to see {whose} stats.</Empty>
+        ) : (
+          <div className="divide-y divide-edge/60">
+            {momentum.bestRun && (
+              <StatRow label="Best run">
+                <span
+                  className={
+                    momentum.bestRun.who === "user"
+                      ? "text-cyan-glow"
+                      : "text-magenta-soft"
+                  }
+                >
+                  {momentum.bestRun.len} in a row
+                  <span className="ml-1.5 text-[11px] font-normal text-zinc-500">
+                    {momentum.bestRun.who === "user" ? "you" : "them"}
+                  </span>
+                </span>
+              </StatRow>
+            )}
+            {viewStats.serverKnown ? (
+              <>
+                <StatRow label="Serve win %">
+                  <Pct {...viewStats.serve} />
+                </StatRow>
+                <StatRow label="Receive win %">
+                  <Pct {...viewStats.receive} />
+                </StatRow>
+              </>
+            ) : (
+              <p className="py-2 text-xs text-zinc-500">
+                Set who served first to see serve stats.
               </p>
-            </>
-          )}
-        </>
-      </>
-    </Card>
+            )}
+            <StatRow label="At 9+ in the game">
+              <Pct {...viewStats.pressure} />
+            </StatRow>
+            <StatRow label="After losing a point">
+              <Pct {...viewStats.bounceBack} />
+            </StatRow>
+            <StatRow label="Points won–lost">
+              <Pair you={viewStats.won} them={viewStats.lost} />
+            </StatRow>
+            <StatRow label="Furthest ahead / behind">
+              <Pair you={momentum.peak} them={-momentum.trough} />
+            </StatRow>
+            <StatRow label="Lead changes">
+              <span className="text-zinc-200">{momentum.leadChanges}</span>
+            </StatRow>
+            {viewStats.gamesYou + viewStats.gamesThem > 0 && (
+              <StatRow label="Games won">
+                <Pair you={viewStats.gamesYou} them={viewStats.gamesThem} />
+              </StatRow>
+            )}
+          </div>
+        )}
+      </Card>
     ) : null,
 
-    serve.described >= MIN_SAMPLES ? (
-    <Card key="serve" title="Serve" hint="Share of those points you won">
-      <>
-        <>
-          {serve.mine.spins.length > 0 && (
-            <>
-              <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                My serves ({serve.mine.count})
-              </p>
-              {serve.mine.spins.map((r) => (
-                <SplitBar key={r.label} row={r} />
-              ))}
-              {serve.mine.lengths.length > 0 && (
-                <div className="mt-2 border-t border-edge/60 pt-2">
-                  {serve.mine.lengths.map((r) => (
-                    <SplitBar key={r.label} row={r} />
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-          {serve.theirs.spins.length > 0 && (
-            <>
-              <p className="mb-1 mt-4 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                Their serves ({serve.theirs.count})
-              </p>
-              {serve.theirs.spins.map((r) => (
-                <SplitBar key={r.label} row={r} />
-              ))}
-            </>
-          )}
-          <p className="mt-3 text-[11px] text-zinc-600">
-            One match is a small sample — the count beside each bar says how
-            small.
-          </p>
-        </>
-      </>
-    </Card>
+    /* Right after the overview: it is the one question the scorecard still
+       asks, so it comes before the serve breakdown rather than behind it. */
+    scoredType && mistakes.reasonsGiven >= MIN_SAMPLES ? (
+      <Card key="mistakes" title="Why you lost" hint="Only points you lost">
+        {mistakes.reasons.slice(0, 8).map((r) => (
+          <CountBar
+            key={r.label}
+            row={r}
+            max={Math.max(...mistakes.reasons.map((e) => e.count))}
+          />
+        ))}
+        <p className="mt-3 text-[11px] text-zinc-600">
+          Self-reported on {mistakes.reasonsGiven} of {mistakes.totalLost}{" "}
+          lost points.
+        </p>
+      </Card>
+    ) : null,
+
+    scoredType && serve.described >= MIN_SAMPLES ? (
+      <Card key="serve" title="Serve" hint="Share of those points you won">
+        {serve.mine.spins.length > 0 && (
+          <>
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+              My serves ({serve.mine.count})
+            </p>
+            {serve.mine.spins.map((r) => (
+              <SplitBar key={r.label} row={r} />
+            ))}
+            {serve.mine.lengths.length > 0 && (
+              <div className="mt-2 border-t border-edge/60 pt-2">
+                {serve.mine.lengths.map((r) => (
+                  <SplitBar key={r.label} row={r} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        {serve.theirs.spins.length > 0 && (
+          <>
+            <p className="mb-1 mt-4 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+              Their serves ({serve.theirs.count})
+            </p>
+            {serve.theirs.spins.map((r) => (
+              <SplitBar key={r.label} row={r} />
+            ))}
+          </>
+        )}
+        <p className="mt-3 text-[11px] text-zinc-600">
+          One match is a small sample — the count beside each bar says how
+          small.
+        </p>
+      </Card>
+    ) : null,
+
+    /* The video's cards: serve stats first, then the maps, then the
+       endings, so the deck walks from the serve into the point. */
+    ...buildScoredCards(scoredCards, labels, "serves"),
+    ...maps.cards,
+    ...buildScoredCards(scoredCards, labels, "endings"),
+
+    showPlacementStatus && placement ? (
+      <PlacementStatusCard key="placement-status" controller={placement.controller} />
+    ) : null,
+
+    scoredType && !gate.open ? (
+      <GateCard key="gate" gate={gate} onScore={onScore} />
+    ) : null,
+
+    /* The deck ends on what is still to come. A placeholder card rather than
+       a line of copy, so the swipe reaches a real last card and the promise
+       sits where the next card will. Dashed border: it is a space, not a
+       result. */
+    scoredType ? (
+      <div
+        key="teaser"
+        className="flex w-[86%] shrink-0 snap-center flex-col items-center justify-center rounded-2xl border border-dashed border-edge bg-surface/60 p-6 text-center sm:h-[30rem] sm:w-full"
+      >
+        <div className="flex items-end gap-1.5" aria-hidden="true">
+          {[18, 30, 12, 24, 20].map((height, i) => (
+            <span
+              key={i}
+              className="w-2 rounded-sm bg-cyan-glow/20"
+              style={{ height }}
+            />
+          ))}
+        </div>
+        <p className="mt-5 text-sm font-semibold text-zinc-100">
+          More match analysis cards coming soon.
+        </p>
+      </div>
     ) : null,
   ].filter(Boolean);
 
   return (
     <section className="mt-8">
-      <h2 className="text-lg font-semibold">Match analysis</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h2 className="text-lg font-semibold">Match analysis</h2>
+        {gameCount >= 2 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500">Game</span>
+            <Segmented
+              ariaLabel="Which games"
+              value={gameFilter === null ? "all" : String(gameFilter)}
+              onChange={(key) =>
+                setGameFilter(key === "all" ? null : Number(key))
+              }
+              options={[
+                { key: "all", label: "All", srLabel: "All games" },
+                ...Array.from({ length: gameCount }, (_, index) => ({
+                  key: String(index),
+                  label: String(index + 1),
+                  srLabel: `Game ${index + 1}`,
+                })),
+              ]}
+            />
+          </div>
+        )}
+      </div>
       {neutral && (
         <p className="mt-1 text-sm text-zinc-500">{youLabel}&apos;s analysis</p>
       )}
@@ -454,10 +607,9 @@ export function AnalysisCards({
       <div
         ref={scroller}
         onScroll={onScroll}
-        /* Mobile: a snap carousel, one card per screen. Desktop: a plain
-           2x2 of equal tiles — with four cards that is the arrangement with
-           no ragged edge and no gaps, and each tile absorbs its own overflow
-           rather than pushing the ones beside it around. */
+        /* Mobile: a snap carousel, one card per screen. Desktop: a grid of
+           equal tiles, each absorbing its own overflow rather than pushing
+           the ones beside it around. */
         className="mt-3 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible"
       >
         {cards}
@@ -474,6 +626,27 @@ export function AnalysisCards({
           />
         ))}
       </div>
+
+      {/* The whole-match escape hatch: when the table calibration is off
+          every camera card is wrong together, so the flag belongs to the
+          deck, not to any one card. */}
+      {placement && placement.flagged && (
+        <MarkedWrongNotice
+          className="mt-3"
+          matchId={placement.matchId}
+          onUndo={() => placement.onFlagChange(false)}
+        />
+      )}
+      {placement && !placement.flagged && maps.cards.length > 0 && (
+        <div className="mt-3 flex justify-center">
+          <LooksWrongButton
+            label="This match's placement maps are wrong"
+            onFlag={() => placement.onFlagChange(true)}
+          />
+        </div>
+      )}
+
+      {maps.overlay}
     </section>
   );
 }

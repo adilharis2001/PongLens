@@ -8,6 +8,7 @@ const read = (name: string) =>
 
 test("match tools keep analysis, placement, links, coach, and files distinct", () => {
   const matchView = read("MatchView.tsx");
+  const analysisCards = read("AnalysisCards.tsx");
   const reelBar = read("ReelBar.tsx");
   const shareSheet = readFileSync(
     join(process.cwd(), "src/components/ShareSheet.tsx"),
@@ -19,14 +20,13 @@ test("match tools keep analysis, placement, links, coach, and files distinct", (
   );
 
   assert.match(matchView, />Share a link</);
-  assert.ok(
-    matchView.indexOf(">Match analysis<") <
-      matchView.indexOf("<PlacementToolsRow"),
-  );
-  assert.ok(
-    matchView.indexOf("<AnalysisCards") <
-      matchView.indexOf("<PlacementAggregate"),
-  );
+  // One analysis row and one analysis section (2026-09-15): the serve maps
+  // and their lifecycle live inside the deck, not beside it.
+  assert.match(matchView, />Match analysis</);
+  assert.equal(matchView.match(/>Match analysis</g)?.length, 1);
+  assert.match(matchView, /<AnalysisCards/);
+  assert.doesNotMatch(matchView, /<PlacementToolsRow|<PlacementAggregate/);
+  assert.match(analysisCards, /usePlacementMapCards/);
   assert.doesNotMatch(reelBar, /Instagram Reel/);
   assert.doesNotMatch(shareSheet, /With your coach/);
   assert.match(shareSheet, /This match/);

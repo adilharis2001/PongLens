@@ -40,13 +40,10 @@ import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { HighlightsRow } from "./HighlightsRow";
 import { NoteComposer, NoteItem } from "./Notes";
 import { hasPlacementBounces, type MapLabels } from "./PlacementMap";
-import {
-  mappedPointCount,
-  PlacementAggregate,
-} from "./PlacementAggregate";
-import { PlacementToolsRow } from "./PlacementToolsRow";
+import { mappedPointCount } from "./PlacementAggregate";
 import { usePlacementLifecycle } from "./usePlacementLifecycle";
 import { AnalysisCards } from "./AnalysisCards";
+import { scoredCardsGate } from "@/lib/placement/scoredCards";
 import { ShareResult } from "@/app/s/[token]/ShareResult";
 import { ShareStats } from "@/app/s/[token]/ShareStats";
 import { SharePlacement } from "@/app/s/[token]/SharePlacement";
@@ -60,7 +57,7 @@ import { computeMatchStats, statsRowSummary } from "./matchStats";
 import { mergeSkipSpans, paddedEnd,
   type EndOptions,
 } from "./playhead";
-import { clipPad } from "./clipEdit";
+import { clipPad, effectivePad } from "./clipEdit";
 import {
   adjustPatch,
   runJoinPlan,
@@ -95,7 +92,6 @@ import {
 } from "./sideChanges.ts";
 import {
   placementNoticeForViewer,
-  scrollToReadyPlacement,
   showPlacementDeepDive,
 } from "@/lib/placement/placementRetry";
 import {
@@ -1240,6 +1236,20 @@ export function MatchView({
     () => computeMatchStats(visiblePoints, serving, score),
     [visiblePoints, serving, score]
   );
+  // The one Tools row for the analysis section says the thing the section
+  // is waiting on: points to score, maps to generate, or the detail still
+  // missing. Same gate as the deck (and as highlights), so the row and the
+  // card it jumps to never disagree about what "unlocked" means.
+  const cardsGate = useMemo(() => scoredCardsGate(visiblePoints), [visiblePoints]);
+  const analysisRowSummary = !scored
+    ? `${placementMappedPoints} points mapped`
+    : !cardsGate.open
+      ? cardsGate.scored === 0
+        ? "Score points to unlock"
+        : `${cardsGate.scored} of ${cardsGate.eligible} scored`
+      : !handCut && placement.view.poll
+        ? placement.view.toolStatus
+        : statsRowSummary(stats);
   const analysis = useMemo(
     () =>
       computeMatchAnalysis(
@@ -1511,6 +1521,26 @@ export function MatchView({
     },
     [visiblePoints]
   );
+
+  // A point opened from the analysis (a heat map zone's list) leaves the
+  // reader far from where they were, so a way back rides along until used.
+  // On a phone the point opens as a sheet over the timeline; on desktop it
+  // selects into the pane. Either way the pill scrolls back to the section.
+  const [backToAnalysis, setBackToAnalysis] = useState(false);
+  const openPointFromAnalysis = useCallback(
+    (pointId: string) => {
+      const i = visiblePoints.findIndex((p) => p.id === pointId);
+      if (i < 0) return;
+      setBackToAnalysis(true);
+      goToIndex(i);
+    },
+    [visiblePoints, goToIndex]
+  );
+  const returnToAnalysis = useCallback(() => {
+    setBackToAnalysis(false);
+    setActivePointId(null);
+    matchStatsRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, []);
 
   // Point deep links: ?p=<display number or point id> selects a point on
   // load (shared "watch in full" round-trips, future coach point-links).
@@ -3176,7 +3206,12 @@ export function MatchView({
                 }
               />
             )}
-            {scored && (
+            {/* One row for the whole analysis section: the score cards, the
+                video cards and the serve maps all live under it now, and
+                its status names whatever the section is waiting on. The
+                placement lifecycle that used to have a row of its own is
+                a card in the deck (AnalysisCards.PlacementStatusCard). */}
+            {(scored || (!handCut && placementMappedPoints > 0)) && (
               <button
                 type="button"
                 onClick={() => scrollToSection(matchStatsRef)}
@@ -3184,22 +3219,23 @@ export function MatchView({
               >
                 <span className="text-sm font-semibold">Match analysis</span>
                 <span className="flex shrink-0 items-center gap-2">
+                  {!handCut && placement.view.poll && (
+                    <span
+                      aria-hidden="true"
+                      className="h-3 w-3 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
+                    />
+                  )}
                   <span
+                    aria-live="polite"
                     className={`shrink-0 text-xs ${
-                      stats.hasData ? "text-zinc-400" : "text-zinc-500"
+                      stats.hasData && cardsGate.open ? "text-zinc-400" : "text-zinc-500"
                     }`}
                   >
-                    {statsRowSummary(stats)}
+                    {analysisRowSummary}
                   </span>
                   <ToolRowChevron />
                 </span>
               </button>
-            )}
-            {!handCut && (
-              <PlacementToolsRow
-                controller={placement}
-                onReady={() => scrollToReadyPlacement(document)}
-              />
             )}
             <button
               type="button"
@@ -4352,51 +4388,62 @@ export function MatchView({
         />
       )}
 
-      {isOwner && scored && (
-        <div ref={matchStatsRef} className="scroll-mt-32">
+      {/* Match analysis: one deck for everything the match can say. The
+          score cards, the video cards and the serve maps swipe together;
+          the Game filter on the section reaches all of them. Owner-only,
+          below the points so the timeline stays the page's spine. A
+          practice match keeps the maps it has (the camera's own data)
+          without the score cards or the gate; a hand-cut match has no
+          ball track, so nothing from the video is offered. The #ball-map
+          anchor stays for the links that used to target the maps. */}
+      {isOwner && (scored || (!handCut && placementMappedPoints > 0)) && (
+        <div ref={matchStatsRef} id="ball-map" className="scroll-mt-32">
           <AnalysisCards
             stats={stats}
             analysis={analysis}
             neutral={neutral}
             youLabel={mapLabels.you}
+            scoredType={scored}
+            points={visiblePoints}
+            userSide={userSide}
+            gameIndexByPoint={gameIndexByPoint}
+            serving={serving}
+            prePad={(p) => effectivePad(pad, p.tight_start, p.tight_end).pre}
+            customReasonLabels={customReasonLabels}
+            labels={mapLabels}
+            ownerHandedness={ownerHandedness ?? null}
+            servesOnly={placementServesOnly}
+            placement={
+              handCut
+                ? null
+                : {
+                    controller: placement,
+                    matchId: match.id,
+                    flagged: placementFlagged,
+                    onFlagChange: savePlacementFlagged,
+                    trusted:
+                      match.placement_status === "ready" && !placementFlagged,
+                  }
+            }
+            onOpenPoint={openPointFromAnalysis}
+            onScore={
+              hasCutOffsets && scored
+                ? () => playerRef.current?.openScore()
+                : undefined
+            }
           />
         </div>
       )}
 
-      {/* Placement maps: where the ball landed, aggregated across every
-          point with a trusted bounce and normalized so you're always at the
-          bottom. A SIBLING of the analysis, not a subsection of it — it
-          answers a different question (the camera's evidence, not the
-          scorecard's), it carries the same name as its Tools row so tapping
-          that row lands on a matching heading, and nesting its card deck
-          inside the analysis deck stacked two dot pagers. Owner-only; sits
-          below the points so the timeline stays the page's spine.
-
-          On practice the section appears only once it has real maps to
-          show: the empty-state pitch is scored-match furniture on a page
-          that shed the rest of it, but maps that exist are the camera's
-          own data and stay shown whatever the type. Generation stays in
-          Tools either way. */}
-      {isOwner && !handCut && (scored || placementMappedPoints > 0) && (
-        <div id="ball-map" className="scroll-mt-32">
-          {showPlacementDeepDive(
-            placement.view,
-            placementMappedPoints > 0,
-          ) && (
-            <PlacementAggregate
-              points={visiblePoints}
-              matchId={match.id}
-              flagged={placementFlagged}
-              onFlagChange={savePlacementFlagged}
-              userSide={userSide}
-              gameIndexByPoint={gameIndexByPoint}
-              serving={serving}
-              labels={mapLabels}
-              ownerHandedness={ownerHandedness ?? null}
-              emptyMessage={placementNotice}
-              servesOnly={placementServesOnly}
-            />
-          )}
+      {backToAnalysis && (isDesktop || selectedPoint === null) && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 flex justify-center md:bottom-6">
+          <button
+            type="button"
+            onClick={returnToAnalysis}
+            className="pointer-events-auto min-h-11 rounded-full border border-edge bg-ink/80 px-4 py-2 text-sm font-semibold text-zinc-100 shadow-lg shadow-black/40 backdrop-blur-md transition-colors hover:border-cyan-glow/50"
+          >
+            Back to match analysis
+          </button>
         </div>
       )}
 
