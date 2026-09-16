@@ -388,3 +388,33 @@ test("batch shadow diagnostics compare score chips without identifiers", async (
     { kind: "fallback", reason: "revision_changed" },
   );
 });
+
+test("summary shadow evidence chunks large libraries and returns one aggregate", async () => {
+  const reader = await import("./reader.ts");
+  assert.equal(
+    typeof (reader as Record<string, unknown>)
+      .loadCanonicalScoreSummaryDiagnostic,
+    "function",
+  );
+  const matchIds = Array.from({ length: 251 }, (_, index) =>
+    `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`);
+  const calls: number[] = [];
+  const diagnostic = await reader.loadCanonicalScoreSummaryDiagnostic({
+    matchIds,
+    expectedRevisions: new Map(matchIds.map((id) => [id, 1])),
+    legacyByMatch: new Map(),
+    rpc: async (_name: string, args: { p_match_ids: string[] }) => {
+      calls.push(args.p_match_ids.length);
+      return { data: { ok: true, summaries: [] }, error: null };
+    },
+  });
+  assert.deepEqual(calls, [250, 1]);
+  assert.deepEqual(diagnostic, {
+    kind: "parity",
+    requestedCount: 251,
+    returnedCount: 0,
+    missingCount: 251,
+    comparedCount: 0,
+    mismatchedCount: 0,
+  });
+});

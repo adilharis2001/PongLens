@@ -34,7 +34,9 @@ not consume canonical state yet. Owner and admin web shadows now reconstruct
 their legacy oracle through one shared adapter. Match-library shadows use the
 bounded `canonical_score_summaries_v1` batch instead of one RPC per card; the
 batch omits inaccessible, missing and stale rows together, never repairs state,
-and emits no match identifiers.
+and emits no match identifiers. The same shared chunked diagnostic now covers
+accepted-coach student match cards, preserving their existing score display and
+access rules while measuring parity through the coach's own session.
 
 Verified on September 16, 2026:
 

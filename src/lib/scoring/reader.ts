@@ -324,3 +324,47 @@ export function canonicalScoreSummariesDiagnostic(
     mismatchedCount,
   };
 }
+
+/** One identifier-free result for libraries of any size. The underlying RPC
+ * stays narrowly bounded; callers do not have to reimplement chunk merging. */
+export async function loadCanonicalScoreSummaryDiagnostic(deps: {
+  matchIds: string[];
+  expectedRevisions?: ReadonlyMap<string, number>;
+  legacyByMatch: ReadonlyMap<string, LegacyScoreChip>;
+  rpc: (
+    name: "canonical_score_summaries_v1",
+    args: { p_match_ids: string[] },
+  ) => PromiseLike<ReaderRpcResponse>;
+}): Promise<CanonicalScoreSummariesDiagnostic | null> {
+  const matchIds = [...new Set(deps.matchIds)];
+  const aggregate: Extract<CanonicalScoreSummariesDiagnostic, { kind: "parity" }> = {
+    kind: "parity",
+    requestedCount: 0,
+    returnedCount: 0,
+    missingCount: 0,
+    comparedCount: 0,
+    mismatchedCount: 0,
+  };
+
+  for (let offset = 0; offset < matchIds.length; offset += 250) {
+    const chunk = matchIds.slice(offset, offset + 250);
+    const execution = await loadCanonicalScoreSummaries({
+      matchIds: chunk,
+      expectedRevisions: deps.expectedRevisions,
+      rpc: deps.rpc,
+    });
+    const diagnostic = canonicalScoreSummariesDiagnostic(
+      execution,
+      deps.legacyByMatch,
+      chunk.length,
+    );
+    if (!diagnostic || diagnostic.kind === "fallback") return diagnostic;
+    aggregate.requestedCount += diagnostic.requestedCount;
+    aggregate.returnedCount += diagnostic.returnedCount;
+    aggregate.missingCount += diagnostic.missingCount;
+    aggregate.comparedCount += diagnostic.comparedCount;
+    aggregate.mismatchedCount += diagnostic.mismatchedCount;
+  }
+
+  return aggregate;
+}

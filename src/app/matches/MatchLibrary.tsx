@@ -14,10 +14,7 @@ import { deriveMatchTitle, deriveMatchTitleParts, tracksServe } from "@/lib/matc
 import { ShareSheet } from "@/components/ShareSheet";
 import { CoachCta } from "@/components/reviews/CoachCta";
 import { chipTargetIds } from "./chipTargets";
-import {
-  canonicalScoreSummariesDiagnostic,
-  loadCanonicalScoreSummaries,
-} from "@/lib/scoring/reader";
+import { loadCanonicalScoreSummaryDiagnostic } from "@/lib/scoring/reader";
 import {
   Chip,
   Thumb,
@@ -503,33 +500,19 @@ export function MatchLibrary({
     let cancelled = false;
     void (async () => {
       const supabase = createClient();
-      for (let offset = 0; offset < scoreShadowIds.length; offset += 250) {
-        const matchIds = scoreShadowIds.slice(offset, offset + 250);
-        const expectedRevisions = new Map<string, number>();
-        for (const matchId of matchIds) {
-          const revision = scoreShadowRevisions.get(matchId);
-          if (typeof revision === "number") {
-            expectedRevisions.set(matchId, revision);
-          }
-        }
-        const execution = await loadCanonicalScoreSummaries({
-          matchIds,
-          expectedRevisions,
-          rpc: (name, args) => supabase.rpc(name, args),
+      const diagnostic = await loadCanonicalScoreSummaryDiagnostic({
+        matchIds: scoreShadowIds,
+        expectedRevisions: scoreShadowRevisions,
+        legacyByMatch: scoreChipByMatch,
+        rpc: (name, args) => supabase.rpc(name, args),
+      });
+      if (cancelled) return;
+      if (diagnostic?.kind === "parity") {
+        console.info("match library canonical score reader parity", diagnostic);
+      } else if (diagnostic) {
+        console.warn("match library canonical score reader fallback", {
+          reason: diagnostic.reason,
         });
-        if (cancelled) return;
-        const diagnostic = canonicalScoreSummariesDiagnostic(
-          execution,
-          scoreChipByMatch,
-          matchIds.length,
-        );
-        if (diagnostic?.kind === "parity") {
-          console.info("match library canonical score reader parity", diagnostic);
-        } else if (diagnostic) {
-          console.warn("match library canonical score reader fallback", {
-            reason: diagnostic.reason,
-          });
-        }
       }
     })();
     return () => {

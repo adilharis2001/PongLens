@@ -29,9 +29,11 @@ import type { Lesson, Point } from "@/lib/types";
 import { possessive } from "@/lib/coaches/playerCoaches";
 import {
   fetchPointsPaged,
+  scoreChipsForPoints,
   useScoreChips,
   type PointLite,
 } from "@/app/dashboard/shared";
+import { loadCanonicalScoreSummaryDiagnostic } from "@/lib/scoring/reader";
 import type { CoachStudentRow } from "../StudentsView";
 
 /**
@@ -95,6 +97,7 @@ function entryPreview(transcript: string, takeaways: Takeaways | null): string {
 
 interface MatchRow {
   id: string;
+  score_revision?: number;
   opponent_name: string | null;
   original_name: string | null;
   match_type: string | null;
@@ -206,7 +209,7 @@ export function StudentView({
         supabase
           .from("matches")
           .select(
-            "id, opponent_name, original_name, match_type, venue, played_at, status",
+            "id, score_revision, opponent_name, original_name, match_type, venue, played_at, status",
           )
           .eq("user_id", playerId)
           .order("created_at", { ascending: false }),
@@ -222,10 +225,42 @@ export function StudentView({
       // one that is still processing has no points to walk.
       const ready = rows.filter((m) => m.status === "ready").map((m) => m.id);
       if (ready.length > 0) {
-        void fetchPointsPaged<PointLite>(
+        let complete = true;
+        const pts = await fetchPointsPaged<PointLite>(
           "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, game_winner_override",
           ready,
-        ).then((pts) => setMatchPoints(pts));
+          () => {
+            complete = false;
+          },
+        );
+        setMatchPoints(pts);
+        // Coach cards keep rendering the established point fold. An
+        // explicitly allowlisted coach compares one access-scoped canonical
+        // batch only after the complete legacy input has arrived.
+        if (complete) {
+          const revisions = new Map<string, number>();
+          for (const match of rows) {
+            if (
+              match.status === "ready" &&
+              typeof match.score_revision === "number"
+            ) {
+              revisions.set(match.id, match.score_revision);
+            }
+          }
+          const diagnostic = await loadCanonicalScoreSummaryDiagnostic({
+            matchIds: ready,
+            expectedRevisions: revisions,
+            legacyByMatch: scoreChipsForPoints(pts),
+            rpc: (name, args) => supabase.rpc(name, args),
+          });
+          if (diagnostic?.kind === "parity") {
+            console.info("coach canonical score reader parity", diagnostic);
+          } else if (diagnostic) {
+            console.warn("coach canonical score reader fallback", {
+              reason: diagnostic.reason,
+            });
+          }
+        }
       }
       setFromStudent(
         ((sharedRows as SharedFromStudent[]) ?? []).filter(

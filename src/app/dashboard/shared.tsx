@@ -323,31 +323,33 @@ export async function fetchPointsPaged<T>(
   return out;
 }
 
+export function scoreChipsForPoints(pointsLite: PointLite[]) {
+  const byMatch = new Map<string, PointLite[]>();
+  for (const p of pointsLite) {
+    const list = byMatch.get(p.match_id) ?? [];
+    list.push(p);
+    byMatch.set(p.match_id, list);
+  }
+  const chips = new Map<string, ScoreChip>();
+  for (const [matchId, pts] of byMatch) {
+    const ordered = sortPoints(pts as Point[]);
+    const anyScored = ordered.some((p) => p.confirmed_winner !== null);
+    if (!anyScored) continue;
+    const score = computeMatchScore(ordered);
+    const hasUnscored = ordered.some(
+      (p) => p.confirmed_winner === null && !p.is_let
+    );
+    chips.set(matchId, {
+      you: score.gamesYou,
+      them: score.gamesThem,
+      complete: !hasUnscored && score.games.length > 0,
+    });
+  }
+  return chips;
+}
+
 export function useScoreChips(pointsLite: PointLite[]) {
-  return useMemo(() => {
-    const byMatch = new Map<string, PointLite[]>();
-    for (const p of pointsLite) {
-      const list = byMatch.get(p.match_id) ?? [];
-      list.push(p);
-      byMatch.set(p.match_id, list);
-    }
-    const chips = new Map<string, ScoreChip>();
-    for (const [matchId, pts] of byMatch) {
-      const ordered = sortPoints(pts as Point[]);
-      const anyScored = ordered.some((p) => p.confirmed_winner !== null);
-      if (!anyScored) continue;
-      const score = computeMatchScore(ordered);
-      const hasUnscored = ordered.some(
-        (p) => p.confirmed_winner === null && !p.is_let
-      );
-      chips.set(matchId, {
-        you: score.gamesYou,
-        them: score.gamesThem,
-        complete: !hasUnscored && score.games.length > 0,
-      });
-    }
-    return chips;
-  }, [pointsLite]);
+  return useMemo(() => scoreChipsForPoints(pointsLite), [pointsLite]);
 }
 
 /**
