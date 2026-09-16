@@ -366,6 +366,12 @@ struct MainTabView: View {
                 await journal.load(userId: app.userId, recollectAvailable: app.recollectEnabled)
             }
             library.startPolling()
+            #if DEBUG
+            if let route = router.devRoute {
+                router.devRoute = nil
+                path.append(route)
+            }
+            #endif
         }
         .onChange(of: library.matches) { _, matches in
             Task {
