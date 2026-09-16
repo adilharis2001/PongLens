@@ -96,10 +96,11 @@ extended through the second clip's end, archived the joined row, preserved the
 final point-end evidence and saved the selected opponent outcome in the same
 mutation.
 
-The final read-only audit found all 218 production matches current with matching
+The final read-only audit found all 220 production matches current with matching
 source/projection revisions and zero projection errors. Two real automatic
 worker publications have completed through `replace_worker_points`; all 156
-stored timing observations remain valid. Both Mac lanes and both Modal lanes
+pre-correction timing observations remain valid, and the Julian correction adds
+48 exact manual-cutter observations. All three Mac lanes and both Modal lanes
 reported the intended `9e53da33...` Mac release, and the cloud twin reported its
 matching `33ab83f0...` release. The latest web deployment built from `main` at
 `1239953a`, completed successfully and holds all production aliases.
@@ -112,6 +113,31 @@ create or alter a production match solely to manufacture that evidence.
 The capability remains `user:a2e61027-2ee9-4026-a058-dc07441ee633`. Widening it
 to every account and migrating owner readers are separate product rollout
 decisions, not unfinished implementation.
+
+## Manual-cutter production correction
+
+The first real post-rollout manual cut exposed an operational gap rather than
+a scoring or database defect. Its 24 draft marks, 24 active points, clips,
+outcomes and revision-49 projection were exact, but the dedicated `mac:hand`
+process was still running the old `c306f103` checkout. It therefore used the
+legacy ready path and did not invoke the canonical publication function.
+
+On September 16 the hand queue was confirmed idle with zero open jobs. Its
+launcher was backed up and moved to the same verified sealed release used by
+main and fast:
+`9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce`.
+The new process accepted the database contract, reported that exact release in
+`worker_pulse`, and remained idle. Release tooling now treats `hand` as a
+first-class checked lane with a separate `drain-hand` boundary, preventing a
+future package rollout from silently omitting it.
+
+For the already-finished Julian manual cut, the exact mark/point timing
+preconditions were rechecked inside one transaction and
+`normalize_manual_cut_observations` wrote 24 serve starts and 24 point ends.
+Points, score, clips, playback and revision did not change. A historical
+`publish_hand_cut` receipt was deliberately not invented because the original
+job was already done; the next natural Julian manual cut should produce that
+receipt atomically before becoming ready.
 
 ## Deferred native cleanup
 

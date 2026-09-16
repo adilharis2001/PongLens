@@ -176,7 +176,7 @@ def main():
     runner = commands.add_parser('run')
     runner.add_argument('release', type=Path)
     runner.add_argument('--state', type=Path, required=True)
-    runner.add_argument('--lane', choices=('main', 'fast'), default='main')
+    runner.add_argument('--lane', choices=('main', 'fast', 'hand'), default='main')
     runner.add_argument('--check-only', action='store_true', help='Resolve and verify without starting a worker')
     args = parser.parse_args()
     try:

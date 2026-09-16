@@ -101,11 +101,18 @@ without a separate rollout decision.
 The Nathan vs Brian production match exercised Score, Skip, Adjust, Split and
 Join from build 220. Its projection is current at revision 57 with no error;
 the join stored structure, outcome and final-point timing in one canonical
-mutation. Across production, all 218 matches have matching source/projection
-revisions and no projection errors. Two real automatic worker publications
-also completed through the canonical boundary. The next naturally-created
-manual cut should be checked after publication, but no synthetic production
-match is needed for acceptance.
+mutation. The real web-scored Julian test D match is current at revision 151
+after Score, Skip, Split, visibility and server-override commands. The real
+manual-cutter Julian match has exact 24-mark/24-point timing parity and is
+current at revision 49. Its first run exposed a rollout gap: the dedicated
+hand lane still used the older `c306f103` checkout even though main and fast
+used the canonical sealed release. On 2026-09-16 the idle hand lane was moved
+to sealed release `9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce`,
+which contains the atomic `publish_hand_cut_v2` path. The 24 already-proven
+manual boundaries were normalized into 48 source-clock observations without
+changing points, score or playback; no historical publication receipt was
+fabricated. The next natural manual cut is the live acceptance check for its
+atomic publication receipt.
 
 One small native follow-up is intentionally deferred: the Scorekeeper shortcut
 that splits by immediately answering the second point saves the split and the
@@ -118,8 +125,9 @@ cleanup into the next normal iOS release rather than making a dedicated build.
 
 ## The processing page has to keep up with the worker
 
-**Worker release/health rollout, 2026-09-11:** main/fast now run the sealed
-release, with independent health monitoring. Read `docs/worker-release-health.md` before changing worker
+**Worker release/health rollout, updated 2026-09-16:** main, fast and hand now
+run the same sealed release, with independent health monitoring. Read
+`docs/worker-release-health.md` before changing worker
 launchers, runtime dependencies or body fallback reporting. The sealed runtime
 source remains on `codex/worker-release-health`; do not merge its captured
 baseline wholesale over newer main.
