@@ -512,8 +512,10 @@ estimated until the match is scored. Everything that reads the score
 (Overview, point length, serve speed, endings) waits for the 75% gate;
 a momentum chart of a half-scored match is the "half-assed card" he
 refused. The deck ends on ONE next-step card (which end, score the match,
-detailed analysis, each row with its state and action) until nothing is
-left, and only then on the teaser. The steps are in order, not side by
+detailed analysis, one row at a time with a one-line reason) until nothing
+is left, and only then on the teaser. Scoring is a step only up to the
+75% bar; past it the card asks only for the analysis, and the Tools row
+names that step and triggers it. The steps are in order, not side by
 side: Generate (or Try again) is offered only once the match is scored,
 because scoring confirms the cuts and the worker reads the corrected
 windows when it runs; a practice match has nothing to score and gets it

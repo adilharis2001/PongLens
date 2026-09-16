@@ -188,7 +188,6 @@ function NextStepRow({
 function NextStepCard({
   gate,
   scoredType,
-  fullyScored,
   sideMissing,
   onSetUserSide,
   controller,
@@ -196,20 +195,20 @@ function NextStepCard({
 }: {
   gate: ScoredCardsGate;
   scoredType: boolean;
-  fullyScored: boolean;
   sideMissing: boolean;
   onSetUserSide?: (side: Side) => void;
   controller: PlacementLifecycleController | null;
   onScore?: () => void;
 }) {
   const view = controller?.view ?? null;
-  const analysisDone = view !== null && !view.poll && view.actionKind === null;
   const analysisReady = view !== null && view.toolStatus === "Ready";
   // Generate (or try again) comes after scoring; a practice match has
-  // nothing to score and gets it straight away.
+  // nothing to score and gets it straight away. Once the bar is met the
+  // scoring row steps aside: the one thing left to do is the analysis.
   const offerAnalysis = !scoredType || gate.open;
+  const showScoring = scoredType && !gate.open;
   const showAnalysis =
-    view !== null && (view.poll || analysisReady || offerAnalysis);
+    view !== null && !analysisReady && (view.poll || offerAnalysis);
   return (
     <Card title="What's next">
       <div className="divide-y divide-edge/60">
@@ -225,8 +224,13 @@ function NextStepCard({
             </div>
           </NextStepRow>
         )}
-        {scoredType && (
-          <NextStepRow title="Score the match" done={fullyScored}>
+        {showScoring && (
+          <NextStepRow title="Score the match">
+            <p className="mt-0.5 text-xs text-zinc-400">
+              {analysisReady
+                ? "Unlocks the overview, point length, serve speed and where points ended."
+                : "Unlocks the overview and the detailed analysis."}
+            </p>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink">
               <div
                 className="h-full bg-cyan-glow"
@@ -239,7 +243,7 @@ function NextStepCard({
                 <span className="text-zinc-500"> · {gate.required} needed</span>
               )}
             </p>
-            {onScore && !fullyScored && (
+            {onScore && (
               <button type="button" onClick={onScore} className={ACTION_BUTTON}>
                 {gate.scored === 0 ? "Score the match" : "Keep scoring"}
               </button>
@@ -247,9 +251,14 @@ function NextStepCard({
           </NextStepRow>
         )}
         {controller && view && showAnalysis && (
-          <NextStepRow title="Detailed analysis" done={analysisDone && analysisReady}>
-            {!analysisReady && !view.poll && view.actionKind === null && (
+          <NextStepRow title="Detailed analysis">
+            {!view.poll && view.actionKind === null && (
               <p className="mt-0.5 text-xs text-zinc-400">Not available for this video.</p>
+            )}
+            {view.actionKind === "generate" && (
+              <p className="mt-0.5 text-xs text-zinc-400">
+                Unlocks the serve maps, point length, serve speed and where points ended.
+              </p>
             )}
             {view.actionKind === "retry" && (
               <p className="mt-0.5 text-xs text-zinc-400">The table was hard to detect.</p>
@@ -437,7 +446,6 @@ export function AnalysisCards({
   );
 
   const gate = useMemo(() => scoredCardsGate(points), [points]);
-  const fullyScored = gate.eligible > 0 && gate.scored === gate.eligible;
   const scoredCards = useMemo(
     () =>
       scoredType && gate.open
@@ -508,13 +516,15 @@ export function AnalysisCards({
     placementView !== null
     && !placement?.flagged
     && (placementView.poll || placementView.actionKind !== null);
+  // Scoring is a step only up to the bar; past it the deck has what it
+  // needs and the card asks for nothing more about the score.
   const nextStep =
     !viewer
-    && ((scoredType && !fullyScored)
+    && ((scoredType && !gate.open)
       || (sideMissing && onSetUserSide !== undefined)
       || analysisPending);
   const complete = viewer
-    ? fullyScored && (placement === null || placement.trusted)
+    ? gate.open && (placement === null || placement.trusted)
     : !nextStep;
 
   const cards: React.ReactNode[] = [
@@ -663,7 +673,6 @@ export function AnalysisCards({
         key="next"
         gate={gate}
         scoredType={scoredType}
-        fullyScored={fullyScored}
         sideMissing={sideMissing}
         onSetUserSide={onSetUserSide}
         controller={placement?.controller ?? null}

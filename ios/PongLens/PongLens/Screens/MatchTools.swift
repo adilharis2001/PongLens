@@ -24,6 +24,7 @@ struct ToolsSection: View {
     @State private var exportOpen = false
     @State private var detailsOpen = false
     @State private var sideOpen = false
+    @State private var analysisRequestOpen = false
     @State private var automaticHighlights: AutomaticHighlightsResponse?
 
     var body: some View {
@@ -49,7 +50,8 @@ struct ToolsSection: View {
                 // Generating maps is a card in that section now.
                 if MatchTitle.tracksServe(match.matchType) || match.placementStatus == "ready" {
                     toolRow("Match analysis", trailing: .text(analysisTrailing)) {
-                        onScrollToAnalysis()
+                        // Past the bar the row is the trigger for the analysis.
+                        if analysisRowAction { analysisRequestOpen = true } else { onScrollToAnalysis() }
                     }
                     divider
                 }
@@ -115,6 +117,11 @@ struct ToolsSection: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $analysisRequestOpen) {
+            PlacementRequestSheet(match: match, onChanged: onRowChanged)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $sideOpen) {
             YourSideSheet(match: match) {
                 onRowChanged()
@@ -159,6 +166,18 @@ struct ToolsSection: View {
     /// or the detail still missing. The same gate as the deck (and as the
     /// highlights), so the row and the card it jumps to never disagree
     /// about what "unlocked" means.
+    /// Whether a tap on the Match analysis row should start the analysis
+    /// rather than scroll to it: the match is scored past the bar and the
+    /// analysis has not been generated, or can be tried again.
+    private var analysisRowAction: Bool {
+        guard MatchTitle.tracksServe(match.matchType), match.cutSource != "manual",
+              scoredCardsGate(model.visible).open else { return false }
+        switch match.placementStatus {
+        case nil, "not_requested", "retry_available": return true
+        default: return false
+        }
+    }
+
     private var analysisTrailing: String {
         if !MatchTitle.tracksServe(match.matchType) { return "Serve maps" }
         let gate = scoredCardsGate(model.visible)
@@ -170,6 +189,9 @@ struct ToolsSection: View {
         switch match.placementStatus {
         case "processing": return "Generating…"
         case "retrying": return "Retrying…"
+        case "retry_available" where match.cutSource != "manual": return "Try again"
+        case nil, "not_requested":
+            if match.cutSource != "manual" { return "Generate detailed analysis" }
         default: break
         }
         let serving = computeServing(
