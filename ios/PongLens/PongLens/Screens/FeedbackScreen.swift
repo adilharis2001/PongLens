@@ -1,65 +1,39 @@
 import SwiftUI
 import Supabase
 
-/// One row of the public feedback board, straight from `feedback_board`.
-///
-/// The RPC decides what each caller may see: private rows and their
-/// screenshots reach only their author and the admin, so there is nothing
-/// to filter here beyond what arrives.
-struct FeedbackItem: Decodable, Identifiable {
-    let id: UUID
-    let userId: UUID
-    let title: String
-    let body: String
-    let type: String
-    let status: String
-    var voteCount: Int
-    let createdAt: String
-    let authorName: String?
-    let authorAvatar: String?
-    var voted: Bool
-    let hidden: Bool?
-
-    enum CodingKeys: String, CodingKey {
-        case id, title, body, type, status, voted, hidden
-        case userId = "user_id"
-        case voteCount = "vote_count"
-        case createdAt = "created_at"
-        case authorName = "author_name"
-        case authorAvatar = "author_avatar"
-    }
-
-    var isDone: Bool { status == "done" || status == "declined" }
-}
-
 /// The feedback board, and the box that adds to it.
 ///
-/// This used to be the box alone: a screen whose entire content was a text
-/// field and a Send button, so posting felt like dropping something into a
-/// hole. Everything the web has shown for months — what other people asked
-/// for, what is being built, what has shipped — was simply missing here,
-/// which also meant the same idea got sent twice with no way to notice.
+/// The board IS the screen, and writing is a sheet raised from the corner
+/// button — the app's own idiom (the journal's New entry works exactly
+/// this way). Every post opens into its own page, where the thread lives;
+/// the vote box stays on the row so a vote is still one tap.
 ///
-/// So the board IS the screen, and writing is a sheet raised from the
-/// corner button. That is the app's own idiom (the journal's New entry
-/// works exactly this way) and it puts Send in a sheet's commit slot, top
-/// right, instead of floating in the middle of a page.
+/// Above the rows, a rail of the stages posts move through — Planned,
+/// Building, Done — with a count on each. It appears only once something
+/// has moved, so an empty board is not three empty columns.
+///
+/// After a post is sent, a card at the top says so and carries whatever
+/// the tidy-up came back with: a post that already asks for the same
+/// thing, or a follow-up question. The web has had this since the board
+/// was built; the phone never did, because it sent the tidy-up request
+/// without the text and the server refused it (fixed 2026-09-16).
 struct FeedbackScreen: View {
-    var matchId: UUID?
+    /// Raise the composer on arrival (Home's "add it to the board" row).
+    var openCompose = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
 
     @State private var items: [FeedbackItem] = []
-    @State private var sort = "top"
+    @State private var sort: FeedbackSort = .top
+    @State private var stage: FeedbackStage?
     @State private var loading = true
     @State private var loadFailed = false
-    @State private var doneOpen = false
     @State private var composeOpen = false
-    @State private var justPosted = false
+    @State private var posted: PostedState?
+    @State private var answer = ""
 
-    private var active: [FeedbackItem] { items.filter { !$0.isDone } }
-    private var finished: [FeedbackItem] { items.filter(\.isDone) }
+    private var visible: [FeedbackItem] { FeedbackStage.visible(items, stage: stage) }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -80,22 +54,28 @@ struct FeedbackScreen: View {
                         .tracking(-0.6)
                         .foregroundStyle(PL.textBody)
 
+                    // The one line under the title. Adil asked for it
+                    // (2026-09-16): the board grew threads, and a
+                    // first-time reader should know it is for talking as
+                    // well as voting. Same words as the web.
+                    Text("Ideas and bugs from players. Vote on what matters, join a thread, and see what's being built.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text400)
+                        .fixedSize(horizontal: false, vertical: true)
+
                     Picker("", selection: $sort) {
-                        Text("Top").tag("top")
-                        Text("New").tag("new")
+                        ForEach(FeedbackSort.allCases) { s in
+                            Text(s.label).tag(s)
+                        }
                     }
                     .pickerStyle(.segmented)
 
-                    if justPosted {
-                        HStack(spacing: 10) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(PL.successText)
-                            Text("Posted. Others can upvote it now.")
-                                .font(.plBody)
-                                .foregroundStyle(PL.text200)
-                            Spacer(minLength: 0)
-                        }
-                        .plCard(padding: 14)
+                    if FeedbackStage.railVisible(items) {
+                        FeedbackStageRail(counts: FeedbackStage.counts(items), stage: $stage)
+                    }
+
+                    if posted != nil {
+                        postedCard
                     }
 
                     if loading {
@@ -111,21 +91,21 @@ struct FeedbackScreen: View {
                         }
                         .plShimmer()
                     } else if loadFailed {
-                        emptyCard(
-                            "Couldn't load the board.",
-                            detail: "Your feedback still sends."
-                        )
+                        emptyCard("Couldn't load the board.", detail: "Your feedback still sends.")
                     } else if items.isEmpty {
-                        emptyCard(
-                            "Nothing here yet.",
-                            detail: "Be the first to post something."
-                        )
+                        emptyCard("Nothing here yet.", detail: "Be the first to post something.")
                     } else {
-                        ForEach(active) { item in
-                            card(item)
+                        ForEach(visible) { item in
+                            NavigationLink(value: "feedback-item:\(item.id.uuidString.lowercased())") {
+                                card(item)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        if !finished.isEmpty {
-                            doneSection
+                        if visible.isEmpty {
+                            emptyCard(
+                                stage.map { "Nothing \($0.label.lowercased()) right now." } ?? "Nothing open right now.",
+                                detail: stage == nil ? "Everything on the board is finished." : "Try another stage."
+                            )
                         }
                     }
                 }
@@ -140,47 +120,34 @@ struct FeedbackScreen: View {
             .padding(20)
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task { await load() }
+        .task {
+            await load()
+            if openCompose { composeOpen = true }
+        }
         .onChange(of: sort) { _, _ in Task { await load() } }
         .sheet(isPresented: $composeOpen) {
-            FeedbackComposer(matchId: matchId) {
-                justPosted = true
-                Task { await load() }
+            FeedbackComposer { itemId, body in
+                posted = PostedState(itemId: itemId)
+                answer = ""
+                Task {
+                    await load()
+                    await assist(itemId: itemId, body: body)
+                }
             }
         }
     }
 
     // MARK: - Rows
 
-    /// Vote on the left, the words in the middle. The count is the reason
-    /// the board exists — it is what tells someone their idea is already
-    /// here and already wanted, so it reads before the text does.
     private func card(_ item: FeedbackItem) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            Button { Task { await vote(item) } } label: {
-                VStack(spacing: 2) {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 12, weight: .bold))
-                    Text("\(item.voteCount)")
-                        .font(.system(size: 14, weight: .semibold))
-                        .monospacedDigit()
+            if item.isHidden {
+                FeedbackHiddenBox()
+            } else {
+                FeedbackVoteBox(count: item.voteCount, voted: item.voted) {
+                    Task { await vote(item) }
                 }
-                .foregroundStyle(item.voted ? PL.cyan : PL.text400)
-                .frame(width: 46, height: 48)
-                .background(
-                    item.voted ? PL.cyan.opacity(0.12) : PL.ink.opacity(0.4),
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(
-                            item.voted ? PL.cyan.opacity(0.5) : PL.edge,
-                            lineWidth: 1
-                        )
-                )
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(item.voted ? "Remove your vote" : "Vote for this")
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.title)
@@ -191,13 +158,20 @@ struct FeedbackScreen: View {
                     Text(item.body)
                         .font(.plBody)
                         .foregroundStyle(PL.text400)
-                        .lineLimit(4)
+                        .lineLimit(3)
                         .lineSpacing(2)
                 }
+                if let reply = item.officialReply {
+                    FeedbackOfficialReply(text: reply, at: item.officialReplyAt)
+                        .padding(.top, 2)
+                }
                 HStack(spacing: 8) {
-                    chip(typeLabel(item.type), tint: typeTint(item.type))
-                    if let status = statusLabel(item.status) {
-                        chip(status, tint: PL.text400)
+                    FeedbackChip(text: FeedbackLook.typeLabel(item.type), tint: FeedbackLook.typeTint(item.type))
+                    if let status = FeedbackLook.statusLabel(item.status) {
+                        FeedbackChip(text: status, tint: FeedbackLook.statusTint(item.status))
+                    }
+                    if !item.isHidden {
+                        FeedbackCommentCount(count: item.commentCount)
                     }
                     Text(authorLine(item))
                         .font(.plCaption)
@@ -209,41 +183,14 @@ struct FeedbackScreen: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .plCard(padding: 16)
     }
 
-    private var doneSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button {
-                withAnimation(.easeOut(duration: 0.18)) { doneOpen.toggle() }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .rotationEffect(.degrees(doneOpen ? 90 : 0))
-                    Text("Done (\(finished.count))")
-                        .font(.plSection)
-                        .tracking(0.6)
-                    Spacer()
-                }
-                .foregroundStyle(PL.text500)
-            }
-            .buttonStyle(.plain)
-            if doneOpen {
-                ForEach(finished) { card($0) }
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    private func chip(_ text: String, tint: Color) -> some View {
-        Text(text)
-            .font(.plMicro)
-            .foregroundStyle(tint)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(tint.opacity(0.12), in: Capsule())
-            .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 1))
+    private func authorLine(_ item: FeedbackItem) -> String {
+        let name = FeedbackLook.name(item.authorName, userId: item.userId, viewerId: app.userId)
+        let ago = FeedbackLook.ago(item.createdAt)
+        return ago.isEmpty ? name : "\(name) · \(ago)"
     }
 
     private func emptyCard(_ title: String, detail: String) -> some View {
@@ -259,52 +206,179 @@ struct FeedbackScreen: View {
         .plCard(padding: 20)
     }
 
-    // MARK: - Labels
+    // MARK: - After posting
 
-    private func typeLabel(_ type: String) -> String {
-        switch type {
-        case "bug": "Bug"
-        case "idea": "Idea"
-        case "improvement": "Improvement"
-        default: "Private"
+    /// What happened to the post, and what the tidy-up wants to know.
+    private struct PostedState {
+        enum Similar { case pending, kept, merged }
+        let itemId: UUID
+        var assist: FeedbackAssist?
+        var similar: Similar = .pending
+        var questionIndex = 0
+        var savingAnswer = false
+        var merging = false
+    }
+
+    @ViewBuilder
+    private var postedCard: some View {
+        if let state = posted {
+            let similar = state.assist?.similar
+            let questions = state.assist?.questions ?? []
+            let merged = state.similar == .merged
+            let showSimilar = !merged && state.similar == .pending && similar != nil
+            let isPrivate = state.assist?.visibility == "private"
+            let currentQuestion: String? =
+                (!merged && !showSimilar && state.questionIndex < questions.count)
+                ? questions[state.questionIndex] : nil
+            let line: String = merged
+                ? "Vote added to “\(similar?.title ?? "that post")”."
+                : state.assist == nil
+                    ? "Sent."
+                    : isPrivate ? "Sent to us." : "Posted. Others can upvote it now."
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(PL.successText)
+                    Text(line)
+                        .font(.plBody)
+                        .foregroundStyle(PL.text200)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) { posted = nil }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PL.text500)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss")
+                }
+
+                if showSimilar, let similar {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Similar: “\(similar.title)”. Add your vote to it instead?")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text300)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 10) {
+                            Button(state.merging ? "Adding…" : "+1") {
+                                Task { await mergeIntoSimilar(similar) }
+                            }
+                            .buttonStyle(PLCyanGhostButtonStyle())
+                            .disabled(state.merging)
+                            Button("Keep mine") { posted?.similar = .kept }
+                                .buttonStyle(PLSecondaryButtonStyle())
+                        }
+                    }
+                    .plInnerRow(padding: 12)
+                }
+
+                if let currentQuestion {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(currentQuestion)
+                            .font(.plRowTitle)
+                            .foregroundStyle(PL.text100)
+                            .fixedSize(horizontal: false, vertical: true)
+                        TextField("Answer (optional)", text: $answer, axis: .vertical)
+                            .lineLimit(2...5)
+                            .font(.plBody)
+                            .foregroundStyle(PL.text100)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(PL.ink.opacity(0.5), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: PL.rField, style: .continuous).strokeBorder(PL.edge, lineWidth: 1))
+                        HStack(spacing: 10) {
+                            Spacer(minLength: 0)
+                            Button("Skip") {
+                                answer = ""
+                                posted?.questionIndex += 1
+                            }
+                            .buttonStyle(PLSecondaryButtonStyle())
+                            Button(state.savingAnswer ? "Sending…" : "Send") {
+                                Task { await submitAnswer(currentQuestion) }
+                            }
+                            .buttonStyle(PLCyanGhostButtonStyle())
+                            .disabled(state.savingAnswer || answer.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    }
+                }
+
+                if !merged, !isPrivate {
+                    NavigationLink(value: "feedback-item:\(state.itemId.uuidString.lowercased())") {
+                        HStack(spacing: 3) {
+                            Text("Open your post")
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(PL.cyan)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .plCard(padding: 14)
         }
     }
 
-    private func typeTint(_ type: String) -> Color {
-        switch type {
-        case "bug": PL.dangerText
-        case "idea": PL.cyan
-        case "improvement": PL.warningText
-        default: PL.text400
+    /// Background tidy-up, the same call the web makes. The post is
+    /// already saved; anything here is polish, and a failure leaves the
+    /// card saying "Sent." with nothing under it.
+    private func assist(itemId: UUID, body: String) async {
+        struct Req: Encodable {
+            let itemId: String
+            let body: String
         }
+        // The polish is OpenAI's: permission first. The post is already
+        // sent either way; declining leaves the card saying "Sent."
+        guard await AiConsent.shared.ensure() else { return }
+        let result: FeedbackAssist? = try? await API.post(
+            "api/feedback/assist",
+            Req(itemId: itemId.uuidString.lowercased(), body: body)
+        )
+        guard posted?.itemId == itemId else { return }
+        posted?.assist = result ?? FeedbackAssist(questions: [], similar: nil, visibility: "board")
+        // The title and type may have changed under the post.
+        await load()
     }
 
-    /// Only the states worth naming. "Open" on every row is noise: it is
-    /// what a board item is unless something says otherwise.
-    private func statusLabel(_ status: String) -> String? {
-        switch status {
-        case "planned": "Planned"
-        case "building": "Building"
-        case "done": "Done"
-        case "declined": "Declined"
-        default: nil
+    private func mergeIntoSimilar(_ similar: FeedbackAssist.Similar) async {
+        guard let itemId = posted?.itemId else { return }
+        posted?.merging = true
+        struct VoteReq: Encodable { let p_item: String }
+        _ = try? await supa
+            .rpc("feedback_toggle_vote", params: VoteReq(p_item: similar.id.uuidString.lowercased()))
+            .execute()
+        _ = try? await supa
+            .rpc("feedback_decline_duplicate", params: VoteReq(p_item: itemId.uuidString.lowercased()))
+            .execute()
+        posted?.merging = false
+        posted?.similar = .merged
+        await load()
+    }
+
+    private func submitAnswer(_ question: String) async {
+        guard let itemId = posted?.itemId else { return }
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        posted?.savingAnswer = true
+        struct Req: Encodable {
+            let p_item: String
+            let p_question: String
+            let p_answer: String
         }
-    }
-
-    private func authorLine(_ item: FeedbackItem) -> String {
-        let who = (item.authorName ?? "").trimmingCharacters(in: .whitespaces)
-        let name = item.userId == app.userId ? "You" : (who.isEmpty ? "A player" : who)
-        guard let date = PGDate.parse(item.createdAt) else { return name }
-        return "\(name) · \(ago(date))"
-    }
-
-    /// "3m", "5h", "2d", then a date — the board's own scale.
-    private func ago(_ date: Date) -> String {
-        let seconds = Date().timeIntervalSince(date)
-        if seconds < 3600 { return "\(max(1, Int(seconds / 60)))m" }
-        if seconds < 86_400 { return "\(Int(seconds / 3600))h" }
-        if seconds < 7 * 86_400 { return "\(Int(seconds / 86_400))d" }
-        return date.formatted(.dateTime.month(.abbreviated).day())
+        _ = try? await supa
+            .rpc("feedback_append_qa", params: Req(
+                p_item: itemId.uuidString.lowercased(), p_question: question, p_answer: text
+            ))
+            .execute()
+        answer = ""
+        posted?.savingAnswer = false
+        posted?.questionIndex += 1
+        await load()
     }
 
     // MARK: - Data
@@ -313,7 +387,7 @@ struct FeedbackScreen: View {
         loadFailed = false
         struct Req: Encodable { let p_sort: String }
         do {
-            items = try await supa.rpc("feedback_board", params: Req(p_sort: sort))
+            items = try await supa.rpc("feedback_board", params: Req(p_sort: sort.rawValue))
                 .execute().value
         } catch {
             loadFailed = true
@@ -344,8 +418,6 @@ struct FeedbackScreen: View {
             .execute().value
         guard let i = items.firstIndex(where: { $0.id == item.id }) else { return }
         guard let truth = rows?.first else {
-            // The write did not land: put the row back rather than leave a
-            // number that disagrees with the server.
             items[i].voted = wasVoted
             items[i].voteCount = wasCount
             return
@@ -353,16 +425,20 @@ struct FeedbackScreen: View {
         items[i].voted = truth.voted
         items[i].voteCount = truth.voteCount
     }
-
 }
 
 // MARK: - Composer
 
 /// Writing a piece of feedback. A sheet, so Send sits where a sheet's
 /// commit action always sits and the board stays behind it.
+///
+/// No match is pre-selected. The composer used to arrive with the match
+/// you came from already chosen, which read as "the latest match is
+/// selected by default" and made every post look like it was about one
+/// match (Adil, 2026-09-16). The match stays one tap away in the picker.
 private struct FeedbackComposer: View {
-    let matchId: UUID?
-    let onPosted: () -> Void
+    /// The saved post's id and its text, for the tidy-up that follows.
+    let onPosted: (UUID, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
@@ -387,8 +463,6 @@ private struct FeedbackComposer: View {
                 }
 
                 Section {
-                    // A real picker over the whole library, not a handful
-                    // of chips.
                     Picker("Match", selection: $pickedMatch) {
                         Text("Not about a match").tag(UUID?.none)
                         ForEach(ownMatches) { match in
@@ -410,7 +484,6 @@ private struct FeedbackComposer: View {
             }
             .plKeyboardDismiss()
         }
-        .onAppear { pickedMatch = matchId }
     }
 
     private var ownMatches: [MatchRow] {
@@ -447,18 +520,8 @@ private struct FeedbackComposer: View {
                 .single()
                 .execute()
                 .value
-            onPosted()
+            onPosted(row.id, trimmed)
             dismiss()
-            // Background polish, fire and forget — same as the web. After
-            // the dismiss on purpose: nobody waits on a rewrite.
-            struct AssistReq: Encodable { let itemId: String }
-            struct AssistRes: Decodable { let ok: Bool? }
-            // The polish is OpenAI's: permission first. The feedback is
-            // already sent either way.
-            guard await AiConsent.shared.ensure() else { return }
-            let _: AssistRes? = try? await API.post(
-                "api/feedback/assist", AssistReq(itemId: row.id.uuidString.lowercased())
-            )
         } catch {
             errorMessage = "Could not send. Try again."
             sending = false

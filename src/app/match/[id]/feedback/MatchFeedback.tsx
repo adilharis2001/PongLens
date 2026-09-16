@@ -93,11 +93,13 @@ export function MatchFeedbackLink({ matchId, isOwner, matchStatus, activeVersion
 /**
  * The public Feedback board, one row under Processing. Ideas and bugs have
  * nothing to do with how one match was cut, but a match page is where most
- * of them occur to people, so the board opens with this match attached —
- * which is what the row in this slot always did before Processing took it.
+ * of them occur to people. It used to open the board with this match
+ * already attached; it no longer does (Adil, 2026-09-16), because a post
+ * that arrives pinned to a match reads as being about that match. The
+ * match is one tap away in the composer's picker.
  */
-export function FeedbackBoardLink({ matchId }: { matchId: string }) {
-  return <Link href={`/feedback?matchId=${matchId}`} className={TOOL_ROW_CLASS}>
+export function FeedbackBoardLink() {
+  return <Link href="/feedback" className={TOOL_ROW_CLASS}>
     <span className="text-sm font-semibold">Feedback</span>
     <span className="flex min-w-0 shrink-0 items-center gap-2">
       <span className="text-xs text-zinc-500">Ideas and bugs</span>

@@ -88,17 +88,34 @@ export async function POST(req: Request) {
   const denied = await requireAiConsent(supabase, user.id);
   if (denied) return denied;
 
-  let body = "";
   let itemId = "";
+  let sentBody = "";
   try {
     const json = await req.json();
-    body = String(json?.body ?? "").trim();
     itemId = String(json?.itemId ?? "").trim();
+    sentBody = String(json?.body ?? "").trim();
   } catch {
     /* fall through to validation */
   }
-  if (!body || !itemId) {
-    return NextResponse.json({ error: "body and itemId required" }, { status: 400 });
+  if (!itemId) {
+    return NextResponse.json({ error: "itemId required" }, { status: 400 });
+  }
+
+  // The text comes from the row, not the request. The iPhone app sent
+  // only the id and this route demanded the body too, so it refused with
+  // a 400 and no post made from the app was ever tidied: each kept its
+  // first eight words as a title and was never checked against the
+  // board (found 2026-09-16). The row is what gets polished, so the row
+  // is the truth; a body in the request is only a fallback for a read
+  // that fails.
+  const { data: row } = await supabase
+    .from("feedback_items")
+    .select("body")
+    .eq("id", itemId)
+    .maybeSingle();
+  const body = String(row?.body ?? sentBody).trim();
+  if (!body) {
+    return NextResponse.json({ error: "item not found" }, { status: 404 });
   }
 
   const apiKey = process.env.OPENAI_API_KEY;

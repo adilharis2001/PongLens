@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
@@ -227,13 +228,17 @@ function MicButton({
 export function FeedbackForm({
   userId,
   isQa = false,
-  initialMatchId,
   onPosted,
+  bare = false,
+  autoFocus = false,
 }: {
   userId: string;
   /** QA role (092): shows the severity picker and captures environment. */
   isQa?: boolean;
-  initialMatchId: string | null;
+  /** Inside a sheet, which brings its own frame: no card border here. */
+  bare?: boolean;
+  /** Put the cursor in the box on mount (the sheet on a phone). */
+  autoFocus?: boolean;
   /**
    * Something was written that the board should show. The board is a
    * sibling now rather than a child — on a laptop the two sit side by
@@ -246,7 +251,11 @@ export function FeedbackForm({
   const [severity, setSeverity] = useState<"" | "blocker" | "major" | "minor">(
     "",
   );
-  const [matchId, setMatchId] = useState(initialMatchId ?? "");
+  // Never pre-selected. The page used to arrive with the match you came
+  // from already chosen, which read as "the latest match is selected by
+  // default" and made every post look like it was about one match
+  // (Adil, 2026-09-16). The match stays one tap away in the picker.
+  const [matchId, setMatchId] = useState("");
   const [matches, setMatches] = useState<MatchOption[]>([]);
   const [phase, setPhase] = useState<"compose" | "sending" | "sent">("compose");
   const [sendError, setSendError] = useState(false);
@@ -478,7 +487,7 @@ export function FeedbackForm({
   const reset = useCallback(() => {
     setBody("");
     setSeverity("");
-    setMatchId(initialMatchId ?? "");
+    setMatchId("");
     setPhase("compose");
     setItemId(null);
     setAssist(null);
@@ -489,7 +498,9 @@ export function FeedbackForm({
     });
     setAttachError(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
-  }, [initialMatchId]);
+  }, []);
+
+  const frame = bare ? "pt-4" : "rounded-2xl border border-edge bg-surface p-5 sm:p-6";
 
   const uploading = attachments.some((a) => a.status === "uploading");
   const merged = similarState === "merged";
@@ -511,7 +522,7 @@ export function FeedbackForm({
   return (
     <div>
       {phase === "sent" ? (
-        <div className="rounded-2xl border border-edge bg-surface p-5 sm:p-6">
+        <div className={frame}>
           <div className="flex items-center gap-3">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-400/10">
               <svg
@@ -603,16 +614,26 @@ export function FeedbackForm({
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={reset}
-            className="mt-4 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-300"
-          >
-            Send another
-          </button>
+          <div className="mt-4 flex items-center gap-4">
+            {itemId && !merged && !(isQa || assist?.visibility === "private") && (
+              <Link
+                href={`/feedback/${itemId}`}
+                className="text-sm font-medium text-cyan-glow transition-colors hover:text-white"
+              >
+                Open your post
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={reset}
+              className="text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+            >
+              Send another
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="rounded-2xl border border-edge bg-surface p-5 sm:p-6">
+        <div className={frame}>
           {mainVoice.recState === "recording" ? (
             <div className="flex h-24 items-center gap-3 rounded-xl border border-red-500/50 bg-red-500/10 px-4">
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
@@ -647,6 +668,7 @@ export function FeedbackForm({
                 autoGrow();
               }}
               rows={3}
+              autoFocus={autoFocus}
               placeholder="A bug, an idea, anything."
               className="w-full resize-none rounded-xl border border-edge bg-surface-2/60 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/50"
             />

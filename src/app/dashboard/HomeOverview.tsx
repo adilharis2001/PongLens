@@ -16,6 +16,7 @@ import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
 import { FirstSteps } from "./FirstSteps";
+import { HomeFeedbackBoard } from "./HomeFeedbackBoard";
 import { YourGame } from "./YourGame";
 import {
   Chip,
@@ -1009,6 +1010,14 @@ export function HomeOverview({
           )}
         </section>
       )}
+
+      {/* The feedback board, last, and only once a match has gone through:
+          a player with nothing processed has nothing to have a view on
+          yet (Adil, 2026-09-16). */}
+      <HomeFeedbackBoard
+        userId={userId}
+        show={!loading && (ownMatches.length > 0 || (jobs ?? []).length > 0)}
+      />
 
       {commerceEnabled && <BalancesCard />}
     </div>

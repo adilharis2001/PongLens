@@ -31,6 +31,7 @@ Task { @MainActor in
         runSignupSourceChecks()
         runProcessingFeedbackChecks()
         runScoredCardsChecks()
+        runFeedbackBoardChecks()
     }
 
     print("\n\(checks - failures)/\(checks) checks passed")

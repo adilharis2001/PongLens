@@ -134,44 +134,7 @@ struct PointDetailScreen: View {
                 VStack(spacing: 0) {
                     header(point)
                     Rectangle().fill(PL.edge.opacity(0.7)).frame(height: 1)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            ClipPlayerView(
-                                player: player,
-                                url: usesCut(point) ? cutURL : clipURLs[clipKey(point)],
-                                starred: point.starred,
-                                tagged: !tagsStore.tags(for: point.id).isEmpty,
-                                updating: !usesCut(point) && point.edited,
-                                hasPrev: index > 0,
-                                hasNext: index < points.count - 1,
-                                canEdit: isOwner,
-                                onStar: { Task { await model.toggleStar(point) } },
-                                onTag: { tagPickerOpen = true },
-                                onPrev: { index = max(0, index - 1) },
-                                onNext: { index = min(points.count - 1, index + 1) },
-                                window: usesCut(point) ? cutWindow(point) : nil
-                            )
-                            actionBar(point)
-                            // Scored types only: a practice point has no
-                            // server and no winner to collect, so the sheet
-                            // is the clip, the map and the notes.
-                            if isOwner, tracksServe {
-                                scorecard(point)
-                            }
-                            placementSection(point)
-                            notesSection(point)
-                                .id("notes")
-                        }
-                        .padding(16)
-                        .padding(.bottom, 40)
-                    }
-                    .offset(x: slideDX)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.width
-                    } action: { width in
-                        bodyWidth = max(1, width)
-                    }
-                    .simultaneousGesture(pagingGesture)
+                    pointScroll(point)
                 }
             }
         }
@@ -243,11 +206,14 @@ struct PointDetailScreen: View {
             }
         }
         .sheet(isPresented: $feedbackOpen) {
+            // The board in a sheet. Its rows push a post's thread, so the
+            // stack needs the shared routes registered here as well.
             NavigationStack {
                 ZStack {
                     ArenaBackground()
-                    FeedbackScreen(matchId: match.id)
+                    FeedbackScreen()
                 }
+                .appRoutes()
             }
         }
         .fullScreenCover(isPresented: $modifyOpen) {
@@ -360,6 +326,58 @@ struct PointDetailScreen: View {
     // MARK: - Action bar
 
     @ViewBuilder
+    /// The scrolling body under the header: player, actions, scorecard,
+    /// map, notes, with the paging swipe on the whole column. Its own
+    /// function, and the player its own function under it, so `body`
+    /// stays small enough that a mistake elsewhere in it is reported as
+    /// the mistake: a wrong argument label two hundred lines down once
+    /// surfaced here as "unable to type-check this expression in
+    /// reasonable time" (2026-09-16). Same views, same order.
+    private func pointScroll(_ point: MatchPoint) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                clipPlayer(point)
+                actionBar(point)
+                // Scored types only: a practice point has no server and
+                // no winner to collect, so the sheet is the clip, the map
+                // and the notes.
+                if isOwner, tracksServe {
+                    scorecard(point)
+                }
+                placementSection(point)
+                notesSection(point)
+                    .id("notes")
+            }
+            .padding(16)
+            .padding(.bottom, 40)
+        }
+        .offset(x: slideDX)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            bodyWidth = max(1, width)
+        }
+        .simultaneousGesture(pagingGesture)
+    }
+
+    private func clipPlayer(_ point: MatchPoint) -> some View {
+        ClipPlayerView(
+            player: player,
+            url: usesCut(point) ? cutURL : clipURLs[clipKey(point)],
+            starred: point.starred,
+            tagged: !tagsStore.tags(for: point.id).isEmpty,
+            updating: !usesCut(point) && point.edited,
+            hasPrev: index > 0,
+            hasNext: index < points.count - 1,
+            canEdit: isOwner,
+            onStar: { Task { await model.toggleStar(point) } },
+            onTag: { tagPickerOpen = true },
+            onPrev: { index = max(0, index - 1) },
+            onNext: { index = min(points.count - 1, index + 1) },
+            window: usesCut(point) ? cutWindow(point) : nil
+        )
+    }
+
     private func actionBar(_ point: MatchPoint) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {

@@ -134,7 +134,7 @@ struct NotificationsPanel: View {
 
     private func icon(for kind: String) -> String {
         switch kind {
-        case "note": "bubble.left"
+        case "note", "feedback_comment": "bubble.left"
         case "coach_joined", "student_joined": "person.badge.plus"
         case "coach_entry": "book.closed"
         case "student_match_ready": "play.rectangle"

@@ -3586,7 +3586,7 @@ export function MatchView({
                 owner actions get the Tools card treatment on their own. */}
             <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:space-y-2 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent">
               <MatchFeedbackLink matchId={match.id} isOwner={false} matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
-              <FeedbackBoardLink matchId={match.id} />
+              <FeedbackBoardLink />
             </div>
             <CoachCta compact />
           </div>
@@ -3788,7 +3788,7 @@ export function MatchView({
               </button>
             )}
             <MatchFeedbackLink matchId={match.id} isOwner matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
-            <FeedbackBoardLink matchId={match.id} />
+            <FeedbackBoardLink />
           </div>
           </section>
         )}

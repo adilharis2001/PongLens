@@ -36,6 +36,7 @@ final class Router {
     var devOpenAccount = false
     var devOpenStarred = false
     var devOpenScore = false
+    var devRoute: String?
     let tutorialCapture: TutorialCaptureScenario?
     #endif
 
@@ -67,6 +68,12 @@ final class Router {
             recordOpen = true
         }
         devOpenScore = args.contains("--dev-open-score")
+        // Any shared String route (AppRoute.swift), pushed on launch, so
+        // a screenshot can reach the feedback board or one post's thread
+        // without tap automation.
+        if let i = args.firstIndex(of: "--dev-route"), args.indices.contains(i + 1) {
+            devRoute = args[i + 1]
+        }
         #endif
     }
 }

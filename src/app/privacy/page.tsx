@@ -96,7 +96,10 @@ export default async function PrivacyPage() {
           </li>
           <li>
             <strong>Feedback.</strong> Anything you send through the in-app
-            feedback form. We may use it to improve the service.
+            feedback form. Posts and comments on the feedback board are
+            shown to other signed-in users with your first name and profile
+            photo; private reports are not. We may use feedback to improve
+            the service.
           </li>
           <li>
             <strong>Job metadata.</strong> Basic records about each upload:
