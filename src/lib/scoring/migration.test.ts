@@ -256,3 +256,27 @@ test("typed structural commands are present and authenticated-only", () => {
     assert.match(commandMigration, new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${name}[^;]+from\\s+public\\s*,\\s*anon`, "is"));
   }
 });
+
+test("manual cutter finalization is private, idempotent, and worker-only", () => {
+  const sql = commandsMigrationSql();
+  const publication = sql.match(
+    /create or replace function public\.publish_hand_cut_v2\([\s\S]*?\n\$\$;/i
+  )?.[0];
+  assert.ok(publication, "manual cutter finalizer must be defined");
+  assert.match(publication, /from public\.match_score_mutations[\s\S]*?request_id\s*=\s*p_job_id/i);
+  assert.match(publication, /normalize_manual_cut_observations\(p_match_id\)/i);
+  assert.match(publication, /refresh_match_score_state\(p_match_id\)/i);
+  assert.match(publication, /insert into public\.match_score_mutations/i);
+  assert.match(
+    sql,
+    /revoke all on function public\.publish_hand_cut_v2\(uuid,uuid\)\s+from public, anon, authenticated/i
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.publish_hand_cut_v2\(uuid,uuid\) to ponglens_worker/i
+  );
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function public\.publish_hand_cut_v2\([^;]+to authenticated/i
+  );
+});

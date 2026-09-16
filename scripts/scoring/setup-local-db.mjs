@@ -80,6 +80,8 @@ $$;
 create table public.matches (
   id uuid primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
+  job_id uuid,
+  status text not null default 'uploaded',
   first_server text check (first_server in ('user', 'opponent')),
   first_server_source text check (first_server_source in ('user', 'detected')),
   active_processing_version_id uuid,
@@ -94,6 +96,7 @@ create table public.points (
   t0 numeric,
   t1 numeric,
   cut_t0 numeric,
+  clip_path text,
   tight_start boolean not null default false,
   tight_end boolean not null default false,
   deleted boolean not null default false,
@@ -113,7 +116,15 @@ create table public.points (
   loss_reasons text[],
   misread_kind text,
   edited boolean not null default false,
+  starred boolean not null default false,
   check (not (is_let and confirmed_winner is not null))
+);
+create table public.jobs (
+  id uuid primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  kind text not null,
+  status text not null,
+  options jsonb not null default '{}'::jsonb
 );
 create table public.coach_links (
   player_id uuid not null,

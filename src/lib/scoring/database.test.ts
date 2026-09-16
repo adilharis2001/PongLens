@@ -31,7 +31,7 @@ function resetFixture(): void {
     truncate public.point_timing_observations, public.match_score_mutations,
       public.point_score_state, public.match_score_state, public.hand_cut_drafts,
       public.fullmatch_labels, public.points, public.coach_links,
-      public.matches, auth.users cascade;
+      public.jobs, public.matches, auth.users cascade;
     insert into auth.users(id,email) values
       ('${OWNER}','owner@example.test'),
       ('${COACH}','coach@example.test'),
@@ -224,6 +224,165 @@ databaseTest("manual cutter normalization is idempotent source-clock ground trut
            from public.point_timing_observations where match_id='${MATCH}';`),
     "2|true|true"
   );
+});
+
+databaseTest("manual cutter publication atomically finalizes owner boundaries and score", () => {
+  resetFixture();
+  const job = "50000000-0000-0000-0000-000000000001";
+  sql(`
+    update public.matches set cut_source='manual',status='processing',job_id='${job}'
+     where id='${MATCH}';
+    insert into public.jobs(id,user_id,kind,status,options)
+    values ('${job}','${OWNER}','hand_cut','processing',
+      '{"match_id":"${MATCH}","processing_version_id":"${VERSION}"}');
+    insert into public.hand_cut_drafts(match_id,user_id,marks,submitted_at)
+    values ('${MATCH}','${OWNER}',
+      '[{"t0":10.2,"t1":18.7,"tap":10.8,"rate":1,"fps":60,"w":"user","let":false},
+        {"t0":24.4,"t1":31.1,"tap":25.0,"rate":0.5,"fps":30,"w":"opponent","let":false}]',
+      now());
+    insert into public.points(
+      id,match_id,processing_version_id,idx,t0,t1,clip_path,confirmed_winner
+    ) values
+      ('30000000-0000-0000-0000-000000000001','${MATCH}','${VERSION}',1,
+       10.2,18.7,'r2://clips/01.mp4','user'),
+      ('30000000-0000-0000-0000-000000000002','${MATCH}','${VERSION}',2,
+       24.4,31.1,'r2://clips/02.mp4','opponent');
+  `);
+
+  const first = JSON.parse(sql(
+    `select public.publish_hand_cut_v2('${MATCH}','${job}');`
+  ));
+  const retry = JSON.parse(sql(
+    `select public.publish_hand_cut_v2('${MATCH}','${job}');`
+  ));
+  assert.deepEqual(retry, first, "duplicate delivery returns its first receipt");
+  assert.equal(first.ok, true);
+  assert.equal(first.pointCount, 2);
+  assert.equal(first.observationCount, 4);
+  assert.equal(first.missingClipCount, 0);
+  assert.equal(first.scoreProjectionStatus, "current");
+  assert.equal(
+    sql(`select string_agg(confirmed_winner,',' order by timeline_ordinal)
+           from public.point_score_state where match_id='${MATCH}';`),
+    "user,opponent"
+  );
+  assert.equal(
+    sql(`select count(*) from public.point_timing_observations
+          where match_id='${MATCH}' and origin='manual_cutter'
+            and authority_scope='owner_manual_boundary';`),
+    "4"
+  );
+  assert.equal(
+    sql(`select count(*) from public.match_score_mutations
+          where match_id='${MATCH}' and action='publish_hand_cut';`),
+    "1"
+  );
+});
+
+databaseTest("manual cutter cut-only publication permits only explicit reclip gaps", () => {
+  resetFixture();
+  const job = "50000000-0000-0000-0000-000000000002";
+  sql(`
+    update public.matches set cut_source='manual',status='processing',job_id='${job}'
+     where id='${MATCH}';
+    insert into public.jobs(id,user_id,kind,status,options)
+    values ('${job}','${OWNER}','hand_cut','processing',
+      '{"match_id":"${MATCH}","processing_version_id":"${VERSION}"}');
+    insert into public.hand_cut_drafts(match_id,user_id,marks,submitted_at)
+    values ('${MATCH}','${OWNER}',
+      '[{"t0":2.0,"t1":8.0,"tap":2.6,"rate":1,"w":null,"let":false}]',now());
+    insert into public.points(
+      id,match_id,processing_version_id,idx,t0,t1,clip_path,edited
+    ) values (
+      '30000000-0000-0000-0000-000000000001','${MATCH}','${VERSION}',1,
+      2,8,null,true
+    );
+  `);
+  const receipt = JSON.parse(sql(
+    `select public.publish_hand_cut_v2('${MATCH}','${job}');`
+  ));
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.missingClipCount, 1);
+  assert.equal(
+    sql(`select visible_point_count-answered_point_count-skipped_point_count
+           from public.match_score_state where match_id='${MATCH}';`),
+    "1"
+  );
+
+  resetFixture();
+  sql(`
+    update public.matches set cut_source='manual',status='processing',job_id='${job}'
+     where id='${MATCH}';
+    insert into public.jobs(id,user_id,kind,status,options)
+    values ('${job}','${OWNER}','hand_cut','processing',
+      '{"match_id":"${MATCH}","processing_version_id":"${VERSION}"}');
+    insert into public.hand_cut_drafts(match_id,user_id,marks,submitted_at)
+    values ('${MATCH}','${OWNER}',
+      '[{"t0":2.0,"t1":8.0,"tap":2.6,"rate":1,"w":null,"let":false}]',now());
+    insert into public.points(id,match_id,processing_version_id,idx,t0,t1)
+    values ('30000000-0000-0000-0000-000000000001','${MATCH}','${VERSION}',1,2,8);
+  `);
+  assert.throws(() => sql(
+    `select public.publish_hand_cut_v2('${MATCH}','${job}');`
+  ), /manual cut point clip is neither ready nor queued for reclip/i);
+});
+
+databaseTest("manual cutter finalizer rejects mismatched, obsolete, and unprojectable publication", () => {
+  resetFixture();
+  const job = "50000000-0000-0000-0000-000000000003";
+  sql(`
+    update public.matches set cut_source='manual',status='processing',job_id='${job}'
+     where id='${MATCH}';
+    insert into public.jobs(id,user_id,kind,status,options)
+    values ('${job}','${OWNER}','hand_cut','processing',
+      '{"match_id":"${MATCH}","processing_version_id":"${VERSION}"}');
+    insert into public.hand_cut_drafts(match_id,user_id,marks,submitted_at)
+    values ('${MATCH}','${OWNER}',
+      '[{"t0":2.0,"t1":8.0,"tap":2.6,"rate":1,"w":"user","let":false}]',now());
+  `);
+  assert.throws(() => sql(
+    `select public.publish_hand_cut_v2('${MATCH}','${job}');`
+  ), /manual cut mark\/point count mismatch/i);
+
+  sql(`insert into public.points(
+         id,match_id,processing_version_id,idx,t0,t1,clip_path,confirmed_winner
+       ) values (
+         '30000000-0000-0000-0000-000000000001','${MATCH}','${VERSION}',1,
+         2.2,8,'r2://clips/01.mp4','user'
+       );`);
+  assert.throws(() => sql(
+    `select public.publish_hand_cut_v2('${MATCH}','${job}');`
+  ), /manual cut mark\/point timing mismatch/i);
+
+  sql(`update public.points set t0=2 where match_id='${MATCH}';
+       update public.jobs set options=jsonb_set(options,'{processing_version_id}',
+         '"20000000-0000-0000-0000-000000000099"') where id='${job}';`);
+  assert.throws(() => sql(
+    `select public.publish_hand_cut_v2('${MATCH}','${job}');`
+  ), /manual cut processing version changed/i);
+
+  sql(`update public.jobs set options=jsonb_set(options,'{processing_version_id}',
+         '"${VERSION}"') where id='${job}';
+       alter table public.point_score_state
+         add constraint point_score_state_publish_failure check (false) not valid;`);
+  try {
+    assert.throws(() => sql(
+      `select public.publish_hand_cut_v2('${MATCH}','${job}');`
+    ));
+    assert.equal(
+      sql(`select count(*) from public.point_timing_observations where match_id='${MATCH}';`),
+      "0",
+      "projection failure rolls back normalized observations"
+    );
+    assert.equal(
+      sql(`select count(*) from public.match_score_mutations where match_id='${MATCH}';`),
+      "0",
+      "projection failure publishes no receipt"
+    );
+  } finally {
+    sql(`alter table public.point_score_state
+         drop constraint if exists point_score_state_publish_failure;`);
+  }
 });
 
 databaseTest("shadow projection failure preserves the legacy write and records health", () => {

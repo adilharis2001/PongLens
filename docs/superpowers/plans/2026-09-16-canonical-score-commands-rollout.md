@@ -342,7 +342,7 @@ full PongLens iOS simulator-target build completed with code signing disabled.
 No visual state changed; interactive production-account acceptance remains
 part of the capability-scoped canary in Task 10.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ios/PongLens ios/Tests
@@ -362,21 +362,29 @@ git commit -m "Route iOS scoring through canonical commands"
 - Consumes: frozen `hand_cut_drafts`, worker-created active-version points, `normalize_manual_cut_observations`.
 - Produces: private `publish_hand_cut_v2(match_id,job_id) returns jsonb` and worker publication receipt.
 
-- [ ] **Step 1: Write RED database and worker tests**
+- [x] **Step 1: Write RED database and worker tests**
 
 Cover cut-only, cut-and-score, 30/60fps metadata, duplicate delivery, one missing clip/reclip request, count/timing disagreement, obsolete processing version and forced projection failure. The failure cases must leave the draft frozen/recoverable and publish no partial ready/projection state.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run the scoring database suite and focused worker hand-cut tests.
 
-- [ ] **Step 3: Implement the finalizer and worker call**
+- [x] **Step 3: Implement the finalizer and worker call**
 
 After all point rows/outcomes exist inside the worker transaction, `publish_hand_cut_v2` validates job/version/draft ownership, normalizes observations, refreshes one canonical snapshot and returns a receipt. The worker marks ready only after the receipt succeeds. Grant execution to `ponglens_worker` only when that role exists; postgres retains owner execution.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run focused tests plus `python3 -m unittest discover -s worker/tests -p 'test_hand_cut.py'`.
+
+Verification on 2026-09-16: the real PostgreSQL scoring suite passed 69/69,
+including cut-only and cut-and-score publication, 30/60 fps mark metadata,
+duplicate delivery, explicit missing-clip reclip recovery, count/timing/version
+rejection and projection rollback. The worker receipt/transaction suite passed
+10/10 and the established hand-cut arithmetic suite passed 9/9. Publication
+now holds one database transaction through the version lock, point/outcome
+writes, canonical receipt and final ready status.
 
 - [ ] **Step 5: Commit**
 

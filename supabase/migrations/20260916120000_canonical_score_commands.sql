@@ -1351,3 +1351,154 @@ revoke all on function public.reset_match_score_v2(
 grant execute on function public.reset_match_score_v2(
   uuid,uuid[],uuid[],boolean,uuid,bigint
 ) to authenticated;
+
+-- The worker has already encoded and uploaded the media when it reaches
+-- this boundary. Its point/outcome writes and this call must share one
+-- database transaction: a projection or validation failure then rolls back
+-- every row, while a successful commit exposes points, manual source-clock
+-- observations and the canonical receipt together. The job id is the stable
+-- delivery id, so a queue retry returns the original receipt.
+create or replace function public.publish_hand_cut_v2(
+  p_match_id uuid,
+  p_job_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_prior public.match_score_mutations%rowtype;
+  v_match public.matches%rowtype;
+  v_job public.jobs%rowtype;
+  v_draft public.hand_cut_drafts%rowtype;
+  v_point_count integer;
+  v_missing_clip_count integer;
+  v_unrecoverable_clip_count integer;
+  v_observation_count integer;
+  v_point_ids uuid[];
+  v_result_revision bigint;
+  v_projection_status text;
+  v_receipt jsonb;
+begin
+  if p_match_id is null or p_job_id is null then
+    raise exception 'manual cut publication identity is missing'
+      using errcode = '23514';
+  end if;
+
+  select * into v_prior
+    from public.match_score_mutations
+   where request_id = p_job_id;
+  if found then
+    if v_prior.match_id <> p_match_id or v_prior.action <> 'publish_hand_cut' then
+      raise exception 'manual cut publication id was reused'
+        using errcode = '23514';
+    end if;
+    return v_prior.after_state;
+  end if;
+
+  select * into v_match from public.matches
+   where id = p_match_id for update;
+  if not found then
+    raise exception 'manual cut match not found' using errcode = 'P0002';
+  end if;
+  select * into v_job from public.jobs
+   where id = p_job_id for update;
+  if not found
+     or v_match.job_id is distinct from p_job_id
+     or v_job.user_id is distinct from v_match.user_id
+     or v_job.kind <> 'hand_cut'
+     or v_job.status <> 'processing'
+     or v_job.options->>'match_id' is distinct from p_match_id::text then
+    raise exception 'manual cut publication job changed'
+      using errcode = '23514';
+  end if;
+  if v_match.cut_source <> 'manual' or v_match.status <> 'processing' then
+    raise exception 'manual cut publication state changed'
+      using errcode = '23514';
+  end if;
+  if v_match.active_processing_version_id is null
+     or v_job.options->>'processing_version_id' is distinct from
+        v_match.active_processing_version_id::text then
+    raise exception 'manual cut processing version changed'
+      using errcode = '23514';
+  end if;
+
+  select * into v_draft from public.hand_cut_drafts
+   where match_id = p_match_id for update;
+  if not found or v_draft.user_id is distinct from v_match.user_id
+     or v_draft.submitted_at is null then
+    raise exception 'manual cut draft is not frozen'
+      using errcode = '23514';
+  end if;
+
+  select count(*),
+         count(*) filter (where p.clip_path is null),
+         count(*) filter (where p.clip_path is null and not p.edited),
+         coalesce(array_agg(p.id order by p.t0,p.idx,p.id),'{}'::uuid[])
+    into v_point_count, v_missing_clip_count,
+         v_unrecoverable_clip_count, v_point_ids
+    from public.points p
+   where p.match_id = p_match_id
+     and p.processing_version_id = v_match.active_processing_version_id
+     and not p.deleted;
+  if v_point_count = 0 then
+    raise exception 'manual cut mark/point count mismatch'
+      using errcode = '23514';
+  end if;
+  if v_unrecoverable_clip_count > 0 then
+    raise exception 'manual cut point clip is neither ready nor queued for reclip'
+      using errcode = '23514';
+  end if;
+
+  -- This validates exact mark count/order/timing before writing idempotent
+  -- owner-manual observations. Any exception escapes so the caller's point
+  -- transaction cannot commit partially.
+  v_observation_count := public.normalize_manual_cut_observations(p_match_id);
+  perform public.refresh_match_score_state(p_match_id);
+  select score_revision, score_projection_status
+    into v_result_revision, v_projection_status
+    from public.matches where id = p_match_id;
+  if v_projection_status not in ('current','empty') then
+    raise exception 'manual cut score projection is not current'
+      using errcode = '23514';
+  end if;
+
+  v_receipt := jsonb_build_object(
+    'ok', true,
+    'contractVersion', 1,
+    'matchId', p_match_id,
+    'jobId', p_job_id,
+    'processingVersionId', v_match.active_processing_version_id,
+    'pointCount', v_point_count,
+    'observationCount', v_observation_count,
+    'missingClipCount', v_missing_clip_count,
+    'scoreRevision', v_result_revision,
+    'scoreProjectionStatus', v_projection_status
+  );
+
+  insert into public.match_score_mutations(
+    request_id,match_id,actor_id,authority_scope,action,
+    affected_point_ids,before_state,after_state,base_revision,result_revision
+  ) values (
+    p_job_id,p_match_id,v_match.user_id,'owner_score','publish_hand_cut',
+    v_point_ids,
+    jsonb_build_object(
+      'draftSubmittedAt',v_draft.submitted_at,
+      'processingVersionId',v_match.active_processing_version_id
+    ),
+    v_receipt,
+    greatest(0,v_result_revision-1),v_result_revision
+  );
+  return v_receipt;
+end;
+$$;
+
+revoke all on function public.publish_hand_cut_v2(uuid,uuid)
+  from public, anon, authenticated;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname='ponglens_worker') then
+    execute 'grant execute on function public.publish_hand_cut_v2(uuid,uuid) to ponglens_worker';
+  end if;
+end $$;

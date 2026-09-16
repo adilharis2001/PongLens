@@ -6377,6 +6377,58 @@ def _load_match_json(conn, match_id: str, workdir: str,
 # Design: docs/superpowers/specs/2026-09-07-hand-cut-design.md
 
 
+@contextmanager
+def canonical_publication_transaction(conn):
+    """Make one worker publication visible in one commit.
+
+    The queue connection normally autocommits. Turning it off here keeps the
+    match/version lock acquired by create_match through point insertion,
+    canonical finalization and the final ready status. Nested callers retain
+    ownership of their existing transaction.
+    """
+    owns_transaction = conn.autocommit
+    try:
+        if owns_transaction:
+            conn.autocommit = False
+        yield
+        if owns_transaction:
+            conn.commit()
+    except Exception:
+        if owns_transaction:
+            conn.rollback()
+        raise
+    finally:
+        if owns_transaction and not conn.closed:
+            conn.autocommit = True
+
+
+def finalize_canonical_publication(
+    conn, function_name: str, match_id: str, publication_id: str
+) -> dict:
+    """Call one versioned database publication boundary and verify receipt."""
+    if function_name not in {"publish_hand_cut_v2", "finalize_worker_points_v2"}:
+        raise ValueError("unknown canonical publication function")
+    with conn.cursor() as cur:
+        cur.execute(
+            f"select public.{function_name}(%s,%s)",
+            (match_id, publication_id),
+        )
+        row = cur.fetchone()
+    value = row[0] if isinstance(row, (tuple, list)) and row else row
+    valid = (
+        isinstance(value, dict)
+        and value.get("ok") is True
+        and value.get("contractVersion") == 1
+        and value.get("scoreProjectionStatus") in {"current", "empty"}
+        and isinstance(value.get("scoreRevision"), int)
+        and isinstance(value.get("pointCount"), int)
+        and value.get("pointCount") >= 0
+    )
+    if not valid:
+        raise RuntimeError("canonical publication receipt is missing or incompatible")
+    return value
+
+
 def _hand_cut_segments(marks: list[dict], dur: float, pre: float, post: float):
     """Cut segments and per-mark cut_t0, through the pipeline's own maths.
 
@@ -6690,40 +6742,49 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
 
         pulse_stage("publish")
         update_job(conn, job_id, progress=90)
-        create_match(conn, match_id, user_id, job_id, result_path,
-                     played_at=played_at, existing=True,
-                     hand_cut=True)
-        for p in points:
-            p["rally_end_cut_s"] = None
-            p["highlight_evidence"] = None
-        inserted = insert_points(conn, match_id, points, r2_prefix)
-        with conn.cursor() as cur:
-            for p, m in zip(points, marks):
-                row_id = (inserted.get(int(p["idx"])) or {}).get("id")
-                if not row_id:
-                    continue
-                is_let = bool(m.get("let"))
-                winner = None if is_let else m.get("w")
-                # edited=true on a point with no clip is the reclip
-                # request: the trigger fires on that update and queues one
-                # re-cut for the match.
+        with canonical_publication_transaction(conn):
+            create_match(conn, match_id, user_id, job_id, result_path,
+                         played_at=played_at, existing=True,
+                         hand_cut=True)
+            for p in points:
+                p["rally_end_cut_s"] = None
+                p["highlight_evidence"] = None
+            inserted = insert_points(conn, match_id, points, r2_prefix)
+            with conn.cursor() as cur:
+                for p, m in zip(points, marks):
+                    row_id = (inserted.get(int(p["idx"])) or {}).get("id")
+                    if not row_id:
+                        continue
+                    is_let = bool(m.get("let"))
+                    winner = None if is_let else m.get("w")
+                    # edited=true on a point with no clip is the reclip
+                    # request: the trigger fires on that update and queues
+                    # one re-cut for the match.
+                    cur.execute(
+                        "update public.points set confirmed_winner = %s, "
+                        "is_let = %s, confirmed_how = %s, starred = %s, "
+                        "edited = (edited or %s) "
+                        "where id = %s",
+                        (winner, is_let, "let" if is_let else None,
+                         bool(m.get("star")), int(p["idx"]) in failed_clips,
+                         row_id),
+                    )
                 cur.execute(
-                    "update public.points set confirmed_winner = %s, "
-                    "is_let = %s, confirmed_how = %s, starred = %s, "
-                    "edited = (edited or %s) "
-                    "where id = %s",
-                    (winner, is_let, "let" if is_let else None,
-                     bool(m.get("star")), int(p["idx"]) in failed_clips,
-                     row_id),
+                    "update public.matches set clip_pads = %s where id = %s",
+                    (json.dumps({"pre": pre, "post": post}), match_id),
                 )
-            cur.execute(
-                "update public.matches set clip_pads = %s where id = %s",
-                (json.dumps({"pre": pre, "post": post}), match_id),
+            receipt = finalize_canonical_publication(
+                conn, "publish_hand_cut_v2", match_id, job_id
             )
-        finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json",
-                     thumb_path=thumb_path)
+            # Ready is deliberately after the checked receipt, and still in
+            # the same transaction. Nobody can observe the processing state
+            # between these two statements.
+            finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json",
+                         thumb_path=thumb_path)
         log.info("  hand cut published: match %s, %d points (%d clips "
-                 "left for reclip)", match_id, len(points), len(failed_clips))
+                 "left for reclip), canonical revision %s",
+                 match_id, len(points), len(failed_clips),
+                 receipt["scoreRevision"])
     except MatchVersionChanged:
         # The match has moved on to another job (a resubmission overtook
         # this message). Nothing of this attempt reached the database, so
