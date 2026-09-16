@@ -5,6 +5,7 @@ const CONTAINER = "ponglens-canonical-score-test";
 const IMAGE = "postgres:17-alpine";
 const DATABASE = "ponglens_test";
 const PASSWORD = "ponglens_local_only";
+const PRODUCTION_LIKE = process.env.SCORING_PRODUCTION_LIKE === "1";
 
 function docker(args, options = {}) {
   const result = spawnSync("docker", args, {
@@ -263,6 +264,11 @@ create policy matches_owner_read on public.matches for select to authenticated
 create policy points_match_access on public.points for select to authenticated
   using (public.has_match_access(match_id));
 grant select on public.matches, public.points to authenticated;
+grant update (first_server, first_server_source) on public.matches to authenticated;
+grant update (
+  confirmed_winner, confirmed_how, is_let, server_override,
+  game_end_override, game_winner_override, deleted
+) on public.points to authenticated;
 `;
 
 const migrations = [
@@ -274,10 +280,86 @@ const migrations = [
 
 docker(
   ["exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE],
-  { input: `${bootstrap}\n${migrations.join("\n")}` }
+  { input: bootstrap }
 );
+
+if (PRODUCTION_LIKE) {
+  const legacyFixture = String.raw`
+insert into auth.users(id,email) values
+  ('11111111-1111-4111-8111-111111111111','owner@example.test'),
+  ('22222222-2222-4222-8222-222222222222','admin@example.test'),
+  ('33333333-3333-4333-8333-333333333333','coach@example.test'),
+  ('44444444-4444-4444-8444-444444444444','stranger@example.test');
+
+insert into public.coach_links(player_id,coach_id,status,all_matches)
+values ('11111111-1111-4111-8111-111111111111',
+        '33333333-3333-4333-8333-333333333333','accepted',true);
+
+insert into public.matches(
+  id,user_id,status,first_server,first_server_source,
+  active_processing_version_id,cut_source,created_at
+)
+select md5('match-'||n)::uuid,
+       '11111111-1111-4111-8111-111111111111'::uuid,
+       'ready',
+       case when n % 5 = 0 then null when n % 2 = 0 then 'user' else 'opponent' end,
+       case when n % 5 = 0 then null when n % 3 = 0 then 'detected' else 'user' end,
+       md5('version-'||n)::uuid,
+       case when n <= 5 then 'manual' else 'auto' end,
+       now() - make_interval(days => 220-n)
+  from generate_series(1,220) n;
+
+insert into public.points(
+  match_id,processing_version_id,idx,t0,t1,cut_t0,
+  confirmed_winner,confirmed_how,is_let,server,server_override,
+  game_end_override,game_winner_override,deleted,edited
+)
+select md5('match-'||m)::uuid,
+       md5('version-'||m)::uuid,
+       p,
+       case when m % 17 = 0 and p = 1 then null else (p*8)::numeric end,
+       case when m % 17 = 0 and p = 1 then null else (p*8+5)::numeric end,
+       (p*6)::numeric,
+       case when p % 19 = 0 or p % 37 = 0 then null
+            when p % 2 = 0 then 'user' else 'opponent' end,
+       case when p % 19 = 0 then 'skip:other'
+            when p % 37 = 0 then null else 'point' end,
+       p % 37 = 0,
+       case when p % 2 = 0 then 'user' else 'opponent' end,
+       case when p = 12 and m % 7 = 0 then 'user' end,
+       case when p in (11,22,33,44,55,66,77,88) and m % 4 = 0 then 'end' end,
+       case when p = 88 and m % 8 = 0 then 'opponent' end,
+       p = 45 and m % 11 = 0,
+       p % 23 = 0
+  from generate_series(1,220) m
+  cross join generate_series(1,90) p;
+
+insert into public.hand_cut_drafts(match_id,user_id,marks,submitted_at)
+select md5('match-'||m)::uuid,
+       '11111111-1111-4111-8111-111111111111'::uuid,
+       (select jsonb_agg(jsonb_build_object(
+          't0',p*8,'t1',p*8+5,'tap',p*8+0.25,'rate',1
+        ) order by p) from generate_series(1,90) p),
+       now()
+  from generate_series(1,5) m;
+`;
+  docker(
+    ["exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE],
+    { input: legacyFixture }
+  );
+}
+
+const migrationStartedAt = performance.now();
+docker(
+  ["exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE],
+  { input: migrations.join("\n") }
+);
+const migrationElapsedMs = performance.now() - migrationStartedAt;
 
 process.stdout.write(
   `Isolated scoring database is ready in ${CONTAINER}.\n` +
+    (PRODUCTION_LIKE
+      ? `Production-like fixture: 220 matches, 19,800 points, 5 manual cuts; migrations ${migrationElapsedMs.toFixed(1)} ms.\n`
+      : "") +
     `Run: SCORING_STATE_LOCAL_DB_TEST=1 npm run test:scoring-state\n`
 );

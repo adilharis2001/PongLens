@@ -6661,16 +6661,22 @@ class _CutMap:
     """
 
     def __init__(self, mj: dict | None):
-        segs = (mj or {}).get("cut_segments") or []
+        match_json = mj or {}
+        segs = match_json.get("cut_segments") or []
         self.segments = [(float(a), float(b)) for a, b in segs]
-        self.offsets: list[float] = []
-        acc = 0.0
-        for s0, s1 in self.segments:
-            self.offsets.append(acc)
-            acc += s1 - s0
+        try:
+            # New exports publish the muxer's measured segment clock. MP4
+            # parts can be slightly longer than their requested source
+            # windows, so a cumulative source-duration guess drifts. Legacy
+            # artifacts have no offsets and intentionally retain that guess.
+            self.offsets = cut_timeline.segment_offsets(match_json)
+        except (TypeError, ValueError):
+            # A present-but-invalid measured clock must fail closed. Falling
+            # back to the legacy guess would silently cut the wrong frames.
+            self.offsets = []
         # idx -> (clip_t0, clip_t1, cut_t0, t1) at birth
         self.born: dict[int, tuple[float, float, float, float]] = {}
-        for p in (mj or {}).get("points") or []:
+        for p in match_json.get("points") or []:
             try:
                 self.born[int(p["idx"])] = (
                     float(p["clip_t0"]), float(p["clip_t1"]),
@@ -6678,7 +6684,7 @@ class _CutMap:
             except (KeyError, TypeError, ValueError):
                 continue
         self.dynamic_tails = (bool(mj)
-                              and (mj or {}).get("pipeline") not in ("v2", "hand-v1"))
+                              and match_json.get("pipeline") not in ("v2", "hand-v1"))
 
     def locate(self, idx: int, c0: float, c1: float) -> float | None:
         """Cut second where the source window [c0, c1] starts, or None

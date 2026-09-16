@@ -21,6 +21,7 @@ from worker.worker import (
 
 
 MATCH_ID = "10000000-0000-0000-0000-000000000001"
+PROCESSING_VERSION_ID = "20000000-0000-0000-0000-000000000001"
 
 
 def placement_fixture(status):
@@ -52,6 +53,7 @@ REVIEW = placement_fixture("review")
 def record_fixture():
     return {
         "match_id": MATCH_ID,
+        "processing_version_id": PROCESSING_VERSION_ID,
         "status": "ready",
         "input_path": "r2://ponglens-raw/user/source.mp4",
         "match_json_path": "r2://ponglens-media/points/user/match.json",
@@ -108,12 +110,16 @@ class FakeCursor:
         normalized = " ".join(query.split())
         if not normalized.startswith("update public.points set placement"):
             raise AssertionError(f"unexpected SQL: {normalized}")
-        payload, match_id, index = params
+        payload, match_id, index, processing_version_id = params
         self.connection.placement_binds.append(
-            (payload, match_id, int(index))
+            (payload, match_id, int(index), processing_version_id)
         )
         self.rowcount = 0
-        if match_id == MATCH_ID and int(index) in self.connection.pending:
+        if (
+            match_id == MATCH_ID
+            and processing_version_id == PROCESSING_VERSION_ID
+            and int(index) in self.connection.pending
+        ):
             self.connection.pending[int(index)]["placement"] = (
                 None if payload is None else json.loads(payload)
             )
@@ -729,7 +735,7 @@ class SingleMatchBackfillTests(unittest.TestCase):
             self.match_path,
         )
         self.assertIn(
-            (None, MATCH_ID, 2),
+            (None, MATCH_ID, 2, PROCESSING_VERSION_ID),
             self.connection.placement_binds,
             "compensation must bind SQL NULL, not the JSON string 'null'",
         )

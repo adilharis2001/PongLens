@@ -87,7 +87,9 @@ class BackgroundHandoffTest(unittest.TestCase):
         src = inspect.getsource(pp.cmd_points)
         self.assertEqual(src.count('calib.pop("bg", None)'), 2)
 
-        artifact = src.split('"calibration":')[1][:400]
+        artifact = src.split("calibration_block =", 1)[1].split(
+            "story_crop", 1
+        )[0]
         for key in ("table_corners_px", "length_axis", "note"):
             self.assertIn(key, artifact)
         self.assertNotIn("**calib", artifact)   # never spread the dict

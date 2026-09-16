@@ -150,6 +150,7 @@ test("maps an overlap to the incoming rally", () => {
 
 test("web presentation has one row and no tape-seek implementation", () => {
   const row = readFileSync(new URL("./HighlightsRow.tsx", import.meta.url), "utf8");
+  const toolRows = readFileSync(new URL("./ReelBar.tsx", import.meta.url), "utf8");
   const state = readFileSync(new URL("./highlights.ts", import.meta.url), "utf8");
   const player = readFileSync(new URL("./Player.tsx", import.meta.url), "utf8");
   const matchView = readFileSync(new URL("./MatchView.tsx", import.meta.url), "utf8");
@@ -162,6 +163,7 @@ test("web presentation has one row and no tape-seek implementation", () => {
   assert.match(player, /target\.output_start_s/);
   assert.match(player, /if \(highlightAssetRef\.current\) return null;/);
   assert.match(row, /onScore/);
-  assert.match(row, /min-h-11 w-full/);
+  assert.match(row, /TOOL_ROW_CLASS/);
+  assert.match(toolRows, /min-h-\[3\.25rem\] w-full/);
   assert.match(matchView, /onScore=\{\(\) => playerRef\.current\?\.openScore\(\)\}/);
 });
