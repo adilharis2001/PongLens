@@ -106,20 +106,20 @@ test("counts that failed to load leave the cards bare", () => {
   }
 });
 
-test("the backlog card counts open items, and stays quiet when empty", () => {
-  assert.deepEqual(hubDetail("backlog", COUNTS, 6), {
-    text: "6 open",
+test("the roadmap card counts entries in development, and stays quiet when empty", () => {
+  assert.deepEqual(hubDetail("roadmap", COUNTS, 2), {
+    text: "2 in development",
     attention: false,
   });
-  assert.equal(hubDetail("backlog", COUNTS, 0), null);
-  assert.equal(hubDetail("backlog", COUNTS, null), null);
+  assert.equal(hubDetail("roadmap", COUNTS, 0), null);
+  assert.equal(hubDetail("roadmap", COUNTS, null), null);
 });
 
 // The two numbers come from different queries. Either one failing must
 // leave the other card intact.
-test("the backlog count survives a failed portal-counts load", () => {
-  assert.deepEqual(hubDetail("backlog", null, 3), {
-    text: "3 open",
+test("the roadmap count survives a failed portal-counts load", () => {
+  assert.deepEqual(hubDetail("roadmap", null, 1), {
+    text: "1 in development",
     attention: false,
   });
 });

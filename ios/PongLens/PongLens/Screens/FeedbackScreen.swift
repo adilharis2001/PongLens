@@ -3,37 +3,55 @@ import Supabase
 
 /// The feedback board, and the box that adds to it.
 ///
-/// The board IS the screen, and writing is a sheet raised from the corner
-/// button — the app's own idiom (the journal's New entry works exactly
-/// this way). Every post opens into its own page, where the thread lives;
-/// the vote box stays on the row so a vote is still one tap.
+/// Two tabs. Feedback is the posts and their threads: the board IS the
+/// screen, writing is a sheet raised from the corner button (the journal's
+/// New entry works exactly this way), and every post opens into its own
+/// page where the thread lives. Roadmap is what is being built, what
+/// comes next and what shipped, the same list as the public web page; no
+/// corner button there, because nothing on it is written by a player.
 ///
-/// Above the rows, a rail of the stages posts move through — Planned,
-/// Building, Done — with a count on each. It appears only once something
-/// has moved, so an empty board is not three empty columns.
+/// The Top / New / Active sort went with the tabs (Adil, 2026-09-16):
+/// with a few dozen posts the ranking by votes is the only order worth
+/// having, and the stages a post moves through live on the Roadmap now.
+/// Finished posts fold away under the list.
 ///
 /// After a post is sent, a card at the top says so and carries whatever
 /// the tidy-up came back with: a post that already asks for the same
-/// thing, or a follow-up question. The web has had this since the board
-/// was built; the phone never did, because it sent the tidy-up request
-/// without the text and the server refused it (fixed 2026-09-16).
+/// thing, or a follow-up question.
 struct FeedbackScreen: View {
     /// Raise the composer on arrival (Home's "add it to the board" row).
     var openCompose = false
 
+    init(openCompose: Bool = false) {
+        self.openCompose = openCompose
+        var initialTab: FeedbackTab = .feedback
+        #if DEBUG
+        // --dev-feedback-tab roadmap: land on the roadmap, for screenshots.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "--dev-feedback-tab"), args.indices.contains(i + 1),
+           let requested = FeedbackTab(rawValue: args[i + 1]) {
+            initialTab = requested
+        }
+        #endif
+        _tab = State(initialValue: initialTab)
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
 
+    @State private var tab: FeedbackTab
     @State private var items: [FeedbackItem] = []
-    @State private var sort: FeedbackSort = .top
-    @State private var stage: FeedbackStage?
     @State private var loading = true
     @State private var loadFailed = false
+    @State private var doneOpen = false
+    @State private var roadmap: [RoadmapItem] = []
+    @State private var roadmapLoaded = false
     @State private var composeOpen = false
     @State private var posted: PostedState?
     @State private var answer = ""
 
-    private var visible: [FeedbackItem] { FeedbackStage.visible(items, stage: stage) }
+    private var active: [FeedbackItem] { items.filter { !$0.isDone } }
+    private var finished: [FeedbackItem] { items.filter(\.isDone) }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -67,68 +85,49 @@ struct FeedbackScreen: View {
                         .foregroundStyle(PL.text400)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Picker("", selection: $sort) {
-                        ForEach(FeedbackSort.allCases) { s in
-                            Text(s.label).tag(s)
+                    Picker("", selection: $tab) {
+                        ForEach(FeedbackTab.allCases) { t in
+                            Text(t.label).tag(t)
                         }
                     }
                     .pickerStyle(.segmented)
 
-                    if FeedbackStage.railVisible(items) {
-                        FeedbackStageRail(counts: FeedbackStage.counts(items), stage: $stage)
-                    }
-
-                    if posted != nil {
-                        postedCard
-                    }
-
-                    if loading {
-                        VStack(spacing: 12) {
-                            ForEach(0..<3, id: \.self) { _ in
-                                VStack(alignment: .leading, spacing: 10) {
-                                    PLSkeletonBar(maxWidth: 220)
-                                    PLSkeletonBar()
-                                    PLSkeletonBar(maxWidth: 160)
-                                }
-                                .plCard(padding: 16)
-                            }
-                        }
-                        .plShimmer()
-                    } else if loadFailed {
-                        emptyCard("Couldn't load the board.", detail: "Your feedback still sends.")
-                    } else if items.isEmpty {
-                        emptyCard("Nothing here yet.", detail: "Be the first to post something.")
+                    if tab == .roadmap {
+                        RoadmapSectionsView(items: roadmap, loaded: roadmapLoaded)
+                            .padding(.top, 4)
                     } else {
-                        ForEach(visible) { item in
-                            NavigationLink(value: "feedback-item:\(item.id.uuidString.lowercased())") {
-                                card(item)
-                            }
-                            .buttonStyle(.plain)
+                        if posted != nil {
+                            postedCard
                         }
-                        if visible.isEmpty {
-                            emptyCard(
-                                stage.map { "Nothing \($0.label.lowercased()) right now." } ?? "Nothing open right now.",
-                                detail: stage == nil ? "Everything on the board is finished." : "Try another stage."
-                            )
-                        }
+                        boardList
                     }
                 }
                 .padding(20)
                 .padding(.bottom, 120)
             }
-            .refreshable { await load() }
-
-            PLFab(label: "New feedback", systemImage: "plus") {
-                composeOpen = true
+            .refreshable {
+                await load()
+                if tab == .roadmap { await loadRoadmap() }
             }
-            .padding(20)
+
+            if tab == .feedback {
+                PLFab(label: "New feedback", systemImage: "plus") {
+                    composeOpen = true
+                }
+                .padding(20)
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .task {
             await load()
+            if tab == .roadmap { await loadRoadmap() }
             if openCompose { composeOpen = true }
         }
-        .onChange(of: sort) { _, _ in Task { await load() } }
+        .onChange(of: tab) { _, now in
+            if now == .roadmap, !roadmapLoaded {
+                Task { await loadRoadmap() }
+            }
+        }
         .sheet(isPresented: $composeOpen) {
             FeedbackComposer { itemId, body in
                 posted = PostedState(itemId: itemId)
@@ -141,7 +140,73 @@ struct FeedbackScreen: View {
         }
     }
 
-    // MARK: - Rows
+    // MARK: - The list
+
+    @ViewBuilder
+    private var boardList: some View {
+        if loading {
+            VStack(spacing: 12) {
+                ForEach(0..<3, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 10) {
+                        PLSkeletonBar(maxWidth: 220)
+                        PLSkeletonBar()
+                        PLSkeletonBar(maxWidth: 160)
+                    }
+                    .plCard(padding: 16)
+                }
+            }
+            .plShimmer()
+        } else if loadFailed {
+            emptyCard("Couldn't load the board.", detail: "Your feedback still sends.")
+        } else if items.isEmpty {
+            emptyCard("Nothing here yet.", detail: "Be the first to post something.")
+        } else {
+            ForEach(active) { item in
+                NavigationLink(value: "feedback-item:\(item.id.uuidString.lowercased())") {
+                    card(item)
+                }
+                .buttonStyle(.plain)
+            }
+            if active.isEmpty {
+                emptyCard("Nothing open right now.", detail: "Everything on the board is finished.")
+            }
+            if !finished.isEmpty {
+                doneSection
+            }
+        }
+    }
+
+    /// Finished posts, folded away: what shipped stays findable without
+    /// sitting on top of what is still wanted.
+    private var doneSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) { doneOpen.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .rotationEffect(.degrees(doneOpen ? 90 : 0))
+                    Text("Done (\(finished.count))")
+                        .font(.plSection)
+                        .tracking(0.6)
+                    Spacer()
+                }
+                .foregroundStyle(PL.text500)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if doneOpen {
+                ForEach(finished) { item in
+                    NavigationLink(value: "feedback-item:\(item.id.uuidString.lowercased())") {
+                        card(item)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.top, 4)
+    }
 
     private func card(_ item: FeedbackItem) -> some View {
         HStack(alignment: .top, spacing: 14) {
@@ -387,16 +452,30 @@ struct FeedbackScreen: View {
 
     // MARK: - Data
 
+    /// Ranked by votes, newest first among equals: the board is a list of
+    /// what players want, and that is the order that says so.
     private func load() async {
         loadFailed = false
         struct Req: Encodable { let p_sort: String }
         do {
-            items = try await supa.rpc("feedback_board", params: Req(p_sort: sort.rawValue))
+            items = try await supa.rpc("feedback_board", params: Req(p_sort: "top"))
                 .execute().value
         } catch {
             loadFailed = true
         }
         loading = false
+    }
+
+    private func loadRoadmap() async {
+        let rows: [RoadmapItem]? = try? await supa
+            .from("roadmap_items")
+            .select("id,title,description,stage,position,shipped_at,link,created_at")
+            .order("stage")
+            .order("position")
+            .execute()
+            .value
+        roadmap = rows ?? []
+        roadmapLoaded = true
     }
 
     /// Optimistic: the count moves under the thumb and settles on whatever

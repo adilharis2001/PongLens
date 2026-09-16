@@ -18,7 +18,7 @@
  */
 
 // Explicit .ts extensions: these are value imports, and node --test runs
-// this module directly. The repo does the same in src/lib/backlog.
+// this module directly. The repo does the same in src/lib/roadmap.ts.
 import {
   KIND_LABEL,
   SEVERITY_LABEL,

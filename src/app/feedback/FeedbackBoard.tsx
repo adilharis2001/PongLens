@@ -20,20 +20,12 @@ import {
 export type { BoardItem } from "./boardShared";
 
 /**
- * The board: every post, sorted by what is wanted (Top), what is fresh
- * (New) or what is being talked about (Active). A row opens the post's
- * own page, where the thread lives; the vote box stays on the row so a
- * vote is still one tap.
- *
- * Above the rows, a rail of the stages posts move through — Planned,
- * Building, Done — with a count on each. It appears only once something
- * has moved, so an empty board is not three empty columns, and each pill
- * filters the list to that stage. With no filter the list shows what is
- * still open, which is what a reader comes here for.
+ * The board: every open post, ranked by votes, newest first among equals.
+ * A row opens the post's own page, where the thread lives; the vote box
+ * stays on the row so a vote is still one tap. Finished posts (done or
+ * declined) fold away under the list, so what shipped stays findable
+ * without sitting on top of what is still wanted.
  */
-
-type Sort = "top" | "new" | "active";
-type Stage = "planned" | "building" | "done";
 
 function EyeOff({ className }: { className: string }) {
   return (
@@ -138,21 +130,18 @@ export function FeedbackBoard({
   userId?: string;
   refreshKey: number;
 }) {
-  // A tester opens this page to check on their own reports, so it opens on
-  // them: filtered to Mine, newest first. The defaults for everyone else
-  // are unchanged — the board is a ranked list of what players want, which
-  // is what "top" is for.
-  const [sort, setSort] = useState<Sort>(isQa ? "new" : "top");
   const [mine, setMine] = useState(isQa);
   const [qaOnly, setQaOnly] = useState(false);
-  const [stage, setStage] = useState<Stage | null>(null);
   const [items, setItems] = useState<BoardItem[] | null>(null);
+  const [doneOpen, setDoneOpen] = useState(false);
 
   const load = useCallback(async () => {
     const supabase = createClient();
-    const { data } = await supabase.rpc("feedback_board", { p_sort: sort });
+    // Ranked by votes, newest first among equals. A tester's own list
+    // reads newest first, because a report is checked on, not ranked.
+    const { data } = await supabase.rpc("feedback_board", { p_sort: isQa ? "new" : "top" });
     if (data) setItems(data as BoardItem[]);
-  }, [sort]);
+  }, [isQa]);
 
   useEffect(() => {
     void load();
@@ -189,8 +178,8 @@ export function FeedbackBoard({
 
   const mineToggle = isQa && userId ? mine : null;
   // The admin's counterpart to Mine. QA reports carry no votes, so under
-  // the default vote ranking they sit below every player request forever;
-  // this is the way to pull the tester's list to the front.
+  // the vote ranking they sit below every player request forever; this
+  // is the way to pull the tester's list to the front.
   const qaToggle = isAdmin ? qaOnly : null;
 
   const scoped = useMemo(
@@ -200,135 +189,89 @@ export function FeedbackBoard({
         .filter((i) => (qaToggle === true ? i.hidden === true : true)),
     [items, mineToggle, qaToggle, userId]
   );
+  const active = scoped.filter((i) => i.status !== "done" && i.status !== "declined");
+  const finished = scoped.filter((i) => i.status === "done" || i.status === "declined");
 
-  // The rail's counts come from everything in scope, not from the current
-  // filter, so a pill's number does not change when you press it.
-  const stageCounts = useMemo(
-    () => ({
-      planned: scoped.filter((i) => i.status === "planned").length,
-      building: scoped.filter((i) => i.status === "building").length,
-      done: scoped.filter((i) => i.status === "done" || i.status === "declined").length,
-    }),
-    [scoped]
-  );
-  const railVisible = stageCounts.planned + stageCounts.building + stageCounts.done > 0;
-
-  const visible = useMemo(() => {
-    if (stage === "done") {
-      return scoped.filter((i) => i.status === "done" || i.status === "declined");
-    }
-    if (stage) return scoped.filter((i) => i.status === stage);
-    return scoped.filter((i) => i.status !== "done" && i.status !== "declined");
-  }, [scoped, stage]);
-
-  const header = (
-    <BoardHeader
-      sort={sort}
-      setSort={setSort}
-      mine={mineToggle}
-      setMine={setMine}
-      qaOnly={qaToggle}
-      setQaOnly={setQaOnly}
-    />
-  );
+  const toggles =
+    mineToggle !== null || qaToggle !== null ? (
+      <RoleToggles
+        mine={mineToggle}
+        setMine={setMine}
+        qaOnly={qaToggle}
+        setQaOnly={setQaOnly}
+      />
+    ) : null;
 
   if (items === null) {
     return (
       <div>
-        {header}
-        <p className="mt-6 text-sm text-zinc-600">Loading…</p>
+        {toggles}
+        <p className="mt-2 text-sm text-zinc-600">Loading…</p>
       </div>
     );
   }
 
   return (
     <div>
-      {header}
-
-      {railVisible && (
-        <StageRail counts={stageCounts} stage={stage} setStage={setStage} />
-      )}
+      {toggles}
 
       {scoped.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">Nothing yet. You go first.</p>
+        <p className="mt-2 text-sm text-zinc-500">Nothing yet. You go first.</p>
       ) : (
-        <ul className="mt-4 overflow-hidden rounded-2xl border border-edge bg-surface">
-          {visible.map((item) => (
-            <Row
-              key={item.id}
-              item={item}
-              viewerId={userId}
-              onVote={() => void vote(item)}
-            />
-          ))}
-          {visible.length === 0 && (
-            <li className="px-4 py-4 text-sm text-zinc-500">
-              {stage ? `Nothing ${STATUS_LABEL[stage].toLowerCase()} right now.` : "Nothing open right now."}
-            </li>
+        <>
+          <ul className="overflow-hidden rounded-2xl border border-edge bg-surface">
+            {active.map((item) => (
+              <Row key={item.id} item={item} viewerId={userId} onVote={() => void vote(item)} />
+            ))}
+            {active.length === 0 && (
+              <li className="px-4 py-4 text-sm text-zinc-500">Nothing open right now.</li>
+            )}
+          </ul>
+
+          {finished.length > 0 && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setDoneOpen((v) => !v)}
+                aria-expanded={doneOpen}
+                className="flex items-center gap-2 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+              >
+                <span
+                  className={`inline-block transition-transform ${doneOpen ? "rotate-90" : ""}`}
+                >
+                  ›
+                </span>
+                Done ({finished.length})
+              </button>
+              {doneOpen && (
+                <ul className="mt-3 overflow-hidden rounded-2xl border border-edge bg-surface opacity-80">
+                  {finished.map((item) => (
+                    <Row
+                      key={item.id}
+                      item={item}
+                      viewerId={userId}
+                      onVote={() => void vote(item)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
-        </ul>
+        </>
       )}
     </div>
   );
 }
 
-/**
- * Planned, Building, Done, each with its count. One press filters to that
- * stage; pressing the lit pill again goes back to the open list.
- */
-function StageRail({
-  counts,
-  stage,
-  setStage,
-}: {
-  counts: Record<Stage, number>;
-  stage: Stage | null;
-  setStage: (s: Stage | null) => void;
-}) {
-  const stages: Stage[] = ["planned", "building", "done"];
-  return (
-    <div className="mt-4 flex flex-wrap items-center gap-2" role="group" aria-label="Filter by stage">
-      {stages.map((s) => {
-        const on = stage === s;
-        return (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setStage(on ? null : s)}
-            aria-pressed={on}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-              on
-                ? STATUS_CHIP[s]
-                : "border-edge text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
-            }`}
-          >
-            {STATUS_LABEL[s]}
-            <span
-              className={`tabular-nums ${on ? "opacity-80" : "text-zinc-500"}`}
-            >
-              {counts[s]}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function BoardHeader({
-  sort,
-  setSort,
+/** Mine (QA) and QA (admin): the two role filters, shown only to those roles. */
+function RoleToggles({
   mine,
   setMine,
   qaOnly,
   setQaOnly,
 }: {
-  sort: Sort;
-  setSort: (s: Sort) => void;
-  /** null hides the toggle (non-QA viewers). */
   mine: boolean | null;
   setMine: (v: boolean) => void;
-  /** null hides the toggle (everyone but the admin). */
   qaOnly: boolean | null;
   setQaOnly: (v: boolean) => void;
 }) {
@@ -339,47 +282,27 @@ function BoardHeader({
         : "border-edge text-zinc-500 hover:text-zinc-300"
     }`;
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="text-lg font-semibold text-zinc-100">Board</h2>
-      <div className="flex items-center gap-2">
-        {qaOnly !== null && (
-          <button
-            type="button"
-            onClick={() => setQaOnly(!qaOnly)}
-            aria-pressed={qaOnly}
-            className={pill(qaOnly)}
-          >
-            QA
-          </button>
-        )}
-        {mine !== null && (
-          <button
-            type="button"
-            onClick={() => setMine(!mine)}
-            aria-pressed={mine}
-            className={pill(mine)}
-          >
-            Mine
-          </button>
-        )}
-        <div className="flex rounded-full border border-edge bg-surface p-0.5">
-          {(["top", "new", "active"] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setSort(s)}
-              aria-pressed={sort === s}
-              className={`rounded-full px-3 py-1 text-xs font-semibold capitalize transition-colors ${
-                sort === s
-                  ? "bg-surface-2 text-white"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="mb-3 flex items-center justify-end gap-2">
+      {qaOnly !== null && (
+        <button
+          type="button"
+          onClick={() => setQaOnly(!qaOnly)}
+          aria-pressed={qaOnly}
+          className={pill(qaOnly)}
+        >
+          QA
+        </button>
+      )}
+      {mine !== null && (
+        <button
+          type="button"
+          onClick={() => setMine(!mine)}
+          aria-pressed={mine}
+          className={pill(mine)}
+        >
+          Mine
+        </button>
+      )}
     </div>
   );
 }

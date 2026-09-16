@@ -11,35 +11,24 @@ private func item(_ status: String, hidden: Bool = false) -> FeedbackItem {
     return try! JSONDecoder().decode(FeedbackItem.self, from: Data(json.utf8))
 }
 
+private func roadmap(_ title: String, _ stage: String, position: Int, shipped: String? = nil,
+                     created: String = "2026-09-01T00:00:00+00:00") -> RoadmapItem {
+    let shippedJson = shipped.map { "\"\($0)\"" } ?? "null"
+    let json = """
+    {"id":"\(UUID().uuidString.lowercased())","title":"\(title)","description":"d",
+     "stage":"\(stage)","position":\(position),"shipped_at":\(shippedJson),"link":null,
+     "created_at":"\(created)"}
+    """
+    return try! JSONDecoder().decode(RoadmapItem.self, from: Data(json.utf8))
+}
+
 func runFeedbackBoardChecks() {
     print("\n— feedback board —")
 
-    let items = [item("open"), item("planned"), item("building"), item("done"), item("declined")]
-
-    check(
-        FeedbackStage.visible(items, stage: nil).map(\.status) == ["open", "planned", "building"],
-        "with no pill lit the list is everything still open"
-    )
-    check(
-        FeedbackStage.visible(items, stage: .done).map(\.status) == ["done", "declined"],
-        "Done gathers declined posts too"
-    )
-    check(
-        FeedbackStage.visible(items, stage: .planned).map(\.status) == ["planned"],
-        "a lit pill shows its stage alone"
-    )
-    check(
-        FeedbackStage.counts(items) == [.planned: 1, .building: 1, .done: 2],
-        "the rail counts each stage"
-    )
-    check(
-        !FeedbackStage.railVisible([item("open"), item("open")]),
-        "the rail stays hidden while nothing has moved"
-    )
-    check(
-        FeedbackStage.railVisible([item("open"), item("planned")]),
-        "the rail appears once one post has a stage"
-    )
+    let decoded = item("open", hidden: true)
+    check(decoded.isHidden && decoded.commentCount == 2, "a board row decodes its thread fields")
+    check(item("declined").isDone && item("done").isDone && !item("planned").isDone,
+          "done and declined are finished; planned is still open")
 
     let id = UUID()
     check(
@@ -55,9 +44,6 @@ func runFeedbackBoardChecks() {
     check(FeedbackLink.isBoard("/feedback?compose=1"), "the compose link is still the board")
     check(!FeedbackLink.isBoard("/feedbackx"), "a different path is not the board")
 
-    let decoded = item("open", hidden: true)
-    check(decoded.isHidden && decoded.commentCount == 2, "a board row decodes its thread fields")
-
     let assist = try? JSONDecoder().decode(
         FeedbackAssist.self,
         from: Data("""
@@ -69,4 +55,30 @@ func runFeedbackBoardChecks() {
         FeedbackAssist.self, from: Data("{\"questions\":[],\"similar\":null,\"visibility\":\"board\"}".utf8)
     )
     check(bare?.similar == nil && bare?.questions?.isEmpty == true, "an assist with nothing to add decodes")
+
+    print("\n— roadmap —")
+    let groups = Roadmap.groups([
+        roadmap("planned", "planned", position: 1),
+        roadmap("building", "building", position: 1),
+    ])
+    check(groups.map(\.stage) == [.building, .planned], "stages read building, planned, shipped; empty ones vanish")
+
+    let ordered = Roadmap.groups([
+        roadmap("second", "planned", position: 2),
+        roadmap("first", "planned", position: 1),
+        roadmap("older", "planned", position: 3, created: "2026-08-01T00:00:00+00:00"),
+        roadmap("newer", "planned", position: 3, created: "2026-08-02T00:00:00+00:00"),
+    ])
+    check(ordered.first?.items.map(\.title) == ["first", "second", "older", "newer"],
+          "within a stage, position wins and age breaks ties")
+
+    let shipped = Roadmap.groups([
+        roadmap("aug", "shipped", position: 1, shipped: "2026-08-20"),
+        roadmap("sep", "shipped", position: 2, shipped: "2026-09-16"),
+    ])
+    check(shipped.first?.items.map(\.title) == ["sep", "aug"], "shipped reads newest first")
+
+    check(Roadmap.shippedLabel("2026-09-16") == "Sep 2026", "the shipped label is month and year")
+    check(Roadmap.shippedLabel(nil) == nil && Roadmap.shippedLabel("nonsense") == nil,
+          "no date, no label")
 }

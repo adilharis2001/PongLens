@@ -25,6 +25,9 @@ export async function SiteFooter({
             >
               {audience === "coaches" ? "For players" : "For coaches"}
             </Link>
+            <Link href="/roadmap" className="transition-colors hover:text-white">
+              Roadmap
+            </Link>
             <Link href="/terms" className="transition-colors hover:text-white">
               Terms
             </Link>

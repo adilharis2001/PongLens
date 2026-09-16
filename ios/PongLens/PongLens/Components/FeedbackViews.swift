@@ -231,37 +231,72 @@ struct FeedbackCommentCount: View {
     }
 }
 
-/// Planned, Building, Done, each with its count. One press filters to
-/// that stage; pressing the lit pill again goes back to the open list.
-struct FeedbackStageRail: View {
-    let counts: [FeedbackStage: Int]
-    @Binding var stage: FeedbackStage?
+// MARK: - Roadmap
+
+/// The roadmap as a reader sees it: three sections, each hidden when
+/// empty, each entry a title and one sentence. Shipped entries carry the
+/// month. The same list the public web page shows.
+struct RoadmapSectionsView: View {
+    let items: [RoadmapItem]
+    let loaded: Bool
+
+    private func tint(_ stage: RoadmapStage) -> Color {
+        switch stage {
+        case .building: PL.warningText
+        case .planned: Color(hex: 0x7DD3FC)
+        case .shipped: PL.successText
+        }
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(FeedbackStage.allCases) { s in
-                let on = stage == s
-                let tint = FeedbackLook.statusTint(s.rawValue)
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) { stage = on ? nil : s }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(s.label)
-                        Text("\(counts[s] ?? 0)")
-                            .monospacedDigit()
-                            .opacity(on ? 0.85 : 0.7)
-                    }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(on ? tint : PL.text400)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(on ? tint.opacity(0.12) : Color.clear, in: Capsule())
-                    .overlay(Capsule().strokeBorder(on ? tint.opacity(0.4) : PL.edge, lineWidth: 1))
+        let groups = Roadmap.groups(items)
+        VStack(alignment: .leading, spacing: 28) {
+            if !loaded {
+                VStack(alignment: .leading, spacing: 10) {
+                    PLSkeletonBar(maxWidth: 200)
+                    PLSkeletonBar()
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
+                .plCard(padding: 16)
+                .plShimmer()
+            } else if groups.isEmpty {
+                Text("Nothing on the roadmap yet.")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text500)
+            } else {
+                ForEach(groups) { group in
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Circle().fill(tint(group.stage)).frame(width: 6, height: 6)
+                            SectionHeading(group.stage.label)
+                        }
+                        ForEach(group.items) { item in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                    Text(item.title)
+                                        .font(.plRowTitle)
+                                        .foregroundStyle(PL.text100)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 0)
+                                    if group.stage == .shipped, let when = Roadmap.shippedLabel(item.shippedAt) {
+                                        Text(when)
+                                            .font(.plCaption)
+                                            .foregroundStyle(PL.text500)
+                                    }
+                                }
+                                if !item.description.isEmpty {
+                                    Text(item.description)
+                                        .font(.plBody)
+                                        .foregroundStyle(PL.text400)
+                                        .lineSpacing(2)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .plCard(padding: 14)
+                        }
+                    }
+                }
             }
-            Spacer(minLength: 0)
         }
     }
 }

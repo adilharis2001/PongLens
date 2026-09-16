@@ -66,65 +66,15 @@ struct FeedbackComment: Decodable, Identifiable, Hashable {
     }
 }
 
-/// How the board is ordered: what is wanted, what is fresh, what is
-/// being talked about.
-enum FeedbackSort: String, CaseIterable, Identifiable {
-    case top, new, active
+/// The board's two tabs: the posts and their threads, and the roadmap.
+enum FeedbackTab: String, CaseIterable, Identifiable {
+    case feedback, roadmap
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .top: "Top"
-        case .new: "New"
-        case .active: "Active"
+        case .feedback: "Feedback"
+        case .roadmap: "Roadmap"
         }
-    }
-}
-
-/// The stages a post moves through once the maker has looked at it. The
-/// rail above the board shows one pill per stage with a count; pressing
-/// one filters the list to it.
-enum FeedbackStage: String, CaseIterable, Identifiable {
-    case planned, building, done
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .planned: "Planned"
-        case .building: "Building"
-        case .done: "Done"
-        }
-    }
-
-    /// Whether a post belongs to this stage. Declined posts sit under
-    /// Done: both are finished, and a separate "Declined" pill would be
-    /// a column of things nobody wants to read about.
-    func contains(_ item: FeedbackItem) -> Bool {
-        switch self {
-        case .planned: item.status == "planned"
-        case .building: item.status == "building"
-        case .done: item.isDone
-        }
-    }
-
-    static func counts(_ items: [FeedbackItem]) -> [FeedbackStage: Int] {
-        var out: [FeedbackStage: Int] = [:]
-        for stage in allCases {
-            out[stage] = items.filter(stage.contains).count
-        }
-        return out
-    }
-
-    /// The rail appears only once something has moved. An empty board is
-    /// not three empty columns.
-    static func railVisible(_ items: [FeedbackItem]) -> Bool {
-        items.contains { item in allCases.contains { $0.contains(item) } }
-    }
-
-    /// The rows the list shows: one stage when a pill is lit, otherwise
-    /// everything still open.
-    static func visible(_ items: [FeedbackItem], stage: FeedbackStage?) -> [FeedbackItem] {
-        if let stage { return items.filter(stage.contains) }
-        return items.filter { !$0.isDone }
     }
 }
 
@@ -156,4 +106,87 @@ struct FeedbackAssist: Decodable {
     let questions: [String]?
     let similar: Similar?
     let visibility: String?
+}
+
+// MARK: - Roadmap
+
+/// The three stages of the public roadmap, in reading order: what is
+/// happening now, then next, then done.
+enum RoadmapStage: String, CaseIterable, Identifiable, Decodable {
+    case building, planned, shipped
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .building: "In development"
+        case .planned: "Planned"
+        case .shipped: "Shipped"
+        }
+    }
+}
+
+/// One roadmap entry, from `roadmap_items`: a title and one sentence,
+/// with the month for anything shipped and a place to try it when there
+/// is one.
+struct RoadmapItem: Decodable, Identifiable, Hashable {
+    let id: UUID
+    let title: String
+    let description: String
+    let stage: RoadmapStage
+    let position: Int
+    let shippedAt: String?
+    let link: String?
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, description, stage, position, link
+        case shippedAt = "shipped_at"
+        case createdAt = "created_at"
+    }
+}
+
+enum Roadmap {
+    struct Group: Identifiable {
+        let stage: RoadmapStage
+        let items: [RoadmapItem]
+        var id: String { stage.rawValue }
+    }
+
+    /// Items grouped by stage in reading order, each stage by position
+    /// then by age. Shipped reads newest first: the top of that list is
+    /// the thing that just landed. Empty stages are left out, so a thin
+    /// roadmap is not three headings over nothing.
+    static func groups(_ items: [RoadmapItem]) -> [Group] {
+        RoadmapStage.allCases.compactMap { stage in
+            let rows = items
+                .filter { $0.stage == stage }
+                .sorted { a, b in
+                    if stage == .shipped, (a.shippedAt ?? "") != (b.shippedAt ?? "") {
+                        return (a.shippedAt ?? "") > (b.shippedAt ?? "")
+                    }
+                    if a.position != b.position { return a.position < b.position }
+                    return a.createdAt < b.createdAt
+                }
+            return rows.isEmpty ? nil : Group(stage: stage, items: rows)
+        }
+    }
+
+    /// "Sep 2026" from a `yyyy-MM-dd` date. Month and year only.
+    static func shippedLabel(_ shippedAt: String?) -> String? {
+        guard let shippedAt else { return nil }
+        let parts = shippedAt.split(separator: "-").compactMap { Int($0) }
+        guard parts.count >= 2, (1...12).contains(parts[1]) else { return nil }
+        var components = DateComponents()
+        components.year = parts[0]
+        components.month = parts[1]
+        components.day = 1
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        guard let date = calendar.date(from: components) else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "MMM yyyy"
+        return formatter.string(from: date)
+    }
 }

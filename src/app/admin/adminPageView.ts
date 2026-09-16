@@ -11,7 +11,8 @@ import {
 
 export const ADMIN_PAGES = [
   { key: "issues", href: "/admin/issues", title: "Match issues" },
-  { key: "backlog", href: "/admin/backlog", title: "Backlog" },
+  // The public roadmap's editor. Replaced the backlog on 2026-09-16.
+  { key: "roadmap", href: "/admin/roadmap", title: "Roadmap" },
   { key: "players", href: "/admin/players", title: "Players" },
   { key: "uploads", href: "/admin/uploads", title: "Uploads" },
   { key: "costs", href: "/admin/costs", title: "Platform costs" },
@@ -90,12 +91,12 @@ function waiting(n: number, noun: string): HubDetail | null {
 export function hubDetail(
   key: HubKey,
   counts: PortalCounts | null,
-  /** Open backlog items. Its own query rather than a field on
-   *  admin_portal_counts: the backlog is the operator's list, not
+  /** Roadmap entries in development. Its own query rather than a field
+   *  on admin_portal_counts: the roadmap is the operator's list, not
    *  platform state, and it should not ride along in an RPC every other
    *  card depends on. */
-  backlogOpen?: number | null,
-  /** Its own query too, for the same reason as the backlog: the outreach
+  roadmapBuilding?: number | null,
+  /** Its own query too, for the same reason as the roadmap: the outreach
    *  numbers must not blank every other card when their RPC fails. */
   outreach?: OutreachCounts | null,
   /** admin_processing_counts: the queue and whether anything is beating.
@@ -110,10 +111,10 @@ export function hubDetail(
   }
   // Answered before the counts guard — these numbers load separately,
   // and one failing must not blank the other's card.
-  if (key === "backlog") {
-    if (typeof backlogOpen !== "number" || backlogOpen <= 0) return null;
+  if (key === "roadmap") {
+    if (typeof roadmapBuilding !== "number" || roadmapBuilding <= 0) return null;
     return {
-      text: `${backlogOpen} open`,
+      text: `${roadmapBuilding} in development`,
       attention: false,
     };
   }

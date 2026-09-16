@@ -27,16 +27,16 @@ export default async function AdminPage() {
   const { supabase, avatarUrl } = await requireAdmin();
   const [
     { data },
-    { count: backlogOpen },
+    { count: roadmapBuilding },
     { data: outreachData },
     { data: processingData },
     { data: issuesData, error: issuesError },
   ] = await Promise.all([
     supabase.rpc("admin_portal_counts"),
     supabase
-      .from("backlog_items")
+      .from("roadmap_items")
       .select("id", { count: "exact", head: true })
-      .neq("lane", "done"),
+      .eq("stage", "building"),
     supabase.rpc("admin_outreach_counts"),
     supabase.rpc("admin_processing_counts"),
     supabase.rpc("admin_match_issue_list", { p_status: "" }),
@@ -55,7 +55,7 @@ export default async function AdminPage() {
 
       <ul className="mt-8 grid gap-3 sm:grid-cols-2">
         {ADMIN_PAGES.map((page) => {
-          const detail = hubDetail(page.key, counts, backlogOpen, outreach, processing, issuesWaiting);
+          const detail = hubDetail(page.key, counts, roadmapBuilding, outreach, processing, issuesWaiting);
           return (
             <li key={page.key}>
               <Link
@@ -106,7 +106,7 @@ export default async function AdminPage() {
           const detail = hubDetail(
             workspace.key,
             counts,
-            backlogOpen,
+            roadmapBuilding,
             outreach,
             processing,
           );

@@ -27,7 +27,7 @@
     "test:marketing": "node --test --experimental-strip-types src/app/marketing/marketingDashboard.test.ts src/app/marketing/coach-outreach/outreach.test.ts scripts/marketing/language.test.ts scripts/marketing/notify.test.ts src/lib/marketing/voice.test.ts",
     "test:upload": "node --test --experimental-strip-types src/app/dashboard/pendingUploads.test.ts src/lib/cameraGuideGate.test.ts",
     "test:reviews": "node --test --experimental-strip-types src/lib/reviews/*.test.ts src/lib/payments/*.test.ts",
-    "test:backlog": "node --test --experimental-strip-types src/lib/backlog/*.test.ts src/app/admin/adminPageView.test.ts",
+    "test:roadmap": "node --test --experimental-strip-types src/lib/roadmap.test.ts src/app/admin/adminPageView.test.ts",
     "test:ask": "node --test --experimental-strip-types src/lib/ask/*.test.ts",
     "test:commerce": "node --test --experimental-strip-types src/lib/commerce/*.test.ts",
     "test:qa": "node --test --experimental-strip-types src/lib/qa/*.test.ts",
