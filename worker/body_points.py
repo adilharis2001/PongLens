@@ -299,9 +299,11 @@ def _pmin(T, p, a, b):
     return float(p[i0:i1].min()) if i1 > i0 else 1.0
 
 
-def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None):
+def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None,
+           *, split_contacts=None, split_gap_s=None):
     """What the ball has to say about a stretch the bodies found: four
     statements, none of which may invent a card."""
+    split_s = SPLIT_S if split_gap_s is None else float(split_gap_s)
     cr = np.asarray(sorted(float(x) for x in cross), float)
     bt = np.asarray(sorted(float(x) for x in bt_table), float)
     sv = sorted(float(x) for x in serves)
@@ -316,10 +318,12 @@ def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None):
             if not seen:
                 continue
         cuts = []
-        if SPLIT_S > 0 and len(inside) >= 2:
+        if split_s > 0 and len(inside) >= 2:
             last = inside[0]
             for x in inside[1:]:
-                if x - last >= SPLIT_S:
+                if (x - last >= split_s and
+                        (split_contacts is None or
+                         min((abs(float(t)-x) for t in split_contacts), default=float('inf')) <= .5+1e-9)):
                     cuts.append(x)
                 last = x
         parts, a = [], t0
@@ -367,7 +371,7 @@ def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None):
 
 
 def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
-                     anchor=True, close=True):
+                      anchor=True, close=True, bt_endline=None, forward_s=ANCHOR_FWD_S):
     """Move each card's edges to what the ball saw, and nothing else.
 
     `serves` are the V3 detector's contacts, `dead` its ball-going-dead runs.
@@ -384,6 +388,15 @@ def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
     sv = sorted(float(x) for x in (serves or []))
     cr = np.asarray(sorted(float(x) for x in cross), float)
     ev = np.asarray(sorted([float(x) for x in cross] + [float(x) for x in bt_table]), float)
+    # the hit-long bounces, kept apart from `ev` on purpose: they are only
+    # ever a single step past the last on-table event, never an event the
+    # reading may start from. See _ball_end.
+    # `if bt_endline is None`, never `bt_endline or []`: this arrives as a
+    # numpy array from points_v2, and asking a numpy array for its truth
+    # value raises. That mistake took the whole body stage down on
+    # 2026-09-10 and the match fell back to end-on ball cards.
+    lg = np.asarray(sorted(float(x) for x in
+                           ([] if bt_endline is None else bt_endline)), float)
     runs = sorted((float(a), float(b)) for a, b in (dead or []))
     out = []
     anchored = closed = on_dead = 0
@@ -405,7 +418,7 @@ def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
             # took the next detection at 29.71 and started the point three
             # seconds into the rally. Five of that match's 83 cards lost
             # their serve that way.
-            lo, hi = t0 - ANCHOR_BACK_S, min(t1, t0 + ANCHOR_FWD_S)
+            lo, hi = t0 - ANCHOR_BACK_S, min(t1, t0 + forward_s)
             floor = max(prev_t1 + V2.MIN_GAP_S, 0.0)
             near = [x for x in sv if lo <= x <= hi and x > floor]
             if near:
@@ -422,7 +435,7 @@ def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
                     t0 = start
                     c["serve_s"] = s
         if close:
-            end, src = _ball_end(t0, t1, c.get("serve_s"), ev, cr, runs)
+            end, src = _ball_end(t0, t1, c.get("serve_s"), ev, cr, runs, lg)
             if end is not None:
                 stop = min(t1, end + END_BUF_S)
                 if stop - t0 >= V2.MIN_CARD_S and t1 - stop > 0.05:
@@ -445,20 +458,101 @@ def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
     return out, dict(anchored=anchored, closed=closed, closed_on_dead=on_dead)
 
 
+
+# Approved opening-only experiment, 2026-09-12. These are source-clock
+# seconds; plays export caps tight-start pre-padding at 0.3 seconds.
+OPENING_SEARCH_S = 6.0
+OPENING_ACTIVITY_LEAD_S = 1.2
+OPENING_PREPAD_S = 0.3
+
+
+def _guarded_anchor_and_close(cards, serves, cross, bt_table, dead, duration,
+                              anchor=True, close=True, bt_endline=None):
+    """Keep legacy ends/metadata; accept only reviewed, later openings."""
+    baseline, info = anchor_and_close(
+        cards, serves, cross, bt_table, dead, duration,
+        anchor=anchor, close=close, bt_endline=bt_endline)
+    if not anchor or not serves or not baseline:
+        return baseline, info
+    baseline = V2.resolve(baseline)
+    proposed, _ = anchor_and_close(
+        cards, serves, cross, bt_table, dead, duration,
+        anchor=anchor, close=close, bt_endline=bt_endline,
+        forward_s=OPENING_SEARCH_S)
+    proposed = V2.resolve(proposed)
+    if len(baseline) != len(proposed):
+        return baseline, info
+    events = sorted(float(t) for t in list(cross) + list(bt_table))
+    out = [dict(c) for c in baseline]
+    for b, p, c in zip(baseline, proposed, out):
+        start = p['t0']
+        if start <= b['t0'] + .02:
+            continue
+        serve = b.get('serve_s')
+        if serve is not None and start > serve - V2.HEAD_MIN_S:
+            continue
+        padded_start = max(0., b['t0'] - OPENING_PREPAD_S)
+        if any(padded_start <= t < start - OPENING_PREPAD_S for t in events):
+            continue
+        seen = [t for t in events if padded_start <= t <= b['t1']]
+        if seen:
+            start = min(start, seen[0] - OPENING_ACTIVITY_LEAD_S + OPENING_PREPAD_S)
+        start = max(b['t0'], start)
+        # The wider search may close its own copy differently; its ending
+        # is never copied, and may not justify shortening a baseline card.
+        if np.isfinite(start) and b['t1'] - start >= V2.MIN_CARD_S:
+            c['t0'] = start
+    return out, info
+
+
+def _preserve_joined_cards(baseline, proposed, baseline_joins, proposed_joins):
+    """A trim cannot change which rallies join, endings, or other fields."""
+    def decisions(rows):
+        return [(r.get('left_index'), r.get('right_index'), r['accepted']) for r in rows]
+    if len(baseline) != len(proposed) or decisions(baseline_joins) != decisions(proposed_joins):
+        return baseline
+    if any(b['t1'] != p['t1'] or p['t0'] < b['t0'] or
+           not np.isfinite(p['t0']) or b['t1'] - p['t0'] < V2.MIN_CARD_S or
+           (b.get('end_evidence_s') is not None and p['t0'] > b['end_evidence_s'])
+           for b, p in zip(baseline, proposed)):
+        return baseline
+    return [dict(b, t0=p['t0']) for b, p in zip(baseline, proposed)]
+
+
 def _add_why(why, phrase):
     why = why or "bodies"
     return why if phrase in why else f"{why}, {phrase}"
 
 
-def _ball_end(t0, t1, serve_s, ev, cr, runs):
+def _ball_end(t0, t1, serve_s, ev, cr, runs, long_bt=None):
     """(the moment the point stopped, how we know) or (None, None).
 
-    Two readings, and the first is the better one. A DEAD RUN is the ball
-    dribbling to a stop on the table, which is the point ending; it is rare,
-    about one card in twenty, and where it fires it lands a couple of seconds
-    before the tracker stops seeing the ball at all. Otherwise the LAST net
-    crossing or table bounce inside the card, which is where the ball was last
-    seen doing something.
+    Three readings, best first. A DEAD RUN is the ball dribbling to a stop on
+    the table, which is the point ending; it is rare, about one card in
+    twenty, and where it fires it lands a couple of seconds before the tracker
+    stops seeing the ball at all. Otherwise the LAST net crossing or table
+    bounce inside the card, which is where the ball was last seen doing
+    something -- and then ONE STEP past it, below.
+
+    THE LAST SHOT OF A POINT IS NOT ON THE TABLE. A point ends when somebody
+    hits it long or wide, and that ball lands past the end line, on the floor.
+    `ev` is built from crossings and points_v2's bt_table, which excludes the
+    floor by construction, so reading the end from `ev` alone anchors on the
+    SECOND-TO-LAST shot and stops the card 1.5 s after that, while the ball is
+    still in the air. Adil tagged eight such cards on 2026-09-10; the ball
+    detector was running continuously across the cut on seven of them.
+
+    The other half of this pipeline has always known: points_pipeline ends a
+    point on exactly this event and calls it "missed table (long/wide)". So
+    `long_bt` (points_v2 bt_endline) is offered here, and the reading takes
+    ONE step to the first such bounce that is inside the card and within
+    EXTEND_GAP_S of the last on-table event. One step, never a chain: a rally
+    ends on one shot, and a chain would follow the ball across the floor.
+
+    This CANNOT lengthen a card. The caller takes min(t1, end + END_BUF_S),
+    so moving `end` later can only make the trim smaller; the ceiling is the
+    end the body model already chose. test_the_end_is_never_pushed_out pins
+    that and needs no change.
     """
     inside = ev[(ev >= t0) & (ev <= t1)]
     if not len(inside):
@@ -471,15 +565,22 @@ def _ball_end(t0, t1, serve_s, ev, cr, runs):
             continue        # the ball crossed the net again: it was not dead
         if a > t0:
             return a, "dead"
-    return float(inside[-1]), "last"
+    last = float(inside[-1])
+    if long_bt is not None and len(long_bt):
+        step = long_bt[(long_bt > last) & (long_bt <= min(t1, last + EXTEND_GAP_S))]
+        if len(step):
+            return float(step[0]), "long"
+    return last, "last"
 
 
 def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=None,
-             v3_serves=None, v3_dead=None, anchor=False, close=False):
+             v3_serves=None, v3_dead=None, anchor=False, close=False,
+             split_gap_s=None, evidence_out=None):
     """The body cards for one match, or raise BodyPointsUnavailable.
 
-    `v3_serves` and `v3_dead` come from the V3 serve detector and are used
-    only by the edge pass at the end: `anchor` opens a card at its serve,
+    `v3_serves` and `v3_dead` come from the V3 serve detector. Complete
+    evidence enables the reviewed v2 rally-preservation policy; missing
+    evidence retains the earlier rules. `anchor` opens a card at its serve,
     `close` shuts it when the ball stopped. Both default off, so a caller
     that passes nothing gets exactly the cards the trial has been cutting.
 
@@ -497,25 +598,59 @@ def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=
     if corners_px is None:
         raise BodyPointsUnavailable("no table corners and no stand-in quad")
     p, X = play_probability(T, raw, corners_px, cross, model)
+    if evidence_out is not None:
+        evidence_out.update(body_T=T.tolist(), body_p=p.tolist())
     segs = segments(T, p, X, model)
     if not segs:
         raise BodyPointsUnavailable("the decoder found no play at all")
     c = model["cfg"]
     cards = [dict(t0=max(0.0, a - c["pad0"]), t1=min(float(duration), b + c["pad1"]),
                   serve_s=None, why="bodies", end_evidence_s=b) for a, b in segs]
-    refined = refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0)
+    from rally_preservation import POLICY, join_supported_continuations
+    policy_ready = (model['version'] == 'v2' and v3_serves is not None
+                    and v3_dead is not None and evidence is not None)
+    if policy_ready:
+        try:
+            policy_ready = (all(np.isfinite(float(x)) for x in v3_serves) and
+                            all(np.isfinite(float(a)) and np.isfinite(float(b)) and b >= a
+                                for a,b in v3_dead))
+        except (TypeError, ValueError):
+            policy_ready = False
+    refined = refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0,
+                     split_contacts=v3_serves if policy_ready else None, split_gap_s=split_gap_s)
     resolved = V2.resolve(refined)
     # The edges last, on settled cards: the anchor needs to know where the
     # card before it ends, and that is only true once the overlaps are gone.
     edges = dict(anchored=0, closed=0, closed_on_dead=0)
+    opening_proposal = None
     if anchor or close:
-        resolved, edges = anchor_and_close(
-            resolved, v3_serves, cross, bt_table, v3_dead, duration,
-            anchor=anchor, close=close)
+        edge_args = (resolved, v3_serves, cross, bt_table, v3_dead, duration)
+        edge_kw = dict(anchor=anchor, close=close,
+                       bt_endline=getattr(evidence, "bt_endline", None))
+        resolved, edges = anchor_and_close(*edge_args, **edge_kw)
         resolved = V2.resolve(resolved)
+        if anchor:
+            opening_proposal, _ = _guarded_anchor_and_close(*edge_args, **edge_kw)
+            opening_proposal = V2.resolve(opening_proposal)
+    joins = []
+    if policy_ready:
+        join_args = (T, p, [x is not None for x in raw['near']],
+                     [x is not None for x in raw['far']], list(cross)+list(bt_table), v3_dead)
+        join_kw = dict(table_bounces=bt_table, support=c['pad1'], max_event_gap=EXTEND_GAP_S,
+                       min_play=c['ball_floor'], max_missing=c['gap_min'])
+        resolved, joins = join_supported_continuations(resolved, *join_args, **join_kw)
+        if opening_proposal is not None:
+            opening_proposal, proposal_joins = join_supported_continuations(
+                opening_proposal, *join_args, **join_kw)
+            resolved = _preserve_joined_cards(resolved, opening_proposal, joins, proposal_joins)
+    elif opening_proposal is not None:
+        resolved = _preserve_joined_cards(resolved, opening_proposal, [], [])
     info = dict(samples=int(len(T)), both_share=round(share, 3), segments=len(segs),
                 cards=len(resolved), stamped=sum(1 for d in resolved if d.get("serve_s") is not None),
-                model=model["version"], features=model["sha"], **edges)
+                model=model["version"], features=model["sha"], **edges,
+                rally_policy=dict(name=POLICY, status='used' if policy_ready else 'unavailable',
+                                  joined_seams=sum(d['accepted'] for d in joins)),
+                continuation_decisions=joins)
     return resolved, info
 
 

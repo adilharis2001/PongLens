@@ -283,6 +283,11 @@ def quad_foreshortening(corners: Mapping[str, Any]) -> float | None:
 
 
 def _create_det_model(model: str, backend: str, device: str):
+    if __package__:
+        from .match_release import resolve_model_asset
+    else:
+        from match_release import resolve_model_asset
+    model = resolve_model_asset(model, 'detector', default_url=DET_MODEL_URL)
     from rtmlib import RTMDet
 
     return RTMDet(
@@ -299,7 +304,11 @@ def _det_checkpoint_sha(det_model: str) -> str | None:
     rtmlib caches URL checkpoints under ~/.cache/rtmlib/hub/checkpoints
     with the zip's basename swapped to .onnx; a plain path is used as-is.
     """
-    path = Path(det_model)
+    if __package__:
+        from .match_release import resolve_model_asset
+    else:
+        from match_release import resolve_model_asset
+    path = Path(resolve_model_asset(det_model, 'detector', default_url=DET_MODEL_URL))
     if not path.is_file():
         name = path.name
         if name.endswith(".zip"):

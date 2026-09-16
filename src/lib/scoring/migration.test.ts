@@ -302,3 +302,20 @@ test("automatic worker finalization is active-version scoped and worker-only", (
     /grant execute on function public\.finalize_worker_points_v2\(uuid,uuid\) to ponglens_worker/i
   );
 });
+
+test("worker release contract exposes the exact canonical database floor privately", () => {
+  const sql = commandsMigrationSql();
+  const fn = sql.match(
+    /create or replace function public\.canonical_worker_contract_v1\(\)[\s\S]*?\n\$\$;/i,
+  )?.[0] ?? "";
+  assert.match(fn, /'minimumMigration',\s*'20260916120000'/i);
+  assert.match(fn, /'canonicalPublicationContract',\s*1/i);
+  assert.match(
+    sql,
+    /revoke all on function public\.canonical_worker_contract_v1\(\)\s+from public, anon, authenticated/i,
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.canonical_worker_contract_v1\(\) to ponglens_worker/i,
+  );
+});

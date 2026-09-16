@@ -1,0 +1,151 @@
+{
+  "recordings": [
+    {
+      "source": "19a1efc7",
+      "before": 114,
+      "after": 124,
+      "max_timing_difference_s": 0.03,
+      "off_mode_point_metadata_identical": true,
+      "prediction_rows": 124,
+      "predicted": 10,
+      "removed_preparations": []
+    },
+    {
+      "source": "50caea29",
+      "before": 86,
+      "after": 88,
+      "max_timing_difference_s": 0.03,
+      "off_mode_point_metadata_identical": true,
+      "prediction_rows": 88,
+      "predicted": 14,
+      "removed_preparations": [
+        {
+          "t0": 703.7,
+          "t1": 706.0189798346693,
+          "original_card": 59,
+          "reason": "brief_prefix_without_play_or_service_hold"
+        }
+      ]
+    },
+    {
+      "source": "6d55dfb7",
+      "before": 57,
+      "after": 69,
+      "max_timing_difference_s": 0.02,
+      "off_mode_point_metadata_identical": true,
+      "prediction_rows": 69,
+      "predicted": 6,
+      "removed_preparations": []
+    },
+    {
+      "source": "8cb54f9f",
+      "before": 106,
+      "after": 111,
+      "max_timing_difference_s": 0.03,
+      "off_mode_point_metadata_identical": true,
+      "prediction_rows": 111,
+      "predicted": 0,
+      "removed_preparations": [
+        {
+          "t0": 704.38,
+          "t1": 707.35,
+          "original_card": 51,
+          "reason": "brief_prefix_without_play_or_service_hold"
+        }
+      ]
+    },
+    {
+      "source": "9e15ed10",
+      "before": 66,
+      "after": 67,
+      "max_timing_difference_s": 0.03,
+      "off_mode_point_metadata_identical": true,
+      "prediction_rows": 67,
+      "predicted": 7,
+      "removed_preparations": [
+        {
+          "t0": 695.36,
+          "t1": 697.4624918090078,
+          "original_card": 61,
+          "reason": "brief_prefix_without_play_or_service_hold"
+        }
+      ]
+    },
+    {
+      "source": "9ef09000",
+      "before": 65,
+      "after": 78,
+      "max_timing_difference_s": 0.03,
+      "off_mode_point_metadata_identical": true,
+      "prediction_rows": 78,
+      "predicted": 3,
+      "removed_preparations": []
+    },
+    {
+      "source": "d59d7610",
+      "before": 90,
+      "after": 94,
+      "max_timing_difference_s": 0.03,
+      "off_mode_point_metadata_identical": true,
+      "prediction_rows": 94,
+      "predicted": 5,
+      "removed_preparations": []
+    },
+    {
+      "source": "eabb4fc2",
+      "before": 50,
+      "after": 64,
+      "max_timing_difference_s": 0.02,
+      "off_mode_point_metadata_identical": true,
+      "prediction_rows": 64,
+      "predicted": 7,
+      "removed_preparations": []
+    },
+    {
+      "source": "fa96cd0e",
+      "before": 61,
+      "after": 64,
+      "max_timing_difference_s": 0.03,
+      "off_mode_point_metadata_identical": true,
+      "prediction_rows": 64,
+      "predicted": 1,
+      "removed_preparations": []
+    }
+  ],
+  "all_passed": true,
+  "limits": [
+    "Cached detector replay; ball/player inference not rerun.",
+    "Yilin lacks usable cached source video and tracking; not verified.",
+    "One previously accepted missed service fault in Julian 3 remains bundled.",
+    "No production worker deployment in this step."
+  ],
+  "worker_tests": {
+    "passed": 146,
+    "subtests": 7,
+    "warnings": "Three pre-existing all-NaN/empty-body-feature warnings"
+  },
+  "application_build": "npm run build passed in isolated worktree",
+  "independent_review": "Two findings fixed; 87 focused tests passed on re-review; no remaining actionable finding",
+  "artifact": {
+    "desktop": [
+      1280,
+      720
+    ],
+    "mobile": [
+      393,
+      660
+    ],
+    "horizontal_overflow": false,
+    "min_button_height": 44,
+    "updated_clips_stop_correctly": 3,
+    "feedback_save_reload": "verified using separate QA storage",
+    "native_ios": "not changed or tested"
+  },
+  "release": {
+    "branch": "codex/combined-cuts-worker",
+    "base": "30a1b7d8d51b780274f132482c3592ddd89c40b7",
+    "deployed": false,
+    "flag": "combined_cuts: true; bodies + serve anchor + rally end required",
+    "next": "Owner checks three corrected examples; then merge against current production worker, seal and validate the release before activation."
+  }
+}

@@ -60,6 +60,9 @@ exception when duplicate_object then null; end $$;
 do $$ begin
   create role service_role nologin bypassrls;
 exception when duplicate_object then null; end $$;
+do $$ begin
+  create role ponglens_worker nologin;
+exception when duplicate_object then null; end $$;
 
 create schema if not exists auth;
 create table auth.users (id uuid primary key, email text);

@@ -140,3 +140,35 @@ def test_active_worker_path_finalizes_before_ready_inside_publication_transactio
     finalize = source.index('"finalize_worker_points_v2"', insert)
     ready = source.index("finish_match(", finalize)
     assert transaction < create < insert < finalize < ready
+
+
+def test_worker_database_contract_matches_sealed_release(monkeypatch):
+    conn = Connection(({
+        "minimumMigration": "20260916120000",
+        "canonicalPublicationContract": 1,
+    },))
+    monkeypatch.setenv("PONGLENS_MINIMUM_DB_MIGRATION", "20260916120000")
+    monkeypatch.setenv("PONGLENS_CANONICAL_PUBLICATION_CONTRACT", "1")
+
+    worker.verify_worker_database_contract(conn)
+
+    assert conn.value.calls == [("select public.canonical_worker_contract_v1()", None)]
+
+
+@pytest.mark.parametrize(
+    ("row", "migration", "contract"),
+    [
+        (None, "20260916120000", "1"),
+        ({"minimumMigration": "old", "canonicalPublicationContract": 1},
+         "20260916120000", "1"),
+        ({"minimumMigration": "20260916120000", "canonicalPublicationContract": 2},
+         "20260916120000", "1"),
+    ],
+)
+def test_worker_database_contract_fails_closed(row, migration, contract, monkeypatch):
+    conn = Connection((row,))
+    monkeypatch.setenv("PONGLENS_MINIMUM_DB_MIGRATION", migration)
+    monkeypatch.setenv("PONGLENS_CANONICAL_PUBLICATION_CONTRACT", contract)
+
+    with pytest.raises(RuntimeError, match="database contract"):
+        worker.verify_worker_database_contract(conn)

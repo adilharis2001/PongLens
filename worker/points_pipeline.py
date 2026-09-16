@@ -181,6 +181,16 @@ def _runs(mask, tick):
     return out
 
 
+def final_body_notes(notes, points):
+    """Keep the admin's parsed totals aligned with the actual exported cards."""
+    import re
+    count = len(points)
+    stamped = sum(p.get('serve_s') is not None for p in points)
+    prefix = f'points bodies: {count} cards, {stamped} with a serve'
+    return [re.sub(r'^points bodies: \d+ cards, \d+ with a serve', prefix, note)
+            for note in notes]
+
+
 def write_evidence_dump(path, E, cards, calib, meta, fps, route, rate, notes,
                         serves_v3=None):
     """Every signal the assembler saw, in source seconds, for a review page.
@@ -477,13 +487,7 @@ def play_cut_segments(windows, dur, head, tail, merge_gap=SEGMENT_MERGE_S):
 
 
 def hand_cut_length_tolerance(n_segments: int) -> float:
-    """How far an encoded hand cut may differ from its segments' arithmetic
-    before the worker refuses to publish it.
-
-    Each segment is a separately encoded part, so a little rounding rides on
-    every one, and a heavily marked match accumulates more of it than a
-    lightly marked one. A constant would fail a correct cut of four hundred
-    rallies and wave through a wrong one of three."""
+    """Bound expected concat/encoding rounding without hiding a wrong cut."""
     return max(2.0, 0.05 * n_segments)
 
 
@@ -1045,7 +1049,8 @@ def cmd_cut(args):
     if getattr(args, "segments", None):
         # Cut mode 'plays': segments were computed by the points stage
         # (which must run FIRST) and read back from its match.json — the
-        # one source of truth, so cut and cut_t0 can never disagree.
+        # one source of truth for kept footage. After encoding, measured
+        # offsets reconcile cut_t0 with the actual MP4 concatenation clock.
         with open(args.segments) as fh:
             mj = json.load(fh)
         spans = [tuple(s) for s in (mj.get("cut_segments") or [])]
@@ -1114,6 +1119,17 @@ def cmd_cut(args):
                     "-movflags", "+faststart", args.out], check=True)
     if not os.path.exists(args.out) or os.path.getsize(args.out) == 0:
         raise SystemExit("cut produced no output")
+    import cut_timeline
+    # Use the same source-clock rounding the encoder consumed. Plays-mode
+    # maps are already serialized to hundredths; legacy spans were not.
+    physical_spans = [[float(f"{a:.2f}"),
+                       round(float(f"{a:.2f}")+float(f"{b-a:.2f}"), 2)]
+                      for a,b in spans]
+    timeline = cut_timeline.measure(parts, physical_spans, args.out)
+    timeline_path = args.out + '.timeline.json'
+    cut_timeline.write_json(timeline_path, timeline)
+    if getattr(args, 'segments', None):
+        cut_timeline.reconcile_file(args.segments, timeline_path)
     print(f"wrote {args.out}")
 
 
@@ -2605,6 +2621,48 @@ def build_placement_v3(
 # curate the timeline with delete instead. points.warmup stays in Postgres
 # as a dead column (see migration 011); the worker never sets it.
 # ---------------------------------------------------------------------------
+CALIBRATION_JSON_SKIP = ("bg", "debug")
+
+
+def save_calibration_json(calib, path):
+    """The ladder's answer, on disk, for a later run of this command.
+
+    Everything the pipeline reads off the calib dict except the median
+    background frame (a numpy image nobody downstream needs) and the debug
+    string. The homography is a 3x3 float array and is stored as a list.
+    """
+    import numpy as np
+    out = {}
+    for k, v in calib.items():
+        if k in CALIBRATION_JSON_SKIP:
+            continue
+        if k == "H":
+            v = np.asarray(v, dtype=float).tolist()
+        elif isinstance(v, tuple):
+            v = list(v)
+        out[k] = v
+    with open(path, "w") as fh:
+        json.dump(out, fh, indent=1, default=float)
+
+
+def load_calibration_json(path):
+    """Inverse of save_calibration_json. Raises on anything short of a
+    complete calibration, so the caller falls back to the ladder."""
+    import numpy as np
+    with open(path) as fh:
+        calib = json.load(fh)
+    if not isinstance(calib, dict) or "corners_px" not in calib \
+            or "H" not in calib or "e" not in calib:
+        raise ValueError("calibration.json lacks corners, homography or axis")
+    calib["H"] = np.asarray(calib["H"], dtype=np.float64)
+    if calib["H"].shape != (3, 3) or not np.isfinite(calib["H"]).all():
+        raise ValueError("calibration.json homography is not a finite 3x3")
+    calib["e"] = tuple(float(x) for x in calib["e"])
+    if calib.get("roi") is not None:
+        calib["roi"] = tuple(float(x) for x in calib["roi"])
+    return calib
+
+
 def cmd_points(args):
     meta = probe(args.video)
     fps, dur = meta["fps"], meta["duration"]
@@ -2617,6 +2675,8 @@ def cmd_points(args):
     os.makedirs(clips_dir, exist_ok=True)
 
     notes = []
+    if getattr(args, "detections_note", None):
+        notes.append(str(args.detections_note))
 
     # 0. bounce-cloud activity gate (the user's table region)
     gate = activity_gate(det, meta["width"], meta["height"])
@@ -2654,10 +2714,25 @@ def cmd_points(args):
     # where the table's thirteen landmarks are, and the fitter keeps only
     # the set of them that agree on one real 2.740 x 1.525 m rectangle.
     calib = None
-    try:
-        calib = keypoint_calibrate(args.video, args.outdir)
-    except Exception as e:
-        print(f"keypoint calibration crashed: {e}")
+    if getattr(args, "calibration_json", None):
+        # The second detection pass. The first pass already paid for this
+        # table and validated it against the full-frame detections; asking
+        # the ladder again would run the keypoint detector for nothing and
+        # the vision call for money, and could even answer differently.
+        try:
+            calib = load_calibration_json(args.calibration_json)
+            notes.append("calibration reused from the first pass "
+                         f"({calib.get('source', 'unknown')})")
+            print(f"calibration reused from {args.calibration_json} "
+                  f"({calib.get('source', 'unknown')})")
+        except Exception as e:
+            print(f"calibration reuse failed ({e}); running the ladder")
+            calib = None
+    if calib is None:
+        try:
+            calib = keypoint_calibrate(args.video, args.outdir)
+        except Exception as e:
+            print(f"keypoint calibration crashed: {e}")
     if calib is None:
         notes.append("keypoint calibration unavailable; trying vision")
 
@@ -2716,6 +2791,14 @@ def cmd_points(args):
     else:
         print(f"calibration ok ({calib.get('source', 'unknown')}): "
               f"{calib['corners_px']}  e={calib['e']}")
+        # Written on every run so a second pass can hand it back through
+        # --calibration-json. Best effort: a match must not fail over its
+        # own paperwork.
+        try:
+            save_calibration_json(
+                calib, os.path.join(args.outdir, "calibration.json"))
+        except Exception as e:                              # noqa: BLE001
+            print(f"calibration.json not written: {e}")
     H = calib["H"] if calib else None
     e = calib["e"] if calib else None
     roi = calib["roi"] if calib else None
@@ -2814,14 +2897,18 @@ def cmd_points(args):
             clip_pre = points_v2.CLIP_PRE_S
             clip_post = points_v2.CLIP_POST_S
 
-            # The route, and why. Serve rate is recorded on every match
-            # whichever way it goes, because the threshold below was drawn
-            # through a gap in twenty matches and the only way it gets
+            # The route, and why. The serve rate, the serves per candidate
+            # point and the table share are recorded on every match
+            # whichever way it goes, because the thresholds were drawn
+            # through gaps in a few dozen matches and the only way they get
             # better evidence is by being written down every time.
             v2_rate = points_endon.serve_rate(v2_E)
+            v2_yield = points_endon.serve_yield(v2_E, v2_out)
+            v2_share = points_endon.table_share(v2_E)
+            v2_share_txt = ("n/a" if v2_share is None else f"{v2_share:.2f}")
             route = "serve-anchored"
             if getattr(args, "endon_fallback", False) \
-                    and points_endon.wants_endon(v2_E):
+                    and points_endon.wants_endon(v2_E, v2_out):
                 # Only now is the extra decode worth paying for: the motion
                 # pass costs a pass over the video and nothing on this path
                 # needs it unless the segmentation is actually going to run.
@@ -2846,6 +2933,15 @@ def cmd_points(args):
                         notes.append("end-on assembler produced no cards; "
                                      "kept the serve-anchored ones")
             v2_route = route
+            # How many cards carry a detected serve. On the serve-anchored
+            # route that is every card the motif built (the dense-net
+            # fallback cards carry none); on the end-on route it is what
+            # the assembler borrowed (points_endon.stamp_serves). Recorded
+            # so the next argument about an end-on match is settled from
+            # the match rather than from memory. Appended LAST: the admin
+            # uploads page parses the front of this note with a regex
+            # (uploadView.ts) that must keep matching.
+            stamped = sum(1 for c in v2_cards if c.get("serve_s") is not None)
             # The tolerances go in the note for the same reason the serve
             # rate does: when a match is argued about weeks later, the
             # settings it was built under have to be readable off the match
@@ -2855,12 +2951,17 @@ def cmd_points(args):
                          f"{len(v2_E.cross)} crossings, "
                          f"camera {v2_E.shape:.2f}, "
                          f"serves/min {v2_rate:.2f}, route {route}, "
+                         f"serves/card {v2_yield:.2f}, "
+                         f"table share {v2_share_txt}, "
                          f"surface pad {points_v2.PAIR_SURFACE_PAD_M:.2f}, "
-                         f"merge {points_v2.CLUSTER_S:.1f}s")
+                         f"merge {points_v2.CLUSTER_S:.1f}s, "
+                         f"{stamped} stamped")
             print(f"points v2: {len(v2_cards)} cards "
                   f"({len(v2_E.serves)} serves, {len(v2_E.cross)} "
                   f"crossings, camera shape {v2_E.shape:.2f}, "
-                  f"serves/min {v2_rate:.2f}) -> {route}")
+                  f"serves/min {v2_rate:.2f}, serves/card {v2_yield:.2f}, "
+                  f"table share {v2_share_txt}, {stamped} stamped) "
+                  f"-> {route}")
         else:
             v2_unavailable_reason = (
                 "no_table" if calib is None else "no_candidates"
@@ -2878,7 +2979,12 @@ def cmd_points(args):
     # portal can show both answers on every match. Fails open at every step:
     # any refusal or error leaves the cards the ball side built and says so
     # in the note.
+    winner_predictions_by_start = {}
+    processing = {"schema": 1, "body": {"status": "not_requested"},
+                  "edges": {"status": "not_requested"}}
     if getattr(args, "pipeline", "v1") == "bodies":
+        from processing_outcome import failure as processing_failure
+        processing["body"] = {"status": "error", "reason_code": "players_file_missing"}
         body_why = None
         if not getattr(args, "players", None):
             body_why = "no players file"
@@ -2913,17 +3019,25 @@ def cmd_points(args):
                 # in are not table widths and its answer would mean nothing.
                 # A refusal is not a failure — the cards keep the edges the
                 # bodies gave them and the note says why.
+                combined_requested = bool(getattr(args, "combined_cuts", False))
+                combined_ready = (combined_requested and calib is not None
+                                  and getattr(args, "serve_anchor", False)
+                                  and getattr(args, "rally_end", False))
+                body_evidence = {} if combined_ready else None
+                v3 = {}
                 v3_serves, v3_dead, v3_why = None, None, None
                 want_edges = (getattr(args, "serve_anchor", False)
                               or getattr(args, "rally_end", False))
                 if want_edges and calib is None:
                     v3_why = "no table"
+                    processing["edges"] = {"status": "refused", "reason_code": "no_table"}
                 elif want_edges:
                     try:
                         import serve_v3
                         v3 = serve_v3.detect(
                             body_corners, v2_E.track, v2_E.cross, players,
-                            fps, dur, width=meta["width"])
+                            fps, dur, width=meta["width"],
+                            include_restart_evidence=combined_ready)
                         v3_serves = [c for c, _a, _s in v3["serves"]]
                         # The contacts alone are what the assembler needs;
                         # the bundle keeps the arrival and the half too, so
@@ -2931,6 +3045,7 @@ def cmd_points(args):
                         # serve rather than just the moment of contact.
                         v3_serves_full = v3["serves"]
                         v3_dead = v3["dead"]
+                        processing["edges"] = {"status": "ready", "serves": len(v3_serves)}
                         if not v3["boxes_complete"]:
                             print("serve v3: the players file predates the "
                                   "all-boxes record; person rules see only "
@@ -2940,6 +3055,7 @@ def cmd_points(args):
                               f"{v3['dropped_unpaired']} unpaired), "
                               f"{len(v3_dead)} dead-ball runs")
                     except Exception as exc:                    # noqa: BLE001
+                        processing["edges"] = processing_failure("serve_v3", exc)
                         v3_why = f"{type(exc).__name__}: {exc}"
                         print(f"serve v3 unavailable ({v3_why}) — "
                               f"the bodies keep their own edges")
@@ -2952,10 +3068,63 @@ def cmd_points(args):
                     # when V3 refuses — which is the case on exactly the
                     # matches production is worst on, the ones with no table.
                     anchor=bool(v3_serves) and getattr(args, "serve_anchor", False),
-                    close=getattr(args, "rally_end", False))
+                    close=getattr(args, "rally_end", False),
+                    evidence_out=body_evidence)
                 if not body_cards:
                     raise body_points.BodyPointsUnavailable(
                         "the body assembler produced no cards")
+                # End-only policy runs after all joins and guarded openings.
+                # Predictions stay private in a local sidecar, never match.json.
+                if getattr(args, "rally_end", False):
+                    import net_endings
+                    body_cards, private_predictions, net_info = net_endings.process_cards(
+                        body_cards, v2_E,
+                        calib["corners_px"] if calib is not None else None,
+                        meta["width"], v3_serves or [],
+                        reviewed_splits=bool(getattr(args, "reviewed_net_splits", False) or combined_ready))
+                    if combined_requested:
+                        import combined_cuts
+                        combined_info = dict(method_version=combined_cuts.METHOD_VERSION,
+                                             status='not_applied', added_cards=0,
+                                             reason='required_evidence_unavailable')
+                        if combined_ready and v3.get('restart_evidence'):
+                            try:
+                                gap4, _ = body_points.assemble(
+                                    players, body_corners, v2_E, dur,
+                                    first_ball_t0=first_ball_t0, v3_serves=v3_serves,
+                                    v3_dead=v3_dead, anchor=bool(v3_serves), close=True,
+                                    split_gap_s=4.0)
+                                gap4, _, _ = net_endings.process_cards(
+                                    gap4, v2_E, body_corners, meta['width'],
+                                    v3_serves or [], reviewed_splits=True)
+                                body_cards, private_predictions, combined_info = combined_cuts.process_cards(
+                                    body_cards, private_predictions, v2_E, body_corners,
+                                    meta['width'], v3_serves or [], v3['restart_evidence'],
+                                    body_evidence, gap4, players=players)
+                            except Exception as exc:
+                                combined_info.update(status='error', reason=type(exc).__name__)
+                        processing['combined_cuts'] = combined_info
+                    winner_predictions_by_start = {
+                        int(c["t0"] * fps): prediction
+                        for c, prediction in zip(body_cards, private_predictions)
+                    }
+                    processing["net_endings"] = net_info
+                processing["body"] = {"status": "used", "samples": body_info["samples"],
+                                      "both_share": body_info["both_share"], "cards": len(body_cards)}
+                processing["body_model"] = body_info["model"]
+                processing['rally_policy'] = body_info.get('rally_policy')
+                if getattr(args, "reviewed_net_splits", False):
+                    split_info = (processing.get('net_endings') or {}).get('reviewed_splits')
+                    split_info = split_info or dict(method_version='net-splits-v1',
+                                                     status='not_applied',added_cards=0)
+                    processing['rally_policy'] = dict(processing['rally_policy'] or {},
+                                                      reviewed_splits=split_info)
+                    processing['body']['reviewed_splits'] = {
+                        k:v for k,v in split_info.items() if k!='decisions'}
+                processing["edges"].update(
+                    anchor_requested=bool(getattr(args, "serve_anchor", False)),
+                    close_requested=bool(getattr(args, "rally_end", False)),
+                    anchored=body_info.get("anchored", 0), closed=body_info.get("closed", 0))
                 ball_cards = [dict(t0=round(float(c["t0"]), 2), t1=round(float(c["t1"]), 2),
                                    serve_s=(round(float(c["serve_s"]), 2)
                                             if c.get("serve_s") is not None else None),
@@ -2986,12 +3155,39 @@ def cmd_points(args):
                       f"({body_info['stamped']} with a serve) replace "
                       f"{len(ball_cards)} ball cards ({window_note})")
             except Exception as exc:                            # noqa: BLE001
+                processing["body"] = processing_failure("body", exc)
                 body_why = f"{type(exc).__name__}: {exc}"
         if body_why is not None:
             kept = (f"{v2_route}" if v2_cards is not None else "v1")
             notes.append(f"points bodies requested but fell back to {kept}: "
                          f"{body_why}")
             print(f"points bodies unavailable ({body_why}) — keeping {kept}")
+
+    # Whole-component cleanup cannot change any retained start/end or the
+    # original evidence. Run before export so numbering, clocks, placement
+    # and private prediction rows are all generated from the retained cards.
+    if getattr(args, 'whole_clip_cleanup', False):
+        import whole_clip_cleanup
+        cleanup_info = dict(method_version=whole_clip_cleanup.METHOD_VERSION,
+                            status='not_applied', removed_cards=0,
+                            reason='combined_policy_not_used')
+        if (pipeline_used == 'bodies' and v2_cards and calib is not None and
+                (processing.get('combined_cuts') or {}).get('status') == 'used' and
+                getattr(args, 'cut_mode', 'spans') == 'plays'):
+            # Identical to the ordinary exporter below, including frame truncation.
+            head, tail = SEGMENT_PADS[args.strictness]
+            cleanup_segments = play_cut_segments(
+                [(max(0., int(c['t0']*fps)/fps-clip_pre),
+                  min(dur, int(c['t1']*fps)/fps+clip_post)) for c in v2_cards],
+                dur, head, tail)
+            v2_cards, cleanup_info = whole_clip_cleanup.process_cards(
+                v2_cards, cleanup_segments, v2_E, calib['corners_px'],
+                meta['width'], players, v3_serves)
+            processing['body']['cards'] = len(v2_cards)
+        processing['whole_clip_cleanup'] = cleanup_info
+
+    if pipeline_used == 'bodies' and v2_cards is not None:
+        notes = final_body_notes(notes, v2_cards)
 
     # 2e. The assembler's evidence, written now that the cards are FINAL.
     #
@@ -3236,6 +3432,8 @@ def cmd_points(args):
     side_name = {"near": "user", "far": "opponent"}   # assumption: the
     # uploader is the player nearer the camera (player ID is a later phase)
     points = []
+    private_prediction_rows = []
+    from net_endings import finalize_prediction
     for idx, (a, b, si) in enumerate(plays, start=1):
         t0, t1 = a / fps, b / fps
 
@@ -3365,8 +3563,16 @@ def cmd_points(args):
             "suggestion": suggestion,
             "placement": placement,
         })
+        private_prediction_rows.append(finalize_prediction(
+            winner_predictions_by_start.get(a), idx, t0, t1))
         print(f"point {idx:02d}: {t0:6.1f}-{t1:6.1f}s "
               f"suggest={suggestion['winner'] + '/' + suggestion['how'] if suggestion else None}")
+
+    # Worker-only artifact: the worker's upload loop uses an explicit allow-list.
+    # Never include these independent predictions in the owner match JSON.
+    private_path = os.path.join(args.outdir, "point_winner_predictions.json")
+    with open(private_path, "w") as fh:
+        json.dump({"schema_version": 1, "points": private_prediction_rows}, fh, allow_nan=False)
 
     calibration_block = ({"ok": True,
                           "table_corners_px": calib["corners_px"],
@@ -3383,11 +3589,16 @@ def cmd_points(args):
         f"{story_crop['camera']})"
         if story_crop else f"none — {story_note}"))
 
+    if pipeline_used == 'bodies':
+        notes = final_body_notes(notes, points)
+        processing['body']['cards'] = len(points)
+
     match_json = {
         "version": 3,          # v3: dual-server, confidence-scored shots
         # which card assembly cut this match — the provenance that makes
         # "what am I looking at" answerable during the v2 rollout
         "pipeline": pipeline_used,
+        "processing": processing,
         # The ball side's own cards when the bodies cut the match, so the
         # admin portal can show both answers. None otherwise.
         "ball_cards": ball_cards,
@@ -3429,9 +3640,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("cut")
-    # Not required with --segments: that path reads the kept windows out of
-    # a match.json and never opens the detections at all, which is what
-    # lets a hand-marked match be cut with no ball data.
+    # A hand-marked cut already has exact source segments and deliberately
+    # has no ball detections. Legacy span cuts still check this in cmd_cut.
     c.add_argument("--blurball", default=None)
     c.add_argument("--video", required=True)
     c.add_argument("--out", required=True)
@@ -3463,6 +3673,12 @@ def main():
                         "serve opens where production opens any serve card, "
                         "HEAD_LEAD before the contact (app_config."
                         "body_serve_anchor)")
+    p.add_argument("--combined-cuts", action="store_true",
+                   help="Use the reviewed combined attempt policy (requires body edges and calibration)")
+    p.add_argument("--whole-clip-cleanup", action="store_true",
+                   help="Opt-in whole-component cleanup after combined cuts; retains original rally edges")
+    p.add_argument("--reviewed-net-splits", action="store_true",
+                   help="Opt-in reviewed low-bounce endings followed by verified restarts")
     p.add_argument("--rally-end", action="store_true",
                    help="with --pipeline bodies: a body card closes when the "
                         "ball went dead, or failing that when it was last "
@@ -3503,8 +3719,20 @@ def main():
                         "app_config.placement_serve_seed")
     p.add_argument("--endon-fallback", action="store_true",
                    help="allow the end-on assembler (points_endon) for a "
-                        "match whose serve rate is below its threshold; "
-                        "without this every v2 match stays serve-anchored")
+                        "match the router sends there (too few serves per "
+                        "candidate point, or a table the ball does not "
+                        "bounce on); without this every v2 match stays "
+                        "serve-anchored")
+    p.add_argument("--calibration-json", metavar="PATH",
+                   help="reuse this calibration (the calibration.json a "
+                        "previous run of this command wrote) instead of "
+                        "running the ladder. The second detection pass on "
+                        "a vision-calibrated match passes it so the paid "
+                        "call is made once")
+    p.add_argument("--detections-note", metavar="TEXT",
+                   help="a sentence about what the ball detector saw (crop "
+                        "or full frame), appended to match.json's notes "
+                        "verbatim so the match records it")
     p.set_defaults(fn=cmd_points)
 
     args = ap.parse_args()

@@ -1216,3 +1216,29 @@ databaseTest("a multi-write split rolls back completely when canonical projectio
   sql(`alter table public.point_score_state
        drop constraint point_score_state_structural_failure;`);
 });
+
+databaseTest("only the worker can read the sealed canonical publication contract", () => {
+  const output = sql(`begin;
+      set local role ponglens_worker;
+      select public.canonical_worker_contract_v1()::text;
+      rollback;`);
+  const contractLine = output.split("\n").find((line) => line.startsWith("{"));
+  assert.ok(contractLine, output);
+  const contract = JSON.parse(contractLine);
+  assert.deepEqual(contract, {
+    minimumMigration: "20260916120000",
+    canonicalPublicationContract: 1,
+  });
+
+  const denied = spawnSync(
+    "docker",
+    ["exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-At",
+     "-U", "postgres", "-d", DATABASE],
+    {
+      input: "set role authenticated; select public.canonical_worker_contract_v1();",
+      encoding: "utf8",
+    }
+  );
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /permission denied for function canonical_worker_contract_v1/i);
+});

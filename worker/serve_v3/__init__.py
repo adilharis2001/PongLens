@@ -80,7 +80,7 @@ def _on_table_bounces(track, H, quad, tw):
 
 
 def detect(corners_px, track, cross, players, fps, duration, width=1920.0,
-           people_fps=None):
+           people_fps=None, include_restart_evidence=False):
     """Every serve this match's ball and players agree on.
 
     Fails by raising `ServeDetectionUnavailable`; it never returns a partial
@@ -120,6 +120,20 @@ def detect(corners_px, track, cross, players, fps, duration, width=1920.0,
         people_at = servedwell.People()
         raw = rule.serves(calib, None, ev, H, track, people,
                           player_at=people_at.at, fps=fps, **gates.GATES)
+        restart_evidence = None
+        restart_error = None
+        restart_raw = None
+        if include_restart_evidence:
+            # Keep the ordinary serve verdict intact. Only the combined-cut
+            # policy may consider these weaker candidates, with independent
+            # evidence of a stopped point and a fresh attempt.
+            try:
+                gate_log = []
+                restart_raw = rule.serves(calib, None, ev, H, track, people,
+                    player_at=people_at.at, fps=fps,
+                    **dict(gates.GATES, no_rally=False, gate_log=gate_log))
+            except Exception as exc:
+                restart_error = type(exc).__name__
         bt = tossfilter.table_bounce_times(H, track)
         tossed = handover.tag(raw, track, people_at, bt, **gates.HANDOVER)
 
@@ -139,15 +153,33 @@ def detect(corners_px, track, cross, players, fps, duration, width=1920.0,
         kept = handover.drop(raw, tossed | unpaired)
         dead = deadsplit.dead_runs(H, track, gates.DEAD_BALL["apex_w"],
                                    gates.DEAD_BALL["run"], tw, fps=fps)
+        if restart_raw is not None:
+            try:
+                features = []
+                for contact, arrival, side in sorted(set(tuple(s) for s in raw + restart_raw)):
+                    hold = handover.rest_run(track, people_at, bt, contact-2.5, contact-.2)
+                    features.append(dict(contact=contact, arrival=arrival, side=side,
+                        paired=handover._is_paired(arrival, keys, half_of,
+                                                   int(round(V2.PAIR_MAX_S*fps))),
+                        held_side=hold[0], held_count=hold[1], held_start=hold[2], held_end=hold[3],
+                        kept=any(abs(s[0]-contact)<.01 for s in kept)))
+                restart_evidence = dict(candidate_features=features, gate_log=gate_log)
+            except Exception as exc:
+                restart_error = type(exc).__name__
     finally:
         holepatch.restore()
 
     serves = sorted(((float(c), float(a), s) for c, a, s in kept),
                     key=lambda r: r[0])
-    return {"serves": serves,
+    result = {"serves": serves,
             "dead": [(float(a), float(b)) for a, b in dead],
             "raw": len(raw), "dropped_pass": len(tossed),
             "dropped_unpaired": len(unpaired),
             "boxes_complete": complete,
             "samples": len(overlay["frames"]),
             "duration": float(duration)}
+    if include_restart_evidence:
+        result["restart_evidence"] = restart_evidence
+        if restart_error:
+            result["restart_evidence_error"] = restart_error
+    return result

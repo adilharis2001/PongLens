@@ -100,3 +100,27 @@ def test_the_bounce_finder_is_put_back():
     serve_v3.detect(ball["corners"], track, ball["cross"], players,
                     ball["fps"], ball["duration"], people_fps=ball.get("people_fps"))
     assert points_v2.bounces is before
+
+
+@pytest.mark.skipif(not CASES, reason='the frozen serve inputs are not on this machine')
+def test_optional_restart_failure_preserves_normal_serves(monkeypatch):
+    import points_v2
+    d = os.path.join(INPUTS, CASES[0])
+    ball = json.load(open(os.path.join(d, 'ball.json')))
+    players = json.load(open(os.path.join(d, 'players.json')))
+    track = {int(f): tuple(xy) for f,xy in ball['track'].items()}
+    real = serve_v3.rule.serves
+    def broken_restart(*a, **kw):
+        if kw.get('no_rally') is False:
+            raise ValueError('broken optional evidence')
+        return real(*a, **kw)
+    args=(ball['corners'],track,ball['cross'],players,ball['fps'],ball['duration'])
+    kw=dict(people_fps=ball.get('people_fps'))
+    normal=serve_v3.detect(*args,**kw)
+    before=points_v2.bounces
+    monkeypatch.setattr(serve_v3.rule,'serves',broken_restart)
+    result=serve_v3.detect(*args,**kw,include_restart_evidence=True)
+    assert result['serves']==normal['serves'] and result['dead']==normal['dead']
+    assert result['restart_evidence'] is None
+    assert result['restart_evidence_error']=='ValueError'
+    assert points_v2.bounces is before

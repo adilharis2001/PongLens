@@ -386,7 +386,7 @@ rejection and projection rollback. The worker receipt/transaction suite passed
 now holds one database transaction through the version lock, point/outcome
 writes, canonical receipt and final ready status.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/20260916120000_canonical_score_commands.sql src/lib/scoring worker
@@ -407,21 +407,31 @@ git commit -m "Publish manual cuts with canonical ground truth"
 - Consumes: automatic `insert_points` transaction and active processing version.
 - Produces: private `finalize_worker_points_v2(match_id,processing_version_id)`, one projection receipt and a declared minimum migration version.
 
-- [ ] **Step 1: Write RED worker publication cases**
+- [x] **Step 1: Write RED worker publication cases**
 
 Prove one finalization after a 100-point batch, obsolete-version rejection, owner first-server/outcome preservation on reprocess, old worker row-by-row publication against additive triggers, new worker against the migration floor, and rollback to the old package.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run focused worker tests; expected failure is the absent finalizer/receipt.
 
-- [ ] **Step 3: Implement finalization**
+- [x] **Step 3: Implement finalization**
 
 The worker inserts evidence and points as today, calls the finalizer before ready status, and records the migration/contract version in its release manifest. The database finalizer never promotes `points.server` or detected first server to owner truth.
 
-- [ ] **Step 4: Run GREEN and package parity tests**
+- [x] **Step 4: Run GREEN and package parity tests**
 
 Run both Mac and remote worker package tests and compare manifest source revision/migration floor.
+
+Verification on 2026-09-16: the isolated PostgreSQL suite passed 76/76,
+including 100-point automatic publication, obsolete-version and projection
+rollback, old-worker compatibility, worker-only contract access and exact
+migration-floor values. The reconciled production worker passed 176 focused
+detector/publication tests, 48 package and processing-health tests and 154
+broader regression tests. The release manifest now seals migration
+`20260916120000` and canonical publication contract `1`; a sealed worker
+checks the private database contract before its first queue read and every
+reconnect.
 
 - [ ] **Step 5: Commit**
 

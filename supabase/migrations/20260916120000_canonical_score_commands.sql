@@ -1619,3 +1619,29 @@ begin
     execute 'grant execute on function public.finalize_worker_points_v2(uuid,uuid) to ponglens_worker';
   end if;
 end $$;
+
+-- A sealed worker checks this before its first queue read. The response is a
+-- capability contract, not a migration-table guess: if this function does not
+-- exist, has the wrong values, or is not executable, the package must not
+-- accept work against that database.
+create or replace function public.canonical_worker_contract_v1()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'minimumMigration','20260916120000',
+    'canonicalPublicationContract',1
+  );
+$$;
+
+revoke all on function public.canonical_worker_contract_v1()
+  from public, anon, authenticated;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname='ponglens_worker') then
+    execute 'grant execute on function public.canonical_worker_contract_v1() to ponglens_worker';
+  end if;
+end $$;
