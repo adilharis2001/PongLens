@@ -1219,7 +1219,15 @@ export function MatchView({
         : `${cardsGate.scored} of ${cardsGate.eligible} scored`
       : !handCut && placement.view.poll
         ? placement.view.toolStatus
-        : statsRowSummary(stats);
+        : !handCut && placement.view.actionKind === "generate"
+          ? "Generate detailed analysis"
+          : !handCut && placement.view.actionKind === "retry"
+            ? "Try again"
+            : statsRowSummary(stats);
+  // Past the bar the row is the trigger: a tap starts the analysis and
+  // lands on the deck, where the card shows it generating.
+  const analysisRowAction =
+    scored && cardsGate.open && !handCut && placement.view.actionKind !== null;
   const analysis = useMemo(
     () =>
       computeMatchAnalysis(
@@ -3184,7 +3192,10 @@ export function MatchView({
             {(scored || (!handCut && placementMappedPoints > 0)) && (
               <button
                 type="button"
-                onClick={() => scrollToSection(matchStatsRef)}
+                onClick={() => {
+                  if (analysisRowAction) void placement.requestAction();
+                  scrollToSection(matchStatsRef);
+                }}
                 className={TOOL_ROW_CLASS}
               >
                 <span className="text-sm font-semibold">Match analysis</span>

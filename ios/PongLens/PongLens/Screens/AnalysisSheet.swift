@@ -189,15 +189,16 @@ struct AnalysisCards: View {
         // the deck ends on the next-step card; once none is, and only then,
         // on the teaser. A coach gets the teaser only for a complete match
         // and never the card.
-        let fullyScored = gate.eligible > 0 && gate.scored == gate.eligible
         let sideMissing = video.userSide == nil && video.showMaps
         let status = video.match.placementStatus ?? "not_requested"
         let handCut = video.match.cutSource == "manual"
         let analysisPending = !handCut && status != "ready" && status != "final_failed"
+        // Scoring is a step only up to the bar; past it the deck has what
+        // it needs and the card asks for nothing more about the score.
         let nextStep = !coachView
-            && ((scoredType && !fullyScored) || sideMissing || analysisPending)
+            && ((scoredType && !gate.open) || sideMissing || analysisPending)
         let complete = coachView
-            ? fullyScored && (handCut || status == "ready")
+            ? gate.open && (handCut || status == "ready")
             : !nextStep
         if nextStep {
             cards.append(DeckCard(id: "next", view: AnyView(
@@ -205,7 +206,6 @@ struct AnalysisCards: View {
                     match: video.match,
                     gate: gate,
                     scoredType: scoredType,
-                    fullyScored: fullyScored,
                     sideMissing: sideMissing,
                     onScore: video.onScore,
                     onChanged: video.onPlacementChanged
