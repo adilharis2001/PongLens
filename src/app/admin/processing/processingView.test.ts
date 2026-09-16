@@ -166,6 +166,7 @@ test("every expected process gets a row, spoken for or not", () => {
     "lesson:mac",
     "lesson:cloud",
     "modal:main",
+    "modal:fast",
   ]);
   // Nothing on the Mac has ever reported in this fixture, so the page is
   // blind rather than looking at an outage, and says the honest thing.
@@ -343,11 +344,11 @@ test("the lesson workers get the slower beat window", () => {
   assert.equal(rows.find((r) => r.key === "lesson:mac")?.state, "idle");
 });
 
-test("the cloud twin is off while no release is active", () => {
+test("the cloud twin is off while the switch is off", () => {
   const rows = buildWorkerRows(overview(), NOW);
   const cloud = rows.find((r) => r.key === "modal:main");
   assert.equal(cloud?.state, "off");
-  assert.match(cloud?.detail ?? "", /No pipeline release/);
+  assert.match(cloud?.detail ?? "", /Not switched on/);
 });
 
 /* ---------------------------------------------------------------- naming */
@@ -633,5 +634,129 @@ test("the shareable video queue is named on the lesson worker that serves it", (
   assert.equal(
     shareRenderNote({ share_stage: "Saving the video file", share_queued: 2, share_failed: 1 }),
     "Shareable video: saving the video file · 2 shareable videos waiting · 1 could not be prepared"
+  );
+});
+
+/* ------------------------------------------------------------------ cloud */
+
+import { cloudSummary } from "./processingView.ts";
+
+function cloud(over: Record<string, unknown> = {}) {
+  return {
+    cloud_mode: "automatic",
+    cloud_mac_release_id: "62295e48aaaaaaaa",
+    cloud_decision: {
+      reason: "mac_reporting",
+      mac_last_beat_at: ago(6),
+      mac_alive: true,
+      mac_stale_s: 900,
+      oldest_wait_trigger_s: 1800,
+    },
+    cloud_decided_at: ago(30),
+    ...over,
+  };
+}
+
+test("cloud lanes read as standby when the switch is on and no session is expected", () => {
+  const rows = buildWorkerRows(
+    overview({ workers: [pulse()], cloud: cloud() }),
+    NOW,
+  );
+  const main = rows.find((r) => r.key === "modal:main");
+  const fast = rows.find((r) => r.key === "modal:fast");
+  assert.ok(main && fast);
+  assert.equal(main.state, "standby");
+  assert.equal(fast.state, "standby");
+  assert.match(main.detail, /Starts if the Mac Studio is silent/);
+});
+
+test("cloud lanes are off when the switch is off, and never an alarm", () => {
+  const rows = buildWorkerRows(
+    overview({ workers: [pulse()], cloud: cloud({ cloud_mode: "disabled" }) }),
+    NOW,
+  );
+  assert.equal(rows.find((r) => r.key === "modal:main")?.state, "off");
+});
+
+test("a fresh cloud pulse holding a job is working, and is listed once", () => {
+  const rows = buildWorkerRows(
+    overview({
+      workers: [
+        pulse({ beat_at: ago(1300) }),
+        pulse({
+          worker_id: "modal:main",
+          host: "modal",
+          job_id: "j",
+          job_kind: "deadspace_cut",
+          stage: "ball",
+          stage_note: "frame 100/200",
+          stage_pct: 50,
+          player: "Adil",
+        }),
+      ],
+      running: [job({ id: "j" })],
+      cloud: cloud({ cloud_session_started_at: ago(600) }),
+    }),
+    NOW,
+  );
+  const cloudRows = rows.filter((r) => r.key === "modal:main");
+  assert.equal(cloudRows.length, 1);
+  assert.equal(cloudRows[0].state, "working");
+  assert.equal(cloudRows[0].pct, 50);
+  // The cloud pulse must not leak into the catch-all "anything else" rows.
+  assert.equal(rows.filter((r) => r.title === "modal:main").length, 0);
+});
+
+test("a session that was started and is not reporting is booting, then an outage", () => {
+  const booting = buildWorkerRows(
+    overview({ workers: [pulse()], cloud: cloud({ cloud_session_started_at: ago(60) }) }),
+    NOW,
+  );
+  assert.equal(booting.find((r) => r.key === "modal:main")?.state, "unconfirmed");
+  const gone = buildWorkerRows(
+    overview({ workers: [pulse()], cloud: cloud({ cloud_session_started_at: ago(600) }) }),
+    NOW,
+  );
+  assert.equal(gone.find((r) => r.key === "modal:main")?.state, "not-running");
+  // An ended session is not expected any more.
+  const ended = buildWorkerRows(
+    overview({
+      workers: [pulse()],
+      cloud: cloud({ cloud_session_started_at: ago(600), cloud_session_ended_at: ago(100) }),
+    }),
+    NOW,
+  );
+  assert.equal(ended.find((r) => r.key === "modal:main")?.state, "standby");
+});
+
+test("cloudSummary says in words why the cloud is or is not running", () => {
+  assert.match(
+    cloudSummary(cloud(), NOW).headline,
+    /^Standby\. The Mac Studio reported just now, so the cloud stays off\./,
+  );
+  assert.match(
+    cloudSummary(cloud({ cloud_mode: "disabled" }), NOW).headline,
+    /^Off\./,
+  );
+  assert.match(
+    cloudSummary(cloud({ cloud_mac_release_id: null }), NOW).headline,
+    /No cloud build is registered/,
+  );
+  assert.match(
+    cloudSummary(
+      cloud({
+        cloud_decision: {
+          reason: "release_mismatch",
+          mac_release_id: "1111111122",
+          cloud_mac_release_id: "2222222233",
+        },
+      }),
+      NOW,
+    ).headline,
+    /release 11111111 .* release 22222222/,
+  );
+  assert.match(
+    cloudSummary(cloud({ cloud_session_started_at: ago(300) }), NOW).headline,
+    /^Running:/,
   );
 });

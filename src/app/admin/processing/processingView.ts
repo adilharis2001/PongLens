@@ -63,7 +63,11 @@ export type WorkerState =
   /** Switched off by configuration. NOT a fault, and never coloured like
    *  one: the fast lane being dark is a decision, the main lane being
    *  dark is an outage. */
-  | "off";
+  | "off"
+  /** The cloud twin, switched on and waiting for its reason to start. Not
+   *  a fault either: a cloud lane with no container is what standby looks
+   *  like every minute the Mac Studio is healthy. */
+  | "standby";
 
 export interface WorkerPulse {
   worker_id: string;
@@ -120,6 +124,33 @@ export interface FinishedJob {
   player: string | null;
 }
 
+/**
+ * The dispatcher's answer to "should a cloud worker be running", written
+ * by cloud_worker_decision() once a minute. Every field is optional so an
+ * older row, or a database without the function yet, renders as unknown
+ * rather than crashing the page.
+ */
+export interface CloudDecision {
+  mode?: string | null;
+  run?: boolean;
+  reason?: string | null;
+  checked_at?: string | null;
+  mac_last_beat_at?: string | null;
+  mac_alive?: boolean;
+  mac_silent?: boolean;
+  mac_stale_s?: number;
+  mac_release_id?: string | null;
+  cloud_mac_release_id?: string | null;
+  release_match?: boolean;
+  cloud_last_beat_at?: string | null;
+  cloud_alive?: boolean;
+  session_recent?: boolean;
+  waiting?: number;
+  stuck?: number;
+  oldest_wait_s?: number;
+  oldest_wait_trigger_s?: number;
+}
+
 export interface CloudControl {
   cloud_mode?: string | null;
   active_release_id?: string | null;
@@ -134,7 +165,35 @@ export interface CloudControl {
   candidate_releases?: number;
   heartbeats?: number;
   attempts_24h?: number;
+  /** 20260916120000: the cloud twin's own record. */
+  cloud_release_id?: string | null;
+  cloud_pipeline_id?: string | null;
+  cloud_mac_release_id?: string | null;
+  cloud_source_commit?: string | null;
+  cloud_registered_at?: string | null;
+  cloud_session_started_at?: string | null;
+  cloud_session_ended_at?: string | null;
+  cloud_session_note?: string | null;
+  cloud_decided_at?: string | null;
+  cloud_decision?: CloudDecision | null;
+  mac_stale_s?: number;
 }
+
+export type CloudMode = "disabled" | "automatic" | "manual";
+
+/** What each position of the switch is called on the page. */
+export const CLOUD_MODE_LABEL: Record<CloudMode, string> = {
+  disabled: "Off",
+  automatic: "Standby",
+  manual: "Run once",
+};
+
+/** A cloud container takes a few minutes to start; silence inside that
+ *  window is a container booting, not a container missing. */
+export const CLOUD_START_GRACE_S = 4 * 60;
+/** A session marker older than this with nothing reporting is stale: the
+ *  container is gone and did not get to say so. */
+export const CLOUD_SESSION_MAX_S = 7 * 3600;
 
 export interface LessonWorkers {
   cloud_enabled?: boolean;
@@ -419,6 +478,7 @@ const STATE_DETAIL: Record<WorkerState, string> = {
     "This worker does not report its status yet, so the page cannot see it directly.",
   "not-running": "Nothing is running here.",
   off: "Switched off.",
+  standby: "Standby.",
 };
 
 /**
@@ -599,6 +659,16 @@ export function buildWorkerRows(
     }),
   );
 
+  // The cloud lanes are taken out before the catch-all below so they get
+  // their own rows, further down, where their silence can be read
+  // correctly: a cloud lane with no container is standby, not an outage.
+  const cloudPulses = new Map<string, WorkerPulse>();
+  for (const key of ["modal:main", "modal:fast"]) {
+    const p = pulses.get(key);
+    if (p) cloudPulses.set(key, p);
+    pulses.delete(key);
+  }
+
   // Anything else that pulsed. A new lane appears here on its first beat
   // without this file being edited, which is the point.
   for (const p of pulses.values()) {
@@ -672,30 +742,189 @@ export function buildWorkerRows(
     ),
   );
 
-  // The cloud twin for match processing. Off until a pipeline release is
-  // activated and the parity gate passes; the Cloud section below says so
-  // in full.
-  const cloudMode = doc.cloud?.cloud_mode ?? "disabled";
-  rows.push({
-    key: "modal:main",
-    title: "Cloud · match processing",
-    state: cloudMode === "disabled" ? "off" : "not-running",
-    detail:
-      cloudMode === "disabled"
-        ? "Not switched on. No pipeline release has been activated."
-        : STATE_DETAIL["not-running"],
-    caveat: null,
-    note: null,
-    pct: null,
-    jobFor: null,
-    matchId: null,
-    player: null,
-    upSince: null,
-    codeVersion: doc.cloud?.active_release_id ?? null,
-    loadNote: null,
-  });
+  // The cloud twin: the same sealed release on a rented GPU, started by
+  // the dispatcher when the Mac Studio goes quiet (the Cloud section says
+  // why, in words). Two lanes, like the Mac. Their silence is a decision
+  // until a session is expected, at which point it becomes the alarm it
+  // would be on the Mac.
+  const cloud = doc.cloud ?? {};
+  const cloudMode = cloud.cloud_mode ?? "disabled";
+  const expected = cloudSessionExpected(cloud, now);
+  const sessionAgeS = secondsBetween(cloud.cloud_session_started_at, now);
+  for (const [lane, title] of [
+    ["main", "Cloud · main lane"],
+    ["fast", "Cloud · fast lane"],
+  ] as const) {
+    const key = `modal:${lane}`;
+    const p = cloudPulses.get(key) ?? null;
+    const age = p ? secondsBetween(p.beat_at, now) : null;
+    if (p && age !== null && age <= BEAT_STALE_S) {
+      const state: WorkerState = p.job_id ? "working" : "idle";
+      rows.push({
+        key,
+        title,
+        state,
+        detail: state === "working" ? pulseDetail(p, now) : "Waiting for work in the cloud.",
+        caveat: null,
+        note: state === "working" ? p.stage_note ?? null : null,
+        pct: state === "working" ? p.stage_pct ?? null : null,
+        jobFor: state === "working" ? secondsBetween(p.job_created_at ?? p.beat_at, now) : null,
+        matchId: state === "working" ? p.match_id ?? null : null,
+        player: state === "working" ? p.player ?? null : null,
+        upSince: p.started_at,
+        codeVersion: p.code_version ?? null,
+        loadNote: null,
+      });
+      continue;
+    }
+    let state: WorkerState;
+    let detail: string;
+    if (expected) {
+      if (sessionAgeS !== null && sessionAgeS < CLOUD_START_GRACE_S) {
+        state = "unconfirmed";
+        detail = `Starting in the cloud, ${durationLabel(sessionAgeS)} ago. The first report usually arrives within a few minutes.`;
+      } else {
+        state = "not-running";
+        detail = "A cloud session should be running and this lane is not reporting.";
+      }
+    } else if (cloudMode === "disabled") {
+      state = "off";
+      detail = "Not switched on.";
+    } else if (cloudMode === "manual") {
+      state = "standby";
+      detail = "One session is about to start.";
+    } else {
+      state = "standby";
+      detail = standbyRule(cloud);
+    }
+    rows.push({
+      key,
+      title,
+      state,
+      detail,
+      caveat: null,
+      note: null,
+      pct: null,
+      jobFor: null,
+      matchId: null,
+      player: null,
+      upSince: null,
+      codeVersion: cloud.cloud_mac_release_id
+        ? `release ${cloud.cloud_mac_release_id}`
+        : null,
+      loadNote: null,
+    });
+  }
 
   return rows;
+}
+
+/* -------------------------------------------------------------------------
+ * The cloud twin, in words
+ * ---------------------------------------------------------------------- */
+
+/** A session was started and has not reported its end, recently enough
+ *  that the container could still be alive. */
+export function cloudSessionExpected(cloud: CloudControl, now: Date): boolean {
+  const started = secondsBetween(cloud.cloud_session_started_at, now);
+  if (started === null || started > CLOUD_SESSION_MAX_S) return false;
+  const ended = secondsBetween(cloud.cloud_session_ended_at, now);
+  return ended === null || ended > started;
+}
+
+function standbyRule(cloud: CloudControl): string {
+  const d = cloud.cloud_decision ?? {};
+  const silent = durationLabel(d.mac_stale_s ?? cloud.mac_stale_s ?? 900);
+  const waited = durationLabel(d.oldest_wait_trigger_s ?? cloud.oldest_wait_s ?? 1800);
+  return `Starts if the Mac Studio is silent for ${silent} with work waiting ${waited}.`;
+}
+
+function shortRelease(id: string | null | undefined): string {
+  return id ? id.slice(0, 8) : "unknown";
+}
+
+/**
+ * The Cloud section's own sentences: what the switch is set to, what the
+ * dispatcher decided last time it looked, and why. Written for the one
+ * reader of this page, so it names the Mac Studio and says minutes, not
+ * reason codes.
+ */
+export function cloudSummary(
+  cloud: CloudControl,
+  now: Date,
+): { headline: string; lines: string[] } {
+  const mode = (cloud.cloud_mode ?? "disabled") as CloudMode;
+  const d = cloud.cloud_decision ?? {};
+  const expected = cloudSessionExpected(cloud, now);
+  const macAgo = d.mac_last_beat_at
+    ? agoLabel(d.mac_last_beat_at, now)
+    : "never";
+  const lines: string[] = [];
+
+  let headline: string;
+  if (!cloud.cloud_mac_release_id) {
+    headline =
+      "No cloud build is registered yet, so nothing can start in the cloud whatever the switch says.";
+  } else if (mode === "disabled") {
+    headline = "Off. Everything is processed on the Mac Studio.";
+  } else if (expected) {
+    headline =
+      mode === "manual"
+        ? "Running one session now. The switch returns to Off when the queue is empty."
+        : `Running: the Mac Studio last reported ${macAgo} and work was waiting.`;
+  } else if (mode === "manual") {
+    headline = "Starting one session. The switch returns to Off when it finishes.";
+  } else {
+    switch (d.reason) {
+      case "release_mismatch":
+        headline = `Standby, but blocked: the Mac Studio runs release ${shortRelease(
+          d.mac_release_id,
+        )} and the cloud build is from release ${shortRelease(
+          d.cloud_mac_release_id,
+        )}. Rebuild the cloud before it can take over.`;
+        break;
+      case "nothing_waiting":
+        headline = `Standby. The Mac Studio last reported ${macAgo}, and nothing is waiting.`;
+        break;
+      case "waiting_not_long_enough":
+        headline = `Standby. The Mac Studio last reported ${macAgo}; the oldest job has waited ${durationLabel(
+          d.oldest_wait_s ?? 0,
+        )} of the ${durationLabel(
+          d.oldest_wait_trigger_s ?? 1800,
+        )} it takes to start the cloud.`;
+        break;
+      case "mac_silent_work_waiting":
+      case "cloud_running":
+        headline = `Starting: the Mac Studio last reported ${macAgo} with work waiting.`;
+        break;
+      case "mac_reporting":
+      default:
+        headline = `Standby. The Mac Studio reported ${macAgo}, so the cloud stays off.`;
+    }
+  }
+
+  if (cloud.cloud_decided_at) {
+    lines.push(`Checked ${agoLabel(cloud.cloud_decided_at, now)}.`);
+  }
+  if (cloud.cloud_mac_release_id) {
+    lines.push(
+      `Cloud build from release ${shortRelease(cloud.cloud_mac_release_id)}${
+        cloud.cloud_source_commit ? ` (source ${cloud.cloud_source_commit.slice(0, 8)})` : ""
+      }${cloud.cloud_registered_at ? `, registered ${agoLabel(cloud.cloud_registered_at, now)}` : ""}.`,
+    );
+  }
+  if (cloud.cloud_session_started_at) {
+    const ended =
+      cloud.cloud_session_ended_at &&
+      (secondsBetween(cloud.cloud_session_ended_at, now) ?? Infinity) <
+        (secondsBetween(cloud.cloud_session_started_at, now) ?? 0);
+    lines.push(
+      `Last session started ${agoLabel(cloud.cloud_session_started_at, now)}${
+        ended ? `, ended ${agoLabel(cloud.cloud_session_ended_at, now)}` : ""
+      }${cloud.cloud_session_note ? ` · ${cloud.cloud_session_note}` : ""}.`,
+    );
+  }
+  return { headline, lines };
 }
 
 /* -------------------------------------------------------------------------
