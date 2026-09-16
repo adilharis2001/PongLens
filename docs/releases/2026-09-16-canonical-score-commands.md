@@ -25,8 +25,9 @@ path during this rollout.
 
 ## Safe order
 
-1. Apply migrations `20260915190000` and `20260916120000` with
-   `canonical_score_commands=off`.
+1. Apply migrations `20260915190000`, `20260916120000` and
+   `20260916133000` with `canonical_score_commands=off`. The last migration
+   makes the emergency switch authoritative for admins as well as players.
 2. Deploy the web/backend release. Confirm projection health in Upload Detail.
 3. Install the verified worker package only after both worker lanes are idle.
    Confirm its release ID and database-contract acceptance before allowing a
@@ -54,10 +55,42 @@ release. Do not run an older package that fails the active database contract.
 
 ## Verification record
 
-- Isolated PostgreSQL canonical suite: 78/78, including admin/owner/coach/anon
+| Item | Production evidence on September 16, 2026 |
+| --- | --- |
+| Source | Phase-two source commit `41322bc44cb1da907b3cde5f5872fe45d53c6656`; rollback and corpus-audit hardening commit `3b113bff727dabde41515b457cc9b3f8a292aeb7`. |
+| Database | Migrations `20260915190000`, `20260916120000` and `20260916133000` applied. All 216 matches have projections: 193 current matches and 23 intentional empty matches with zero visible points. Every source/projection revision agrees. |
+| Capability | `canonical_score_commands=user:a2e61027-2ee9-4026-a058-dc07441ee633`. Ordinary accounts remain on legacy writes. In one rolled-back authenticated production transaction the allowlisted admin returned `true`, the temporary `off` value returned `false`, and the restored account value returned `true`; no live configuration or match rows changed. |
+| Web | Vercel production deployment `dpl_Bt1zFgbiVBCSnryTp2vxCnaJ2yrq` reached READY for commit `3b113bff` and received the `www.ponglens.com`, `ponglens.com` and `ponglens.vercel.app` aliases. |
+| Command canary | All 12 command families succeeded against an Adil-owned production match inside one authenticated transaction. The transaction was rolled back; revision `0` and 116 point rows were unchanged afterward. |
+| Worker | Active release `9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce` on both `main` and `fast`. The previous release `62295e48b91091b93ef796d2cf8688482d524af3df863f757b170f437d00fea1` was actually booted on both lanes, observed healthy and idle, drained, and replaced by the active release. Zero jobs were open throughout. |
+| Native | 1,215 unit/parity checks passed and the complete reconciled simulator build succeeded. The canonical build installs and launches. Installing it cleared the simulator login, so authenticated production UI interaction remains a human acceptance check. |
+
+Additional automated evidence:
+
+- Isolated PostgreSQL canonical suite: 81/81, including admin/owner/coach/anon
   grants, automatic and manual publication, old-worker compatibility and
-  forced rollback cases.
-- Worker production-feature reconciliation: 176 focused detector/publication
-  tests, 48 release/email/health tests, and 154 broader regression tests.
-- Web, iOS, full build, production-like migration timing and production canary
-  evidence are recorded here at the final release checkpoint.
+  forced rollback cases. The final capability test proves admins cannot bypass
+  `off` or an account allowlist.
+- Production-like database copy: 220 legacy matches, 19,800 points and five
+  manual-cut drafts; 2.40-second migration; all 220 projections current; 900
+  manual-cutter observations exact; command p50 16.329 ms and p95 20.336 ms
+  over 100 commands.
+- Production corpus: all 216 matches and all 12,827 nonempty point rows match
+  the established legacy fold exactly. The audit ignores JSON object key order,
+  reports only aggregate differences and exits nonzero on any invalid or
+  mismatching row.
+- Web: scorer 43/43, structure 141/141, scorecard 15/15, statistics 6/6,
+  placement 120/120, lesson video 60/60, costs/admin 244/244, and the real
+  production Next build.
+- Worker package: claim-boundary 10/10, release 27/27, canonical publication
+  16/16, frozen point parity 17/17, actual CoreML pose, table, ball and repeated
+  side-change smoke checks, followed by a complete integrity recheck.
+
+## Remaining acceptance before widening
+
+Do not widen the capability or migrate owner readers yet. First log into the
+installed simulator build and confirm an existing scored match loads, then make
+and undo one safe score correction. The next real automatic and manual-cut
+production jobs should also be checked for publication health. These are
+acceptance checks, not missing implementation; all mutation families and both
+publication paths are covered by the database and package suites above.

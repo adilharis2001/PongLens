@@ -2,21 +2,22 @@
 
 Store one versioned, database-derived answer for the owner-confirmed score, server, game and timeline state, while preserving the raw human inputs that produced it. Keep worker guesses, manual-cutter boundaries and admin research labels as explicitly named evidence sources so none can silently impersonate another. Roll this out additively across web, iOS, admin, worker, coach, sharing, statistics and exports before removing any existing calculation.
 
-> **Implementation status (2026-09-15):** The additive foundation is prepared
-> on `codex/canonical-score-state`: pure TypeScript projector, shared literal
-> fixtures, private SQL shadow projection, revision/health plumbing, RLS
-> contracts and manual-cutter source-clock normalization. TypeScript, static
-> migration and isolated real-PostgreSQL contracts pass. No production reader
-> or writer has been switched.
-> Atomic scoring/structural commands, web/iOS reader migration, downstream
-> consumer migration and worker publication remain later release phases.
+> **Implementation status (2026-09-16):** Phase two is deployed as an
+> account-scoped production canary. Migrations `20260915190000` and
+> `20260916120000`, atomic score/structure commands, web/native command clients,
+> manual and automatic publication, admin diagnostics and sealed worker release
+> `9e53da3318b…` are live. Only Adil's account is enabled; established readers
+> still render the legacy fold. Backend command parity and the real database and
+> worker rollback switches are verified. Authenticated native interaction and
+> observation of the next real automatic and hand-cut publications remain open
+> acceptance checks before the capability widens or phase-three readers move.
 
 | Document control | Value |
 | --- | --- |
-| Date / status | September 15, 2026. Design approved; additive foundation implementation in progress. No production deployment is authorized by this document alone. |
+| Date / status | September 16, 2026. Phase-two command canary deployed to Adil only; phase-three reader migration is planned but not authorized until the remaining production acceptance checks pass. |
 | Primary decision | Persist a canonical **derived projection**, not an editable `server` value copied onto each point. Human answers remain the authority; the projection makes every reader use the same interpretation. |
 | Scope | Owner scorekeeping, serve rotation, game boundaries, manual cutting, Split, Join, Adjust, Insert, delete/restore, web desktop, mobile web, native iOS, admin Upload Detail, research labelers, worker publication/reprocessing, coach views, shares, statistics, placement, highlights, reels and exports. |
-| Evidence | Current repository behavior, migration history, the deployed database schema inspected read-only on September 15, and the existing scorekeeper/playback and hand-cut designs. No production rows were changed. |
+| Evidence | Release handoff `docs/releases/2026-09-16-canonical-score-commands.md`, production migrations and projection health, rollback-only authenticated command canary, full web/native/database/worker suites and the exercised package rollback. |
 | Related design | This document owns scored-match state and its mutation boundary. Source/media playback integrity remains governed by `2026-09-11-scorekeeper-playback-integrity-design.md`; the two designs share revisions and timing observations rather than creating parallel concepts. |
 | Deliverable | Architecture, schema, mutation contracts, surface-by-surface behavior, rollout, compatibility, tests, monitoring and documentation handoff. A task-level implementation plan follows only after review. |
 
@@ -52,9 +53,12 @@ The current data model stores the owner's inputs correctly, but most derived ans
 | Admin full-match labels | `fullmatch_labels` | Correctly separate from owner points. | The word “score” can obscure that these labels must never feed owner projections. |
 | Worker server | `points.server` | Useful near/far machine guess and first-server prompt aid. | Its `user`/`opponent` names are historical worker-frame labels, not owner-confirmed logical players. |
 
-### Deployed database audit
+### Pre-implementation database audit
 
-The read-only production schema inspection confirmed that the live database has the owner fields and edit RPCs described above, but no canonical score revision or projection yet.
+The September 15 read-only production schema inspection established the
+pre-implementation baseline below. The canonical projection and command
+boundary described as missing here were deployed on September 16; this table is
+retained as historical rationale rather than current operational state.
 
 | Area | Deployed state on September 15, 2026 |
 | --- | --- |

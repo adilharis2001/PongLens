@@ -274,6 +274,7 @@ grant update (
 const migrations = [
   "20260915190000_canonical_scored_match_state.sql",
   "20260916120000_canonical_score_commands.sql",
+  "20260916133000_canonical_score_capability_rollback.sql",
 ].map((name) =>
   readFileSync(new URL(`../../supabase/migrations/${name}`, import.meta.url), "utf8")
 );

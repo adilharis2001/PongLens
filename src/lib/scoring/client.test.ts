@@ -215,6 +215,36 @@ test("projection comparison ignores transport-only point revisions", () => {
   );
 });
 
+test("projection comparison ignores PostgreSQL jsonb object key order", () => {
+  const reorder = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(reorder);
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+          .reverse()
+          .map(([key, nested]) => [key, reorder(nested)]),
+      );
+    }
+    return value;
+  };
+  const original = success("request-1").snapshot;
+  const reordered = {
+    ...original,
+    match: reorder(original.match),
+    points: original.points.map((row) => reorder(row)),
+  } as typeof original;
+
+  assert.deepEqual(compareCanonicalProjection(reordered, { match, points: [point] }), {
+    matchId: "match-1",
+    revision: 8,
+    matches: true,
+    mismatchedMatchFields: 0,
+    mismatchedPoints: 0,
+    canonicalPointCount: 1,
+    legacyPointCount: 1,
+  });
+});
+
 test("match command serialization feeds each committed revision into the next call", async () => {
   const expected: unknown[] = [];
   const requestIds = ["request-1", "request-2"];
