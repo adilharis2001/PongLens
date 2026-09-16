@@ -13,9 +13,12 @@ from worker.match_release import build, verify, verify_unchanged, prepare_run, s
 
 
 class WorkerReleaseAdapterContract(unittest.TestCase):
-    def test_worker_logs_use_the_external_release_state(self):
+    def test_worker_uses_every_sealed_runtime_adapter(self):
         source = (Path(__file__).parents[1] / 'worker.py').read_text()
         self.assertIn('os.environ.get("PONGLENS_LOG_DIR", WORKER_DIR)', source)
+        self.assertIn('"PONGLENS_PIPELINE_PY", f"{TTVID}/vendor/venv/bin/python"', source)
+        self.assertIn('"PONGLENS_BLURBALL_INFER", f"{TTVID}/vendor/blurball_infer.py"', source)
+        self.assertIn('os.environ.get("PONGLENS_YTDLP")', source)
 
 
 class ReleaseTests(unittest.TestCase):

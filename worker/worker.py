@@ -202,8 +202,10 @@ except ModuleNotFoundError:  # direct `python worker/worker.py` execution
 # Configuration
 # ---------------------------------------------------------------------------
 TTVID = "/Users/adil/Desktop/Projects/TTVid"
-VENV_PY = f"{TTVID}/vendor/venv/bin/python"          # numpy+cv2 (+torch)
-BLURBALL_INFER = f"{TTVID}/vendor/blurball_infer.py"
+VENV_PY = os.environ.get(
+    "PONGLENS_PIPELINE_PY", f"{TTVID}/vendor/venv/bin/python")
+BLURBALL_INFER = os.environ.get(
+    "PONGLENS_BLURBALL_INFER", f"{TTVID}/vendor/blurball_infer.py")
 POINTS_PIPELINE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "points_pipeline.py")
 # Also under VENV_PY: it needs scipy, which the worker's own venv does not
@@ -251,7 +253,8 @@ VALID_STRICTNESS = ("tight", "normal", "loose")
 # updates itself (`yt-dlp -U`) instead of waiting on a packager, which is
 # the property that matters when the breakage is upstream and dated.
 YTDLP = next(
-    (p for p in (os.environ.get("YTDLP_PATH"),
+    (p for p in (os.environ.get("PONGLENS_YTDLP"),
+                 os.environ.get("YTDLP_PATH"),
                  os.path.expanduser("~/.local/bin/yt-dlp"),
                  shutil.which("yt-dlp"),
                  "/opt/homebrew/bin/yt-dlp")
