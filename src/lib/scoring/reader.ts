@@ -1,8 +1,16 @@
 import {
+  parseCanonicalScoreSummary,
   parseCanonicalScoreSnapshot,
+  type CanonicalScoreSummary,
   type CanonicalScoreSnapshot,
 } from "./commands.ts";
-import type { CanonicalProjection } from "./canonical.ts";
+import {
+  projectCanonicalScore,
+  type CanonicalFirstServerSource,
+  type CanonicalGameEndOverride,
+  type CanonicalPlayer,
+  type CanonicalProjection,
+} from "./canonical.ts";
 import { compareCanonicalProjection } from "./client.ts";
 
 type ReaderRpcResponse = { data: unknown; error: unknown };
@@ -14,6 +22,19 @@ export type CanonicalScoreReadExecution =
       reason:
         | "not_enabled"
         | "not_found"
+        | "unavailable"
+        | "transport_error"
+        | "invalid_response"
+        | "revision_changed";
+    };
+
+export type CanonicalScoreSummariesReadExecution =
+  | { kind: "canonical"; summaries: CanonicalScoreSummary[] }
+  | {
+      kind: "legacy";
+      reason:
+        | "not_enabled"
+        | "invalid_input"
         | "unavailable"
         | "transport_error"
         | "invalid_response"
@@ -33,12 +54,76 @@ export type CanonicalScoreReaderDiagnostic =
       >;
     };
 
+export interface LegacyScoreChip {
+  you: number;
+  them: number;
+  complete: boolean;
+}
+
+export type CanonicalScoreSummariesDiagnostic =
+  | {
+      kind: "parity";
+      requestedCount: number;
+      returnedCount: number;
+      missingCount: number;
+      comparedCount: number;
+      mismatchedCount: number;
+    }
+  | {
+      kind: "fallback";
+      reason: Exclude<
+        Extract<CanonicalScoreSummariesReadExecution, { kind: "legacy" }>['reason'],
+        "not_enabled"
+      >;
+    };
+
 type JsonObject = Record<string, unknown>;
 
 function object(value: unknown): JsonObject | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonObject)
     : null;
+}
+
+export interface LegacyScoreSourceRow {
+  id: string;
+  idx: number;
+  t0: number | null;
+  deleted: boolean;
+  is_let: boolean;
+  confirmed_how: string | null;
+  confirmed_winner: CanonicalPlayer | null;
+  server_override: CanonicalPlayer | null;
+  game_end_override: CanonicalGameEndOverride;
+  game_winner_override: CanonicalPlayer | null;
+}
+
+/**
+ * One adapter from established database row names into the frozen legacy
+ * projection oracle. Owner and admin shadows share it so the comparison
+ * itself cannot drift between surfaces while readers remain dormant.
+ */
+export function projectLegacyScoreRows(input: {
+  firstServer: CanonicalPlayer | null;
+  firstServerSource: CanonicalFirstServerSource;
+  points: LegacyScoreSourceRow[];
+}): CanonicalProjection {
+  return projectCanonicalScore({
+    firstServer: input.firstServer,
+    firstServerSource: input.firstServerSource,
+    points: input.points.map((point) => ({
+      id: point.id,
+      idx: point.idx,
+      t0: point.t0,
+      deleted: point.deleted,
+      isLet: point.is_let,
+      confirmedHow: point.confirmed_how,
+      confirmedWinner: point.confirmed_winner,
+      serverOverride: point.server_override,
+      gameEndOverride: point.game_end_override,
+      gameWinnerOverride: point.game_winner_override,
+    })),
+  });
 }
 
 /**
@@ -52,7 +137,7 @@ export async function loadCanonicalScoreSnapshot(deps: {
   rpc: (
     name: "canonical_score_snapshot_v1",
     args: { p_match_id: string },
-  ) => Promise<ReaderRpcResponse>;
+  ) => PromiseLike<ReaderRpcResponse>;
 }): Promise<CanonicalScoreReadExecution> {
   let response: ReaderRpcResponse;
   try {
@@ -95,6 +180,84 @@ export async function loadCanonicalScoreSnapshot(deps: {
 }
 
 /**
+ * Loads at most 250 revision-pinned match summaries in one read. The server
+ * deliberately omits inaccessible, missing and stale matches; the client
+ * rejects duplicates and rows it did not request so a malformed response can
+ * never be mistaken for a trustworthy partial batch.
+ */
+export async function loadCanonicalScoreSummaries(deps: {
+  matchIds: string[];
+  expectedRevisions?: ReadonlyMap<string, number>;
+  rpc: (
+    name: "canonical_score_summaries_v1",
+    args: { p_match_ids: string[] },
+  ) => PromiseLike<ReaderRpcResponse>;
+}): Promise<CanonicalScoreSummariesReadExecution> {
+  const matchIds = [...new Set(deps.matchIds)];
+  if (
+    deps.matchIds.length > 250 ||
+    matchIds.some((matchId) => matchId.length === 0)
+  ) {
+    return { kind: "legacy", reason: "invalid_input" };
+  }
+
+  let response: ReaderRpcResponse;
+  try {
+    response = await deps.rpc("canonical_score_summaries_v1", {
+      p_match_ids: matchIds,
+    });
+  } catch {
+    return { kind: "legacy", reason: "transport_error" };
+  }
+  if (response.error) {
+    return { kind: "legacy", reason: "transport_error" };
+  }
+
+  const row = object(response.data);
+  if (!row || typeof row.ok !== "boolean") {
+    return { kind: "legacy", reason: "invalid_response" };
+  }
+  if (!row.ok) {
+    if (
+      row.code === "not_enabled" ||
+      row.code === "invalid_input" ||
+      row.code === "unavailable"
+    ) {
+      return { kind: "legacy", reason: row.code };
+    }
+    return { kind: "legacy", reason: "invalid_response" };
+  }
+  if (!Array.isArray(row.summaries)) {
+    return { kind: "legacy", reason: "invalid_response" };
+  }
+
+  const requested = new Set(matchIds);
+  const seen = new Set<string>();
+  const summaries: CanonicalScoreSummary[] = [];
+  for (const value of row.summaries) {
+    const summary = parseCanonicalScoreSummary(value);
+    if (
+      !summary ||
+      !requested.has(summary.matchId) ||
+      seen.has(summary.matchId)
+    ) {
+      return { kind: "legacy", reason: "invalid_response" };
+    }
+    const expectedRevision = deps.expectedRevisions?.get(summary.matchId);
+    if (
+      expectedRevision !== undefined &&
+      summary.revision !== expectedRevision
+    ) {
+      return { kind: "legacy", reason: "revision_changed" };
+    }
+    seen.add(summary.matchId);
+    summaries.push(summary);
+  }
+
+  return { kind: "canonical", summaries };
+}
+
+/**
  * Sanitized shadow evidence only. A disabled reader is expected and silent;
  * every other fallback emits one stable code, and parity contains aggregate
  * counts rather than point ids or snapshot payloads.
@@ -117,4 +280,47 @@ export function canonicalScoreReaderDiagnostic(
   }
   if (execution.reason === "not_enabled") return null;
   return { kind: "fallback", reason: execution.reason };
+}
+
+/** Aggregate-only library shadow evidence. A missing summary is counted but
+ * never identified; it may represent stale state and must not trigger repair. */
+export function canonicalScoreSummariesDiagnostic(
+  execution: CanonicalScoreSummariesReadExecution,
+  legacyByMatch: ReadonlyMap<string, LegacyScoreChip>,
+  requestedCount: number,
+): CanonicalScoreSummariesDiagnostic | null {
+  if (execution.kind === "legacy") {
+    if (execution.reason === "not_enabled") return null;
+    return { kind: "fallback", reason: execution.reason };
+  }
+
+  let mismatchedCount = 0;
+  for (const summary of execution.summaries) {
+    const legacy = legacyByMatch.get(summary.matchId);
+    const canonical = summary.match.answeredPointCount > 0
+      ? {
+          you: summary.match.gamesUser,
+          them: summary.match.gamesOpponent,
+          complete:
+            summary.match.allVisiblePointsAnswered &&
+            summary.match.completedGames.length > 0,
+        }
+      : undefined;
+    if (
+      canonical?.you !== legacy?.you ||
+      canonical?.them !== legacy?.them ||
+      canonical?.complete !== legacy?.complete
+    ) {
+      mismatchedCount += 1;
+    }
+  }
+
+  return {
+    kind: "parity",
+    requestedCount,
+    returnedCount: execution.summaries.length,
+    missingCount: Math.max(0, requestedCount - execution.summaries.length),
+    comparedCount: execution.summaries.length,
+    mismatchedCount,
+  };
 }

@@ -30,15 +30,21 @@ default-off `canonical_score_readers` canary and the narrow
 `canonical_score_snapshot_v1` RPC, plus typed web and native loaders that pin
 the expected match revision, fail back to the established fold, and emit only
 aggregate parity counts or stable fallback reasons. Web and native displays do
-not consume canonical state yet.
+not consume canonical state yet. Owner and admin web shadows now reconstruct
+their legacy oracle through one shared adapter. Match-library shadows use the
+bounded `canonical_score_summaries_v1` batch instead of one RPC per card; the
+batch omits inaccessible, missing and stale rows together, never repairs state,
+and emits no match identifiers.
 
 Verified on September 16, 2026:
 
-- Full isolated PostgreSQL scoring suite: 88/88, including owner,
+- Full isolated PostgreSQL scoring suite: 93/93, including owner,
   accepted-coach, admin, stranger and anonymous reader boundaries, plus proof
-  that stale reads do not repair or mutate projection state.
+  that stale reads do not repair or mutate projection state. The batch reader
+  also rejects requests above 250 ids and denies anonymous execution.
 - Production-sized rehearsal: 220 matches and 19,800 points; migrations in
-  2.36 seconds; existing commands at 16.274 ms p50 and 18.856 ms p95.
+  2.81 seconds; existing commands at 19.755 ms p50 and 25.402 ms p95. The
+  owner, coach, stranger, stale-state and oversized batch cases all passed.
 - Complete native behavior suite: 1,230/1,230.
 - Full iPhone 18 Pro simulator target build: succeeded.
 - Full production Next.js build: succeeded. Existing unrelated lint warnings

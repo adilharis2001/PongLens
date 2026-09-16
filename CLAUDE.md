@@ -688,9 +688,13 @@ Migration `20260916143000_canonical_score_readers.sql` adds the authenticated
 access still goes through the existing match boundary; admin status never
 enables the canary. Web match detail and native iOS may shadow-compare one
 revision-pinned snapshot when that account is allowlisted, but displays still
-use the established folds. Shadow diagnostics contain only aggregate mismatch
-counts or stable fallback codes. Do not activate or widen this reader flag
-until the entry gates in
+use the established folds. Admin Upload Detail shares the same legacy adapter,
+and the match library can shadow-read up to 250 revision-current summaries in
+one `canonical_score_summaries_v1` call. Missing, inaccessible and stale rows
+are deliberately omitted together; readers must not repair them or turn the
+batch into an existence oracle. Shadow diagnostics contain only aggregate
+mismatch counts or stable fallback codes, never match ids. Do not activate or
+widen this reader flag until the entry gates in
 `docs/superpowers/plans/2026-09-16-canonical-score-reader-migration.md` pass.
 
 - **Authority stays separated.** Owner outcomes, skips, first-server choices,

@@ -571,6 +571,30 @@ databaseTest("canonical reader snapshot is default-off and access-scoped for own
   const owner = command(OWNER, `public.canonical_score_snapshot_v1('${MATCH}')`);
   assert.equal(owner.ok, true);
   assert.equal((owner.snapshot as { matchId: string }).matchId, MATCH);
+  const ownerBatch = command(
+    OWNER,
+    `public.canonical_score_summaries_v1(array[
+       '${MATCH}'::uuid,
+       'ffffffff-ffff-4fff-8fff-ffffffffffff'::uuid
+     ])`
+  );
+  assert.equal(ownerBatch.ok, true);
+  assert.deepEqual(
+    (ownerBatch.summaries as { matchId: string }[]).map((row) => row.matchId),
+    [MATCH]
+  );
+  const oversizedIds = Array.from(
+    { length: 251 },
+    (_, index) =>
+      `'00000000-0000-4000-8000-${String(index).padStart(12, "0")}'::uuid`
+  ).join(",");
+  assert.equal(
+    command(
+      OWNER,
+      `public.canonical_score_summaries_v1(array[${oversizedIds}])`
+    ).code,
+    "invalid_input"
+  );
 
   sql(`insert into public.coach_links(player_id,coach_id,status,all_matches)
        values ('${OWNER}','${COACH}','accepted',true);`);
@@ -584,12 +608,26 @@ databaseTest("canonical reader snapshot is default-off and access-scoped for own
     command(COACH, `public.canonical_score_snapshot_v1('${MATCH}')`).ok,
     true
   );
+  assert.equal(
+    (command(
+      COACH,
+      `public.canonical_score_summaries_v1(array['${MATCH}'::uuid])`
+    ).summaries as unknown[]).length,
+    1
+  );
 
   sql(`update public.app_config set value='user:${STRANGER}'
         where key='canonical_score_readers';`);
   assert.equal(
     command(STRANGER, `public.canonical_score_snapshot_v1('${MATCH}')`).code,
     "not_found"
+  );
+  assert.deepEqual(
+    command(
+      STRANGER,
+      `public.canonical_score_summaries_v1(array['${MATCH}'::uuid])`
+    ).summaries,
+    []
   );
 
   sql(`update public.app_config set value='user:${ADMIN}'
@@ -616,6 +654,14 @@ databaseTest("canonical reader snapshot is default-off and access-scoped for own
     "stale",
     "a reader must never repair or otherwise mutate projection state"
   );
+  assert.deepEqual(
+    command(
+      OWNER,
+      `public.canonical_score_summaries_v1(array['${MATCH}'::uuid])`
+    ).summaries,
+    [],
+    "batch readers omit stale projections rather than repairing them"
+  );
 
   const denied = spawnSync(
     "docker",
@@ -630,6 +676,20 @@ databaseTest("canonical reader snapshot is default-off and access-scoped for own
   );
   assert.notEqual(denied.status, 0);
   assert.match(denied.stderr, /permission denied/i);
+
+  const batchDenied = spawnSync(
+    "docker",
+    [
+      "exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1",
+      "-At", "-U", "postgres", "-d", DATABASE,
+    ],
+    {
+      input: `set role anon; select public.canonical_score_summaries_v1(array['${MATCH}'::uuid]);`,
+      encoding: "utf8",
+    }
+  );
+  assert.notEqual(batchDenied.status, 0);
+  assert.match(batchDenied.stderr, /permission denied/i);
 });
 
 databaseTest("command context locks one current snapshot and reports conflicts without writing", () => {

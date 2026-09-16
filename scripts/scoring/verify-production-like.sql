@@ -45,6 +45,14 @@ begin
        'public.canonical_score_snapshot_v1(uuid)', 'execute') then
     raise exception 'authenticated canonical reader grant missing';
   end if;
+  if has_function_privilege('anon',
+       'public.canonical_score_summaries_v1(uuid[])', 'execute') then
+    raise exception 'anon unexpectedly has canonical summary execution';
+  end if;
+  if not has_function_privilege('authenticated',
+       'public.canonical_score_summaries_v1(uuid[])', 'execute') then
+    raise exception 'authenticated canonical summary grant missing';
+  end if;
   if coalesce((select value from public.app_config
                 where key='canonical_score_readers'), '') <> 'off' then
     raise exception 'canonical reader did not start disabled';
@@ -67,12 +75,25 @@ select set_config('request.jwt.claim.role','authenticated',false);
 do $$
 declare
   v_match uuid := md5('match-220')::uuid;
+  v_ids uuid[];
   v_response jsonb;
 begin
   v_response := public.canonical_score_snapshot_v1(v_match);
   if not coalesce((v_response->>'ok')::boolean,false)
      or v_response#>>'{snapshot,matchId}' <> v_match::text then
     raise exception 'owner canonical reader failed: %',v_response;
+  end if;
+  select array_agg(id order by id) into v_ids from public.matches;
+  v_response := public.canonical_score_summaries_v1(v_ids);
+  if not coalesce((v_response->>'ok')::boolean,false)
+     or jsonb_array_length(v_response->'summaries') <> 220 then
+    raise exception 'owner canonical summary batch failed: %',v_response;
+  end if;
+  select array_agg(md5('oversized-'||n)::uuid)
+    into v_ids from generate_series(1,251) n;
+  v_response := public.canonical_score_summaries_v1(v_ids);
+  if v_response->>'code' <> 'invalid_input' then
+    raise exception 'oversized canonical summary batch was accepted: %',v_response;
   end if;
 end;
 $$;
@@ -88,6 +109,12 @@ begin
   v_response := public.canonical_score_snapshot_v1(md5('match-220')::uuid);
   if not coalesce((v_response->>'ok')::boolean,false) then
     raise exception 'accepted coach canonical reader failed: %',v_response;
+  end if;
+  v_response := public.canonical_score_summaries_v1(
+    array[md5('match-220')::uuid]
+  );
+  if jsonb_array_length(v_response->'summaries') <> 1 then
+    raise exception 'accepted coach canonical summary failed: %',v_response;
   end if;
 end;
 $$;
@@ -106,6 +133,12 @@ begin
   v_response := public.canonical_score_snapshot_v1(md5('match-220')::uuid);
   if v_response->>'code' <> 'not_found' then
     raise exception 'allowlisted stranger escaped match access: %',v_response;
+  end if;
+  v_response := public.canonical_score_summaries_v1(
+    array[md5('match-220')::uuid]
+  );
+  if jsonb_array_length(v_response->'summaries') <> 0 then
+    raise exception 'stranger summary disclosed a match: %',v_response;
   end if;
 end;
 $$;
@@ -150,6 +183,14 @@ begin
   if (select score_projection_status from public.matches where id=v_match)
        <> 'stale' then
     raise exception 'reader repaired or mutated stale projection state';
+  end if;
+  v_response := public.canonical_score_summaries_v1(array[v_match]);
+  if jsonb_array_length(v_response->'summaries') <> 0 then
+    raise exception 'summary returned stale projection state: %',v_response;
+  end if;
+  if (select score_projection_status from public.matches where id=v_match)
+       <> 'stale' then
+    raise exception 'summary reader repaired or mutated stale projection state';
   end if;
 end;
 $$;

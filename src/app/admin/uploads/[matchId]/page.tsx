@@ -8,6 +8,11 @@ import {
   getUnscoredRallyEndTightBufferS,
 } from "@/lib/config";
 import { MEDIA_BUCKET, getObject } from "@/lib/r2";
+import {
+  canonicalScoreReaderDiagnostic,
+  loadCanonicalScoreSnapshot,
+  projectLegacyScoreRows,
+} from "@/lib/scoring/reader";
 import { requireAdmin } from "../../requireAdmin";
 import { UploadView } from "./UploadView";
 import type {
@@ -160,11 +165,51 @@ export default async function AdminUploadPage({
     ]);
   if (error || !data) notFound();
   const detail = data as UploadDetail;
+  const scoreProjection =
+    (scoreProjectionRes.data as ScoreProjectionDiagnostic | null) ?? null;
   const themes = (themesRes.data ?? []) as {
     id: string;
     label: string;
     points: number;
   }[];
+
+  // Phase-three admin shadow. Admin Upload Detail continues to render the
+  // established audit rows; an explicitly allowlisted admin account compares
+  // those rows with one revision-pinned canonical snapshot. Diagnostics are
+  // aggregate-only and the separate reader canary is silent while disabled.
+  if (scoreProjection) {
+    const canonicalRead = await loadCanonicalScoreSnapshot({
+      matchId,
+      expectedRevision: Number(scoreProjection.score_revision),
+      rpc: async (name, args) => {
+        const { data: scoreData, error: scoreError } = await supabase.rpc(
+          name,
+          args,
+        );
+        return { data: scoreData, error: scoreError };
+      },
+    });
+    const diagnostic = canonicalScoreReaderDiagnostic(
+      canonicalRead,
+      projectLegacyScoreRows({
+        firstServer: detail.match.first_server,
+        firstServerSource:
+          detail.match.first_server_source === "user" ||
+          detail.match.first_server_source === "detected"
+            ? detail.match.first_server_source
+            : null,
+        points: detail.points,
+      }),
+    );
+    if (diagnostic?.kind === "parity") {
+      console.info("admin canonical score reader parity", diagnostic);
+    } else if (diagnostic) {
+      console.warn("admin canonical score reader fallback", {
+        revision: Number(scoreProjection.score_revision),
+        reason: diagnostic.reason,
+      });
+    }
+  }
 
   // The three playback flags come from app_config on the server, exactly as
   // the match page reads them. Hardcoding them would make the admin watch
@@ -215,9 +260,7 @@ export default async function AdminUploadPage({
           serveMisses={hydratedServeMisses}
           readings={readings}
           readingSummary={summary}
-          scoreProjection={
-            (scoreProjectionRes.data as ScoreProjectionDiagnostic | null) ?? null
-          }
+          scoreProjection={scoreProjection}
           themes={themes.map((t) => ({
             id: t.id,
             label: t.label,

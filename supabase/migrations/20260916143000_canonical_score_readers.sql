@@ -103,3 +103,73 @@ grant execute on function public.canonical_score_snapshot_v1(uuid)
 
 comment on function public.canonical_score_snapshot_v1(uuid) is
   'Revision-pinned score projection for allowlisted authenticated owner, coach or admin readers.';
+
+-- Match-library and summary consumers need one bounded request, not one RPC
+-- per card. This returns only already-current summaries visible through the
+-- existing match boundary. Missing, inaccessible and stale rows are omitted
+-- together so the batch never becomes a match-existence oracle or repair job.
+create or replace function public.canonical_score_summaries_v1(
+  p_match_ids uuid[]
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_summaries jsonb;
+begin
+  if not public.canonical_score_readers_enabled() then
+    return jsonb_build_object('ok', false, 'code', 'not_enabled');
+  end if;
+
+  if coalesce(array_length(p_match_ids, 1), 0) > 250 then
+    return jsonb_build_object('ok', false, 'code', 'invalid_input');
+  end if;
+
+  begin
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'matchId', m.id,
+             'revision', m.score_revision,
+             'status', m.score_projection_status,
+             'match', jsonb_build_object(
+               'gamesUser', s.games_user,
+               'gamesOpponent', s.games_opponent,
+               'currentGameNumber', s.current_game_number,
+               'currentScoreUser', s.current_score_user,
+               'currentScoreOpponent', s.current_score_opponent,
+               'completedGames', s.completed_games,
+               'visiblePointCount', s.visible_point_count,
+               'answeredPointCount', s.answered_point_count,
+               'skippedPointCount', s.skipped_point_count,
+               'allVisiblePointsAnswered', s.all_visible_points_answered,
+               'firstServer', s.first_server,
+               'firstServerSource', s.first_server_source,
+               'ordering', s.ordering
+             )
+           ) order by m.id), '[]'::jsonb)
+      into v_summaries
+      from public.matches m
+      join public.match_score_state s
+        on s.match_id = m.id
+       and s.score_revision = m.score_revision
+     where m.id = any(coalesce(p_match_ids, '{}'::uuid[]))
+       and m.score_revision = m.score_projection_revision
+       and m.score_projection_status in ('current', 'empty')
+       and (public.has_match_access(m.id) or public.is_admin());
+  exception when others then
+    return jsonb_build_object('ok', false, 'code', 'unavailable');
+  end;
+
+  return jsonb_build_object('ok', true, 'summaries', v_summaries);
+end;
+$$;
+
+revoke all on function public.canonical_score_summaries_v1(uuid[])
+  from public, anon, authenticated;
+grant execute on function public.canonical_score_summaries_v1(uuid[])
+  to authenticated;
+
+comment on function public.canonical_score_summaries_v1(uuid[]) is
+  'Bounded revision-current summaries for allowlisted authenticated owner, coach or admin readers.';

@@ -26,10 +26,10 @@ import {
 import { RAW_BUCKET, presignGet } from "@/lib/r2";
 import { hasOriginalVideo } from "@/lib/originalVideo";
 import { activeMatchVersionKey } from "@/lib/matchIssues/activeVersion";
-import { projectCanonicalScore } from "@/lib/scoring/canonical";
 import {
   canonicalScoreReaderDiagnostic,
   loadCanonicalScoreSnapshot,
+  projectLegacyScoreRows,
 } from "@/lib/scoring/reader";
 import { MatchView } from "./MatchView";
 import { RawMatchView } from "./RawMatchView";
@@ -188,21 +188,10 @@ export default async function MatchPage({
   // result yet: it only compares one revision-pinned snapshot with the
   // established fold and logs aggregate counts or a stable fallback code.
   const sourcePoints = (pointsRes.data ?? []) as Point[];
-  const legacyScoreProjection = projectCanonicalScore({
+  const legacyScoreProjection = projectLegacyScoreRows({
     firstServer: matchRes.data.first_server,
     firstServerSource: matchRes.data.first_server_source,
-    points: sourcePoints.map((point) => ({
-      id: point.id,
-      idx: point.idx,
-      t0: point.t0,
-      deleted: point.deleted,
-      isLet: point.is_let,
-      confirmedHow: point.confirmed_how,
-      confirmedWinner: point.confirmed_winner,
-      serverOverride: point.server_override,
-      gameEndOverride: point.game_end_override ?? null,
-      gameWinnerOverride: point.game_winner_override ?? null,
-    })),
+    points: sourcePoints,
   });
   const canonicalRead = await loadCanonicalScoreSnapshot({
     matchId: id,

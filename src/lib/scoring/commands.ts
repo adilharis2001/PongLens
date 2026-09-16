@@ -126,6 +126,13 @@ export interface CanonicalScoreSnapshot {
   points: CanonicalSnapshotPoint[];
 }
 
+export interface CanonicalScoreSummary {
+  matchId: string;
+  revision: number;
+  status: "current" | "empty";
+  match: CanonicalMatchState;
+}
+
 export type CanonicalCommandResult =
   | {
       ok: true;
@@ -262,6 +269,28 @@ export function parseCanonicalScoreSnapshot(
     match,
     points,
   } as CanonicalScoreSnapshot;
+}
+
+export function parseCanonicalScoreSummary(
+  value: unknown
+): CanonicalScoreSummary | null {
+  const row = object(value);
+  if (
+    !row ||
+    typeof row.matchId !== "string" ||
+    !integer(row.revision) ||
+    (row.status !== "current" && row.status !== "empty")
+  ) {
+    return null;
+  }
+  const match = matchState(row.match);
+  if (!match) return null;
+  return {
+    matchId: row.matchId,
+    revision: row.revision,
+    status: row.status,
+    match,
+  } as CanonicalScoreSummary;
 }
 
 export function parseCanonicalCommandResult(

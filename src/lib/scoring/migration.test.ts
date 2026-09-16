@@ -103,10 +103,11 @@ test("client roles cannot execute internal projection or observation functions",
     "refresh_match_score_state(uuid)",
     "normalize_manual_cut_observations(uuid)",
   ]) {
+    const escaped = signature.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(
       sql,
       new RegExp(
-        `revoke all on function public\\.${signature.replace(/[()]/g, "\\$&")}\\s+from public, anon, authenticated`,
+        `revoke all on function public\\.${escaped}\\s+from public, anon, authenticated`,
         "i"
       )
     );
@@ -271,22 +272,41 @@ test("canonical readers are a separate default-off account canary with a narrow 
   for (const signature of [
     "canonical_score_readers_enabled()",
     "canonical_score_snapshot_v1(uuid)",
+    "canonical_score_summaries_v1(uuid[])",
   ]) {
+    const escaped = signature.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(
       sql,
       new RegExp(
-        `revoke all on function public\\.${signature.replace(/[()]/g, "\\$&")}\\s+from public, anon, authenticated`,
+        `revoke all on function public\\.${escaped}\\s+from public, anon, authenticated`,
         "i"
       )
     );
     assert.match(
       sql,
       new RegExp(
-        `grant execute on function public\\.${signature.replace(/[()]/g, "\\$&")}\\s+to authenticated`,
+        `grant execute on function public\\.${escaped}\\s+to authenticated`,
         "i"
       )
     );
   }
+});
+
+test("canonical summary batches are bounded, access-scoped, current-revision reads", () => {
+  const sql = readersMigrationSql();
+  const reader = sql.match(
+    /create or replace function public\.canonical_score_summaries_v1\(\s*p_match_ids uuid\[\]\s*\)[\s\S]*?\n\$\$;/i
+  )?.[0] ?? "";
+  assert.match(reader, /canonical_score_readers_enabled\(\)/i);
+  assert.match(reader, /array_length\(p_match_ids,\s*1\)[\s\S]*?>\s*250/i);
+  assert.match(reader, /has_match_access\(m\.id\)[\s\S]*?public\.is_admin\(\)/i);
+  assert.match(reader, /m\.score_revision\s*=\s*m\.score_projection_revision/i);
+  assert.match(reader, /m\.score_projection_status\s+in\s*\('current',\s*'empty'\)/i);
+  assert.match(reader, /'summaries'/i);
+  assert.doesNotMatch(
+    reader,
+    /refresh_match_score_state|match_score_mutations|point_timing_observations|before_state|after_state|reaction_meta/i
+  );
 });
 
 test("command context locks the match and distinguishes duplicate, conflict, and new work", () => {

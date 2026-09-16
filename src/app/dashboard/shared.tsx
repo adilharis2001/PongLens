@@ -267,15 +267,20 @@ export async function fetchPaged<T>(
     from: number,
     to: number
   ) => PromiseLike<{ data: unknown[] | null; error: unknown }>,
-  label = "rows"
+  label = "rows",
+  onIncomplete?: () => void,
 ): Promise<T[]> {
   const out: T[] = [];
   for (let page = 0; page < MAX_PAGES; page++) {
     const { data, error } = await build(page * PAGE, page * PAGE + PAGE - 1);
-    if (error || !data) break;
+    if (error || !data) {
+      onIncomplete?.();
+      return out;
+    }
     out.push(...(data as T[]));
     if (data.length < PAGE) return out;
   }
+  onIncomplete?.();
   console.warn(
     `fetchPaged: stopped at ${MAX_PAGES} pages of ${label}; result is truncated`
   );
@@ -290,7 +295,8 @@ export async function fetchPaged<T>(
  */
 export async function fetchPointsPaged<T>(
   columns: string,
-  matchIds: string[] | null
+  matchIds: string[] | null,
+  onIncomplete?: () => void,
 ): Promise<T[]> {
   const supabase = createClient();
   const chunks: (string[] | null)[] = [];
@@ -311,7 +317,7 @@ export async function fetchPointsPaged<T>(
         .range(from, to);
       if (ids) q = q.in("match_id", ids);
       return q;
-    }, "points");
+    }, "points", onIncomplete);
     out.push(...rows);
   }
   return out;
