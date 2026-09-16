@@ -20,6 +20,10 @@ class WorkerReleaseAdapterContract(unittest.TestCase):
         self.assertIn('"PONGLENS_BLURBALL_INFER", f"{TTVID}/vendor/blurball_infer.py"', source)
         self.assertIn('os.environ.get("PONGLENS_YTDLP")', source)
 
+    def test_parity_smoke_cannot_write_pytest_cache_into_release(self):
+        source = (Path(__file__).parent / 'smoke_match_release.py').read_text()
+        self.assertIn("'-p', 'no:cacheprovider'", source)
+
 
 class ReleaseTests(unittest.TestCase):
     def setUp(self):

@@ -148,7 +148,8 @@ print('Worker imported without running main; fixed source/interpreter/media iden
             assert not unanchored, unanchored
             report['interpreters'][runtime] = {'loaded_images': len(paths), 'checked_external_images': len(external)}
     else:
-        report['result'] = run([env['PONGLENS_WORKER_PY'], '-m', 'pytest', '-q',
+        report['result'] = run([env['PONGLENS_WORKER_PY'], '-m', 'pytest',
+            '-p', 'no:cacheprovider', '-q',
             worker / 'tests/test_body_points_parity.py', worker / 'tests/test_serve_v3_parity.py'], 'parity', timeout=900)
     # A model loader must not have downloaded or rewritten a sealed asset.
     verify(release, report['release_id'])
