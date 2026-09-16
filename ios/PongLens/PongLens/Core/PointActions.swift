@@ -21,13 +21,16 @@ extension MatchDetailModel {
         points[index].confirmedHow = confirmedHow
         points[index].isLet = isLet
         points[index].scoredAtCutS = winner == nil ? nil : scoredAt
-        let outcome = winner?.rawValue ?? (isLet ? (confirmedHow ?? "other") : "clear")
+        let skipKind = canonicalSkipCommandKind(confirmedHow)
+        let outcome = winner?.rawValue ?? (isLet ? skipKind : "clear")
         let result = await canonicalCommand(
             "set_point_outcome_v2",
             args: [
                 "p_point_id": .uuid(point.id),
                 "p_outcome": .string(outcome),
-                "p_confirmed_how": confirmedHow.map(CanonicalJSON.string) ?? .null,
+                "p_confirmed_how": isLet
+                    ? .string(skipKind)
+                    : (confirmedHow.map(CanonicalJSON.string) ?? .null),
                 "p_scored_at_cut_s": winner == nil
                     ? .null
                     : (scoredAt.map(CanonicalJSON.number) ?? .null),

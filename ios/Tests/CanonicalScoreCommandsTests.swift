@@ -2,6 +2,19 @@ import Foundation
 
 @MainActor
 func runCanonicalScoreCommandChecks() async {
+    suite("canonical skip command normalization") {
+        check(canonicalSkipCommandKind(nil) == "other",
+              "a plain Skip is sent as the accepted generic outcome")
+        check(canonicalSkipCommandKind("") == "other",
+              "an empty stored Skip reason is sent as the accepted generic outcome")
+        check(canonicalSkipCommandKind("hit_into_net") == "other",
+              "a retired winner reason cannot become an invalid Skip outcome")
+        check(canonicalSkipCommandKind("let") == "let",
+              "an explicit let remains a let")
+        check(canonicalSkipCommandKind("misrecorded") == "misrecorded",
+              "an explicit wrong-recording reason remains intact")
+    }
+
     suite("canonical command decoding") {
         let json = """
         {"ok":true,"requestId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","revision":8,

@@ -131,8 +131,8 @@ final class MatchDetailModel {
         },
         persist: { [weak self] id, state in
             guard let self else { return false }
-            let skipKind = points.first(where: { $0.id == id })
-                .map { canonicalSkipReason($0.confirmedHow) } ?? "other"
+            let skipKind = canonicalSkipCommandKind(
+                points.first(where: { $0.id == id })?.confirmedHow)
             let outcome = state.winner?.rawValue ?? (state.isLet ? skipKind : "clear")
             let result = await canonicalCommand(
                 "set_point_outcome_v2",
