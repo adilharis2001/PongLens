@@ -70,8 +70,11 @@ def connect():
 
 
 def decision(connection) -> dict:
+    # Ask, do not claim: only the dispatcher's own call may stamp a session
+    # start, or this poll re-opens the start-up grace every time it runs
+    # (migration 20260916185815).
     with connection.cursor() as cursor:
-        cursor.execute('select public.cloud_worker_decision()')
+        cursor.execute('select public.cloud_worker_decision(false)')
         return cursor.fetchone()[0]
 
 
