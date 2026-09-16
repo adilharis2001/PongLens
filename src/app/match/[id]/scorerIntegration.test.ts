@@ -11,6 +11,7 @@ import {
   type ScorerState,
 } from "./scorerState.ts";
 import * as scorer from "./scorerState.ts";
+import { reconcileScorerConflict } from "./scorerState.ts";
 
 type TestPoint = Pick<
   Point,
@@ -48,6 +49,68 @@ function point(id: string, over: Partial<TestPoint> = {}): TestPoint {
     ...over,
   };
 }
+
+test("canonical conflict reconciliation replaces scorer state only", () => {
+  const before = [
+    point("p", {
+      confirmed_winner: "opponent",
+      scored_at_cut_s: 58,
+      starred: true,
+      note: "preserve me",
+    }),
+  ];
+  const after = reconcileScorerConflict(before, {
+    matchId: "m",
+    revision: 4,
+    status: "current",
+    match: {
+      gamesUser: 0,
+      gamesOpponent: 0,
+      currentGameNumber: 1,
+      currentScoreUser: 1,
+      currentScoreOpponent: 0,
+      completedGames: [],
+      visiblePointCount: 1,
+      answeredPointCount: 1,
+      skippedPointCount: 0,
+      allVisiblePointsAnswered: true,
+      firstServer: null,
+      firstServerSource: null,
+      ordering: "source_time",
+    },
+    points: [{
+      revision: 4,
+      pointId: "p",
+      timelineOrdinal: 0,
+      displayNumber: 1,
+      gameNumber: 1,
+      scoreUserBefore: 0,
+      scoreOpponentBefore: 0,
+      scoreUserAfter: 1,
+      scoreOpponentAfter: 0,
+      confirmedWinner: "user",
+      skipKind: null,
+      resolvedServer: null,
+      serverSource: "unresolved",
+      serveNumberInBlock: null,
+      endsGame: false,
+      gameBoundarySource: null,
+      resolvedGameWinner: null,
+      allVisiblePointsAnsweredThroughHere: true,
+    }],
+  });
+
+  assert.deepEqual(after, [
+    {
+      ...before[0],
+      confirmed_winner: "user",
+      is_let: false,
+      scored_at_cut_s: null,
+    },
+  ]);
+  assert.equal(after[0].starred, true);
+  assert.equal(after[0].note, "preserve me");
+});
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

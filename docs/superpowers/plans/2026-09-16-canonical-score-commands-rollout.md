@@ -219,21 +219,27 @@ git commit -m "Add revisioned structural score commands"
 - Consumes: Task 1 capability and `CanonicalCommandResult`.
 - Produces: `CanonicalScoreCommandClient`, match-page `canonicalCommandsEnabled`, command result reconciliation and measured legacy fallback.
 
-- [ ] **Step 1: Write RED transport tests**
+- [x] **Step 1: Write RED transport tests**
 
 Tests prove: one stable request UUID is reused across a network retry; conflict replaces only score-derived optimistic state; `not_enabled` uses the established direct write; authorization/validation errors do not fall back; and a successful canonical snapshot is compared with the legacy local fold without changing rendering.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `node --test --experimental-strip-types src/lib/scoring/client.test.ts 'src/app/match/[[]id[]]/scorerIntegration.test.ts'`
 
-- [ ] **Step 3: Implement transport and server capability load**
+- [x] **Step 3: Implement transport and server capability load**
 
 `page.tsx` calls `canonical_score_commands_enabled`; `client.ts` owns UUID creation/retry/parser behavior. `MatchView` receives the boolean and preserves all existing rendering. Parity comparison emits only a sanitized development/admin diagnostic; it never logs player names, notes or video URLs.
 
-- [ ] **Step 4: Run GREEN and full scorer tests**
+- [x] **Step 4: Run GREEN and full scorer tests**
 
 Run: `npm run test:scorer`
+
+Verification on 2026-09-16: the focused transport/integration suite passed
+30/30, the established scorer suite passed 43/43, and the full production
+`npm run build` completed. The build reported only established repository
+warnings plus the pre-existing unused `SideChangeMarker` warning in
+`MatchView`; the command transport introduced no build errors.
 
 - [ ] **Step 5: Commit**
 

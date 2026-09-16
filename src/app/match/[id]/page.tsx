@@ -60,7 +60,7 @@ export default async function MatchPage({
   // is_admin gates the serve-start label in Keep score (089). Same RPC the
   // research dashboard uses; false for everyone else, so the control never
   // renders for a normal viewer.
-  const [matchRes, notesRes, authorsRes, adminRes] =
+  const [matchRes, notesRes, authorsRes, adminRes, commandCapabilityRes] =
     await Promise.all([
       supabase.from("matches").select("*").eq("id", id).single(),
       supabase
@@ -70,6 +70,10 @@ export default async function MatchPage({
         .order("created_at", { ascending: true }),
       supabase.rpc("match_note_authors", { p_match_id: id }),
       supabase.rpc("is_admin"),
+      // Additive rollout gate. Before migration, or if the RPC is
+      // temporarily unavailable, the error leaves this false and every
+      // established write path continues unchanged.
+      supabase.rpc("canonical_score_commands_enabled"),
     ]);
 
   if (matchRes.error || !matchRes.data) {
@@ -302,6 +306,10 @@ export default async function MatchPage({
           // see a control that fails.
           canLabelServeStart={
             Boolean(adminRes.data) && matchRes.data.user_id === user.id
+          }
+          canonicalCommandsEnabled={
+            matchRes.data.user_id === user.id &&
+            commandCapabilityRes.data === true
           }
           accountName={accountName}
           ownerName={ownerName}

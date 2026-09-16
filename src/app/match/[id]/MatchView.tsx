@@ -438,6 +438,7 @@ export function MatchView({
   initialNotes,
   userId,
   canLabelServeStart = false,
+  canonicalCommandsEnabled = false,
   accountName,
   ownerName,
   strictness,
@@ -461,6 +462,9 @@ export function MatchView({
   /** Admin, on their own match: shows the serve-start label in Keep score
    *  (089). Off for everyone else, and the DB trigger enforces it too. */
   canLabelServeStart?: boolean;
+  /** Private owner rollout gate for revisioned score commands. Readers and
+   * rendering remain on the established calculations in this phase. */
+  canonicalCommandsEnabled?: boolean;
   /** The viewer's account first name (Google auth), or null. Used as the
    * owner's own-name fallback wherever a tagged-side name is missing. */
   accountName: string | null;
@@ -499,6 +503,10 @@ export function MatchView({
    *  paint instead of appearing a beat later and shifting the layout. */
   hasOriginal?: boolean;
 }) {
+  // Task 5 consumes this gate when each existing mutation is moved behind
+  // the command transport. Receiving it now keeps capability loading and
+  // UI migration as separately verifiable changes, with no behavior drift.
+  void canonicalCommandsEnabled;
   // MatchPage keys this entire state tree by the active processing version.
   // Publish/restore starts from that version's rows, never a merge of scores,
   // notes, tags or signed clip URLs from the previous timeline.
