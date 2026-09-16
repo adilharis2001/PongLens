@@ -130,6 +130,27 @@ job or reports a worker heartbeat; the 4-CPU/8GiB worker has no schedule.
 `cloud_enabled` stays false until the same sealed bundle is installed on the
 Mac and Modal and its parity is accepted.
 
+**The cloud twin (2026-09-16).** Match processing has a second execution
+location: the same sealed release the Mac runs, rebuilt for Linux and run on
+a rented NVIDIA T4 through Modal (`worker/cloud_release`, app
+`ponglens-match-worker`, workspace `adilharis2001`). It is a backup, not a
+second ordinary consumer. The switch lives on `/admin/processing`, Cloud
+section, backed by `processing_control.cloud_mode`: **Off** (`disabled`),
+**Standby** (`automatic`: a container starts when the Mac's main and fast
+lanes have been silent for fifteen minutes with work waiting thirty, and
+stops after its current job once the Mac reports again), **Run once**
+(`manual`: one session now, then back to Off). `cloud_worker_decision()`
+answers the question once a minute and writes why into the control row; the
+page says it in words. The cloud lanes pulse as `modal:main` and
+`modal:fast` and get their own rows; their silence is Standby or Off, never
+an alarm, until a session has been started and nothing reports. A cloud
+build is tied to the exact Mac release it was built from
+(`cloud_mac_release_id`): when the Mac switches release the dispatcher
+reports `release_mismatch` and refuses until the twin is rebuilt (the steps
+are in `worker/cloud_release/README.md`). Never import Python from a live
+sealed release directory without `-B`: a bytecode cache inside the payload
+makes the Mac workers refuse every claim.
+
 **The code is built so a missed update is visible rather than silent.** An
 unrecognised kind or stage renders as its own raw name with a marker
 beside it, so `spin_report` turns up in the middle of a page of English

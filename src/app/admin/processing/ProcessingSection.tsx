@@ -10,8 +10,10 @@ import { useProcessingEstimates } from "@/lib/useProcessingEstimates";
 import { useProcessingService } from "@/lib/useProcessingService";
 import { waitingProcessingServiceState } from "@/lib/waitingProcessingEstimate";
 import {
+  CLOUD_MODE_LABEL,
   agoLabel,
   buildWorkerRows,
+  cloudSummary,
   durationLabel,
   isKnownKind,
   kindLabel,
@@ -21,6 +23,7 @@ import {
   throughputSummary,
   stalledRunning,
   waitingRows,
+  type CloudMode,
   type ProcessingOverview,
   type WorkerRow,
   type WorkerState,
@@ -43,6 +46,7 @@ const STATE_LABEL: Record<WorkerState, string> = {
   unconfirmed: "Status unknown",
   "not-running": "Not running",
   off: "Off",
+  standby: "Standby",
 };
 
 /**
@@ -65,6 +69,9 @@ const STATE_DOT: Record<WorkerState, string> = {
   unconfirmed: "bg-zinc-500",
   "not-running": "bg-amber-400",
   off: "bg-zinc-700",
+  // Standby is a decision too: a cloud lane with no container is what
+  // "switched on and not needed" looks like, and it is not an alarm.
+  standby: "bg-zinc-600",
 };
 
 const STATE_TEXT: Record<WorkerState, string> = {
@@ -76,6 +83,7 @@ const STATE_TEXT: Record<WorkerState, string> = {
   unconfirmed: "text-zinc-400",
   "not-running": "text-amber-300",
   off: "text-zinc-600",
+  standby: "text-zinc-500",
 };
 
 /** A job kind the page has not been taught reads as its raw name, with a
@@ -169,12 +177,23 @@ export function WorkerCard({ row, estimate, serviceState }: { row: WorkerRow; es
   );
 }
 
-export function ProcessingSection() {
-  const [doc, setDoc] = useState<ProcessingOverview | null>(null);
+export function ProcessingSection({
+  initial = null,
+  frozen = false,
+}: {
+  /** A document to render without fetching: the dev-only preview route
+   *  uses it to show the page's states from fixtures. */
+  initial?: ProcessingOverview | null;
+  /** Do not fetch and do not accept switch presses. Preview only. */
+  frozen?: boolean;
+} = {}) {
+  const [doc, setDoc] = useState<ProcessingOverview | null>(initial);
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
   const estimates = useProcessingEstimates([...(doc?.waiting ?? []), ...(doc?.running ?? [])].map((job) => job.id), true);
   const services = useProcessingService();
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   // Re-render on a timer as well as on a fetch, so the "2h 37m" counters
   // stay honest between refreshes rather than freezing at whatever they
   // said when the last response landed.
@@ -195,10 +214,40 @@ export function ProcessingSection() {
   }, []);
 
   useEffect(() => {
+    if (frozen) return;
     void load();
     const id = setInterval(() => void load(), REFRESH_MS);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, frozen]);
+
+  const setCloudMode = useCallback(
+    async (mode: CloudMode) => {
+      if (frozen) return;
+      setSwitching(true);
+      setSwitchError(null);
+      try {
+        const response = await fetch("/api/admin/cloud-worker", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mode }),
+        });
+        if (!response.ok) {
+          setSwitchError(
+            response.status === 401
+              ? "Sign in again to change the cloud switch."
+              : "The cloud switch could not be changed. Try again in a moment.",
+          );
+          return;
+        }
+        await load();
+      } catch {
+        setSwitchError("The cloud switch could not be changed. Try again in a moment.");
+      } finally {
+        setSwitching(false);
+      }
+    },
+    [frozen, load],
+  );
 
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1000);
@@ -218,6 +267,14 @@ export function ProcessingSection() {
   const workers = buildWorkerRows(doc, now);
   const waiting = waitingRows(doc, now);
   const stalled = stalledRunning(doc, now);
+  const cloud = cloudSummary(doc.cloud ?? {}, now);
+  const cloudMode = (doc.cloud?.cloud_mode ?? "disabled") as CloudMode;
+  const macStaleS =
+    doc.cloud?.cloud_decision?.mac_stale_s ?? doc.cloud?.mac_stale_s ?? 900;
+  const waitTriggerS =
+    doc.cloud?.cloud_decision?.oldest_wait_trigger_s ??
+    doc.cloud?.oldest_wait_s ??
+    1800;
 
   return (
     <>
@@ -387,27 +444,62 @@ export function ProcessingSection() {
       {/* ------------------------------------------------------------ cloud */}
       <SectionHeading className="mt-8">Cloud</SectionHeading>
       <div className="mt-3 rounded-2xl border border-edge bg-surface p-4 sm:p-5">
-        <p className="text-sm text-zinc-300">
-          {doc.cloud?.cloud_mode === "disabled"
-            ? "Match processing is not sent to the cloud. No pipeline release has been activated, so there is nothing for a cloud worker to run."
-            : `Cloud mode is ${doc.cloud?.cloud_mode}. Active release ${
-                doc.cloud?.active_release_id ?? "none"
-              }.`}
+        <p className="text-sm text-zinc-300">{cloud.headline}</p>
+        {cloud.lines.map((line) => (
+          <p key={line} className="mt-1 text-sm text-zinc-500">
+            {line}
+          </p>
+        ))}
+
+        <div
+          role="group"
+          aria-label="Cloud switch"
+          className="mt-4 flex flex-wrap gap-2"
+        >
+          {(["disabled", "automatic", "manual"] as const).map((mode) => {
+            const active = cloudMode === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={active}
+                disabled={frozen || switching || active}
+                onClick={() => void setCloudMode(mode)}
+                className={`min-h-[44px] rounded-full border px-4 text-sm font-medium transition-colors sm:min-h-0 sm:py-1.5 ${
+                  active
+                    ? "border-cyan-glow bg-cyan-glow/10 text-cyan-glow"
+                    : "border-edge text-zinc-300 hover:border-zinc-500 disabled:opacity-50"
+                }`}
+              >
+                {CLOUD_MODE_LABEL[mode]}
+              </button>
+            );
+          })}
+        </div>
+        {switchError && (
+          <p className="mt-2 text-sm text-amber-300">{switchError}</p>
+        )}
+        <p className="mt-3 text-xs text-zinc-600">
+          Off keeps everything on the Mac Studio. Standby starts a cloud
+          worker when the Mac Studio has been silent for{" "}
+          {durationLabel(macStaleS)} with work waiting {durationLabel(waitTriggerS)},
+          and stops it once the Mac is back and the current job is done. Run
+          once starts a cloud worker now and returns the switch to Off when
+          the queue is empty.
         </p>
+
         <dl className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2">
           {[
-            ["Mode", doc.cloud?.cloud_mode ?? "—"],
             [
-              "Active release",
-              doc.cloud?.active_release_id ??
-                `none of ${doc.cloud?.candidate_releases ?? 0} built`,
+              "Cloud build",
+              doc.cloud?.cloud_mac_release_id
+                ? `release ${doc.cloud.cloud_mac_release_id.slice(0, 8)}${
+                    doc.cloud.cloud_source_commit
+                      ? ` · source ${doc.cloud.cloud_source_commit.slice(0, 8)}`
+                      : ""
+                  }`
+                : "none registered",
             ],
-            [
-              "Parity signed off",
-              doc.cloud?.parity_gate_passed ? "yes" : "not yet",
-            ],
-            ["Privacy", doc.cloud?.privacy_gate_passed ? "signed off" : "not yet"],
-            ["Licensing", doc.cloud?.license_gate_passed ? "signed off" : "not yet"],
             [
               "Spend cap",
               `$${doc.cloud?.daily_cap_usd ?? 0} a day, $${

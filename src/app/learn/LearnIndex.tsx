@@ -122,7 +122,7 @@ export function LearnIndex({
             <p className="text-sm text-zinc-300">Nothing found for that.</p>
             <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-zinc-500">
               Try another word, or browse the guides below. Missing a guide
-              you needed? Tell us through Send feedback on the Account page.
+              you needed? Tell us through Feedback and discussion on the Account page.
             </p>
           </div>
         ) : (

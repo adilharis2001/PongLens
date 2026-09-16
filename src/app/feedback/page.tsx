@@ -6,7 +6,7 @@ import { AppShell } from "@/components/AppShell";
 import { FeedbackPanels } from "./FeedbackPanels";
 
 export const metadata: Metadata = {
-  title: "Feedback",
+  title: "Feedback and discussion",
   robots: { index: false, follow: false },
 };
 
@@ -37,8 +37,11 @@ export default async function FeedbackPage() {
   // because on a phone the composer is a corner button over the list.
   return (
     <AppShell avatarUrl={avatarUrl} wide hasFab>
+      {/* "Feedback and discussion", not "Feedback board": the reader is
+          looking at the board, so the name says what it is for
+          (Adil, 2026-09-16). */}
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-        Feedback
+        Feedback and discussion
       </h1>
       {/* The one line under the title. Adil asked for it here (2026-09-16):
           the page grew threads, and a first-time reader should know the

@@ -134,7 +134,7 @@ struct AccountScreen: View {
                             value: LearnVideosRoute(LearnAudience(workspace: app.workspace))
                         )
                         rowDivider
-                        linkRow("Feedback", value: "feedback")
+                        linkRow("Feedback and discussion", value: "feedback")
                         rowDivider
                         navRow("Contact support") {
                             openURL(URL(string: "mailto:\(store.supportEmail)")!)

@@ -55,7 +55,7 @@ export function HomeFeedbackBoard({
   return (
     <section>
       <div className="flex items-center justify-between">
-        <SectionHeading>Feedback board</SectionHeading>
+        <SectionHeading>Feedback and discussion</SectionHeading>
         <Link
           href="/feedback"
           className="inline-flex items-center gap-1 text-sm font-medium text-cyan-glow transition-colors hover:text-white"

@@ -264,7 +264,7 @@ export default async function AccountPage() {
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
           <RowLink href="/learn" label="How-to guides" />
           <RowLink href="/learn/videos" label="Tutorial videos" />
-          <RowLink href="/feedback" label="Send feedback" />
+          <RowLink href="/feedback" label="Feedback and discussion" />
           <a
             href={`mailto:${supportEmail}`}
             className="flex items-center justify-between px-5 py-4 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"

@@ -42,7 +42,7 @@ struct FeedbackThreadScreen: View {
                         HStack(spacing: 6) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("Feedback")
+                            Text("Back")
                         }
                     }
                     .buttonStyle(PLSecondaryButtonStyle())

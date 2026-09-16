@@ -49,10 +49,14 @@ struct FeedbackScreen: View {
                     }
                     .buttonStyle(PLSecondaryButtonStyle())
 
-                    Text("Feedback")
+                    // "Feedback and discussion", not "Feedback board": the
+                    // reader is looking at the board, so the name says what
+                    // it is for (Adil, 2026-09-16).
+                    Text("Feedback and discussion")
                         .font(.plPageTitle)
                         .tracking(-0.6)
                         .foregroundStyle(PL.textBody)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     // The one line under the title. Adil asked for it
                     // (2026-09-16): the board grew threads, and a

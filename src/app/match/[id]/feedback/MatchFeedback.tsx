@@ -100,7 +100,7 @@ export function MatchFeedbackLink({ matchId, isOwner, matchStatus, activeVersion
  */
 export function FeedbackBoardLink() {
   return <Link href="/feedback" className={TOOL_ROW_CLASS}>
-    <span className="text-sm font-semibold">Feedback</span>
+    <span className="text-sm font-semibold">Feedback and discussion</span>
     <span className="flex min-w-0 shrink-0 items-center gap-2">
       <span className="text-xs text-zinc-500">Ideas and bugs</span>
       <ToolRowChevron />
