@@ -116,3 +116,17 @@ verify_unchanged(release_directory)
 # Smoke-test integration: use this environment and cwd for every sealed child.
 command, env, cwd = prepare_run(release_directory, state_directory)
 ```
+
+## The cloud twin
+
+A staged Mac release is also the input to the cloud twin: the same payload
+rebuilt for Linux and run on Modal when the Mac Studio goes quiet. After
+`stage`, and before or after the launcher switch, build and deploy the twin
+from the staged directory; the steps, the shared `pipeline_id`, and the
+dispatcher's release gate are in `worker/cloud_release/README.md`. The Mac
+package is never uploaded anywhere by this module; the cloud build copies
+the staged directory and anchors its own Linux runtimes.
+
+Any Python that touches a staged or live release directory must run with
+`-B` and `PYTHONDONTWRITEBYTECODE=1`; a bytecode cache written into the
+payload fails the integrity check and stops the workers claiming.
