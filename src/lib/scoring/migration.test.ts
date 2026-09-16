@@ -10,6 +10,10 @@ const commandsMigrationUrl = new URL(
   "../../../supabase/migrations/20260916120000_canonical_score_commands.sql",
   import.meta.url
 );
+const capabilityRollbackMigrationUrl = new URL(
+  "../../../supabase/migrations/20260916133000_canonical_score_capability_rollback.sql",
+  import.meta.url
+);
 const setupUrl = new URL(
   "../../../scripts/scoring/setup-local-db.mjs",
   import.meta.url
@@ -31,6 +35,15 @@ function commandsMigrationSql(): string {
     "canonical score commands migration must exist"
   );
   return readFileSync(commandsMigrationUrl, "utf8");
+}
+
+function capabilityRollbackMigrationSql(): string {
+  assert.equal(
+    existsSync(capabilityRollbackMigrationUrl),
+    true,
+    "canonical score capability rollback migration must exist"
+  );
+  return readFileSync(capabilityRollbackMigrationUrl, "utf8");
 }
 
 test("projection, observation, and ledger tables are private and RLS protected", () => {
@@ -175,16 +188,19 @@ test("database setup waits for the requested database, not only the server socke
   assert.doesNotMatch(setup, /pg_isready/);
 });
 
-test("canonical score commands start disabled and use the approved account rollout grammar", () => {
-  const sql = commandsMigrationSql();
+test("canonical score commands start disabled and the final capability honors the rollback switch for admins", () => {
+  const initialSql = commandsMigrationSql();
+  const finalSql = capabilityRollbackMigrationSql();
   assert.match(
-    sql,
+    initialSql,
     /insert into public\.app_config\s*\(\s*key\s*,\s*value\s*\)[\s\S]*?'canonical_score_commands'\s*,\s*'off'/i
   );
   assert.match(
-    sql,
-    /create or replace function public\.canonical_score_commands_enabled\(\)[\s\S]*?public\.is_admin\(\)[\s\S]*?c\.value\s*=\s*'on'[\s\S]*?'user:'[\s\S]*?'users:%'/i
+    finalSql,
+    /create or replace function public\.canonical_score_commands_enabled\(\)[\s\S]*?c\.value\s*=\s*'on'[\s\S]*?'user:'[\s\S]*?'users:%'/i
   );
+  assert.doesNotMatch(finalSql, /public\.is_admin\(\)/i);
+  assert.match(finalSql, /off disables every account, including admins/i);
 });
 
 test("canonical command helpers are private and the capability is authenticated only", () => {

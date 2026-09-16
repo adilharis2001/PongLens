@@ -103,3 +103,17 @@ begin
   end if;
 end;
 $$;
+
+-- The production canary account is also an admin. Prove that admin status
+-- cannot bypass the same emergency switch operators rely on during rollback.
+select set_config(
+  'request.jwt.claim.sub','22222222-2222-4222-8222-222222222222',false
+);
+
+do $$
+begin
+  if public.canonical_score_commands_enabled() then
+    raise exception 'admin capability bypassed rollback';
+  end if;
+end;
+$$;

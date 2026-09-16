@@ -540,7 +540,7 @@ databaseTest("canonical command capability is private and follows the account ro
         where key='canonical_score_commands';`);
   assert.match(authenticated(OWNER, `select 'RESULT:' || public.canonical_score_commands_enabled();`), /RESULT:true/);
   assert.match(authenticated(STRANGER, `select 'RESULT:' || public.canonical_score_commands_enabled();`), /RESULT:false/);
-  assert.match(authenticated(ADMIN, `select 'RESULT:' || public.canonical_score_commands_enabled();`), /RESULT:true/);
+  assert.match(authenticated(ADMIN, `select 'RESULT:' || public.canonical_score_commands_enabled();`), /RESULT:false/);
 
   const denied = spawnSync(
     "docker",
