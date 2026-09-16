@@ -12,6 +12,12 @@ from unittest.mock import patch
 from worker.match_release import build, verify, verify_unchanged, prepare_run, stage, ReleaseError
 
 
+class WorkerReleaseAdapterContract(unittest.TestCase):
+    def test_worker_logs_use_the_external_release_state(self):
+        source = (Path(__file__).parents[1] / 'worker.py').read_text()
+        self.assertIn('os.environ.get("PONGLENS_LOG_DIR", WORKER_DIR)', source)
+
+
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

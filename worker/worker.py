@@ -453,7 +453,8 @@ if LANE not in ("main", "fast", "hand"):
     LANE = "main"
 QUEUE_NAME = {"fast": "jobs_fast", "hand": "jobs_hand"}.get(LANE, "jobs")
 LOG_PATH = os.path.join(
-    WORKER_DIR, "worker.log" if LANE == "main" else f"worker-{LANE}.log")
+    os.environ.get("PONGLENS_LOG_DIR", WORKER_DIR),
+    "worker.log" if LANE == "main" else f"worker-{LANE}.log")
 
 # Under launchd the wrapper already appends stdout to worker.log, so a
 # stdout handler there would double every line. The stream handler is for
