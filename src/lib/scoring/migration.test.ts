@@ -280,3 +280,25 @@ test("manual cutter finalization is private, idempotent, and worker-only", () =>
     /grant execute on function public\.publish_hand_cut_v2\([^;]+to authenticated/i
   );
 });
+
+test("automatic worker finalization is active-version scoped and worker-only", () => {
+  const sql = commandsMigrationSql();
+  const publication = sql.match(
+    /create or replace function public\.finalize_worker_points_v2\([\s\S]*?\n\$\$;/i
+  )?.[0];
+  assert.ok(publication, "automatic worker finalizer must be defined");
+  assert.match(publication, /active_processing_version_id\s+is\s+distinct\s+from[\s\S]*?p_processing_version_id/i);
+  assert.match(publication, /processing_version_id\s*=\s*p_processing_version_id/i);
+  assert.match(publication, /refresh_match_score_state\(p_match_id\)/i);
+  assert.match(publication, /'worker_publication'[\s\S]*?'replace_worker_points'/i);
+  assert.doesNotMatch(publication, /first_server\s*=/i);
+  assert.doesNotMatch(publication, /confirmed_winner\s*=/i);
+  assert.match(
+    sql,
+    /revoke all on function public\.finalize_worker_points_v2\(uuid,uuid\)\s+from public, anon, authenticated/i
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.finalize_worker_points_v2\(uuid,uuid\) to ponglens_worker/i
+  );
+});

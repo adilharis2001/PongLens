@@ -1,3 +1,5 @@
+import inspect
+
 import pytest
 
 import worker
@@ -69,6 +71,20 @@ def test_hand_cut_finalizer_returns_a_checked_publication_receipt():
     assert params == ("match-a", "job-a")
 
 
+def test_automatic_finalizer_uses_the_processing_version_as_publication_id():
+    expected = receipt(jobId=None)
+    conn = Connection((expected,))
+
+    got = worker.finalize_canonical_publication(
+        conn, "finalize_worker_points_v2", "match-a", "version-a"
+    )
+
+    assert got == expected
+    query, params = conn.value.calls[0]
+    assert query == "select public.finalize_worker_points_v2(%s,%s)"
+    assert params == ("match-a", "version-a")
+
+
 @pytest.mark.parametrize(
     "bad",
     [
@@ -114,3 +130,13 @@ def test_nested_publication_transaction_leaves_ownership_to_caller():
     assert conn.commits == 0
     assert conn.rollbacks == 0
     assert conn.autocommit is False
+
+
+def test_active_worker_path_finalizes_before_ready_inside_publication_transaction():
+    source = inspect.getsource(worker.run_points_stage)
+    transaction = source.index("with canonical_publication_transaction(conn):")
+    create = source.index("create_match(", transaction)
+    insert = source.index("insert_points(", create)
+    finalize = source.index('"finalize_worker_points_v2"', insert)
+    ready = source.index("finish_match(", finalize)
+    assert transaction < create < insert < finalize < ready

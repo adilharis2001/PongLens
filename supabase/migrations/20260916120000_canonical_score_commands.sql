@@ -18,6 +18,12 @@ alter table public.match_score_mutations
     'adjust_point', 'insert_point', 'set_point_visibility',
     'publish_hand_cut', 'replace_worker_points', 'reset_match_score'
   ));
+alter table public.match_score_mutations
+  drop constraint if exists match_score_mutations_authority_scope_check;
+alter table public.match_score_mutations
+  add constraint match_score_mutations_authority_scope_check check (
+    authority_scope in ('owner_score','worker_publication')
+  );
 
 create or replace function public.canonical_score_commands_enabled()
 returns boolean
@@ -1500,5 +1506,116 @@ do $$
 begin
   if exists (select 1 from pg_roles where rolname='ponglens_worker') then
     execute 'grant execute on function public.publish_hand_cut_v2(uuid,uuid) to ponglens_worker';
+  end if;
+end $$;
+
+-- Automatic match publication has no owner score authority. It seals the
+-- already-created rows for exactly the active processing version, proves the
+-- private projection represents them, and returns a durable receipt. It does
+-- not write first_server, outcomes, overrides or game boundaries.
+create or replace function public.finalize_worker_points_v2(
+  p_match_id uuid,
+  p_processing_version_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_prior public.match_score_mutations%rowtype;
+  v_match public.matches%rowtype;
+  v_point_count integer;
+  v_missing_clip_count integer;
+  v_point_ids uuid[];
+  v_result_revision bigint;
+  v_projection_status text;
+  v_receipt jsonb;
+begin
+  if p_match_id is null or p_processing_version_id is null then
+    raise exception 'worker publication identity is missing'
+      using errcode = '23514';
+  end if;
+
+  select * into v_prior from public.match_score_mutations
+   where request_id = p_processing_version_id;
+  if found then
+    if v_prior.match_id <> p_match_id
+       or v_prior.action <> 'replace_worker_points' then
+      raise exception 'worker publication id was reused'
+        using errcode = '23514';
+    end if;
+    return v_prior.after_state;
+  end if;
+
+  select * into v_match from public.matches
+   where id = p_match_id for update;
+  if not found then
+    raise exception 'worker publication match not found' using errcode = 'P0002';
+  end if;
+  if v_match.active_processing_version_id is distinct from
+       p_processing_version_id then
+    raise exception 'worker processing version changed'
+      using errcode = '23514';
+  end if;
+  if v_match.status <> 'processing' then
+    raise exception 'worker publication state changed'
+      using errcode = '23514';
+  end if;
+
+  select count(*),count(*) filter (where p.clip_path is null),
+         coalesce(array_agg(p.id order by p.t0,p.idx,p.id),'{}'::uuid[])
+    into v_point_count,v_missing_clip_count,v_point_ids
+    from public.points p
+   where p.match_id = p_match_id
+     and p.processing_version_id = p_processing_version_id
+     and not p.deleted;
+  if v_point_count = 0 then
+    raise exception 'worker publication has no active points'
+      using errcode = '23514';
+  end if;
+  if v_missing_clip_count > 0 then
+    raise exception 'worker publication has missing point clips'
+      using errcode = '23514';
+  end if;
+
+  perform public.refresh_match_score_state(p_match_id);
+  select score_revision,score_projection_status
+    into v_result_revision,v_projection_status
+    from public.matches where id=p_match_id;
+  if v_projection_status not in ('current','empty') then
+    raise exception 'worker score projection is not current'
+      using errcode = '23514';
+  end if;
+
+  v_receipt := jsonb_build_object(
+    'ok',true,
+    'contractVersion',1,
+    'matchId',p_match_id,
+    'processingVersionId',p_processing_version_id,
+    'pointCount',v_point_count,
+    'missingClipCount',v_missing_clip_count,
+    'scoreRevision',v_result_revision,
+    'scoreProjectionStatus',v_projection_status
+  );
+  insert into public.match_score_mutations(
+    request_id,match_id,actor_id,authority_scope,action,
+    affected_point_ids,before_state,after_state,base_revision,result_revision
+  ) values (
+    p_processing_version_id,p_match_id,null,'worker_publication',
+    'replace_worker_points',v_point_ids,
+    jsonb_build_object('processingVersionId',p_processing_version_id),
+    v_receipt,greatest(0,v_result_revision-1),v_result_revision
+  );
+  return v_receipt;
+end;
+$$;
+
+revoke all on function public.finalize_worker_points_v2(uuid,uuid)
+  from public, anon, authenticated;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname='ponglens_worker') then
+    execute 'grant execute on function public.finalize_worker_points_v2(uuid,uuid) to ponglens_worker';
   end if;
 end $$;

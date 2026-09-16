@@ -5649,13 +5649,6 @@ def run_points_stage(
     # Backfill only: on the commerce path register_upload already wrote it
     # at completion, and the owner may have answered on the raw page since.
     first_server = meta_first_server(meta)
-    if destination.activates_match:
-        create_match(conn, match_id, user_id, job_id, cut_result_path,
-                     opponent_name=opponent_name, match_type=match_type,
-                     venue=venue, played_at=played_at, user_side=user_side,
-                     first_server=first_server,
-                     placement_requested=bool(options.get("placement")),
-                     existing=bool(library_id))
     outdir = points_outdir or os.path.join(workdir, "points_out")
     try:
         # Dead-space round 4: the points stage normally already ran BEFORE
@@ -5794,13 +5787,6 @@ def run_points_stage(
             ledger_append(conn, user_id, "other", other_bytes,
                           f"{r2_prefix}/", match_id)
 
-        inserted_points = insert_points(
-            conn,
-            match_id,
-            points,
-            r2_prefix,
-            processing_version_id=destination.processing_version_id,
-        )
         state = copy.deepcopy(destination.match_state)
         state.update({
             "status": "ready", "job_id": job_id, "cut_path": cut_result_path,
@@ -5820,10 +5806,18 @@ def run_points_stage(
             "placement_status": placement_status, "placement_mapped_points": mapped,
             "placement_failure_code": placement_failure_code,
         })
-        if structure_evidence is not None and not destination.activates_match:
-            state["match_structure"] = map_structure_point_ids(
-                structure_evidence, inserted_points)
+
         if not destination.activates_match:
+            inserted_points = insert_points(
+                conn,
+                match_id,
+                points,
+                r2_prefix,
+                processing_version_id=destination.processing_version_id,
+            )
+            if structure_evidence is not None:
+                state["match_structure"] = map_structure_point_ids(
+                    structure_evidence, inserted_points)
             finalize_match_reprocess_success(
                 conn, destination, cut_path=state["cut_path"], thumb_path=thumb_path,
                 match_json_path=state["match_json_path"], match_state=state,
@@ -5831,53 +5825,71 @@ def run_points_stage(
             )
             return match_id
 
-        # Everything below publishes to the active match. Candidate processing
-        # has already finished without changing live state or running any
-        # match-only enrichment.
-        if structure_evidence is not None:
-            persist_match_structure(
+        if not destination.processing_version_id:
+            raise RuntimeError("active worker publication has no processing version")
+
+        # Media is already durable. Keep only the short database publication
+        # inside this transaction: acquire the match/version lock, replace
+        # point rows, project one canonical receipt, then expose ready.
+        with canonical_publication_transaction(conn):
+            create_match(
+                conn, match_id, user_id, job_id, cut_result_path,
+                opponent_name=opponent_name, match_type=match_type,
+                venue=venue, played_at=played_at, user_side=user_side,
+                first_server=first_server,
+                placement_requested=bool(options.get("placement")),
+                existing=bool(library_id),
+            )
+            inserted_points = insert_points(
                 conn,
                 match_id,
-                structure_evidence,
-                inserted_points,
-                user_side,
+                points,
+                r2_prefix,
+                processing_version_id=destination.processing_version_id,
             )
-        # Stamp the clip pads the clips were actually cut with (migration
-        # 048): the app's playhead mapping prefers these over the frozen
-        # per-strictness fallback table. Best-effort — a pre-clip_pads
-        # points_pipeline output simply leaves the column null.
-        if clip_pads:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update public.matches set clip_pads = %s where id = %s",
-                    (json.dumps(clip_pads), match_id),
+            # Everything below publishes to the active match. Candidate
+            # processing returned above without changing live state.
+            if structure_evidence is not None:
+                persist_match_structure(
+                    conn,
+                    match_id,
+                    structure_evidence,
+                    inserted_points,
+                    user_side,
                 )
-        # Where a 9:16 share cuts this camera (135). Computed in the points
-        # pipeline from corners it already had, so this costs nothing here.
-        # Written unconditionally, null included: a reprocess that loses
-        # calibration must clear a stale window rather than leave the old
-        # one framing a camera that has since moved. Absent from pre-135
-        # pipeline output, in which case the key is simply missing and we
-        # leave whatever is there alone.
-        if "story_crop" in match_json:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update public.matches set story_crop = %s where id = %s",
-                    (json.dumps(match_json["story_crop"])
-                     if match_json["story_crop"] else None, match_id),
-                )
-        finish_match(
-            conn,
-            match_id,
-            state["status"],
-            state["match_json_path"],
-            thumb_path=state["thumb_path"],
-            placement_status=state["placement_status"],
-            placement_mapped_points=state["placement_mapped_points"],
-            placement_failure_code=state["placement_failure_code"],
-        )
-        log.info("  match %s ready: %d points -> %s",
-                 match_id, len(points), r2_prefix)
+            # Stamp the clip pads the clips were actually cut with (migration
+            # 048). A pre-clip_pads output simply leaves the column null.
+            if clip_pads:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update public.matches set clip_pads = %s where id = %s",
+                        (json.dumps(clip_pads), match_id),
+                    )
+            # A reprocess that loses calibration must clear a stale story
+            # crop rather than framing a camera that has since moved.
+            if "story_crop" in match_json:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update public.matches set story_crop = %s where id = %s",
+                        (json.dumps(match_json["story_crop"])
+                         if match_json["story_crop"] else None, match_id),
+                    )
+            receipt = finalize_canonical_publication(
+                conn, "finalize_worker_points_v2", match_id,
+                destination.processing_version_id,
+            )
+            finish_match(
+                conn,
+                match_id,
+                state["status"],
+                state["match_json_path"],
+                thumb_path=state["thumb_path"],
+                placement_status=state["placement_status"],
+                placement_mapped_points=state["placement_mapped_points"],
+                placement_failure_code=state["placement_failure_code"],
+            )
+        log.info("  match %s ready: %d points -> %s (canonical revision %s)",
+                 match_id, len(points), r2_prefix, receipt["scoreRevision"])
         return match_id
     except Exception as e:
         if (not destination.activates_match or isinstance(e, MatchVersionChanged)

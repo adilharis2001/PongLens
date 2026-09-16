@@ -385,6 +385,115 @@ databaseTest("manual cutter finalizer rejects mismatched, obsolete, and unprojec
   }
 });
 
+databaseTest("automatic worker finalizes one 100-point active-version publication", () => {
+  resetFixture();
+  sql(`
+    update public.matches set status='processing' where id='${MATCH}';
+    insert into public.points(
+      id,match_id,processing_version_id,idx,t0,t1,clip_path,
+      confirmed_winner,server_override,game_end_override
+    )
+    select ('30000000-0000-0000-0001-' || lpad(n::text,12,'0'))::uuid,
+           '${MATCH}','${VERSION}',n,n*10,n*10+5,
+           'r2://clips/' || lpad(n::text,3,'0') || '.mp4',
+           case when n=1 then 'user' end,
+           case when n=1 then 'opponent' end,
+           case when n=11 then 'end' end
+      from generate_series(1,100) n;
+  `);
+  const first = JSON.parse(sql(
+    `select public.finalize_worker_points_v2('${MATCH}','${VERSION}');`
+  ));
+  const retry = JSON.parse(sql(
+    `select public.finalize_worker_points_v2('${MATCH}','${VERSION}');`
+  ));
+  assert.deepEqual(retry, first);
+  assert.equal(first.ok, true);
+  assert.equal(first.pointCount, 100);
+  assert.equal(first.scoreProjectionStatus, "current");
+  assert.equal(
+    sql(`select first_server || '|' || first_server_source
+           from public.matches where id='${MATCH}';`),
+    "user|user",
+    "worker publication never replaces owner first-server truth"
+  );
+  assert.equal(
+    sql(`select confirmed_winner || '|' || server_override
+           from public.points where match_id='${MATCH}' and idx=1;`),
+    "user|opponent",
+    "worker finalization never replaces owner point truth"
+  );
+  assert.equal(
+    sql(`select count(*) from public.match_score_mutations
+          where match_id='${MATCH}' and action='replace_worker_points'
+            and authority_scope='worker_publication';`),
+    "1"
+  );
+});
+
+databaseTest("automatic finalizer rejects obsolete versions and projection failure", () => {
+  resetFixture();
+  sql(`
+    update public.matches set status='processing' where id='${MATCH}';
+    insert into public.points(
+      id,match_id,processing_version_id,idx,t0,t1,clip_path
+    ) values (
+      '30000000-0000-0000-0000-000000000001','${MATCH}','${VERSION}',1,
+      1,2,'r2://clips/01.mp4'
+    );
+  `);
+  assert.throws(() => sql(
+    `select public.finalize_worker_points_v2(
+      '${MATCH}','20000000-0000-0000-0000-000000000099');`
+  ), /worker processing version changed/i);
+
+  sql(`alter table public.point_score_state
+       add constraint point_score_state_worker_publish_failure check (false) not valid;`);
+  try {
+    assert.throws(() => sql(
+      `select public.finalize_worker_points_v2('${MATCH}','${VERSION}');`
+    ));
+    assert.equal(
+      sql(`select count(*) from public.match_score_mutations
+            where match_id='${MATCH}' and action='replace_worker_points';`),
+      "0"
+    );
+  } finally {
+    sql(`alter table public.point_score_state
+         drop constraint if exists point_score_state_worker_publish_failure;`);
+  }
+});
+
+databaseTest("old worker row publication remains compatible without a v2 receipt", () => {
+  resetFixture();
+  sql(`
+    update public.matches set status='processing' where id='${MATCH}';
+    insert into public.points(
+      id,match_id,processing_version_id,idx,t0,t1,clip_path,server
+    ) values (
+      '30000000-0000-0000-0000-000000000001','${MATCH}','${VERSION}',1,
+      1,2,'r2://clips/01.mp4','opponent'
+    );
+    update public.matches set status='ready' where id='${MATCH}';
+  `);
+  assert.equal(
+    sql(`select score_revision=score_projection_revision and
+                score_projection_status='current'
+           from public.matches where id='${MATCH}';`),
+    "t"
+  );
+  assert.equal(
+    sql(`select count(*) from public.point_score_state where match_id='${MATCH}';`),
+    "1"
+  );
+  assert.equal(
+    sql(`select count(*) from public.match_score_mutations
+          where match_id='${MATCH}' and action='replace_worker_points';`),
+    "0",
+    "additive triggers do not require an old package to emit a receipt"
+  );
+});
+
 databaseTest("shadow projection failure preserves the legacy write and records health", () => {
   resetFixture();
   sql(`alter table public.point_score_state
