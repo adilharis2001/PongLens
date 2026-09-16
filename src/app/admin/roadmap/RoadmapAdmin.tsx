@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { SectionHeading } from "@/components/SectionHeading";
+import { RoadmapScorePill } from "@/components/Roadmap";
 import {
   STAGE_DOT,
   STAGE_LABEL,
@@ -400,6 +401,8 @@ function ItemCard({
           <div className="flex items-baseline justify-between gap-3">
             <p className="text-sm font-medium text-zinc-100">{item.title}</p>
             {when && <span className="shrink-0 text-[11px] text-zinc-500">{when}</span>}
+            {/* The players' verdict, for reordering by hand. */}
+            {item.stage !== "shipped" && <RoadmapScorePill score={item.score} />}
           </div>
           {item.description && (
             <p className="mt-1 text-sm leading-relaxed text-zinc-400">{item.description}</p>

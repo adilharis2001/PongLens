@@ -17,7 +17,7 @@ private func roadmap(_ title: String, _ stage: String, position: Int, shipped: S
     let json = """
     {"id":"\(UUID().uuidString.lowercased())","title":"\(title)","description":"d",
      "stage":"\(stage)","position":\(position),"shipped_at":\(shippedJson),"link":null,
-     "created_at":"\(created)"}
+     "score":2,"created_at":"\(created)"}
     """
     return try! JSONDecoder().decode(RoadmapItem.self, from: Data(json.utf8))
 }
@@ -81,4 +81,17 @@ func runFeedbackBoardChecks() {
     check(Roadmap.shippedLabel("2026-09-16") == "Sep 2026", "the shipped label is month and year")
     check(Roadmap.shippedLabel(nil) == nil && Roadmap.shippedLabel("nonsense") == nil,
           "no date, no label")
+
+    check(roadmap("b", "building", position: 1).takesVotes && roadmap("p", "planned", position: 1).takesVotes,
+          "in development and planned take votes")
+    check(!roadmap("s", "shipped", position: 1, shipped: "2026-09-01").takesVotes,
+          "shipped entries take no votes")
+    check(Roadmap.nextVote(current: 0, pressed: 1) == 1 && Roadmap.nextVote(current: 1, pressed: 1) == 0
+          && Roadmap.nextVote(current: 1, pressed: -1) == -1,
+          "the same arrow takes a vote back; the other arrow flips it")
+    check(Roadmap.adjustedScore(3, from: 0, to: 1) == 4 && Roadmap.adjustedScore(3, from: 1, to: -1) == 1,
+          "the optimistic score moves by the difference between old and new vote")
+    check(Roadmap.scoreLabel(3) == "+3" && Roadmap.scoreLabel(0) == "0" && Roadmap.scoreLabel(-2) == "-2",
+          "scores read as signed counts")
+    check(roadmap("b", "building", position: 1).score == 2, "a roadmap row decodes its score")
 }

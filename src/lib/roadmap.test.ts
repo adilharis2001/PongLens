@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  adjustedScore,
+  canVote,
   groupRoadmap,
   moveWithinStage,
   nextPosition,
+  nextVote,
+  scoreLabel,
   shippedLabel,
   type RoadmapItem,
 } from "./roadmap.ts";
@@ -25,10 +29,37 @@ function item(
     shipped_at,
     link: null,
     feedback_item_id: null,
+    score: 0,
     created_at,
     updated_at: created_at,
   };
 }
+
+test("only unshipped entries take votes", () => {
+  assert.equal(canVote("building"), true);
+  assert.equal(canVote("planned"), true);
+  assert.equal(canVote("shipped"), false);
+});
+
+test("the same arrow takes a vote back; the other arrow flips it", () => {
+  assert.equal(nextVote(0, 1), 1);
+  assert.equal(nextVote(1, 1), 0);
+  assert.equal(nextVote(1, -1), -1);
+  assert.equal(nextVote(-1, -1), 0);
+});
+
+test("the optimistic score moves by the difference between old and new vote", () => {
+  assert.equal(adjustedScore(3, 0, 1), 4);
+  assert.equal(adjustedScore(3, 1, 0), 2);
+  assert.equal(adjustedScore(3, 1, -1), 1);
+  assert.equal(adjustedScore(-1, -1, 1), 1);
+});
+
+test("scores read as signed counts", () => {
+  assert.equal(scoreLabel(3), "+3");
+  assert.equal(scoreLabel(0), "0");
+  assert.equal(scoreLabel(-2), "-2");
+});
 
 test("stages read in the order building, planned, shipped, and empty ones vanish", () => {
   const groups = groupRoadmap([item("p", "planned", 1), item("b", "building", 1)]);

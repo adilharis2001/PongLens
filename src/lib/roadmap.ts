@@ -15,9 +15,40 @@ export type RoadmapItem = {
   shipped_at: string | null;
   link: string | null;
   feedback_item_id: string | null;
+  /** Sum of up and down votes. Meaningless once shipped. */
+  score: number;
   created_at: string;
   updated_at: string;
 };
+
+/** How one person stands on an entry: for, against, or neither. */
+export type RoadmapVote = -1 | 0 | 1;
+
+/**
+ * Votes are for what is still to come. A shipped entry is finished, and a
+ * score under it reads as a review rather than a request.
+ */
+export function canVote(stage: RoadmapStage): boolean {
+  return stage !== "shipped";
+}
+
+/**
+ * What pressing an arrow does: the same arrow again takes the vote back,
+ * the other arrow flips it. The database applies the same rule.
+ */
+export function nextVote(current: RoadmapVote, pressed: 1 | -1): RoadmapVote {
+  return current === pressed ? 0 : pressed;
+}
+
+/** The score as it will read once the vote lands, for the optimistic step. */
+export function adjustedScore(score: number, from: RoadmapVote, to: RoadmapVote): number {
+  return score - from + to;
+}
+
+/** "+3", "0", "-2": a signed count, so a negative score reads as one. */
+export function scoreLabel(score: number): string {
+  return score > 0 ? `+${score}` : String(score);
+}
 
 /** The order the page reads in: what is happening now, then next, then done. */
 export const STAGE_ORDER: RoadmapStage[] = ["building", "planned", "shipped"];

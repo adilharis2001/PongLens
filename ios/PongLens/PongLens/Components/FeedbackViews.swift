@@ -233,12 +233,70 @@ struct FeedbackCommentCount: View {
 
 // MARK: - Roadmap
 
+/// Up, the score, down. The board's vote box with a second arrow: cyan
+/// when you are for it, amber when you are against, grey when you have
+/// not said. Pressing the lit arrow again takes the vote back.
+struct RoadmapVoteBox: View {
+    let score: Int
+    /// 1, -1 or 0.
+    let vote: Int
+    /// Called with the arrow pressed, 1 or -1; the caller works out what
+    /// that means against the current vote.
+    let onPress: (Int) -> Void
+
+    private var scoreTint: Color {
+        vote > 0 ? PL.cyan : vote < 0 ? PL.warningText : PL.text300
+    }
+
+    private var edge: Color {
+        vote > 0 ? PL.cyan.opacity(0.5) : vote < 0 ? PL.warningText.opacity(0.5) : PL.edge
+    }
+
+    private func arrow(_ up: Bool) -> some View {
+        let on = vote == (up ? 1 : -1)
+        return Button {
+            onPress(up ? 1 : -1)
+        } label: {
+            Image(systemName: up ? "chevron.up" : "chevron.down")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(on ? (up ? PL.cyan : PL.warningText) : PL.text500)
+                .frame(width: 44, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(up ? (on ? "Remove your vote" : "Vote for this") : (on ? "Remove your vote" : "Vote against this"))
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            arrow(true)
+            Text(Roadmap.scoreLabel(score))
+                .font(.system(size: 13, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(scoreTint)
+            arrow(false)
+        }
+        .frame(width: 46)
+        .padding(.vertical, 2)
+        .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(edge, lineWidth: 1)
+        )
+    }
+}
+
 /// The roadmap as a reader sees it: three sections, each hidden when
 /// empty, each entry a title and one sentence. Shipped entries carry the
 /// month. The same list the public web page shows.
 struct RoadmapSectionsView: View {
     let items: [RoadmapItem]
     let loaded: Bool
+    /// The reader's own vote per entry: 1, -1, or absent.
+    var votes: [UUID: Int] = [:]
+    /// Pressing an arrow on an entry that takes votes.
+    var onVote: ((RoadmapItem, Int) -> Void)? = nil
 
     private func tint(_ stage: RoadmapStage) -> Color {
         switch stage {
@@ -270,25 +328,32 @@ struct RoadmapSectionsView: View {
                             SectionHeading(group.stage.label)
                         }
                         ForEach(group.items) { item in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                    Text(item.title)
-                                        .font(.plRowTitle)
-                                        .foregroundStyle(PL.text100)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Spacer(minLength: 0)
-                                    if group.stage == .shipped, let when = Roadmap.shippedLabel(item.shippedAt) {
-                                        Text(when)
-                                            .font(.plCaption)
-                                            .foregroundStyle(PL.text500)
+                            HStack(alignment: .top, spacing: 14) {
+                                if item.takesVotes, let onVote {
+                                    RoadmapVoteBox(score: item.score, vote: votes[item.id] ?? 0) { pressed in
+                                        onVote(item, pressed)
                                     }
                                 }
-                                if !item.description.isEmpty {
-                                    Text(item.description)
-                                        .font(.plBody)
-                                        .foregroundStyle(PL.text400)
-                                        .lineSpacing(2)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                        Text(item.title)
+                                            .font(.plRowTitle)
+                                            .foregroundStyle(PL.text100)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Spacer(minLength: 0)
+                                        if group.stage == .shipped, let when = Roadmap.shippedLabel(item.shippedAt) {
+                                            Text(when)
+                                                .font(.plCaption)
+                                                .foregroundStyle(PL.text500)
+                                        }
+                                    }
+                                    if !item.description.isEmpty {
+                                        Text(item.description)
+                                            .font(.plBody)
+                                            .foregroundStyle(PL.text400)
+                                            .lineSpacing(2)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)

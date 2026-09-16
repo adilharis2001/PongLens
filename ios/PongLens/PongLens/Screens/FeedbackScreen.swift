@@ -45,6 +45,7 @@ struct FeedbackScreen: View {
     @State private var loadFailed = false
     @State private var doneOpen = false
     @State private var roadmap: [RoadmapItem] = []
+    @State private var roadmapVotes: [UUID: Int] = [:]
     @State private var roadmapLoaded = false
     @State private var composeOpen = false
     @State private var posted: PostedState?
@@ -93,8 +94,16 @@ struct FeedbackScreen: View {
                     .pickerStyle(.segmented)
 
                     if tab == .roadmap {
-                        RoadmapSectionsView(items: roadmap, loaded: roadmapLoaded)
-                            .padding(.top, 4)
+                        RoadmapSectionsView(items: roadmap, loaded: roadmapLoaded, votes: roadmapVotes) { item, pressed in
+                            Task { await voteRoadmap(item, pressed: pressed) }
+                        }
+                        .padding(.top, 4)
+                        if roadmapLoaded {
+                            Text("Vote up what you want sooner and down what you can live without.")
+                                .font(.plCaption)
+                                .foregroundStyle(PL.text500)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     } else {
                         if posted != nil {
                             postedCard
@@ -469,13 +478,54 @@ struct FeedbackScreen: View {
     private func loadRoadmap() async {
         let rows: [RoadmapItem]? = try? await supa
             .from("roadmap_items")
-            .select("id,title,description,stage,position,shipped_at,link,created_at")
+            .select("id,title,description,stage,position,shipped_at,link,score,created_at")
             .order("stage")
             .order("position")
             .execute()
             .value
         roadmap = rows ?? []
+        let mine: [RoadmapVoteRow]? = try? await supa
+            .from("roadmap_votes")
+            .select("item_id,value")
+            .execute()
+            .value
+        roadmapVotes = Dictionary(uniqueKeysWithValues: (mine ?? []).map { ($0.itemId, $0.value) })
         roadmapLoaded = true
+    }
+
+    /// Optimistic: the score moves under the thumb and settles on whatever
+    /// the server says, which applies the same "same arrow takes it back"
+    /// rule as `Roadmap.nextVote`.
+    private func voteRoadmap(_ item: RoadmapItem, pressed: Int) async {
+        guard let index = roadmap.firstIndex(where: { $0.id == item.id }) else { return }
+        let from = roadmapVotes[item.id] ?? 0
+        let next = Roadmap.nextVote(current: from, pressed: pressed)
+        let wasScore = roadmap[index].score
+        roadmapVotes[item.id] = next
+        roadmap[index].score = Roadmap.adjustedScore(wasScore, from: from, to: next)
+        struct Req: Encodable {
+            let p_item: String
+            let p_value: Int
+        }
+        struct Res: Decodable {
+            let score: Int
+            let myVote: Int
+            enum CodingKeys: String, CodingKey {
+                case score
+                case myVote = "my_vote"
+            }
+        }
+        let rows: [Res]? = try? await supa
+            .rpc("roadmap_vote", params: Req(p_item: item.id.uuidString.lowercased(), p_value: next))
+            .execute().value
+        guard let i = roadmap.firstIndex(where: { $0.id == item.id }) else { return }
+        guard let truth = rows?.first else {
+            roadmapVotes[item.id] = from
+            roadmap[i].score = wasScore
+            return
+        }
+        roadmapVotes[item.id] = truth.myVote
+        roadmap[i].score = truth.score
     }
 
     /// Optimistic: the count moves under the thumb and settles on whatever

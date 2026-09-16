@@ -136,16 +136,49 @@ struct RoadmapItem: Decodable, Identifiable, Hashable {
     let position: Int
     let shippedAt: String?
     let link: String?
+    /// Sum of up and down votes. Meaningless once shipped.
+    var score: Int
     let createdAt: String
 
     enum CodingKeys: String, CodingKey {
-        case id, title, description, stage, position, link
+        case id, title, description, stage, position, link, score
         case shippedAt = "shipped_at"
         case createdAt = "created_at"
+    }
+
+    /// Votes are for what is still to come. A shipped entry is finished,
+    /// and a score under it reads as a review rather than a request.
+    var takesVotes: Bool { stage != .shipped }
+}
+
+/// One of the reader's own votes, from `roadmap_votes`.
+struct RoadmapVoteRow: Decodable {
+    let itemId: UUID
+    let value: Int
+
+    enum CodingKeys: String, CodingKey {
+        case value
+        case itemId = "item_id"
     }
 }
 
 enum Roadmap {
+    /// What pressing an arrow does: the same arrow again takes the vote
+    /// back, the other arrow flips it. The database applies the same rule.
+    static func nextVote(current: Int, pressed: Int) -> Int {
+        current == pressed ? 0 : pressed
+    }
+
+    /// The score as it will read once the vote lands, for the optimistic step.
+    static func adjustedScore(_ score: Int, from: Int, to: Int) -> Int {
+        score - from + to
+    }
+
+    /// "+3", "0", "-2": a signed count, so a negative score reads as one.
+    static func scoreLabel(_ score: Int) -> String {
+        score > 0 ? "+\(score)" : "\(score)"
+    }
+
     struct Group: Identifiable {
         let stage: RoadmapStage
         let items: [RoadmapItem]

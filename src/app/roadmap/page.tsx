@@ -51,7 +51,8 @@ export default async function RoadmapPage() {
             <RoadmapSections items={items} />
           </div>
           <p className="mt-12 text-sm text-zinc-500">
-            Have an idea, or found a bug? Signed-in players can post it on the{" "}
+            Signed-in players vote on what comes next. Have an idea, or found a
+            bug? Post it on the{" "}
             <Link
               href="/feedback"
               className="font-medium text-zinc-300 underline decoration-edge underline-offset-4 transition-colors hover:text-white"
