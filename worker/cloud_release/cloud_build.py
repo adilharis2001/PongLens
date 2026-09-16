@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 # Static FFmpeg for Linux from the 8.1 release branch, the branch the Mac's
 # Homebrew 8.1.2 comes from. The publisher keeps one rolling asset per
@@ -56,6 +57,9 @@ SOURCE_RELEASE_REMOTE = '/opt/ponglens/source-release'
 CURRENT_FILE = '/opt/ponglens/current-release-id'
 SHIM_DIR = '/opt/ponglens/shims'
 PACKAGE_REMOTE = '/opt/ponglens/cloud_release'
+# First on PYTHONPATH for every process the sealed release starts; see
+# stable_release.py and shim/sitecustomize.py.
+PYTHON_SHIM = PACKAGE_REMOTE + '/shim'
 
 VENV_NAMES = ('worker', 'pipeline', 'rtmpose', 'table')
 BLURBALL_WRAPPER = 'worker/blurball_infer.py'
@@ -179,11 +183,19 @@ def linux_runtime_config() -> dict:
 def build_linux(source_release, output, runtime: dict | None = None) -> Path:
     """Write `<output>/<linux release_id>` from a sealed Mac release."""
     import match_release
+    from stable_release import diagnose, stabilize
+    stabilize(match_release)
     from match_release import _anchor_runtime, _hash, _manifest, _payload_inventory, verify
 
     source, manifest = _manifest(Path(source_release))
     if manifest.get('platform', 'mac') != 'mac':
         raise CloudBuildError('Build the Linux twin from the Mac release, not from another twin')
+    # Importing the sealed packaging module from the copied release can
+    # leave a bytecode cache beside it (this process runs with bytecode
+    # off, but be certain). A cache is never part of a sealed payload.
+    for cache in source.rglob('__pycache__'):
+        if cache.is_dir():
+            shutil.rmtree(cache, ignore_errors=True)
     # The copy into the image keeps every byte and drops the permission
     # bits (a 755 script arrives 644). The manifest records the modes, so
     # they are put back before the payload is compared to it: content is
@@ -240,14 +252,36 @@ def build_linux(source_release, output, runtime: dict | None = None) -> Path:
                 blurball_mac_sha256=mac_wrapper_sha256,
             ),
         }
-        linux['release_id'] = hashlib.sha256(_canonical(linux)).hexdigest()
+        # pipeline_id is derived from the fields above and written into the
+        # manifest for readers; the release_id hash then covers it too, so
+        # the Mac verifier's identity check (everything but release_id) holds.
         linux['pipeline_id'] = pipeline_id(linux)
         if linux['pipeline_id'] != pipeline_id(manifest):
             raise CloudBuildError('Linux twin does not share the Mac pipeline identity')
-        # pipeline_id is derived from the manifest; it is written for readers
-        # and excluded from the release_id hash so that both stay stable.
+        linux['release_id'] = hashlib.sha256(_canonical(linux)).hexdigest()
         (payload / 'manifest.json').write_bytes(_canonical(linux) + b'\n')
-        verify(payload, expected_id=linux['release_id'])
+        # The verifier walks the tree's metadata before and after hashing it
+        # and refuses if anything moved. On the image builder's filesystem a
+        # file written a moment ago can still be reporting its size and
+        # timestamp lazily, so wait until two consecutive walks agree.
+        os.sync()
+        walk = getattr(match_release, '_ponglens_original_inventory', match_release._inventory)
+        for attempt in range(20):
+            first = walk(payload, metadata=True)
+            time.sleep(0.5)
+            if walk(payload, metadata=True) == first:
+                print(f'payload metadata settled after {attempt + 1} check(s)', file=sys.stderr)
+                break
+        else:
+            raise CloudBuildError('Payload metadata never settled on this filesystem')
+        try:
+            verify(payload, expected_id=linux['release_id'])
+        except Exception:
+            # Say what moved, for the build log: which stat fields change
+            # once a file has been read on this filesystem.
+            for line in diagnose(match_release, payload):
+                print('  ', line, file=sys.stderr)
+            raise
         destination = output / linux['release_id']
         if destination.exists():
             verify(destination, expected_id=linux['release_id'])
@@ -263,6 +297,7 @@ def main(argv=None):
     parser.add_argument('--output', default=RELEASE_ROOT)
     parser.add_argument('--current', default=CURRENT_FILE)
     args = parser.parse_args(argv)
+    sys.dont_write_bytecode = True
     sys.path.insert(0, str(Path(args.source) / 'worker'))
     destination = build_linux(args.source, args.output)
     manifest = read_manifest(destination)

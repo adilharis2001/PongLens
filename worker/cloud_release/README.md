@@ -159,3 +159,24 @@ become plain configuration; none changes behavior on the Mac:
    visibility (`pgmq.set_vt`) so a second worker can never see it while this
    one is alive. This is what lets Standby's backlog rule and an always-on
    parallel mode run safely.
+
+## Two things the image filesystem does that the Mac never does
+
+Both cost a build on 2026-09-16 and both are handled in code; this is why.
+
+- **Permissions and bytecode.** Modal's upload keeps every byte of the
+  sealed release and drops its permission bits, and importing the sealed
+  packaging module during the build writes a bytecode cache beside it. The
+  strict payload check refuses both, correctly. `cloud_build` restores the
+  modes the manifest records and scrubs `__pycache__` before comparing, so
+  a changed byte still fails and a changed mode does not.
+- **Unstable file identity.** The sealed verifier compares each file's
+  device and inode numbers between checks; the image filesystem does not
+  keep those stable, and a freshly written file reports its size and
+  timestamp lazily for a moment. Left alone this stops the worker from ever
+  claiming a job ("Release changed during verification"). `stable_release`
+  narrows the metadata prefilter to size and mtime, `shim/sitecustomize.py`
+  applies it first on `PYTHONPATH` in every process the release starts, and
+  the build waits for two consecutive walks to agree before verifying. The
+  content hashes, the inventory, the runtime anchors and the identity check
+  are untouched.

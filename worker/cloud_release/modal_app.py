@@ -36,9 +36,9 @@ for candidate in (str(HERE), '/opt/ponglens/cloud_release'):
         sys.path.insert(0, candidate)
 
 from cloud_build import (  # noqa: E402
-    CURRENT_FILE, LINUX_FFMPEG_ROOT, PACKAGE_REMOTE, RELEASE_ROOT, REQUIREMENTS_REMOTE,
-    SOURCE_RELEASE_REMOTE, VENV_NAMES, VENV_ROOT, linux_media_install_commands,
-    venv_install_commands,
+    CURRENT_FILE, LINUX_FFMPEG_ROOT, PACKAGE_REMOTE, PYTHON_SHIM, RELEASE_ROOT,
+    REQUIREMENTS_REMOTE, SOURCE_RELEASE_REMOTE, VENV_NAMES, VENV_ROOT,
+    linux_media_install_commands, venv_install_commands,
 )
 
 APP_NAME = 'ponglens-match-worker'
@@ -66,7 +66,7 @@ image = (
     .add_local_dir(str(HERE), PACKAGE_REMOTE, copy=True,
                    ignore=['__pycache__', '*.pyc', '.DS_Store'])
     .run_commands(
-        f'python3 {PACKAGE_REMOTE}/cloud_build.py --source {SOURCE_RELEASE_REMOTE} '
+        f'PYTHONDONTWRITEBYTECODE=1 python3 -B {PACKAGE_REMOTE}/cloud_build.py --source {SOURCE_RELEASE_REMOTE} '
         f'--output {RELEASE_ROOT} --current {CURRENT_FILE}'
     )
     .env({'PYTHONDONTWRITEBYTECODE': '1'})
@@ -88,12 +88,20 @@ def _venv_python(name: str) -> str:
               timeout=120, cpu=0.25, memory=256, min_containers=0, max_containers=1, retries=0)
 def dispatch():
     import psycopg2
+    import psycopg2.errors
     connection = psycopg2.connect(os.environ['DATABASE_URL'], connect_timeout=15)
     connection.autocommit = True
-    with connection.cursor() as cursor:
-        cursor.execute('select public.cloud_worker_decision()')
-        verdict = cursor.fetchone()[0]
-    connection.close()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('select public.cloud_worker_decision()')
+            verdict = cursor.fetchone()[0]
+    except psycopg2.errors.UndefinedFunction:
+        # The policy migration is not applied yet: nothing to decide, and a
+        # once-a-minute traceback would only hide a real failure later.
+        print(json.dumps({'event': 'cloud_policy_missing', 'run': False}))
+        return {'run': False, 'reason': 'policy_missing'}
+    finally:
+        connection.close()
     if verdict.get('run'):
         run_worker.spawn(verdict.get('reason', 'policy'))
         print(json.dumps({'event': 'cloud_worker_started', 'reason': verdict.get('reason')}, default=str))
@@ -115,7 +123,10 @@ def probe(ball_seconds: int = 20):
     from cloud_build import pipeline_id, verify_linux_media_tools
     release, manifest = _release()
     sys.path.insert(0, str(release / 'worker'))
-    from match_release import prepare_run
+    import match_release
+    from stable_release import stabilize
+    stabilize(match_release)
+    prepare_run = match_release.prepare_run
     report = {
         'release_id': manifest['release_id'],
         'pipeline_id': manifest['pipeline_id'],
@@ -127,6 +138,7 @@ def probe(ball_seconds: int = 20):
     with tempfile.TemporaryDirectory(prefix='ponglens-probe-') as directory:
         state = Path(directory) / 'state'
         command, env, cwd = prepare_run(release, state, 'main')
+        env['PYTHONPATH'] = PYTHON_SHIM + ':' + env['PYTHONPATH']
         report['worker_command'] = command
         report['worker_python'] = env['PONGLENS_WORKER_PY']
 
@@ -135,7 +147,10 @@ def probe(ball_seconds: int = 20):
             completed = subprocess.run([python, '-c', code], env=merged, cwd=cwd,
                                        capture_output=True, text=True, timeout=timeout)
             if completed.returncode:
-                raise RuntimeError(f'{python}: exit {completed.returncode}\n{completed.stdout[-2000:]}\n{completed.stderr[-3000:]}')
+                # Into the container log in full, and into the report in
+                # brief, so one run says everything that is wrong.
+                print(f'--- {python} exit {completed.returncode}\n{completed.stdout[-3000:]}\n{completed.stderr[-6000:]}', flush=True)
+                return f'FAILED exit {completed.returncode}: ' + (completed.stderr.strip().splitlines() or ['no stderr'])[-1][:500]
             return completed.stdout.strip()
 
         report['pipeline_torch'] = run(env['PONGLENS_PIPELINE_PY'], (
@@ -197,10 +212,13 @@ def shadow_run(job_id: str, out_prefix: str | None = None, label: str | None = N
     """Replay one processed upload through the sealed pipeline; publish nothing."""
     release, manifest = _release()
     sys.path.insert(0, str(release / 'worker'))
-    from match_release import prepare_run
+    import match_release
+    from stable_release import stabilize
+    stabilize(match_release)
     state = Path('/tmp/ponglens-shadow-state')
-    command, env, cwd = prepare_run(release, state, 'main')
+    command, env, cwd = match_release.prepare_run(release, state, 'main')
     env['PATH'] = '/opt/ponglens/shims:' + env['PATH']
+    env['PYTHONPATH'] = PYTHON_SHIM + ':' + env['PYTHONPATH']
     label = label or f"modal-{manifest['release_id'][:8]}"
     out = out_prefix or f'r2://ponglens-media/parity/{job_id}/{label}'
     process = subprocess.Popen(

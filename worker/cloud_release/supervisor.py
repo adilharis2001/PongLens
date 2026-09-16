@@ -36,6 +36,7 @@ import psycopg2.extras
 RELEASE_ROOT = '/opt/ponglens/releases'
 CURRENT_FILE = '/opt/ponglens/current-release-id'
 SHIM_DIR = '/opt/ponglens/shims'
+PYTHON_SHIM = '/opt/ponglens/cloud_release/shim'
 STATE_DIR = Path(os.environ.get('PONGLENS_CLOUD_STATE', '/tmp/ponglens-state'))
 
 LANES = {'main': 'jobs', 'fast': 'jobs_fast'}
@@ -101,9 +102,12 @@ def extend_leases(connection, lanes) -> None:
 
 
 def launch(lane: str, release: Path, label: str):
-    from match_release import prepare_run
-    command, env, cwd = prepare_run(release, STATE_DIR, lane)
+    import match_release
+    from stable_release import stabilize
+    stabilize(match_release)
+    command, env, cwd = match_release.prepare_run(release, STATE_DIR, lane)
     env['PATH'] = SHIM_DIR + ':' + env['PATH']
+    env['PYTHONPATH'] = PYTHON_SHIM + ':' + env['PYTHONPATH']
     # The sealed worker, started the way launchd starts it on the Mac, with
     # its identity and its housekeeping set from outside the sealed source.
     # Every name patched here is a module global the worker reads at call
