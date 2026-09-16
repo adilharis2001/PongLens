@@ -29,6 +29,7 @@ Task { @MainActor in
         runMatchPointLinkChecks()
         runSignupSourceChecks()
         runProcessingFeedbackChecks()
+        runFeedbackBoardChecks()
     }
 
     print("\n\(checks - failures)/\(checks) checks passed")

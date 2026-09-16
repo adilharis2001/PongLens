@@ -84,7 +84,7 @@ export function MarkedWrongNotice({
       <button type="button" onClick={onUndo} className={action}>
         Undo
       </button>
-      <Link href={`/feedback?matchId=${matchId}`} className={action}>
+      <Link href="/feedback" className={action}>
         Tell us more
       </Link>
     </p>

@@ -137,6 +137,8 @@ struct HomeScreen: View {
                     workingOn
 
                     latestActivity
+
+                    feedbackBoard
                 }
                 .padding(20)
                 .padding(.top, 12)
@@ -646,6 +648,113 @@ struct HomeScreen: View {
                 .font(.plCaption)
                 .foregroundStyle(PL.text500)
         }
+    }
+
+    // MARK: - Feedback board
+
+    /// The board's corner of Home: the three posts being talked about most
+    /// recently, and a row inviting the reader to add their own. Last on
+    /// the page, and only once a match has gone through — a player with
+    /// nothing processed has nothing to have a view on yet, and a board of
+    /// other people's requests would be the first thing they scroll past
+    /// on the way to finding out what the app does (Adil, 2026-09-16).
+    @ViewBuilder
+    private var feedbackBoard: some View {
+        if homeStore.loaded, !ownMatches.isEmpty || !library.activeJobs.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    SectionHeading("Feedback board")
+                    Spacer()
+                    NavigationLink(value: "feedback") {
+                        HStack(spacing: 3) {
+                            Text("See all")
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(PL.cyan)
+                    }
+                    .buttonStyle(.plain)
+                }
+                ForEach(homeStore.boardItems) { item in
+                    NavigationLink(value: "feedback-item:\(item.id.uuidString.lowercased())") {
+                        feedbackBoardRow(item)
+                    }
+                    .buttonStyle(.plain)
+                }
+                NavigationLink(value: "feedback-compose") {
+                    HStack(spacing: 12) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(PL.text400)
+                            .frame(width: 28, height: 28)
+                            .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+                        Text("Have an idea, or found a bug? Add it to the board.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text400)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                            .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                            .foregroundStyle(PL.edge)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func feedbackBoardRow(_ item: FeedbackItem) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 1) {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 10, weight: .bold))
+                Text("\(item.voteCount)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(item.voted ? PL.cyan : PL.text400)
+            .frame(width: 36, height: 38)
+            .background(
+                item.voted ? PL.cyan.opacity(0.12) : PL.ink.opacity(0.4),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(item.voted ? PL.cyan.opacity(0.5) : PL.edge, lineWidth: 1)
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.title)
+                    .font(.plRowTitle)
+                    .foregroundStyle(PL.text100)
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    FeedbackChip(text: FeedbackLook.typeLabel(item.type), tint: FeedbackLook.typeTint(item.type))
+                    if let status = FeedbackLook.statusLabel(item.status) {
+                        FeedbackChip(text: status, tint: FeedbackLook.statusTint(item.status))
+                    }
+                    if item.officialReply != nil {
+                        FeedbackOfficialBadge()
+                    }
+                    FeedbackCommentCount(count: item.commentCount)
+                    Text(FeedbackLook.name(item.authorName, userId: item.userId, viewerId: app.userId)
+                         + " · " + FeedbackLook.ago(item.lastActivityAt ?? item.createdAt))
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .plCard(padding: 14)
     }
 
     // MARK: - Exports in the activity feed

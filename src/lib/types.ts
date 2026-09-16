@@ -653,7 +653,10 @@ export type NotificationKind =
   // The player's coaching workspace (2026-09-07). The mirror of
   // `coach_entry`: a student shared a lesson they recorded with the coach
   // they took it from, so this one goes to the coach.
-  | "student_lesson";
+  | "student_lesson"
+  // Someone commented on a feedback board post you wrote or joined
+  // (2026-09-16). href is /feedback/<post id>.
+  | "feedback_comment";
 
 // Named AppNotification so it never shadows the DOM's Notification global.
 // Copy is denormalised server-side (see migration 031) — the bell renders

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
@@ -9,11 +10,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function FeedbackPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ matchId?: string }>;
-}) {
+export default async function FeedbackPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -23,7 +20,6 @@ export default async function FeedbackPage({
     redirect("/login");
   }
 
-  const { matchId } = await searchParams;
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
@@ -36,27 +32,30 @@ export default async function FeedbackPage({
     supabase.rpc("is_qa"),
   ]);
 
-  // `wide` because the page lays out side by side on a laptop now: the
-  // composer keeps a fixed column and the board takes the rest. At the
-  // default width the board — the part everyone reads — came out narrower
-  // than the form beside it.
+  // `wide` because the page lays out side by side on a laptop: the
+  // composer keeps a fixed column and the board takes the rest. `hasFab`
+  // because on a phone the composer is a corner button over the list.
   return (
-    <AppShell avatarUrl={avatarUrl} wide>
+    <AppShell avatarUrl={avatarUrl} wide hasFab>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
         Feedback
       </h1>
+      {/* The one line under the title. Adil asked for it here (2026-09-16):
+          the page grew threads, and a first-time reader should know the
+          board is for talking as well as voting. */}
       <p className="mt-2 text-zinc-400">
         {isQa === true
           ? "Bugs, ideas, anything off. Your reports stay off the board and come straight to us."
-          : "Bugs, ideas, anything off. It lands on the board so others can vote."}
+          : "Ideas and bugs from players. Vote on what matters, join a thread, and see what's being built."}
       </p>
 
-      <FeedbackPanels
-        userId={user.id}
-        isAdmin={isAdmin === true}
-        isQa={isQa === true}
-        initialMatchId={matchId ?? null}
-      />
+      <Suspense fallback={null}>
+        <FeedbackPanels
+          userId={user.id}
+          isAdmin={isAdmin === true}
+          isQa={isQa === true}
+        />
+      </Suspense>
     </AppShell>
   );
 }

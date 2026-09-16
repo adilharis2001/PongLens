@@ -67,7 +67,12 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
   // A lesson a student shared reads the same way round as a note from a
   // coach, so it takes the same speech bubble rather than a glyph of its
   // own: both are one person handing the other something to read.
-  if (kind === "note" || kind === "coach_entry" || kind === "student_lesson") {
+  if (
+    kind === "note" ||
+    kind === "coach_entry" ||
+    kind === "student_lesson" ||
+    kind === "feedback_comment"
+  ) {
     return (
       <svg {...common}>
         <path

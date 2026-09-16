@@ -202,6 +202,15 @@ struct CoachTabView: View {
                         bellOpen = false
                         path.append("account")
                     }
+                    // A comment on a board post opens that post's thread.
+                    if FeedbackLink.isBoard(href) {
+                        bellOpen = false
+                        if let id = FeedbackLink.itemId(in: href) {
+                            path.append("feedback-item:\(id.uuidString.lowercased())")
+                        } else {
+                            path.append("feedback")
+                        }
+                    }
                     // A student joining lands on the roster.
                     if href.hasPrefix("/coaching/students") {
                         bellOpen = false

@@ -302,6 +302,16 @@ struct MainTabView: View {
                         bellOpen = false
                         path.append("account")
                     }
+                    // "Fin replied to your post" opens that post's thread;
+                    // a plain /feedback opens the board.
+                    if FeedbackLink.isBoard(href) {
+                        bellOpen = false
+                        if let id = FeedbackLink.itemId(in: href) {
+                            path.append("feedback-item:\(id.uuidString.lowercased())")
+                        } else {
+                            path.append("feedback")
+                        }
+                    }
                     // "shared a lesson note" lands on Coaching, where a
                     // player reads their coaches. /journal is still
                     // honoured: notifications written before this build

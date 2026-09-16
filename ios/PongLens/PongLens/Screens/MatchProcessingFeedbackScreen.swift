@@ -337,13 +337,15 @@ struct ProcessingToolRow: View {
 
 /// The public Feedback board, one row under Processing. Ideas and bugs have
 /// nothing to do with how one match was cut, but a match page is where most
-/// of them occur to people, so the board opens with this match attached —
-/// which is what the row in this slot always did before Processing took it.
+/// of them occur to people. It used to open the composer with this match
+/// already attached; it no longer does (Adil, 2026-09-16), because a post
+/// that arrives pinned to a match reads as being about that match. The
+/// match is one tap away in the composer's picker.
 struct FeedbackBoardToolRow: View {
     let match: MatchRow
 
     var body: some View {
-        NavigationLink(value: "feedback:\(match.id.uuidString.lowercased())") {
+        NavigationLink(value: "feedback") {
             HStack(spacing: 8) {
                 Text("Feedback")
                     .font(.system(size: 16))

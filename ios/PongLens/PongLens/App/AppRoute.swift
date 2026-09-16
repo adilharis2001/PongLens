@@ -12,7 +12,10 @@ enum AppRouteDestination: Equatable {
     case starred
     case learn
     case tutorialVideos(LearnAudience)
-    case feedback(matchId: UUID?)
+    /// The board; `compose` raises the composer on arrival.
+    case feedback(compose: Bool)
+    /// One post and its thread.
+    case feedbackItem(UUID)
     case matchFeedback(UUID)
     case coachOrders
     case coachOfferings
@@ -34,7 +37,8 @@ enum AppRouteDestination: Equatable {
         case "learn": return .learn
         case "learn-videos":
             return .tutorialVideos(LearnAudience(workspace: workspace))
-        case "feedback": return .feedback(matchId: nil)
+        case "feedback": return .feedback(compose: false)
+        case "feedback-compose": return .feedback(compose: true)
         case "coach-orders": return .coachOrders
         case "coach-offerings": return .coachOfferings
         case "coach-profile": return .coachProfile
@@ -48,9 +52,16 @@ enum AppRouteDestination: Equatable {
                let id = UUID(uuidString: String(route.dropFirst("lesson-video:".count))) {
                 return .lessonVideo(id)
             }
-            if route.hasPrefix("feedback:"),
-               let id = UUID(uuidString: String(route.dropFirst(9))) {
-                return .feedback(matchId: id)
+            if route.hasPrefix("feedback-item:"),
+               let id = UUID(uuidString: String(route.dropFirst("feedback-item:".count))) {
+                return .feedbackItem(id)
+            }
+            // "feedback:<match id>" used to open the composer with that
+            // match attached. It no longer pre-selects anything (Adil,
+            // 2026-09-16); the route still lands on the board so nothing
+            // that linked it breaks.
+            if route.hasPrefix("feedback:") {
+                return .feedback(compose: false)
             }
             if route.hasPrefix("guide:"),
                let guide = catalog.guides(for: LearnAudience(workspace: workspace)).first(
@@ -93,8 +104,10 @@ private struct AppRoute: View {
             LearnScreen()
         case .tutorialVideos(let audience):
             TutorialVideosScreen(audience: audience)
-        case .feedback(let matchId):
-            FeedbackScreen(matchId: matchId)
+        case .feedback(let compose):
+            FeedbackScreen(openCompose: compose)
+        case .feedbackItem(let id):
+            FeedbackThreadScreen(itemId: id)
         case .matchFeedback(let id):
             MatchProcessingFeedbackScreen(matchId: id)
         case .coachOrders:

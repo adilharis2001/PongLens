@@ -39,6 +39,9 @@ final class HomeStore {
     var shareLinksCount = 0
     var coachLinksCount = 0
     var reels: [ReelFeedRow] = []
+    /// The three board posts being talked about most recently, for Home's
+    /// last section. Open posts only: a finished one is not an invitation.
+    var boardItems: [FeedbackItem] = []
     var loaded = false
 
     func load(userId: UUID?) async {
@@ -66,6 +69,16 @@ final class HomeStore {
             .execute()
             .value
         reels = reelRows ?? []
+
+        struct BoardReq: Encodable {
+            let p_sort: String
+            let p_limit: Int
+        }
+        let board: [FeedbackItem]? = try? await supa
+            .rpc("feedback_board", params: BoardReq(p_sort: "active", p_limit: 8))
+            .execute()
+            .value
+        boardItems = Array((board ?? []).filter { !$0.isHidden && !$0.isDone }.prefix(3))
         loaded = true
     }
 }
