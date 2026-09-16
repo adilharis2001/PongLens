@@ -663,7 +663,7 @@ struct HomeScreen: View {
         if homeStore.loaded, !ownMatches.isEmpty || !library.activeJobs.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    SectionHeading("Feedback board")
+                    SectionHeading("Feedback and discussion")
                     Spacer()
                     NavigationLink(value: "feedback") {
                         HStack(spacing: 3) {

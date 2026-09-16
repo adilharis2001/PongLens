@@ -347,7 +347,7 @@ struct FeedbackBoardToolRow: View {
     var body: some View {
         NavigationLink(value: "feedback") {
             HStack(spacing: 8) {
-                Text("Feedback")
+                Text("Feedback and discussion")
                     .font(.system(size: 16))
                     .foregroundStyle(PL.textBody)
                 Spacer()

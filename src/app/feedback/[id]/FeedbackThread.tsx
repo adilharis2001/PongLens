@@ -400,7 +400,7 @@ function BackLink() {
       >
         <path strokeLinecap="round" strokeLinejoin="round" d="m15 6-6 6 6 6" />
       </svg>
-      Feedback
+      Feedback and discussion
     </Link>
   );
 }

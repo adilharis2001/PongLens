@@ -5,7 +5,7 @@ import { AppShell } from "@/components/AppShell";
 import { FeedbackThread } from "./FeedbackThread";
 
 export const metadata: Metadata = {
-  title: "Feedback",
+  title: "Feedback and discussion",
   robots: { index: false, follow: false },
 };
 

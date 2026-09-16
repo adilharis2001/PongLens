@@ -112,7 +112,7 @@ struct LearnScreen: View {
                             Text("Nothing found for that.")
                                 .font(.plRowTitle)
                                 .foregroundStyle(PL.text200)
-                            Text("Try another word, or browse the guides below. Missing a guide you needed? Tell us through Send feedback on the Account page.")
+                            Text("Try another word, or browse the guides below. Missing a guide you needed? Tell us through Feedback and discussion on the Account page.")
                                 .font(.plCaption)
                                 .foregroundStyle(PL.text500)
                         }

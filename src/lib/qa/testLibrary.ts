@@ -38,7 +38,7 @@ export const TEST_AREAS = [
   { key: "learn", title: "Learn" },
   { key: "account", title: "Account, storage and minutes" },
   { key: "email", title: "Email" },
-  { key: "feedback", title: "Feedback board" },
+  { key: "feedback", title: "Feedback and discussion" },
 ] as const;
 
 export type TestArea = (typeof TEST_AREAS)[number]["key"];
