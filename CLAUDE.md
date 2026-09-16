@@ -720,7 +720,7 @@ entry gates in
 `docs/superpowers/plans/2026-09-16-canonical-score-reader-migration.md` pass.
 Aggregate stats also use the summary shadow for non-neutral match games. Their
 legacy point cache must download and fingerprint `game_winner_override` via
-`20260916150000_stats_game_winner_fingerprint.sql`; never cache or publish a
+`20260916151000_stats_game_winner_fingerprint.sql`; never cache or publish a
 stats walk after a partial point fetch.
 
 Public match and automatic-highlight links retain their existing anonymous

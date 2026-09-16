@@ -38,7 +38,7 @@ and emits no match identifiers. The same shared chunked diagnostic now covers
 accepted-coach student match cards, preserving their existing score display and
 access rules while measuring parity through the coach's own session. Aggregate
 stats now shadows the same per-match games and completion facts for non-neutral
-matches. Migration `20260916150000_stats_game_winner_fingerprint.sql` also
+matches. Migration `20260916151000_stats_game_winner_fingerprint.sql` also
 closes a legacy drift hole: manually named game winners are downloaded and
 hashed, and a partial network fetch is neither displayed as fresh stats nor
 cached under a current fingerprint.
@@ -70,7 +70,7 @@ Verified on September 16, 2026:
   exercises one 89-visible-point live-token shadow through the service role.
 
 This checkpoint does not satisfy the entry gate above. Do not apply migrations
-`20260916143000`, `20260916150000` or `20260916153000`, deploy these readers,
+`20260916143000`, `20260916151000` or `20260916153000`, deploy these readers,
 or enable the reader canary merely because the automated foundation is green.
 
 ## Migration order

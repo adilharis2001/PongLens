@@ -76,7 +76,7 @@ test("manual game winners are downloaded and invalidate the stats point cache", 
   );
   const migration = readFileSync(
     new URL(
-      "../../../supabase/migrations/20260916150000_stats_game_winner_fingerprint.sql",
+      "../../../supabase/migrations/20260916151000_stats_game_winner_fingerprint.sql",
       import.meta.url,
     ),
     "utf8",
