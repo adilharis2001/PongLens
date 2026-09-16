@@ -149,7 +149,11 @@ build is tied to the exact Mac release it was built from
 reports `release_mismatch` and refuses until the twin is rebuilt (the steps
 are in `worker/cloud_release/README.md`). Never import Python from a live
 sealed release directory without `-B`: a bytecode cache inside the payload
-makes the Mac workers refuse every claim.
+makes the Mac workers refuse every claim. `processing_control` still carries the
+abandoned 2026-09-05 design's columns: its word-list rule on
+`latest_dispatch_reason` refused the first press of Run once and was dropped
+(`20260916173909`); do not add fixed-vocabulary constraints to columns the
+dispatcher writes its reasons into.
 
 **The code is built so a missed update is visible rather than silent.** An
 unrecognised kind or stage renders as its own raw name with a marker
