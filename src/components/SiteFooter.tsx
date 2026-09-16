@@ -41,7 +41,7 @@ export async function SiteFooter({
               Contact
             </a>
           </nav>
-          <p className="text-sm text-zinc-400">© 2026 PongLens</p>
+          <p className="text-sm text-zinc-400">© 2026 AH Labs LLC</p>
         </div>
       </div>
     </footer>

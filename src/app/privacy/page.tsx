@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="September 14, 2026">
+    <LegalPage title="Privacy Policy" updated="September 15, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -46,8 +46,9 @@ export default async function PrivacyPage() {
       <section>
         <h2>Who is responsible for your data</h2>
         <p>
-          PongLens is operated from New Jersey, in the United States, and is
-          the controller of the personal data described here. For any privacy
+          PongLens is operated by AH Labs LLC, a New Jersey limited liability
+          company in the United States, which is the controller of the
+          personal data described here. For any privacy
           question or request, including the ones listed in section 11, email{" "}
           <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
         </p>
@@ -489,12 +490,18 @@ export default async function PrivacyPage() {
           and the date at the top, and flag material changes in the app or by
           email.
         </p>
+        <p>
+          If PongLens moves to another company, for example its own company or
+          a buyer, your data moves with it and stays covered by this policy.
+          We&apos;ll tell you in the app or by email before that happens.
+        </p>
       </section>
 
       <section>
         <h2>14. Contact</h2>
         <p>
-          Privacy questions or requests:{" "}
+          AH Labs LLC, New Jersey, United States. Privacy questions or
+          requests:{" "}
           <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
         </p>
       </section>
