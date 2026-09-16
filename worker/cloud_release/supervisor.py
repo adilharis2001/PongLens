@@ -28,6 +28,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import timedelta
 from pathlib import Path
 
 import psycopg2
@@ -88,17 +89,27 @@ def pulse(connection, worker_id: str) -> dict | None:
 
 
 def extend_leases(connection, lanes) -> None:
-    """Push out the visibility window of every message a cloud lane is on."""
+    """Push out the visibility window of every message any lane is on.
+
+    Both machines' lanes, not only the cloud's: while a cloud session is
+    alive it protects the Mac's held jobs too, so a Mac job that runs past
+    thirty minutes cannot reappear to this container. The Mac worker will
+    do this for itself from the next sealed release; until then the cloud
+    is the one that knows both sides.
+    """
     for lane, queue in lanes.items():
-        row = pulse(connection, 'modal:' + lane)
-        if not row or not row['job_id']:
-            continue
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"select msg_id from pgmq.q_{queue} where message->>'job_id' = %s",
-                (str(row['job_id']),))
-            for (msg_id,) in cursor.fetchall():
-                cursor.execute('select pgmq.set_vt(%s, %s, %s)', (queue, msg_id, LEASE_EXTEND_S))
+        for host in ('modal', 'mac'):
+            row = pulse(connection, f'{host}:{lane}')
+            if not row or not row['job_id']:
+                continue
+            if row['beat_at'] < row['db_now'] - timedelta(seconds=MAC_ALIVE_S):
+                continue  # a stale pulse holds nothing
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"select msg_id from pgmq.q_{queue} where message->>'job_id' = %s",
+                    (str(row['job_id']),))
+                for (msg_id,) in cursor.fetchall():
+                    cursor.execute('select pgmq.set_vt(%s, %s, %s)', (queue, msg_id, LEASE_EXTEND_S))
 
 
 def launch(lane: str, release: Path, label: str):
