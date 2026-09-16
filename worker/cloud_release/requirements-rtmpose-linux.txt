@@ -1,0 +1,11 @@
+# Linux twin of the RTMPose environment (players and side changes).
+# The Mac carries both opencv-python 4.13 and opencv-contrib-python 5.0; one
+# cv2 is enough here and the contrib build is the newer of the two.
+flatbuffers==25.12.19
+numpy==2.4.1
+onnxruntime==1.28.0
+opencv-contrib-python-headless==5.0.0.93
+packaging==26.2
+protobuf==7.35.1
+rtmlib==0.0.15
+tqdm==4.70.0

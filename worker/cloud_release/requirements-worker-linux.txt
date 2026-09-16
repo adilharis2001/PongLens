@@ -1,0 +1,26 @@
+# Linux twin of the Mac worker environment (worker/venv), from the sealed
+# release manifest's package identity. Platform wheels differ; versions match.
+Pygments==2.21.0
+boto3==1.43.53
+botocore==1.43.53
+certifi==2026.6.17
+charset-normalizer==3.4.9
+idna==3.18
+iniconfig==2.3.0
+jmespath==1.1.0
+numpy==2.2.6
+opencv-python-headless==5.0.0.93
+packaging==26.3
+pillow==12.3.0
+pluggy==1.6.0
+psycopg2-binary==2.9.12
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+requests==2.34.2
+s3transfer==0.19.1
+scipy==1.13.1
+six==1.17.0
+urllib3==2.7.0
+# The Mac uses a standalone yt-dlp binary; YouTube imports stay on the Mac,
+# but the worker checks the tool exists at startup.
+yt-dlp
