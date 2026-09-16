@@ -37,8 +37,129 @@ begin
        'public.finalize_worker_points_v2(uuid,uuid)', 'execute') then
     raise exception 'authenticated unexpectedly has worker finalizer execution';
   end if;
+  if has_function_privilege('anon',
+       'public.canonical_score_snapshot_v1(uuid)', 'execute') then
+    raise exception 'anon unexpectedly has canonical reader execution';
+  end if;
+  if not has_function_privilege('authenticated',
+       'public.canonical_score_snapshot_v1(uuid)', 'execute') then
+    raise exception 'authenticated canonical reader grant missing';
+  end if;
+  if coalesce((select value from public.app_config
+                where key='canonical_score_readers'), '') <> 'off' then
+    raise exception 'canonical reader did not start disabled';
+  end if;
 end;
 $$;
+
+-- Prove the dormant reader has a boundary independent from command rollout:
+-- owner and accepted coach can read only when individually allowlisted; an
+-- allowlisted stranger receives not_found; and admin status is not a bypass.
+update public.app_config
+   set value='users:11111111-1111-4111-8111-111111111111,33333333-3333-4333-8333-333333333333'
+ where key='canonical_score_readers';
+
+select set_config(
+  'request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false
+);
+select set_config('request.jwt.claim.role','authenticated',false);
+
+do $$
+declare
+  v_match uuid := md5('match-220')::uuid;
+  v_response jsonb;
+begin
+  v_response := public.canonical_score_snapshot_v1(v_match);
+  if not coalesce((v_response->>'ok')::boolean,false)
+     or v_response#>>'{snapshot,matchId}' <> v_match::text then
+    raise exception 'owner canonical reader failed: %',v_response;
+  end if;
+end;
+$$;
+
+select set_config(
+  'request.jwt.claim.sub','33333333-3333-4333-8333-333333333333',false
+);
+
+do $$
+declare
+  v_response jsonb;
+begin
+  v_response := public.canonical_score_snapshot_v1(md5('match-220')::uuid);
+  if not coalesce((v_response->>'ok')::boolean,false) then
+    raise exception 'accepted coach canonical reader failed: %',v_response;
+  end if;
+end;
+$$;
+
+update public.app_config
+   set value='user:44444444-4444-4444-8444-444444444444'
+ where key='canonical_score_readers';
+select set_config(
+  'request.jwt.claim.sub','44444444-4444-4444-8444-444444444444',false
+);
+
+do $$
+declare
+  v_response jsonb;
+begin
+  v_response := public.canonical_score_snapshot_v1(md5('match-220')::uuid);
+  if v_response->>'code' <> 'not_found' then
+    raise exception 'allowlisted stranger escaped match access: %',v_response;
+  end if;
+end;
+$$;
+
+update public.app_config
+   set value='off'
+ where key='canonical_score_readers';
+select set_config(
+  'request.jwt.claim.sub','22222222-2222-4222-8222-222222222222',false
+);
+
+do $$
+declare
+  v_response jsonb;
+begin
+  v_response := public.canonical_score_snapshot_v1(md5('match-220')::uuid);
+  if v_response->>'code' <> 'not_enabled' then
+    raise exception 'admin bypassed canonical reader canary: %',v_response;
+  end if;
+end;
+$$;
+
+update public.app_config
+   set value='user:11111111-1111-4111-8111-111111111111'
+ where key='canonical_score_readers';
+update public.matches
+   set score_projection_status='stale'
+ where id=md5('match-219')::uuid;
+select set_config(
+  'request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false
+);
+
+do $$
+declare
+  v_match uuid := md5('match-219')::uuid;
+  v_response jsonb;
+begin
+  v_response := public.canonical_score_snapshot_v1(v_match);
+  if v_response->>'code' <> 'unavailable' then
+    raise exception 'stale reader did not fail closed: %',v_response;
+  end if;
+  if (select score_projection_status from public.matches where id=v_match)
+       <> 'stale' then
+    raise exception 'reader repaired or mutated stale projection state';
+  end if;
+end;
+$$;
+
+update public.matches
+   set score_projection_status='current'
+ where id=md5('match-219')::uuid;
+update public.app_config
+   set value='off'
+ where key='canonical_score_readers';
 
 create temporary table canonical_command_latency(ms double precision);
 

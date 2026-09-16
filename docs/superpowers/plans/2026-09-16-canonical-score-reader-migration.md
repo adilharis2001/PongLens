@@ -22,6 +22,32 @@ zero invalid rows and zero field differences. Reader activation remains blocked
 on the native authenticated check and one observed automatic plus manual-cut
 publication; corpus parity alone does not authorize a display switch.
 
+## Foundation checkpoint
+
+The phase-three foundation is implemented on branch
+`codex/canonical-score-state` but is not deployed or activated. It adds the
+default-off `canonical_score_readers` canary and the narrow
+`canonical_score_snapshot_v1` RPC, plus typed web and native loaders that pin
+the expected match revision, fail back to the established fold, and emit only
+aggregate parity counts or stable fallback reasons. Web and native displays do
+not consume canonical state yet.
+
+Verified on September 16, 2026:
+
+- Full isolated PostgreSQL scoring suite: 88/88, including owner,
+  accepted-coach, admin, stranger and anonymous reader boundaries, plus proof
+  that stale reads do not repair or mutate projection state.
+- Production-sized rehearsal: 220 matches and 19,800 points; migrations in
+  2.36 seconds; existing commands at 16.274 ms p50 and 18.856 ms p95.
+- Complete native behavior suite: 1,230/1,230.
+- Full iPhone 18 Pro simulator target build: succeeded.
+- Full production Next.js build: succeeded. Existing unrelated lint warnings
+  remain; this reader change adds none.
+
+This checkpoint does not satisfy the entry gate above. Do not apply migration
+`20260916143000`, deploy these readers, or enable the reader canary merely
+because the automated foundation is green.
+
 ## Migration order
 
 1. Add one shared, typed canonical snapshot loader for authenticated owner,

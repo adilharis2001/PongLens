@@ -38,7 +38,7 @@ function resetFixture(): void {
       ('${STRANGER}','stranger@example.test'),
       ('${ADMIN}','admin@example.test');
     update public.app_config set value='off'
-     where key='canonical_score_commands';
+     where key in ('canonical_score_commands', 'canonical_score_readers');
     insert into public.matches(
       id,user_id,first_server,first_server_source,active_processing_version_id
     ) values ('${MATCH}','${OWNER}','user','user','${VERSION}');
@@ -550,6 +550,81 @@ databaseTest("canonical command capability is private and follows the account ro
     ],
     {
       input: `set role anon; select public.canonical_score_commands_enabled();`,
+      encoding: "utf8",
+    }
+  );
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /permission denied/i);
+});
+
+databaseTest("canonical reader snapshot is default-off and access-scoped for owner, coach, and admin", () => {
+  resetFixture();
+  insertScorePoints();
+
+  assert.equal(
+    command(OWNER, `public.canonical_score_snapshot_v1('${MATCH}')`).code,
+    "not_enabled"
+  );
+
+  sql(`update public.app_config set value='user:${OWNER}'
+        where key='canonical_score_readers';`);
+  const owner = command(OWNER, `public.canonical_score_snapshot_v1('${MATCH}')`);
+  assert.equal(owner.ok, true);
+  assert.equal((owner.snapshot as { matchId: string }).matchId, MATCH);
+
+  sql(`insert into public.coach_links(player_id,coach_id,status,all_matches)
+       values ('${OWNER}','${COACH}','accepted',true);`);
+  assert.equal(
+    command(COACH, `public.canonical_score_snapshot_v1('${MATCH}')`).code,
+    "not_enabled"
+  );
+  sql(`update public.app_config set value='user:${COACH}'
+        where key='canonical_score_readers';`);
+  assert.equal(
+    command(COACH, `public.canonical_score_snapshot_v1('${MATCH}')`).ok,
+    true
+  );
+
+  sql(`update public.app_config set value='user:${STRANGER}'
+        where key='canonical_score_readers';`);
+  assert.equal(
+    command(STRANGER, `public.canonical_score_snapshot_v1('${MATCH}')`).code,
+    "not_found"
+  );
+
+  sql(`update public.app_config set value='user:${ADMIN}'
+        where key='canonical_score_readers';`);
+  assert.equal(
+    command(ADMIN, `public.canonical_score_snapshot_v1('${MATCH}')`).ok,
+    true
+  );
+  assert.equal(
+    command(ADMIN, `public.canonical_score_snapshot_v1('ffffffff-ffff-4fff-8fff-ffffffffffff')`).code,
+    "not_found"
+  );
+
+  sql(`update public.app_config set value='user:${OWNER}'
+        where key='canonical_score_readers';
+       update public.matches set score_projection_status='stale'
+        where id='${MATCH}';`);
+  assert.equal(
+    command(OWNER, `public.canonical_score_snapshot_v1('${MATCH}')`).code,
+    "unavailable"
+  );
+  assert.equal(
+    sql(`select score_projection_status from public.matches where id='${MATCH}';`),
+    "stale",
+    "a reader must never repair or otherwise mutate projection state"
+  );
+
+  const denied = spawnSync(
+    "docker",
+    [
+      "exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1",
+      "-At", "-U", "postgres", "-d", DATABASE,
+    ],
+    {
+      input: `set role anon; select public.canonical_score_snapshot_v1('${MATCH}');`,
       encoding: "utf8",
     }
   );

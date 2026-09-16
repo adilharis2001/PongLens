@@ -239,7 +239,9 @@ function pointState(value: unknown, revision: number): CanonicalSnapshotPoint | 
   return row as unknown as CanonicalSnapshotPoint;
 }
 
-function snapshot(value: unknown): CanonicalScoreSnapshot | null {
+export function parseCanonicalScoreSnapshot(
+  value: unknown
+): CanonicalScoreSnapshot | null {
   const row = object(value);
   if (
     !row ||
@@ -269,7 +271,7 @@ export function parseCanonicalCommandResult(
   if (!row || typeof row.ok !== "boolean") return null;
 
   if (row.ok) {
-    const parsedSnapshot = snapshot(row.snapshot);
+    const parsedSnapshot = parseCanonicalScoreSnapshot(row.snapshot);
     if (
       typeof row.requestId !== "string" ||
       !integer(row.revision) ||
@@ -288,7 +290,7 @@ export function parseCanonicalCommandResult(
   }
 
   if (row.code === "score_conflict") {
-    const parsedSnapshot = snapshot(row.snapshot);
+    const parsedSnapshot = parseCanonicalScoreSnapshot(row.snapshot);
     if (
       !integer(row.revision) ||
       !parsedSnapshot ||

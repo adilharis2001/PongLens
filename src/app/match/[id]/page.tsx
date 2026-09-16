@@ -26,6 +26,11 @@ import {
 import { RAW_BUCKET, presignGet } from "@/lib/r2";
 import { hasOriginalVideo } from "@/lib/originalVideo";
 import { activeMatchVersionKey } from "@/lib/matchIssues/activeVersion";
+import { projectCanonicalScore } from "@/lib/scoring/canonical";
+import {
+  canonicalScoreReaderDiagnostic,
+  loadCanonicalScoreSnapshot,
+} from "@/lib/scoring/reader";
 import { MatchView } from "./MatchView";
 import { RawMatchView } from "./RawMatchView";
 
@@ -176,6 +181,48 @@ export default async function MatchPage({
         </main>
       </>
     );
+  }
+
+  // Phase-three reader shadow. The database RPC owns the separate account
+  // canary and returns not_enabled for everyone else. No display reads this
+  // result yet: it only compares one revision-pinned snapshot with the
+  // established fold and logs aggregate counts or a stable fallback code.
+  const sourcePoints = (pointsRes.data ?? []) as Point[];
+  const legacyScoreProjection = projectCanonicalScore({
+    firstServer: matchRes.data.first_server,
+    firstServerSource: matchRes.data.first_server_source,
+    points: sourcePoints.map((point) => ({
+      id: point.id,
+      idx: point.idx,
+      t0: point.t0,
+      deleted: point.deleted,
+      isLet: point.is_let,
+      confirmedHow: point.confirmed_how,
+      confirmedWinner: point.confirmed_winner,
+      serverOverride: point.server_override,
+      gameEndOverride: point.game_end_override ?? null,
+      gameWinnerOverride: point.game_winner_override ?? null,
+    })),
+  });
+  const canonicalRead = await loadCanonicalScoreSnapshot({
+    matchId: id,
+    expectedRevision: Number(matchRes.data.score_revision ?? 0),
+    rpc: async (name, args) => {
+      const { data, error } = await supabase.rpc(name, args);
+      return { data, error };
+    },
+  });
+  const readerDiagnostic = canonicalScoreReaderDiagnostic(
+    canonicalRead,
+    legacyScoreProjection,
+  );
+  if (readerDiagnostic?.kind === "parity") {
+    console.info("canonical score reader parity", readerDiagnostic);
+  } else if (readerDiagnostic) {
+    console.warn("canonical score reader fallback", {
+      revision: Number(matchRes.data.score_revision ?? 0),
+      reason: readerDiagnostic.reason,
+    });
   }
 
   // Point tags (035): the owner's vocabulary plus this match's

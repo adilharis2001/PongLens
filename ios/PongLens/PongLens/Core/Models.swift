@@ -289,6 +289,9 @@ struct MatchRow: Codable, Identifiable, Hashable {
     let originalName: String?
     let userSide: String?
     let firstServer: String?
+    /// Who supplied firstServer. Only an owner-confirmed "user" value may
+    /// anchor canonical rotation; a worker "detected" value stays a guess.
+    var firstServerSource: String? = nil
     let clipPads: ClipPad?
     let placementStatus: String?
     /// How the points were cut: "manual" is a hand-cut match, which has no
@@ -324,6 +327,7 @@ struct MatchRow: Codable, Identifiable, Hashable {
         case originalName = "original_name"
         case userSide = "user_side"
         case firstServer = "first_server"
+        case firstServerSource = "first_server_source"
         case clipPads = "clip_pads"
         case placementStatus = "placement_status"
         case cutSource = "cut_source"
@@ -340,7 +344,8 @@ struct MatchRow: Codable, Identifiable, Hashable {
     /// One match, opened. Adds the game-end detector's evidence, which the
     /// library list has no use for — it is a JSONB blob per row and the
     /// list fetches every match the player owns.
-    static let detailSelect = librarySelect + ",match_structure,cut_source,score_revision"
+    static let detailSelect = librarySelect
+        + ",first_server_source,match_structure,cut_source,score_revision"
 }
 
 

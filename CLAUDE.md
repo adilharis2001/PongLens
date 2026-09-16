@@ -681,6 +681,18 @@ second write. Keep the capability `off` for an ordinary deploy, canary with
 `user:<uuid>`, and disable it without deleting projection data if anything is
 unclear.
 
+**The phase-three reader foundation is separate and also defaults off.**
+Migration `20260916143000_canonical_score_readers.sql` adds the authenticated
+`canonical_score_snapshot_v1` boundary and the independent
+`canonical_score_readers` account canary. Owner, accepted-coach and admin
+access still goes through the existing match boundary; admin status never
+enables the canary. Web match detail and native iOS may shadow-compare one
+revision-pinned snapshot when that account is allowlisted, but displays still
+use the established folds. Shadow diagnostics contain only aggregate mismatch
+counts or stable fallback codes. Do not activate or widen this reader flag
+until the entry gates in
+`docs/superpowers/plans/2026-09-16-canonical-score-reader-migration.md` pass.
+
 - **Authority stays separated.** Owner outcomes, skips, first-server choices,
   serve overrides and game-boundary overrides are canonical inputs. Worker
   `points.server`, suggestions, detected side changes and rally evidence are
