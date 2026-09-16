@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 import {
   workingOnMicPresentation,
   type WorkingOnMicState,
@@ -72,6 +73,7 @@ export function WorkingOn({
   const [notice, setNotice] = useState<string | null>(null);
   const [rec, setRec] = useState<WorkingOnMicState>("idle");
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const { ensure } = useAiConsent();
   const chunksRef = useRef<Blob[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -131,6 +133,8 @@ export function WorkingOn({
   };
 
   const startRecording = async () => {
+    // The sheet before the microphone: the words go to Deepgram.
+    if (!(await ensure())) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -151,11 +155,11 @@ export function WorkingOn({
           const form = new FormData();
           form.append("audio", blob, "cue.webm");
           form.append("persist", "false");
-          const res = await fetch("/api/transcribe", {
+          const res = await fetchWithAiConsent(ensure, "/api/transcribe", {
             method: "POST",
             body: form,
           });
-          const data = res.ok ? await res.json() : null;
+          const data = res?.ok ? await res.json() : null;
           const words = String(data?.transcript ?? "").trim();
           if (words) {
             setDraft((d) =>

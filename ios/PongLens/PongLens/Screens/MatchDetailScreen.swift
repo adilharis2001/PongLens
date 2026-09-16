@@ -30,6 +30,7 @@ struct MatchDetailSnapshot {
     let points: [MatchPoint]
     let videoURL: URL?
     let matchStructure: MatchStructure?
+    var canonicalCommandsEnabled = false
 }
 
 /// Replace only transport in tests. The model owns version comparison,
@@ -56,7 +57,13 @@ struct MatchDetailClient {
             let response: Response = try await API.post("api/media-url", Request(
                 matchId: match.id.uuidString.lowercased(), preview: ready ? true : nil, rawPreview: ready ? nil : true,
                 expectedVersionId: ready ? match.activeProcessingVersionId : nil))
-            return MatchDetailSnapshot(points: points, videoURL: response.url.flatMap(URL.init), matchStructure: match.matchStructure)
+            let commandsEnabled: Bool =
+                (try? await supa.rpc("canonical_score_commands_enabled").execute().value) ?? false
+            return MatchDetailSnapshot(
+                points: points,
+                videoURL: response.url.flatMap(URL.init),
+                matchStructure: match.matchStructure,
+                canonicalCommandsEnabled: commandsEnabled)
         }
     )
 }
@@ -71,6 +78,9 @@ final class MatchDetailModel {
     private(set) var loadedVersionId: UUID?
     private var loadedMatchId: UUID?
     private var loadedMatchStatus: MatchStatus?
+    @ObservationIgnored private var canonicalCommands: CanonicalScoreCommandTransport?
+    @ObservationIgnored var canonicalSplitRequestByChild: [UUID: UUID] = [:]
+    private(set) var canonicalCommandsEnabled = false
 
     init(client: MatchDetailClient? = nil) { self.client = client ?? .live }
     var points: [MatchPoint] = []
@@ -100,23 +110,73 @@ final class MatchDetailModel {
             points[i].isLet = state.isLet
             points[i].scoredAtCutS = state.scoredAt
         },
-        persist: { id, state in
-            do {
-                try await supa
-                    .from("points")
-                    .update([
-                        "confirmed_winner": state.winner.map { .string($0.rawValue) } ?? .null,
-                        "is_let": .bool(state.isLet),
-                        "scored_at_cut_s": state.scoredAt.map { .double($0) } ?? .null,
-                    ] as [String: AnyJSON])
-                    .eq("id", value: id.uuidString.lowercased())
-                    .execute()
+        persist: { [weak self] id, state in
+            guard let self else { return false }
+            let skipKind = points.first(where: { $0.id == id })
+                .map { canonicalSkipReason($0.confirmedHow) } ?? "other"
+            let outcome = state.winner?.rawValue ?? (state.isLet ? skipKind : "clear")
+            let result = await canonicalCommand(
+                "set_point_outcome_v2",
+                args: [
+                    "p_point_id": .uuid(id),
+                    "p_outcome": .string(outcome),
+                    "p_confirmed_how": state.isLet ? .string(skipKind) : .null,
+                    "p_scored_at_cut_s": state.scoredAt.map(CanonicalJSON.number) ?? .null,
+                ]
+            ) {
+                do {
+                    try await supa
+                        .from("points")
+                        .update([
+                            "confirmed_winner": state.winner.map { .string($0.rawValue) } ?? .null,
+                            "is_let": .bool(state.isLet),
+                            "scored_at_cut_s": state.scoredAt.map { .double($0) } ?? .null,
+                        ] as [String: AnyJSON])
+                        .eq("id", value: id.uuidString.lowercased())
+                        .execute()
+                    return true
+                } catch { return false }
+            }
+            switch result {
+            case .canonical: return true
+            case .legacy(let saved): return saved
+            case .conflict(let snapshot):
+                reconcileCanonical(snapshot)
                 return true
-            } catch {
-                return false
+            case .rejected, .transportError: return false
             }
         }
     )
+
+    func canonicalCommand<T>(
+        _ name: String,
+        args: [String: CanonicalJSON],
+        legacy: () async -> T
+    ) async -> CanonicalScoreExecution<T> {
+        guard let canonicalCommands else { return .legacy(await legacy()) }
+        return await canonicalCommands.execute(name, args: args, legacy: legacy)
+    }
+
+    func reconcileCanonical(_ snapshot: CanonicalScoreSnapshot) {
+        let byId = Dictionary(uniqueKeysWithValues: snapshot.points.map { ($0.pointId, $0) })
+        for index in points.indices {
+            guard let state = byId[points[index].id] else { continue }
+            if let winner = state.confirmedWinner.flatMap(Winner.init(rawValue:)) {
+                points[index].confirmedWinner = winner
+                points[index].isLet = false
+            } else if let skip = state.skipKind {
+                points[index].confirmedWinner = nil
+                points[index].confirmedHow = skip
+                points[index].isLet = true
+                points[index].scoredAtCutS = nil
+            } else {
+                points[index].confirmedWinner = nil
+                points[index].confirmedHow = nil
+                points[index].isLet = false
+                points[index].scoredAtCutS = nil
+            }
+        }
+    }
 
     var jobRunning: Bool { job?.running ?? false }
 
@@ -257,6 +317,14 @@ final class MatchDetailModel {
                 points = snapshot.points
                 videoURL = snapshot.videoURL
                 matchStructure = snapshot.matchStructure
+                canonicalCommands = CanonicalScoreCommandTransport(
+                    matchId: matchId,
+                    revision: fresh.scoreRevision ?? 0,
+                    enabled: snapshot.canonicalCommandsEnabled
+                ) { name, params in
+                    try await supa.rpc(name, params: params).execute().value
+                }
+                canonicalCommandsEnabled = snapshot.canonicalCommandsEnabled
                 loadedVersionId = fresh.activeProcessingVersionId
                 loadedMatchId = matchId
                 loadedMatchStatus = fresh.status
@@ -551,21 +619,24 @@ final class MatchDetailModel {
         deleted: Bool, starred: Bool
     ) async {
         guard let current = points.first(where: { $0.id == point.id }) else { return }
-        await patch(
-            current,
-            fields: [
-                "confirmed_winner": winner.map { .string($0.rawValue) } ?? .null,
-                "is_let": .bool(isLet),
-                "scored_at_cut_s": scoredAt.map { .double($0) } ?? .null,
-                "deleted": .bool(deleted),
-                "starred": .bool(starred),
-            ]
-        ) {
-            $0.confirmedWinner = winner
-            $0.isLet = isLet
-            $0.scoredAtCutS = scoredAt
-            $0.deleted = deleted
-            $0.starred = starred
+        if current.confirmedWinner != winner || current.isLet != isLet ||
+            current.scoredAtCutS != scoredAt {
+            _ = await saveCanonicalOutcome(
+                current,
+                winner: winner,
+                confirmedHow: isLet ? canonicalSkipReason(current.confirmedHow) : current.confirmedHow,
+                isLet: isLet,
+                scoredAt: scoredAt)
+        }
+        if let afterScore = points.first(where: { $0.id == point.id }),
+           afterScore.deleted != deleted {
+            _ = await setPointVisibility(afterScore, visible: !deleted)
+        }
+        if let afterVisibility = points.first(where: { $0.id == point.id }),
+           afterVisibility.starred != starred {
+            _ = await patch(afterVisibility, fields: ["starred": .bool(starred)]) {
+                $0.starred = starred
+            }
         }
     }
 
@@ -586,8 +657,53 @@ final class MatchDetailModel {
     }
 
     func softDelete(_ point: MatchPoint) async {
-        await patch(point, fields: ["deleted": .bool(true)]) {
-            $0.deleted = true
+        _ = await setPointVisibility(point, visible: false)
+    }
+
+    @discardableResult
+    func setPointVisibility(_ point: MatchPoint, visible: Bool) async -> Bool {
+        guard let index = points.firstIndex(where: { $0.id == point.id }) else { return false }
+        let before = points[index].deleted
+        points[index].deleted = !visible
+        let result = await canonicalCommand(
+            "set_point_visibility_v2",
+            args: ["p_point_id": .uuid(point.id), "p_visible": .bool(visible)]
+        ) {
+            do {
+                try await supa.from("points").update(["deleted": !visible])
+                    .eq("id", value: point.id.uuidString.lowercased()).execute()
+                return true
+            } catch { return false }
+        }
+        switch result {
+        case .canonical, .legacy(true): return true
+        case .conflict(let snapshot):
+            points[index].deleted = before
+            reconcileCanonical(snapshot)
+            return false
+        case .legacy(false), .rejected, .transportError:
+            points[index].deleted = before
+            return false
+        }
+    }
+
+    func setFirstServer(matchId: UUID, value: Winner) async -> Bool {
+        let result = await canonicalCommand(
+            "set_first_server_v2",
+            args: ["p_first_server": .string(value.rawValue)]
+        ) {
+            do {
+                try await supa.from("matches").update([
+                    "first_server": AnyJSON.string(value.rawValue),
+                    "first_server_source": AnyJSON.string("user"),
+                ]).eq("id", value: matchId.uuidString.lowercased()).execute()
+                return true
+            } catch { return false }
+        }
+        switch result {
+        case .canonical, .legacy(true): return true
+        case .conflict(let snapshot): reconcileCanonical(snapshot); return false
+        case .legacy(false), .rejected, .transportError: return false
         }
     }
 }
@@ -662,7 +778,6 @@ struct MatchDetailScreen: View {
     @State private var winnerFilter: WinnerFilter = .anyone
     @State private var onlyFilter: OnlyFilter = .everything
     @State private var watchKick = 0
-    @State private var placementOn = false
     // Trim window in raw-video seconds (web RawMatchView's trimStart /
     // trimEnd). End nil = untouched = the whole video.
     @State private var trimStart: Double = 0
@@ -917,7 +1032,7 @@ struct MatchDetailScreen: View {
                                         withAnimation { proxy.scrollTo("match-analysis", anchor: .top) }
                                     },
                                     onScrollToPlacement: {
-                                        withAnimation { proxy.scrollTo("placement-maps", anchor: .top) }
+                                        withAnimation { proxy.scrollTo("match-analysis", anchor: .top) }
                                     },
                                     onRowChanged: {
                                         // The Tools rows render from this
@@ -932,19 +1047,11 @@ struct MatchDetailScreen: View {
                                 )
                             }
                             pointsSection(proxy: proxy)
-                            if tracksServe {
+                            // One section: the serve maps are cards of the
+                            // analysis deck now, so a practice with maps gets
+                            // the section too, holding just those.
+                            if tracksServe || showPlacementAggregate || current.cutSource != "manual" {
                                 analysisSection(coachView: !isOwner)
-                            }
-                            if showPlacementAggregate {
-                                PlacementAggregateSection(
-                                    points: model.visible,
-                                    userSide: current.userSide,
-                                    gameIndexByPoint: gameIndexByPoint,
-                                    serving: serving,
-                                    opponentLabel: current.opponentName ?? "Them",
-                                    servesOnly: app.placementServesOnly
-                                )
-                                .id("placement-maps")
                             }
                             overallNotesSection
                         } else {
@@ -1634,24 +1741,6 @@ struct MatchDetailScreen: View {
 
                     Divider().overlay(PL.edge)
 
-                    // One shape for both settings: name on the left, the
-                    // control on the right, the sentence underneath. They
-                    // used to be built differently from each other, which
-                    // is most of why the card read as unfinished.
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle(isOn: $placementOn) {
-                            Text("Placement maps")
-                                .font(.plRowTitle)
-                                .foregroundStyle(PL.text100)
-                        }
-                        .tint(PL.cyan)
-                        Text("Where each serve landed. Adds processing time.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
-                    }
-
-                    Divider().overlay(PL.edge)
-
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Cut strictness")
                             .font(.plRowTitle)
@@ -1762,7 +1851,7 @@ struct MatchDetailScreen: View {
     private func runProcess() async {
         processBusy = true
         processError = await model.process(
-            current, placement: placementOn,
+            current, placement: true,
             trimStart: trimmed ? trimStart : nil,
             trimEnd: trimmed ? trimEnd : nil,
             strictness: strictness
@@ -1850,7 +1939,40 @@ struct MatchDetailScreen: View {
             SectionHeading("Match analysis")
             AnalysisCards(
                 bundle: MatchAnalysisBundle(match: current, model: model, score: score),
-                coachView: coachView
+                coachView: coachView,
+                video: VideoCardsInput(
+                    match: current,
+                    points: model.visible,
+                    userSide: current.userSide,
+                    gameIndexByPoint: gameIndexByPoint,
+                    serving: serving,
+                    pad: pad,
+                    opponentLabel: current.opponentName ?? "Them",
+                    servesOnly: app.placementServesOnly,
+                    scoredType: tracksServe,
+                    showMaps: showPlacementAggregate,
+                    placementTrusted: current.placementStatus == "ready",
+                    onScore: isOwner && tracksServe
+                        ? {
+                            if let url = model.videoURL {
+                                playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
+                            }
+                        }
+                        : nil,
+                    onPlacementChanged: {
+                        Task { await refreshMatch(refreshLibrary: true) }
+                    },
+                    videoURL: model.videoURL,
+                    onOpenPoint: { point in
+                        guard let i = model.visible.firstIndex(where: { $0.id == point.id }) else { return }
+                        pointSheetIndex = i
+                        // The zone sheet is dismissing; the point sheet
+                        // presents once it is gone, as the pad does.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            pointSheetOpen = true
+                        }
+                    }
+                )
             )
         }
         .id("match-analysis")

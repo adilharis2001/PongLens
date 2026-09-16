@@ -258,7 +258,7 @@ test("a working row says the stage, the kind, the player and how long", () => {
   assert.equal(main.state, "working");
   assert.equal(
     main.detail,
-    "Finding the ball · Placement map · Mert Ipek · 2h 37m",
+    "Finding the ball · Detailed analysis · Mert Ipek · 2h 37m",
   );
   assert.equal(main.note, "frame 57000 of 65807, 6.1 fps");
   assert.equal(main.pct, 87);

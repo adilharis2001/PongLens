@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 
 /**
  * One photo on an entry, in one place.
@@ -54,19 +55,28 @@ export function useEntryPhoto(onError: (line: string) => void) {
   // that captured an older render.
   const latest = useRef<AttachedPhoto | null>(null);
   latest.current = photo;
+  // The photo is read by OpenAI before it is kept, so the sheet comes
+  // before the upload.
+  const { ensure } = useAiConsent();
 
   const attach = useCallback(
     async (file: File) => {
       if (latest.current?.checking) return;
+      if (!(await ensure())) return;
       const preview = URL.createObjectURL(file);
       setPhoto({ preview, path: null, checking: true });
       try {
         const form = new FormData();
         form.append("image", await shrinkImage(file), "photo.jpg");
-        const res = await fetch("/api/entry-image", {
+        const res = await fetchWithAiConsent(ensure, "/api/entry-image", {
           method: "POST",
           body: form,
         });
+        if (!res) {
+          URL.revokeObjectURL(preview);
+          setPhoto(null);
+          return;
+        }
         const data = await res.json().catch(() => null);
         if (!res.ok || !data?.image_path) {
           URL.revokeObjectURL(preview);
@@ -81,7 +91,7 @@ export function useEntryPhoto(onError: (line: string) => void) {
         onError("Couldn't add that photo.");
       }
     },
-    [onError],
+    [ensure, onError],
   );
 
   /** Throw the photo away, including the object it already uploaded. */

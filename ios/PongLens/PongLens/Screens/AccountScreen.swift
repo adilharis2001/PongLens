@@ -19,6 +19,8 @@ struct AccountScreen: View {
     @State private var deleteOpen = false
     @State private var recollectSaving = false
     @State private var recollectError = false
+    @State private var aiSaving = false
+    @State private var aiError = false
 
     var body: some View {
         ZStack {
@@ -54,8 +56,20 @@ struct AccountScreen: View {
                             linkRow("Starred points", value: "starred")
                             rowDivider
                             navRow("Player profile") { profileOpen = true }
+                            // Recollect is behind app_config recollect_enabled:
+                            // off, the row goes with the journal tab.
+                            if app.recollectEnabled {
+                                rowDivider
+                                recollectRow
+                            }
                             rowDivider
-                            recollectRow
+                            aiRow
+                        }
+                    } else {
+                        // The coaching side has no Your game group, and the
+                        // permission covers lesson notes and drafts there too.
+                        group("Preferences") {
+                            aiRow
                         }
                     }
 
@@ -164,7 +178,7 @@ struct AccountScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .plKeyboardDismiss()
-        .task { await store.load(userId: app.userId) }
+        .task { await store.load(userId: app.userId, recollectAvailable: app.recollectEnabled) }
         .task {
             // The balance on screen has to move when a purchase lands,
             // including one that completes minutes later through an
@@ -294,6 +308,45 @@ struct AccountScreen: View {
             ))
             .labelsHidden()
             .disabled(recollectSaving)
+            .tint(PL.cyan.opacity(0.6))
+        }
+        .padding(16)
+    }
+
+    /// The AI features switch. Off: the sheet returns on the next use.
+    /// On: allowed, stamped with the time and the config version, the
+    /// same write the sheet's Allow makes. One of the two places the word
+    /// "AI" is allowed outside Improve with AI.
+    private var aiRow: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("AI features")
+                    .font(.system(size: 16))
+                    .foregroundStyle(PL.textBody)
+                Text("Voice notes, Ask, summaries and photo reading send content to Deepgram and OpenAI.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+                if aiError {
+                    Text("Couldn't save that change. Try again.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.dangerText)
+                }
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { AiConsent.shared.enabled == true },
+                set: { value in
+                    guard !aiSaving else { return }
+                    aiSaving = true
+                    aiError = false
+                    Task {
+                        aiError = !(await AiConsent.shared.setEnabled(value))
+                        aiSaving = false
+                    }
+                }
+            ))
+            .labelsHidden()
+            .disabled(aiSaving)
             .tint(PL.cyan.opacity(0.6))
         }
         .padding(16)
@@ -458,10 +511,25 @@ struct AccountScreen: View {
                         .font(.plBody)
                         .foregroundStyle(PL.text500)
                 }
-                Text("Storage holds your match videos, so your playing history lives in one place instead of scattered across phones. Your uploads and their cut versions count toward the space. Point clips and notes don't.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                    .lineSpacing(3)
+                if let rows = store.storage?.breakdownRows, !rows.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(rows) { row in
+                            HStack {
+                                Text(row.label)
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.text400)
+                                Spacer()
+                                Text(String(format: "%.1f GB", Double(row.bytes) / 1_073_741_824))
+                                    .font(.plCaption)
+                                    .monospacedDigit()
+                                    .foregroundStyle(PL.text300)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                // No explanatory paragraph under the breakdown: the list
+                // already says what counts (Adil, 2026-09-14).
             }
             .padding(16)
             packRows(purchases.storagePacks)

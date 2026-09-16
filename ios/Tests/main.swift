@@ -5,6 +5,7 @@ import Foundation
 
 Task { @MainActor in
     await runScorerStateChecks()
+    await runCanonicalScoreCommandChecks()
     if ProcessInfo.processInfo.environment["SCORER_ONLY"] != "1" {
         runAllChecks()
         runServePlacementParityChecks()
@@ -29,6 +30,7 @@ Task { @MainActor in
         runMatchPointLinkChecks()
         runSignupSourceChecks()
         runProcessingFeedbackChecks()
+        runScoredCardsChecks()
         runFeedbackBoardChecks()
     }
 

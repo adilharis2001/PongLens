@@ -272,7 +272,7 @@ test("catalog selectors filter guides, sections, groups, and related links", () 
   assert.ok(playerGuide);
   assert.deepEqual(
     visibleRelatedGuides(playerGuide, "player", "web").map((item) => item.slug),
-    ["upload-from-youtube", "match-viewer"],
+    ["match-viewer"],
   );
   const iosUploadGuide = guideBySlug("upload-a-video", "player", "ios");
   assert.ok(iosUploadGuide);
@@ -720,13 +720,13 @@ test("player curriculum retains established guides and gates recording to iOS", 
   }
   assert.ok(webSlugs.includes("create-share-highlights"));
   assert.ok(iosSlugs.includes("create-share-highlights"));
-  assert.ok(webSlugs.includes("upload-from-youtube"));
+  assert.equal(webSlugs.includes("upload-from-youtube"), false);
   assert.equal(iosSlugs.includes("upload-from-youtube"), false);
   assert.deepEqual(
     visibleGuides("player", "web")
       .filter((item) => guideSearchText(item).includes("youtube"))
       .map((item) => item.slug),
-    ["upload-from-youtube"],
+    [],
   );
   assert.equal(webSlugs.includes("record-a-match"), false);
   assert.ok(iosSlugs.includes("record-a-match"));

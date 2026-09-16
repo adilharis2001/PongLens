@@ -1,6 +1,6 @@
-import { createClient } from "@/lib/supabase/client";
+import { createClient } from "../../../lib/supabase/client.ts";
 import type { Point } from "@/lib/types";
-import { TIGHT_PAD, effectivePad } from "./clipEdit";
+import { TIGHT_PAD, effectivePad } from "./clipEdit.ts";
 import type { ClipPad } from "./playhead";
 
 /**
@@ -15,7 +15,27 @@ import type { ClipPad } from "./playhead";
  *  split_point's window and the modal's marker band). */
 export const SPLIT_EDGE_S = 0.3;
 
-export type Disposition = "user" | "opponent" | "skip";
+export type Disposition = "user" | "opponent" | "skip" | "clear";
+
+export type CanonicalSplitExecutor = (input: {
+  parent: Point;
+  splitTimes: number[];
+  childCutT0s: number[];
+  outcomes: Disposition[];
+}) => Promise<
+  | { kind: "legacy" }
+  | { kind: "canonical"; requestId: string; points: Point[] }
+  | null
+>;
+
+export type CanonicalJoinExecutor = (input: {
+  pointIds: string[];
+  outcome: Disposition;
+}) => Promise<
+  | { kind: "legacy" }
+  | { kind: "canonical"; points: Point[] }
+  | null
+>;
 
 /** What it takes to reverse one split_point call (unsplit_point args). */
 export interface UnsplitRecord {
@@ -42,20 +62,26 @@ export async function runSplitPlan({
   point,
   pad,
   cutTimes,
+  outcomes,
+  canonical,
   onChild,
 }: {
   point: Point;
   pad: ClipPad;
   cutTimes: number[];
+  outcomes?: Disposition[];
+  canonical?: CanonicalSplitExecutor;
   onChild: (parent: Point, patch: Partial<Point>, child: Point) => void;
 }): Promise<{
   ok: boolean;
   created: Point[];
   unsplits: UnsplitRecord[];
+  outcomesApplied: boolean;
+  splitRequestId?: string;
 }> {
   const A = point;
   if (A.cut_t0 === null || A.t0 === null || A.t1 === null) {
-    return { ok: false, created: [], unsplits: [] };
+    return { ok: false, created: [], unsplits: [], outcomesApplied: false };
   }
   const eff = effectivePad(pad, A.tight_start, A.tight_end);
   const cutT0 = Number(A.cut_t0);
@@ -75,11 +101,53 @@ export async function runSplitPlan({
     ats.push(v);
     floor = v + SPLIT_EDGE_S;
   }
-  if (ats.length === 0) return { ok: false, created: [], unsplits: [] };
+  if (ats.length === 0)
+    return { ok: false, created: [], unsplits: [], outcomesApplied: false };
 
   const childCutT0Of = (at: number) =>
     Math.round((cutT0 + (at - Math.min(pad.pre, TIGHT_PAD)) - anchor) * 100) /
     100;
+
+  const childCutT0s = ats.map(childCutT0Of);
+  if (canonical && outcomes?.length === ats.length + 1) {
+    const executed = await canonical({
+      parent: A,
+      splitTimes: ats,
+      childCutT0s,
+      outcomes,
+    });
+    if (executed === null) {
+      return { ok: false, created: [], unsplits: [], outcomesApplied: false };
+    }
+    if (executed.kind === "canonical") {
+      const segments = [...executed.points].sort((left, right) =>
+        Number(left.t0) - Number(right.t0),
+      );
+      if (segments.length !== ats.length + 1 || segments[0]?.id !== A.id) {
+        return { ok: false, created: [], unsplits: [], outcomesApplied: false };
+      }
+      const created = segments.slice(1);
+      const unsplits = created
+        .map((child, index) => ({
+          parentId: segments[index].id,
+          childId: child.id,
+          prevT1: origT1,
+          prevTightEnd: A.tight_end,
+          prevEdited: index === 0 ? A.edited : true,
+        }))
+        .reverse();
+      for (let index = 0; index < created.length; index += 1) {
+        onChild(segments[index], segments[index], created[index]);
+      }
+      return {
+        ok: true,
+        created,
+        unsplits,
+        outcomesApplied: true,
+        splitRequestId: executed.requestId,
+      };
+    }
+  }
 
   const supabase = createClient();
   let curParent: Point = A;
@@ -97,7 +165,12 @@ export async function runSplitPlan({
       child_cut_t0: childCutT0Of(at),
     });
     if (error || !data) {
-      return { ok: false, created, unsplits: [...unsplits].reverse() };
+      return {
+        ok: false,
+        created,
+        unsplits: [...unsplits].reverse(),
+        outcomesApplied: false,
+      };
     }
     const child = data as Point;
     onChild(curParent, { t1: at, edited: true, tight_end: true }, child);
@@ -113,7 +186,12 @@ export async function runSplitPlan({
     curPrevTightEnd = A.tight_end;
     curPrevEdited = true;
   }
-  return { ok: true, created, unsplits: [...unsplits].reverse() };
+  return {
+    ok: true,
+    created,
+    unsplits: [...unsplits].reverse(),
+    outcomesApplied: false,
+  };
 }
 
 /**
@@ -149,11 +227,15 @@ export async function runJoinPlan({
   points,
   count,
   direction = "next",
+  outcome,
+  canonical,
 }: {
   point: Point;
   points: Point[];
   count: number;
   direction?: JoinDirection;
+  outcome?: Disposition;
+  canonical?: CanonicalJoinExecutor;
 }): Promise<{
   survivor: Point;
   survivorPatch: Partial<Point>;
@@ -161,6 +243,7 @@ export async function runJoinPlan({
   /** The last point of the merged run on the timeline — what a landing
    *  "after the join" is measured from. */
   lastId: string;
+  outcomeApplied: boolean;
 } | null> {
   const neighbours = joinNeighbours(point, points, direction).slice(0, count);
   if (neighbours.length < count) return null;
@@ -175,6 +258,22 @@ export async function runJoinPlan({
       : [...neighbours].reverse().concat(A);
   const ids = run.map((p) => p.id);
 
+  if (canonical && outcome) {
+    const executed = await canonical({ pointIds: ids, outcome });
+    if (executed === null) return null;
+    if (executed.kind === "canonical") {
+      const survivor = executed.points.find((row) => row.id === ids[0]);
+      if (!survivor) return null;
+      return {
+        survivor,
+        survivorPatch: survivor,
+        mergedIds: ids.slice(1),
+        lastId: ids[ids.length - 1],
+        outcomeApplied: true,
+      };
+    }
+  }
+
   const supabase = createClient();
   const { data, error } = await supabase.rpc("merge_points", { p_ids: ids });
   if (error || !data) return null;
@@ -188,6 +287,7 @@ export async function runJoinPlan({
     },
     mergedIds: ids.slice(1),
     lastId: ids[ids.length - 1],
+    outcomeApplied: false,
   };
 }
 

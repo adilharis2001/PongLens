@@ -14,11 +14,13 @@ import { clipPad } from "@/app/match/[id]/clipEdit";
 import { skipSpans } from "@/app/match/[id]/playhead";
 import { sortPoints } from "@/app/match/[id]/gameScore";
 import {
+  getCoachReviewsEnabled,
   getTapEndPlayback,
   getUnscoredRallyEnd,
   getUnscoredRallyEndBufferS,
   getUnscoredRallyEndTightBufferS,
 } from "@/lib/config";
+import { isOpenOrder } from "@/components/reviews/openOrder";
 import type { Point } from "@/lib/types";
 import { CoachOrder, type WorkspacePoint } from "./CoachOrder";
 import { hasOriginalVideo } from "@/lib/originalVideo";
@@ -57,6 +59,11 @@ export default async function CoachOrderPage({
   const detail = data as ReviewOrderDetail | null;
   if (!detail) notFound();
   if (detail.student_id === user.id) redirect(`/orders/${id}`);
+  // With coach reviews switched off only an open order stays reachable,
+  // for its buyer and its coach (the RPC already scopes it to the two).
+  if (!(await getCoachReviewsEnabled()) && !isOpenOrder(detail.status)) {
+    notFound();
+  }
 
   const working =
     detail.status === "in_review" || detail.status === "clarification";

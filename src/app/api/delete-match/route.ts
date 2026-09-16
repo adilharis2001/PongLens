@@ -98,10 +98,17 @@ export async function POST(req: Request) {
     const keys = pointObjects.map((o) => o.key);
     if (cut && cut.bucket === MEDIA_BUCKET) keys.push(cut.key);
     for (const ref of voiceRefs) keys.push(ref.key);
-    // rendered exports (017 starred, 028 full); deleteObjects treats a 404
-    // as fine, and their ledger rows carry match_id so the delete trigger
-    // frees them
-    keys.push(`reels/${matchId}.mp4`, `reels/${matchId}-full.mp4`);
+    // Every render cut from this match: starred and full (017, 028), the
+    // per-tag scopes, the auto highlights (revision-suffixed) and the
+    // vertical share renders under v-. Listed by prefix rather than named,
+    // because naming two of them left 103 highlight reels behind for
+    // matches that no longer existed (first bucket measurement, 2026-09-14).
+    // Their ledger rows carry match_id, so the delete trigger frees them.
+    const reelObjects = [
+      ...(await listObjects(MEDIA_BUCKET, `reels/${matchId}`)),
+      ...(await listObjects(MEDIA_BUCKET, `reels/v-${matchId}`)),
+    ];
+    for (const o of reelObjects) keys.push(o.key);
     if (keys.length > 0) await deleteObjects(MEDIA_BUCKET, keys);
 
     const { data: deleted, error: deleteError } = await supabase

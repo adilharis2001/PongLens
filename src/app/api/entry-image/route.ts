@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { entryImageDeleteRequest } from "@/lib/journal/entryImage";
 import { createClient } from "@/lib/supabase/server";
+import { requireAiConsent } from "@/lib/consent";
 import { deleteObjects, MEDIA_BUCKET, putObject } from "@/lib/r2";
+import { checkUploadAllowed, MEDIA_UPLOAD_RULES, refusalStatus } from "@/lib/quota";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -48,6 +50,8 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+  const denied = await requireAiConsent(supabase, user.id);
+  if (denied) return denied;
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     return NextResponse.json(
@@ -94,6 +98,7 @@ export async function POST(req: Request) {
     },
     body: JSON.stringify({
       model: CHECK_MODEL,
+      store: false,
       reasoning_effort: "low",
       response_format: { type: "json_object" },
       messages: [
@@ -145,6 +150,14 @@ export async function POST(req: Request) {
           "That photo doesn't look like it belongs in a training journal. Try play, equipment, a scoreboard, a drill, or your notes.",
       },
       { status: 422 }
+    );
+  }
+
+  const refused = await checkUploadAllowed(supabase, bytes.byteLength, MEDIA_UPLOAD_RULES);
+  if (refused) {
+    return NextResponse.json(
+      { error: refused, resource: "storage" },
+      { status: refusalStatus(refused) },
     );
   }
 

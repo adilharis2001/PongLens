@@ -57,11 +57,13 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Onboarding gates on TWO things: a display name (as ever) and a
+  // Onboarding gates on THREE things: a display name (as ever), a
   // player_profiles row (046) — the row's presence, even all-null after a
-  // skip, means the profile steps were offered once. Google sign-ins have
-  // a name from day one, so without the row check they would never see
-  // the profile steps at all.
+  // skip, means the profile steps were offered once — and a terms stamp
+  // on that row (the "Agree and continue" tap on the first onboarding
+  // screen; existing rows were backfilled). Google sign-ins have a name
+  // from day one, so without the row check they would never see the
+  // profile steps at all. One select covers the row and the stamp.
   let onboardingPath: string | null = null;
   if (user && protectedRoute && path !== "/onboarding") {
     onboardingPath = onboardingPathForProtectedRequest(
@@ -71,10 +73,10 @@ export async function updateSession(request: NextRequest) {
     if (!onboardingPath) {
       const { data: profile } = await supabase
         .from("player_profiles")
-        .select("user_id")
+        .select("user_id, terms_accepted_at")
         .eq("user_id", user.id)
         .maybeSingle();
-      if (!profile) {
+      if (!profile || !profile.terms_accepted_at) {
         onboardingPath = `/onboarding?next=${encodeURIComponent(
           `${path}${request.nextUrl.search}`,
         )}`;

@@ -176,6 +176,9 @@ struct CoachEntryComposer: View {
     private func save(student: CoachStudentRow, transcript: String, summarize: Bool) async -> Bool {
         let words = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let uid = app.userId, !words.isEmpty else { return false }
+        // Improve with AI sends the words to OpenAI: permission first.
+        // Declined, the composer stays open with everything in it.
+        if summarize, !(await AiConsent.shared.ensure()) { return false }
         saving = true
         errorMessage = nil
         let entry = await workspace.createEntry(

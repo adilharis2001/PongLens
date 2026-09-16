@@ -17,13 +17,18 @@ export interface ProcessorDeps {
     job: ClaimedRecollectJob;
     existing: ExistingRecollectPoint[];
   }) => Promise<SortedPoint[]>;
+  /** The global switch (app_config.recollect_enabled). Optional so the
+   *  unit tests, which never touch config, keep running the sort. */
+  globallyEnabled?: () => Promise<boolean>;
 }
 
 async function defaultDeps(): Promise<ProcessorDeps> {
-  const { createRecollectRepository } = await import("./repository.ts");
+  const [{ createRecollectRepository }, { getRecollectEnabled }] =
+    await Promise.all([import("./repository.ts"), import("../config.ts")]);
   return {
     repository: createRecollectRepository(),
     sort: ({ job, existing }) => sortRecollectPoints({ job, existing }),
+    globallyEnabled: getRecollectEnabled,
   };
 }
 
@@ -41,6 +46,11 @@ export async function processNextRecollectJob(
   supplied?: ProcessorDeps,
 ): Promise<ProcessResult> {
   const deps = supplied ?? (await defaultDeps());
+  // Off for everyone: claim nothing, call no provider. Queued jobs wait
+  // where they are until the switch comes back.
+  if (deps.globallyEnabled && !(await deps.globallyEnabled())) {
+    return { status: "idle", pending: false };
+  }
   const job = await deps.repository.claim(ownerId);
   if (!job) return { status: "idle", pending: false };
 

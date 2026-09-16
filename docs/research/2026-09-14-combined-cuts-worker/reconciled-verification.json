@@ -1,0 +1,125 @@
+{
+  "recordings": [
+    {
+      "source": "19a1efc7",
+      "before": 124,
+      "after": 122,
+      "removed_exports": [
+        [
+          40.65,
+          43.55
+        ],
+        [
+          665.62,
+          674.46
+        ]
+      ],
+      "private_rows": 122,
+      "cleanup_seconds": 6.646,
+      "baseline_sha256": "b31704f13352683cb59758de3689fddb9799423f75f0e2af701c461e186a1639",
+      "result_sha256": "7064c182c19435cc2ef2692b71d80d14bfb2912f2f3e9a1282c5bb671551bbeb"
+    },
+    {
+      "source": "50caea29",
+      "before": 88,
+      "after": 86,
+      "removed_exports": [
+        [
+          1011.07,
+          1013.6
+        ],
+        [
+          1021.94,
+          1028.25
+        ]
+      ],
+      "private_rows": 86,
+      "cleanup_seconds": 3.869,
+      "baseline_sha256": "a17592af655adb1c19a82fb7fc4c9f8cbf2066d71b5ad21bf70ed0fafa15d009",
+      "result_sha256": "70509e59bb8a7c4c52a28a595e68bdae5dcf79a5a5027c5b827acda34db2ebf2"
+    },
+    {
+      "source": "6d55dfb7",
+      "before": 69,
+      "after": 69,
+      "removed_exports": [],
+      "private_rows": 69,
+      "cleanup_seconds": 5.6,
+      "baseline_sha256": "6db21467b5094d33d19d7e27feb04dc0146f0168cf55976f7eb454cf75aea276",
+      "result_sha256": "a93b9a71e03708495f7db9544643f7cbf361bf8e95ff27068ee547f6aaa95a7f"
+    },
+    {
+      "source": "8cb54f9f",
+      "before": 111,
+      "after": 111,
+      "removed_exports": [],
+      "private_rows": 111,
+      "cleanup_seconds": 14.106,
+      "baseline_sha256": "1c1a27cc050908765340d794bcf6e00b5bae8710de49a9bc8d42d924a1531c4c",
+      "result_sha256": "0e23e91395ece408e5e92e6d6511fce44230fece2f0559632006636ff428595b"
+    },
+    {
+      "source": "9e15ed10",
+      "before": 67,
+      "after": 67,
+      "removed_exports": [],
+      "private_rows": 67,
+      "cleanup_seconds": 2.932,
+      "baseline_sha256": "3e2df940ec81d43cc47f67e1673a6100d64f9f0da41c223f977dfcc165dc9241",
+      "result_sha256": "2e021dd4e9597b6b8ffdcb2226d1603ac65edd14ce446e34ca57f373fdce3e39"
+    },
+    {
+      "source": "9ef09000",
+      "before": 78,
+      "after": 78,
+      "removed_exports": [],
+      "private_rows": 78,
+      "cleanup_seconds": 3.379,
+      "baseline_sha256": "ac09262e4840bef8217bdaf99eb11e2ff680864bf3a1b4192afccf3636ba85a4",
+      "result_sha256": "e4c360bb16fcd33f2cb8839981bb2728af3c1f3b69c646616902a119e7059759"
+    },
+    {
+      "source": "d59d7610",
+      "before": 94,
+      "after": 94,
+      "removed_exports": [],
+      "private_rows": 94,
+      "cleanup_seconds": 4.82,
+      "baseline_sha256": "27f487139043c090a10df65f58fe4e47620d11c4864e85725cfbc2626d9491ad",
+      "result_sha256": "49db4c0af2ab364f40aa62a7011112b8cd1c3de229952750cdbd1c6debd44583"
+    },
+    {
+      "source": "eabb4fc2",
+      "before": 64,
+      "after": 64,
+      "removed_exports": [],
+      "private_rows": 64,
+      "cleanup_seconds": 3.083,
+      "baseline_sha256": "76a2017ea448587a8dab5b028c1de17d38cb7c11a371b5f4411abd88f631f151",
+      "result_sha256": "c1924a09f5884aa1401212a6e80f0bc0fc083fd912244fe331fd4dfa2c863bba"
+    },
+    {
+      "source": "fa96cd0e",
+      "before": 64,
+      "after": 64,
+      "removed_exports": [],
+      "private_rows": 64,
+      "cleanup_seconds": 2.925,
+      "baseline_sha256": "49ea5f0a011ff92337535888bc610dd843961f55ef226fa13ba006a488cad0ec",
+      "result_sha256": "1cebbcdb5883b4e6b3bc82f07603b02af60720d00d5a8c98b2762c1982f9b305"
+    }
+  ],
+  "all_passed": true,
+  "worker_sha256": {
+    "combined_cuts.py": "5f3502b74c0a2a0ede8ec13276546239542cb2a59a06a44f5213fe9cf3b52758",
+    "whole_clip_cleanup.py": "98abfd57b9a73698dd0b9ee81a3e0b43f836b24f96002dc63691497e051342d0",
+    "points_v2.py": "6b7bbe59867dd91960a607a529ec9f72b0c9cec2afd229a26c84ba03be568f37",
+    "points_pipeline.py": "83606cc7df34efdbd7d359d984611fe8951fcf964783a68b3e8bc50ee57cf1b9",
+    "processing_outcome.py": "2816f65ee8ff2c0ae8e7311a2290515e4641c0ac2c19f006193c5c52c296d35e",
+    "worker.py": "f1cfe65348052891f432791471bc464f55eba17d0b99b0e1c3175080f044eb8a"
+  },
+  "limits": [
+    "Cached ball/player inference; not a fresh upload or sealed-package check.",
+    "No production changes, no table rejection, no global default activation."
+  ]
+}

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getRecollectEnabled } from "@/lib/config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,6 +15,10 @@ export async function GET() {
   const user = await currentUser();
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+  // Off for everyone reads as off, whatever the account's own row says.
+  if (!(await getRecollectEnabled())) {
+    return NextResponse.json({ enabled: false });
   }
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -40,6 +45,10 @@ export async function POST(req: Request) {
   }
   if (typeof enabled !== "boolean") {
     return NextResponse.json({ error: "Invalid setting" }, { status: 400 });
+  }
+  // Nothing to switch while the feature is off for everyone.
+  if (!(await getRecollectEnabled())) {
+    return NextResponse.json({ error: "recollect_disabled" }, { status: 409 });
   }
 
   const admin = createAdminClient();

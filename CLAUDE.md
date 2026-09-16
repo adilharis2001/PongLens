@@ -483,6 +483,53 @@ at this level:
 
 ## Placement maps
 
+**One deck since 2026-09-15.** The serve maps are two cards of the Match
+analysis deck (`usePlacementMapCards` in `PlacementAggregate.tsx`), not a
+section of their own, and the Tools card has one "Match analysis" row
+whose status names what the section is waiting on. The video cards
+(`ScoredCards.tsx`, numbers from `src/lib/placement/scoredCards.ts`) open
+only once 75% of scoreable points carry a winner: the same integer rule as
+`public.highlight_generation_eligibility`, mirrored in `scoredCardsGate`,
+so change both or neither. What those cards may and may not claim was
+measured first: `docs/research/2026-09-15-scored-match-cards/`. Receive
+errors, third-ball outcomes, rally length in shots and attack-versus-push
+were rejected there (the return bounce is missed on half the points that
+show none); do not add them without new bounce data. A heat-map zone opens
+the list of its points; a point opened that way gets a "Back to match
+analysis" pill. **The coach view and the public share link show the same
+deck** (`viewer` on `AnalysisCards`, since 2026-09-15): read-only, no
+gate or lifecycle card, the players' names where the owner reads "you"
+(`Voice` in `cards.tsx`). The share page runs it in the browser on a
+placement reduced to what the cards read (`slimPlacementForShare`);
+`sharePlacement.test.ts` proves the slim record draws the same maps and
+cards as the full one, so a card that starts reading a new field fails
+there rather than drawing a thinner map for strangers. ShareStats and
+SharePlacement are gone; do not bring a second set of cards back.
+**What earns a card (Adil, 2026-09-15 pm):** the serve maps are the
+worker's own evidence and show whenever the analysis is ready, the end is
+known and three or more points placed, with one line saying the server is
+estimated until the match is scored. Everything that reads the score
+(Overview, point length, serve speed, endings) waits for the 75% gate;
+a momentum chart of a half-scored match is the "half-assed card" he
+refused. The deck ends on ONE next-step card (which end, score the match,
+detailed analysis, one row at a time with a one-line reason) until nothing
+is left, and only then on the teaser. Scoring is a step only up to the
+75% bar; past it the card asks only for the analysis, and the Tools row
+names that step and triggers it. The steps are in order, not side by
+side: Generate (or Try again) is offered only once the match is scored,
+because scoring confirms the cuts and the worker reads the corrected
+windows when it runs; a practice match has nothing to score and gets it
+at once. Viewers never see the next-step card.
+Scoring re-runs nothing: the worker's records are read at view time.
+**The upload-time "Placement maps" toggle is gone (2026-09-15):** the
+analysis has one entry point, the next-step card after scoring, so it
+runs on confirmed cuts. The apps now send the `placement` option as TRUE on
+every processed upload (Adil, 2026-09-16): on the upload run it is
+arithmetic on the ball track and table the cut already computed, minutes
+at most; the standalone job re-detects the whole video and averaged 32
+minutes of wall time. Generate on the next-step card is for matches that
+never got it or whose run failed.
+
 They show **serves only** (132, `app_config.placement_serves_only`). The
 full record is `docs/research/2026-08-23-placement-yield.md` and
 `docs/research/2026-08-23-serve-placement-verification.md`.
@@ -613,6 +660,104 @@ Lester 2. Roughly 1,100 scored points between them.
 
 ---
 
+## Canonical scored-match state and reconstructing production's cards
+
+**The database is becoming the one stored interpretation of the owner's score,
+games, serving and active timeline.** The additive foundation is migration
+`20260915190000_canonical_scored_match_state.sql`; its private
+`point_score_state` and `match_score_state` rows are shadow data until a later
+release explicitly promotes readers. Existing web, iOS, admin, worker, share,
+coach, statistics and export paths still behave as before during that shadow
+period. The full contract and rollout are in
+`docs/superpowers/specs/2026-09-15-canonical-scored-match-state-design.md`.
+
+**Phase two is implemented behind a private capability and defaults off.**
+Migration `20260916120000_canonical_score_commands.sql` defines the typed,
+revisioned score and structural commands. Web and native iOS use those
+commands only when `app_config.canonical_score_commands` enables that account;
+`not_enabled` is the only response that may fall back to the legacy write.
+Conflicts reconcile from the returned complete snapshot and never perform a
+second write. Keep the capability `off` for an ordinary deploy, canary with
+`user:<uuid>`, and disable it without deleting projection data if anything is
+unclear.
+
+- **Authority stays separated.** Owner outcomes, skips, first-server choices,
+  serve overrides and game-boundary overrides are canonical inputs. Worker
+  `points.server`, suggestions, detected side changes and rally evidence are
+  machine evidence only. Admin `fullmatch_labels` are research annotations and
+  never update owner revisions or projections.
+- **Project only the active processing version.** Ignore deleted points and
+  points from retired processing versions. If every active point has `t0`,
+  order by `(t0, idx, id)`; if even one lacks `t0`, order the whole match by
+  `(idx, id)`. Card numbers are contiguous one-based display numbers; `idx` is
+  not a user-facing point number.
+- **A skipped card scores and advances nothing.** `is_let` is the historical
+  column name for every skipped outcome; normalize its reason to `let`,
+  `misrecorded` or `other`. An unscored non-skipped visible card changes no
+  score but still consumes its position in the serve rotation. Deleted cards
+  are absent.
+- **Games use the existing positional walk.** Eleven clear by two ends a game.
+  `game_end_override = end` closes after that card even when it is unscored or
+  skipped; `continue` holds the game open until a later explicit end.
+  `game_winner_override` names a manually closed game the partial score cannot
+  prove. Detected side changes may suggest, never close, a canonical game.
+- **Serving uses only an owner-confirmed anchor.** `first_server_source = user`
+  enables the two-serve rotation and one-serve deuce rotation. A detected first
+  server remains a suggestion. An agreeing `server_override` is a pin; a
+  contradictory one restarts the block and flips current-game parity, exactly
+  like `computeServing`. The first server alternates at every canonical game
+  boundary.
+- **Revisions make a snapshot whole.** Score inputs increment
+  `matches.score_revision`; every point projection and the match summary carry
+  that revision. A reader may trust them only when it equals
+  `score_projection_revision` and status is `current` (or `empty` for no active
+  points). Shadow failures record sanitized health and leave legacy writes and
+  readers working; atomic commands in the next phase will fail closed.
+- **Manual cutter is source-clock human ground truth.** Its `mark.t0` is the
+  serve start after the documented reaction lead and `mark.t1` is the point
+  end. Normalize both into `point_timing_observations` with
+  `manual_cutter`/`owner_manual_boundary` provenance, preserving raw start tap,
+  playback rate and applied lead. These rows are valid training/evaluation
+  examples for the automatic worker; do not present them as independent
+  evaluation of the manual cutter itself. Playback adds structural/manual
+  padding and never trims these ends with a score tap.
+- **Worker publication is atomic.** Manual cuts call private
+  `publish_hand_cut_v2`; automatic processing calls private
+  `finalize_worker_points_v2`. The receipt, complete point batch, projection
+  and ready status commit together. The sealed worker manifest declares
+  minimum migration `20260916120000` and canonical publication contract `1`,
+  then checks private `canonical_worker_contract_v1()` before its first queue
+  read and after reconnecting. A mismatch blocks new work; do not bypass it or
+  publish rows piecemeal.
+- **Admin diagnostics are deliberately narrow.** Upload Detail reads
+  `admin_canonical_score_diagnostic`, which returns only revision/status,
+  point counts, last action/revision and a sanitized error code. The RPC is
+  admin-only. Never add timing reaction metadata or mutation before/after
+  payloads to this elevated response.
+- **Fixture first, on every implementation.** The literal cases live in
+  `src/lib/scoring/fixtures/canonical-score-cases.json`; TypeScript, SQL, Swift
+  and Python must agree with them. Change the fixture deliberately before
+  changing semantics. Run `npm run test:scoring-state` and the real isolated
+PostgreSQL checks documented beside the fixture; a source-string test is not
+database proof.
+
+Rollback for phase two is exact and non-destructive:
+`update public.app_config set value='off' where key='canonical_score_commands';`
+This returns web and iOS to their established legacy writes while additive
+projection rows and worker publication receipts remain available for diagnosis.
+
+When reconstructing an already scored production match for research, start
+from the active processing version and active points, apply the total ordering
+above, then fold the owner's winner/skip and game overrides. Resolve serving
+from the owner-confirmed first server plus point overrides; translate
+`user`/`opponent` to camera `near`/`far` only afterward through `user_side` and
+the established side-change rule. For manual-cutter matches, `t0`/`t1` are the
+direct source-time start/end truth. For ordinary scored cards, scorekeeper taps
+are timing observations with their documented uncertainty, not permission to
+rewrite the structural point window.
+
+---
+
 ## What we refuse to process
 
 Two gates run before anything expensive. Both sit in `worker.py` and both
@@ -692,6 +837,40 @@ cost a round each:
 - **A continuous seam is one straight line, gap included.** `sourceToCut`
   used to hold at the seam even where the cut kept everything, which
   mis-anchored a card added into such a gap.
+
+---
+
+## Storage: everything counts, measured nightly
+
+Since 2026-09-14 an account's storage number is everything it stores:
+originals, cut videos, lesson videos and recaps, point clips, reels, voice
+notes, sketches, photos and a coach's review files. 25 GB free; accounts
+tagged team or test in the admin players list get 100 GB
+(`app_config.team_storage_bytes`), and retagging moves the allowance. The
+audit and the decision are in
+`docs/superpowers/plans/2026-09-14-storage-everything-counts.md`.
+
+- **The ledger is a tally, not the truth.** `storage_ledger` drifts
+  whenever a write or delete forgets it (lesson cleanup, best-effort worker
+  bookings, `match.json` rewrites), and it had drifted 40 GB by the time
+  anyone measured. `/api/cron/storage-snapshot` lists both buckets every
+  night and writes `storage_snapshots`; used space is snapshot plus ledger
+  rows since the snapshot (`_storage_used_bytes`), so a missed booking
+  costs at most a day. Do not repair a wrong number by editing ledger rows;
+  press Measure now on `/admin`.
+- **A new prefix in a bucket must be taught to `src/lib/storage/inventory.ts`**
+  or it shows on the admin page as belonging to nobody. That is the
+  notification; do not fold it into the platform bucket.
+- **Every route that stores a file asks `checkUploadAllowed` before the
+  bytes move** (`MEDIA_UPLOAD_RULES` for anything that is not a match
+  upload) and refuses with `QUOTA_ERRORS.storage`, the sentence web and iOS
+  recovery already match. It then books the bytes. A new route without
+  both is not finished.
+- **Routes own deletion.** A row deleted straight through the API strands
+  its file in the bucket. Review attachments go through the route's delete
+  action from both apps; the row's trigger takes the bytes off the tally.
+- **The worker is untouched by all of this on purpose.** Its releases are
+  sealed; the snapshot absorbs what it forgets.
 
 ---
 

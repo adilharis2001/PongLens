@@ -1,0 +1,310 @@
+
+> ponglens@0.1.0 build
+> next build
+
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Users/adil/package-lock.json as the root directory.
+ To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+ Detected additional lockfiles:
+   * /Users/adil/Desktop/Projects/PongLens/.worktrees/combined-cuts-worker/package-lock.json
+   * /Users/adil/Desktop/Projects/PongLens/package-lock.json
+
+   ▲ Next.js 15.5.20
+
+   Creating an optimized production build ...
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (106kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (253kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+ ✓ Compiled successfully in 13.0s
+   Linting and checking validity of types ...
+
+./src/app/admin/reviews/ReviewsAdminSection.tsx
+3:8  Warning: 'Link' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/app/coach/[handle]/opengraph-image.tsx
+108:11  Warning: img elements must have an alt prop, either with meaningful text, or an empty string for decorative images.  jsx-a11y/alt-text
+
+./src/app/coaching/students/[id]/StudentView.tsx
+26:23  Warning: 'Point' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/app/coaching/videos/LessonVideos.tsx
+27:156  Warning: React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/lesson-video/[id]/LessonVideoView.tsx
+233:9  Warning: 'withCoach' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+
+./src/app/match/[id]/MarkPoints.tsx
+874:5  Warning: React Hook useCallback has an unnecessary dependency: 'nextId'. Either exclude it or remove the dependency array. Outer scope values like 'nextId' aren't valid dependencies because mutating them doesn't re-render the component.  react-hooks/exhaustive-deps
+1138:6  Warning: React Hook useEffect has missing dependencies: 'beginMarking', 'beginReview', 'openedFinished', and 'openedPartial'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+1956:5  Warning: React Hook useCallback has missing dependencies: 'mode', 'resumeMarking', and 'tapReset'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/match/[id]/MatchView.tsx
+92:8  Warning: 'SideChangeMarker' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/app/match/[id]/ModifyClip.tsx
+615:5  Warning: React Hook useCallback has a missing dependency: 'takeOverIfBeyond'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/match/[id]/Player.tsx
+2616:6  Warning: React Hook useCallback has a missing dependency: 'nowT'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+2976:5  Warning: React Hook useCallback has a missing dependency: 'activeVideo'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3131:5  Warning: React Hook useCallback has a missing dependency: 'nowT'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3148:6  Warning: React Hook useCallback has a missing dependency: 'activeVideo'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3233:5  Warning: React Hook useCallback has a missing dependency: 'activeVideo'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3500:5  Warning: React Hook useCallback has a missing dependency: 'nowT'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3565:6  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3603:6  Warning: React Hook useCallback has a missing dependency: 'activeVideo'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3727:6  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3822:6  Warning: React Hook useCallback has a missing dependency: 'nowT'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3907:5  Warning: React Hook useCallback has missing dependencies: 'activeVideo' and 'nowT'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+4029:5  Warning: React Hook useCallback has missing dependencies: 'activeVideo', 'nowT', and 'pauseBoth'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+4178:6  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+4294:5  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+4358:5  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/research/active-ball/ActiveBallReview.tsx
+158:31  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/app/research/fullmatch/FullMatch.tsx
+747:5  Warning: Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps').
+
+./src/app/research/v3-serve-detector/V3ServeDetector.tsx
+139:9  Warning: 'lastPlayed' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+169:9  Warning: 'plT' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+1261:13  Warning: 'bodyCards' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+1318:6  Warning: React Hook useEffect has missing dependencies: 'otherLabel' and 'ownLabel'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+1405:14  Warning: Unused eslint-disable directive (no problems were reported from 'jsx-a11y/media-has-caption').
+
+./src/lib/cameraGuideGate.test.ts
+104:14  Warning: '_door' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+
+./src/lib/lessonVideo/editDraft.ts
+45:36  Warning: '_id' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/lib/lessonVideo/presentation.test.ts
+35:64  Warning: '_' is defined but never used.  @typescript-eslint/no-unused-vars
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+   Collecting page data ...
+   Generating static pages (0/160) ...
+   Generating static pages (40/160)
+   Generating static pages (80/160)
+   Generating static pages (120/160)
+ ✓ Generating static pages (160/160)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                         Size  First Load JS
+┌ ○ /                                            7.01 kB         224 kB
+├ ○ /_not-found                                    370 B         103 kB
+├ ƒ /.well-known/apple-app-site-association        370 B         103 kB
+├ ƒ /account                                     9.21 kB         192 kB
+├ ƒ /account/player                              2.03 kB         185 kB
+├ ƒ /admin                                         691 B         184 kB
+├ ƒ /admin/backlog                               12.6 kB         198 kB
+├ ƒ /admin/commerce                              5.77 kB         189 kB
+├ ƒ /admin/costs                                 8.36 kB         191 kB
+├ ƒ /admin/issues                                3.44 kB         190 kB
+├ ƒ /admin/issues/[issueId]                      6.68 kB         201 kB
+├ ƒ /admin/outreach                              10.4 kB         193 kB
+├ ƒ /admin/players                               4.74 kB         188 kB
+├ ƒ /admin/players/[id]                          4.34 kB         187 kB
+├ ƒ /admin/processing                            8.05 kB         191 kB
+├ ƒ /admin/reviews                                  3 kB         186 kB
+├ ƒ /admin/storage                                 370 B         103 kB
+├ ƒ /admin/testing                               2.39 kB         185 kB
+├ ƒ /admin/uploads                                 682 B         184 kB
+├ ƒ /admin/uploads/[matchId]                     15.4 kB         219 kB
+├ ƒ /admin/uploads/themes                          682 B         184 kB
+├ ƒ /api/admin/ios-beta/[id]/send                  370 B         103 kB
+├ ƒ /api/admin/ios-beta/reconcile                  370 B         103 kB
+├ ƒ /api/admin/lesson-video-health                 370 B         103 kB
+├ ƒ /api/admin/match-issues/[issueId]/close        370 B         103 kB
+├ ƒ /api/admin/match-issues/[issueId]/keep         370 B         103 kB
+├ ƒ /api/admin/match-issues/[issueId]/publish      370 B         103 kB
+├ ƒ /api/admin/match-issues/[issueId]/refund       370 B         103 kB
+├ ƒ /api/admin/match-issues/[issueId]/reprocess    370 B         103 kB
+├ ƒ /api/admin/match-issues/[issueId]/restore      370 B         103 kB
+├ ƒ /api/admin/media-url                           370 B         103 kB
+├ ƒ /api/admin/purchases                           370 B         103 kB
+├ ƒ /api/admin/review-refund                       370 B         103 kB
+├ ƒ /api/allowances/request                        370 B         103 kB
+├ ƒ /api/billing/checkout                          370 B         103 kB
+├ ƒ /api/billing/iap                               370 B         103 kB
+├ ƒ /api/coach-photo                               370 B         103 kB
+├ ƒ /api/coaching/entry-match                      370 B         103 kB
+├ ƒ /api/cron/reviews-sweep                        370 B         103 kB
+├ ƒ /api/delete-account                            370 B         103 kB
+├ ƒ /api/delete-match                              370 B         103 kB
+├ ƒ /api/download-url                              370 B         103 kB
+├ ƒ /api/entry-image                               370 B         103 kB
+├ ƒ /api/feedback/assist                           370 B         103 kB
+├ ƒ /api/feedback/image                            370 B         103 kB
+├ ƒ /api/feedback/upload                           370 B         103 kB
+├ ƒ /api/highlights                                370 B         103 kB
+├ ƒ /api/import-url                                370 B         103 kB
+├ ƒ /api/ios-beta                                  370 B         103 kB
+├ ƒ /api/journal-ask                               370 B         103 kB
+├ ƒ /api/journal-entry                             370 B         103 kB
+├ ƒ /api/journal-ocr                               370 B         103 kB
+├ ƒ /api/lesson                                    370 B         103 kB
+├ ƒ /api/lesson-video                              370 B         103 kB
+├ ƒ /api/lesson/note                               370 B         103 kB
+├ ƒ /api/match-issues/[matchId]                    370 B         103 kB
+├ ƒ /api/media-url                                 370 B         103 kB
+├ ƒ /api/note-image                                370 B         103 kB
+├ ƒ /api/offering-image                            370 B         103 kB
+├ ƒ /api/offerings/draft                           370 B         103 kB
+├ ƒ /api/placement-generate                        370 B         103 kB
+├ ƒ /api/placement-retry                           370 B         103 kB
+├ ƒ /api/point-clip                                370 B         103 kB
+├ ƒ /api/process                                   370 B         103 kB
+├ ƒ /api/profile/draft                             370 B         103 kB
+├ ƒ /api/qa/attachment                             370 B         103 kB
+├ ƒ /api/qa/export                                 370 B         103 kB
+├ ƒ /api/qa/import                                 370 B         103 kB
+├ ƒ /api/recollect                                 370 B         103 kB
+├ ƒ /api/recollect/process                         370 B         103 kB
+├ ƒ /api/recollect/settings                        370 B         103 kB
+├ ƒ /api/reel                                      370 B         103 kB
+├ ƒ /api/research/active-ball                      370 B         103 kB
+├ ƒ /api/research/audio-impact-export              370 B         103 kB
+├ ƒ /api/research/crossings/[id]                   370 B         103 kB
+├ ƒ /api/research/endon/[id]                       370 B         103 kB
+├ ƒ /api/research/export                           370 B         103 kB
+├ ƒ /api/research/media                            370 B         103 kB
+├ ƒ /api/research/placement-comparison             370 B         103 kB
+├ ƒ /api/research/placement-export                 370 B         103 kB
+├ ƒ /api/research/reviewers                        370 B         103 kB
+├ ƒ /api/research/row-verdict                      370 B         103 kB
+├ ƒ /api/research/serve-misses/[id]                370 B         103 kB
+├ ƒ /api/research/table-calibration                370 B         103 kB
+├ ƒ /api/research/table-calibration/holdout        370 B         103 kB
+├ ƒ /api/research/v3-verdict                       370 B         103 kB
+├ ƒ /api/review-attachment                         370 B         103 kB
+├ ƒ /api/review-media                              370 B         103 kB
+├ ƒ /api/review-signin                             370 B         103 kB
+├ ƒ /api/reviews/assist                            370 B         103 kB
+├ ƒ /api/reviews/checkout                          370 B         103 kB
+├ ƒ /api/reviews/connect                           370 B         103 kB
+├ ƒ /api/reviews/transition                        370 B         103 kB
+├ ƒ /api/share                                     370 B         103 kB
+├ ƒ /api/share/media                               370 B         103 kB
+├ ƒ /api/share/revoke                              370 B         103 kB
+├ ƒ /api/stripe/fake/checkout                      370 B         103 kB
+├ ƒ /api/stripe/fake/onboard                       370 B         103 kB
+├ ƒ /api/stripe/fake/platform-checkout             370 B         103 kB
+├ ƒ /api/stripe/platform-webhook                   370 B         103 kB
+├ ƒ /api/stripe/webhook                            370 B         103 kB
+├ ƒ /api/tag-reel                                  370 B         103 kB
+├ ƒ /api/thumb/[matchId]                           370 B         103 kB
+├ ƒ /api/transcribe                                370 B         103 kB
+├ ƒ /api/tutorial-url                              370 B         103 kB
+├ ƒ /api/upload-url                                370 B         103 kB
+├ ƒ /api/webhooks/apple                            370 B         103 kB
+├ ƒ /api/webhooks/resend                           370 B         103 kB
+├ ○ /apple-icon.png                                  0 B            0 B
+├ ƒ /auth/callback                                 370 B         103 kB
+├ ƒ /auth/confirm                                  370 B         103 kB
+├ ƒ /coach-invite/[token]                        1.93 kB         173 kB
+├ ƒ /coach-invite/[token]/opengraph-image          370 B         103 kB
+├ ƒ /coach/[handle]                              1.19 kB         173 kB
+├ ƒ /coach/[handle]/opengraph-image                370 B         103 kB
+├ ƒ /coach/[handle]/sample                       1.15 kB         173 kB
+├ ○ /coaches                                     2.57 kB         224 kB
+├ ƒ /coaching                                      202 B         222 kB
+├ ƒ /coaching/coach                              3.55 kB         202 kB
+├ ƒ /coaching/coach/[id]                         8.84 kB         207 kB
+├ ƒ /coaching/import                               150 B         197 kB
+├ ƒ /coaching/offerings                          11.2 kB         194 kB
+├ ƒ /coaching/orders                             4.84 kB         227 kB
+├ ƒ /coaching/orders/[id]                        13.7 kB         215 kB
+├ ƒ /coaching/profile                             7.1 kB         190 kB
+├ ƒ /coaching/sponsored                          3.41 kB         187 kB
+├ ƒ /coaching/start                              1.92 kB         173 kB
+├ ƒ /coaching/students                           3.72 kB         187 kB
+├ ƒ /coaching/students/[id]                      7.84 kB         230 kB
+├ ƒ /coaching/videos                               150 B         197 kB
+├ ƒ /dashboard                                   11.5 kB         208 kB
+├ ○ /early-access                                  370 B         103 kB
+├ ƒ /feedback                                    7.99 kB         191 kB
+├ ○ /icon.svg                                        0 B            0 B
+├ ○ /improve                                       370 B         103 kB
+├ ƒ /join/[token]                                1.64 kB         173 kB
+├ ƒ /join/[token]/opengraph-image                  370 B         103 kB
+├ ƒ /journal                                     11.9 kB         238 kB
+├ ƒ /learn                                        1.4 kB         198 kB
+├ ● /learn/[slug]                                  691 B         184 kB
+├   ├ /learn/upload-a-video
+├   ├ /learn/upload-from-youtube
+├   ├ /learn/match-viewer
+├   └ [+19 more paths]
+├ ƒ /learn/videos                                3.73 kB         201 kB
+├ ƒ /lesson-video/[id]                           14.2 kB         205 kB
+├ ƒ /login                                        2.2 kB         174 kB
+├ ○ /manifest.webmanifest                          370 B         103 kB
+├ ƒ /marketing                                    1.7 kB         173 kB
+├ ƒ /marketing/coach-outreach                    6.44 kB         178 kB
+├ ƒ /match/[id]                                  97.6 kB         381 kB
+├ ƒ /match/[id]/feedback                           691 B         192 kB
+├ ƒ /matches                                     7.65 kB         205 kB
+├ ƒ /onboarding                                  4.15 kB         176 kB
+├ ƒ /orders                                        691 B         184 kB
+├ ƒ /orders/[id]                                 5.37 kB         206 kB
+├ ○ /privacy                                       672 B         172 kB
+├ ƒ /research                                      167 B         106 kB
+├ ƒ /research/active-ball                        6.19 kB         112 kB
+├ ƒ /research/audio-impacts                        10 kB         181 kB
+├ ƒ /research/body-detector                        128 B         119 kB
+├ ƒ /research/crossing-review                    13.8 kB         185 kB
+├ ƒ /research/crossings                            133 B         177 kB
+├ ƒ /research/endon                                133 B         177 kB
+├ ƒ /research/endon-detector                       129 B         119 kB
+├ ƒ /research/fullmatch                            133 B         177 kB
+├ ƒ /research/fused-labeling                     10.5 kB         182 kB
+├ ƒ /research/placement-calibration              7.79 kB         179 kB
+├ ƒ /research/recall                               53 kB         224 kB
+├ ƒ /research/scores                               170 B         106 kB
+├ ƒ /research/serve-accuracy                     17.9 kB         123 kB
+├ ƒ /research/serve-detection                    14.6 kB         186 kB
+├ ƒ /research/serve-detector                      160 kB         332 kB
+├ ƒ /research/serve-misses                       7.25 kB         110 kB
+├ ƒ /research/serves                             25.7 kB         194 kB
+├ ƒ /research/sidecam                            33.5 kB         202 kB
+├ ƒ /research/spin                                5.7 kB         174 kB
+├ ƒ /research/table-calibration                  5.01 kB         107 kB
+├ ƒ /research/table-calibration/holdout          2.34 kB         105 kB
+├ ƒ /research/themes                             3.36 kB         129 kB
+├ ƒ /research/v3-serve-detector                    129 B         119 kB
+├ ƒ /research/v3-serve-detector/across             170 B         106 kB
+├ ƒ /research/winner-constrained-endings         7.07 kB         179 kB
+├ ƒ /review-invite/[token]                         943 B         172 kB
+├ ○ /robots.txt                                    370 B         103 kB
+├ ƒ /s/[token]                                   7.52 kB         131 kB
+├ ƒ /s/[token]/opengraph-image                     370 B         103 kB
+├ ○ /showcase                                    1.09 kB         212 kB
+├ ○ /sitemap.xml                                   370 B         103 kB
+├ ƒ /starred                                     5.64 kB         199 kB
+├ ƒ /stats                                         694 B         199 kB
+├ ○ /terms                                         672 B         172 kB
+├ ƒ /testing                                       691 B         184 kB
+├ ƒ /testing/bugs                                4.37 kB         218 kB
+├ ƒ /testing/import                              2.58 kB         186 kB
+├ ƒ /testing/library                             4.36 kB         218 kB
+├ ƒ /testing/report                               5.2 kB         219 kB
+├ ƒ /upload                                      39.3 kB         234 kB
+├ ○ /videos                                        673 B         177 kB
+└ ● /videos/[slug]                               3.17 kB         175 kB
+    ├ /videos/intro
+    ├ /videos/players
+    └ /videos/coaches
++ First Load JS shared by all                     102 kB
+  ├ chunks/1255-ab54a41c275880be.js                46 kB
+  ├ chunks/4bd1b696-100b9d70ed4e49c1.js          54.2 kB
+  └ other shared chunks (total)                   2.1 kB
+
+
+ƒ Middleware                                     92.1 kB
+
+○  (Static)   prerendered as static content
+●  (SSG)      prerendered as static HTML (uses generateStaticParams)
+ƒ  (Dynamic)  server-rendered on demand

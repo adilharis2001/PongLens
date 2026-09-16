@@ -35,10 +35,46 @@ final class AccountStore {
     struct StorageState: Decodable {
         let storageLimitBytes: Int64?
         let usedBytes: Int64?
+        /// When the buckets were last measured for this account, and what
+        /// they held by kind. Nil until the first nightly measurement.
+        let snapshotAt: String?
+        let breakdown: [String: Int64]?
 
         enum CodingKeys: String, CodingKey {
             case storageLimitBytes = "storage_limit_bytes"
             case usedBytes = "used_bytes"
+            case snapshotAt = "snapshot_at"
+            case breakdown
+        }
+
+        struct BreakdownRow: Identifiable {
+            let id: String
+            let label: String
+            let bytes: Int64
+        }
+
+        /// Last night's measurement by kind, largest first, in the words
+        /// the web Account page uses. The keys are named by the web app's
+        /// storage inventory (lib/storage/inventory.ts); a key this list
+        /// does not know is left out rather than shown raw.
+        var breakdownRows: [BreakdownRow] {
+            let labels: [(String, String)] = [
+                ("match_original", "Match videos"),
+                ("match_cut", "Cut versions"),
+                ("match_clips", "Point clips and match data"),
+                ("lesson_video", "Lesson videos"),
+                ("reels", "Reels and highlights"),
+                ("notes_media", "Voice notes, sketches and photos"),
+                ("coach_media", "Coaching files"),
+            ]
+            // A kind that would read "0.0 GB" is left off the list, the same
+            // rule as the web Account page: a few kilobytes of sketches is
+            // not something to show a row for.
+            return labels.compactMap { key, label -> BreakdownRow? in
+                guard let bytes = breakdown?[key],
+                      Double(bytes) / 1_073_741_824 >= 0.05 else { return nil }
+                return BreakdownRow(id: key, label: label, bytes: bytes)
+            }.sorted { $0.bytes > $1.bytes }
         }
     }
 
@@ -58,11 +94,39 @@ final class AccountStore {
     var purchasesEnabled = false
     var supportEmail = "support@ponglens.com"
     /// No preference row means enabled, the same reading the web makes.
+    /// Only read while app_config recollect_enabled is on; off, the row
+    /// is not shown and the preference is never asked for.
     var recollectEnabled = true
     var shareLinks: [ShareLinkRow] = []
     var loaded = false
 
-    func load(userId: UUID?) async {
+    private struct RecollectPref: Decodable { let enabled: Bool }
+
+    private static func readRecollectPreference(_ available: Bool) async -> [RecollectPref]? {
+        guard available else { return nil }
+        return try? await supa
+            .from("recollect_preferences")
+            .select("enabled")
+            .execute().value
+    }
+
+    private struct ConsentRow: Decodable {
+        let ai_features_enabled: Bool?
+        let upload_confirmed_at: String?
+    }
+
+    /// The account's own profile row. Filtered by user_id on purpose:
+    /// an accepted coach can read their students' rows too.
+    private static func readConsent(_ userId: UUID?) async -> [ConsentRow]? {
+        guard let userId else { return nil }
+        return try? await supa
+            .from("player_profiles")
+            .select("ai_features_enabled,upload_confirmed_at")
+            .eq("user_id", value: userId.uuidString.lowercased())
+            .execute().value
+    }
+
+    func load(userId: UUID?, recollectAvailable: Bool = false) async {
         struct ConfigRow: Decodable {
             let key: String
             let value: String?
@@ -83,13 +147,10 @@ final class AccountStore {
             .order("created_at", ascending: false)
             .execute().value
 
-        struct RecollectPref: Decodable { let enabled: Bool }
-        async let recollectQ: [RecollectPref]? = try? supa
-            .from("recollect_preferences")
-            .select("enabled")
-            .execute().value
+        async let recollectQ: [RecollectPref]? = Self.readRecollectPreference(recollectAvailable)
+        async let consentQ: [ConsentRow]? = Self.readConsent(userId)
 
-        let (config, s, p, links, recollect) = await (configQ, storageQ, processingQ, linksQ, recollectQ)
+        let (config, s, p, links, recollect, consent) = await (configQ, storageQ, processingQ, linksQ, recollectQ, consentQ)
         for row in config ?? [] {
             if row.key == "purchases_enabled" { purchasesEnabled = row.value == "true" }
             if row.key == "commerce_enabled" {
@@ -103,6 +164,12 @@ final class AccountStore {
         processing = p?.first
         shareLinks = links ?? []
         recollectEnabled = recollect?.first?.enabled ?? true
+        if let consent {
+            // The same two facts RootView seeds at sign-in, refreshed
+            // whenever Account opens, so the switch shows what the row says.
+            AiConsent.shared.seed(enabled: consent.first?.ai_features_enabled)
+            UploadConsent.shared.seed(confirmedAt: consent.first?.upload_confirmed_at, loaded: true)
+        }
         loaded = true
     }
 

@@ -1,0 +1,195 @@
+[
+  {
+    "name": "manual boundary on skipped card preserves score and alternates the next game's server",
+    "input": {
+      "firstServer": "user",
+      "firstServerSource": "user",
+      "points": [
+        {
+          "id": "p1",
+          "idx": 1,
+          "t0": 10,
+          "confirmedWinner": "user"
+        },
+        {
+          "id": "p2",
+          "idx": 2,
+          "t0": 20,
+          "isLet": true,
+          "confirmedHow": "misrecorded",
+          "gameEndOverride": "end",
+          "gameWinnerOverride": "opponent"
+        },
+        {
+          "id": "p3",
+          "idx": 3,
+          "t0": 30,
+          "confirmedWinner": "opponent"
+        }
+      ]
+    },
+    "expected": {
+      "points": [
+        {
+          "pointId": "p1",
+          "timelineOrdinal": 0,
+          "displayNumber": 1,
+          "gameNumber": 1,
+          "scoreUserBefore": 0,
+          "scoreOpponentBefore": 0,
+          "scoreUserAfter": 1,
+          "scoreOpponentAfter": 0,
+          "confirmedWinner": "user",
+          "skipKind": null,
+          "resolvedServer": "user",
+          "serverSource": "rotation",
+          "serveNumberInBlock": 1,
+          "endsGame": false,
+          "gameBoundarySource": null,
+          "resolvedGameWinner": null,
+          "allVisiblePointsAnsweredThroughHere": true
+        },
+        {
+          "pointId": "p2",
+          "timelineOrdinal": 1,
+          "displayNumber": 2,
+          "gameNumber": 1,
+          "scoreUserBefore": 1,
+          "scoreOpponentBefore": 0,
+          "scoreUserAfter": 1,
+          "scoreOpponentAfter": 0,
+          "confirmedWinner": null,
+          "skipKind": "misrecorded",
+          "resolvedServer": "user",
+          "serverSource": "rotation",
+          "serveNumberInBlock": 2,
+          "endsGame": true,
+          "gameBoundarySource": "owner_end_override",
+          "resolvedGameWinner": "opponent",
+          "allVisiblePointsAnsweredThroughHere": true
+        },
+        {
+          "pointId": "p3",
+          "timelineOrdinal": 2,
+          "displayNumber": 3,
+          "gameNumber": 2,
+          "scoreUserBefore": 0,
+          "scoreOpponentBefore": 0,
+          "scoreUserAfter": 0,
+          "scoreOpponentAfter": 1,
+          "confirmedWinner": "opponent",
+          "skipKind": null,
+          "resolvedServer": "opponent",
+          "serverSource": "rotation",
+          "serveNumberInBlock": 1,
+          "endsGame": false,
+          "gameBoundarySource": null,
+          "resolvedGameWinner": null,
+          "allVisiblePointsAnsweredThroughHere": true
+        }
+      ],
+      "match": {
+        "gamesUser": 0,
+        "gamesOpponent": 1,
+        "currentGameNumber": 2,
+        "currentScoreUser": 0,
+        "currentScoreOpponent": 1,
+        "completedGames": [
+          {
+            "gameNumber": 1,
+            "scoreUser": 1,
+            "scoreOpponent": 0,
+            "winner": "opponent",
+            "closingPointId": "p2",
+            "boundarySource": "owner_end_override"
+          }
+        ],
+        "visiblePointCount": 3,
+        "answeredPointCount": 2,
+        "skippedPointCount": 1,
+        "allVisiblePointsAnswered": true,
+        "firstServer": "user",
+        "firstServerSource": "user",
+        "ordering": "source_time"
+      }
+    }
+  },
+  {
+    "name": "legacy ordering and unresolved server remain explicit",
+    "input": {
+      "firstServer": "opponent",
+      "firstServerSource": "detected",
+      "points": [
+        {
+          "id": "p-late-index",
+          "idx": 2,
+          "t0": 5,
+          "confirmedWinner": "opponent"
+        },
+        {
+          "id": "p-missing-time",
+          "idx": 1,
+          "t0": null,
+          "confirmedWinner": null
+        }
+      ]
+    },
+    "expected": {
+      "points": [
+        {
+          "pointId": "p-missing-time",
+          "timelineOrdinal": 0,
+          "displayNumber": 1,
+          "gameNumber": 1,
+          "scoreUserBefore": 0,
+          "scoreOpponentBefore": 0,
+          "scoreUserAfter": 0,
+          "scoreOpponentAfter": 0,
+          "confirmedWinner": null,
+          "skipKind": null,
+          "resolvedServer": null,
+          "serverSource": "unresolved",
+          "serveNumberInBlock": null,
+          "endsGame": false,
+          "gameBoundarySource": null,
+          "resolvedGameWinner": null,
+          "allVisiblePointsAnsweredThroughHere": false
+        },
+        {
+          "pointId": "p-late-index",
+          "timelineOrdinal": 1,
+          "displayNumber": 2,
+          "gameNumber": 1,
+          "scoreUserBefore": 0,
+          "scoreOpponentBefore": 0,
+          "scoreUserAfter": 0,
+          "scoreOpponentAfter": 1,
+          "confirmedWinner": "opponent",
+          "skipKind": null,
+          "resolvedServer": null,
+          "serverSource": "unresolved",
+          "serveNumberInBlock": null,
+          "endsGame": false,
+          "gameBoundarySource": null,
+          "resolvedGameWinner": null,
+          "allVisiblePointsAnsweredThroughHere": false
+        }
+      ],
+      "match": {
+        "gamesUser": 0,
+        "gamesOpponent": 0,
+        "currentGameNumber": 1,
+        "currentScoreUser": 0,
+        "currentScoreOpponent": 1,
+        "completedGames": [],
+        "visiblePointCount": 2,
+        "answeredPointCount": 1,
+        "skippedPointCount": 0,
+        "allVisiblePointsAnswered": false,
+        "firstServer": null,
+        "firstServerSource": null,
+        "ordering": "legacy_idx"
+      }
+    }
+  }
+]

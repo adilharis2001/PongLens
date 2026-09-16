@@ -10,7 +10,11 @@ import {
 import { MEDIA_BUCKET, getObject } from "@/lib/r2";
 import { requireAdmin } from "../../requireAdmin";
 import { UploadView } from "./UploadView";
-import type { MatchJson, UploadDetail } from "../uploadView";
+import type {
+  MatchJson,
+  ScoreProjectionDiagnostic,
+  UploadDetail,
+} from "../uploadView";
 import { hydrateServeMissData, type ServeMissData } from "../serveMiss";
 import { readCards, type TrackArtifact } from "../pointReadings";
 import { normaliseSplits, type EndName } from "../pointLabels";
@@ -131,7 +135,14 @@ export default async function AdminUploadPage({
   const { matchId } = await params;
   const { supabase, avatarUrl } = await requireAdmin();
 
-  const [{ data, error }, themesRes, evidenceRes, labelsRes, cardLabelsRes] =
+  const [
+    { data, error },
+    themesRes,
+    evidenceRes,
+    labelsRes,
+    cardLabelsRes,
+    scoreProjectionRes,
+  ] =
     await Promise.all([
       supabase.rpc("admin_upload_detail", { p_match_id: matchId }),
       // The shared vocabulary, fetched once for the page rather than per
@@ -145,6 +156,7 @@ export default async function AdminUploadPage({
       // What the admin already decided each card SHOULD have been: which
       // end served, which end won, where it splits, whether it joins on.
       supabase.rpc("admin_point_labels", { p_match_id: matchId }),
+      supabase.rpc("admin_canonical_score_diagnostic", { p_match_id: matchId }),
     ]);
   if (error || !data) notFound();
   const detail = data as UploadDetail;
@@ -203,6 +215,9 @@ export default async function AdminUploadPage({
           serveMisses={hydratedServeMisses}
           readings={readings}
           readingSummary={summary}
+          scoreProjection={
+            (scoreProjectionRes.data as ScoreProjectionDiagnostic | null) ?? null
+          }
           themes={themes.map((t) => ({
             id: t.id,
             label: t.label,

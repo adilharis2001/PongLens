@@ -1,28 +1,43 @@
 import SwiftUI
 
-/// Match-level placement: where the ball landed across every point with a
-/// trusted bounce, always drawn with the user at the bottom — the web's
-/// PlacementAggregate, sized for the app. Landings and a heat map, chosen
-/// with a toggle rather than the web's swipe deck; the game filter stays
-/// web-only for now.
-struct PlacementAggregateSection: View {
+/// The serve maps as two cards of the Match analysis deck: where the
+/// serves landed, and the same landings as a heat map with win rates. A
+/// port of the web's PlacementAggregate, sized for the app; the two cards
+/// share whose serves are drawn through the bindings the deck owns, so
+/// switching on one switches the other, exactly as the web's control does.
+/// The game filter stays web-only for now.
+enum PlacementMapPage { case landings, heat }
+enum PlacementMapWho { case me, them }
+enum PlacementMapShot { case serves, rally }
+
+struct PlacementMapCard: View {
+    let page: PlacementMapPage
     let points: [MatchPoint]
     let userSide: String?
     let gameIndexByPoint: [UUID: Int]
     let serving: [UUID: ServeInfo]
     let opponentLabel: String
+    /// A coach reads the player's match: "Player" where the owner reads "Me".
+    var coachView = false
     /// app_config placement_serves_only (132). The same switch the web
     /// reads, so one match cannot show serves in the browser and every
     /// landing here.
     var servesOnly = false
+    @Binding var who: PlacementMapWho
+    @Binding var shot: PlacementMapShot
+    /// Open one point from a zone's list. Nil leaves the zones as pictures.
+    var onOpenPoint: ((MatchPoint) -> Void)? = nil
+    /// The match is not scored yet, so who served is the camera's guess.
+    var serverEstimated = false
 
-    private enum Who { case me, them }
-    private enum Shot { case serves, rally }
-    private enum Page { case landings, heat }
+    /// The zone the owner tapped, with the points behind its number.
+    @State private var zoneSheet: ZoneSheet?
 
-    @State private var who: Who = .me
-    @State private var shot: Shot = .serves
-    @State private var page: Page = .landings
+    private struct ZoneSheet: Identifiable {
+        let id = UUID()
+        let zone: PlacementZone
+        let points: [MatchPoint]
+    }
 
     private let youColor = PL.cyan
     private let themColor = Color(hex: 0xF59E0B)
@@ -48,19 +63,21 @@ struct PlacementAggregateSection: View {
 
     var body: some View {
         let observations = allObservations
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                SectionHeading(servesOnly ? "Serve placement" : "Placement maps")
-                Text("BETA")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.5)
-                    .foregroundStyle(PL.warningText.opacity(0.9))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(PL.warning.opacity(0.1), in: Capsule())
-                    .overlay(Capsule().strokeBorder(PL.warning.opacity(0.25), lineWidth: 1))
-            }
+        let shown = observations.filter { $0.filter == filter }
+        let tallies = placementZoneTallies(observations, filter: filter)
+        let scored = placementZonesAreScored(tallies)
+        let title = page == .landings
+            ? (servesOnly ? "Serve landings" : "Landings")
+            : placementHeatMapTitle(scored: scored)
+        let tappable = page == .heat && onOpenPoint != nil && !shown.isEmpty
 
+        let baseHint = tappable ? "Tap a zone to see its points" : hint(shown)
+        let estimated = "Who served is estimated until the match is scored."
+        ScoredCardStyle.card(
+            title,
+            hint: serverEstimated ? (baseHint.map { $0 + " · " } ?? "") + estimated : baseHint,
+            beta: true
+        ) {
             VStack(alignment: .leading, spacing: 12) {
                 if userSide == nil {
                     Text(servesOnly
@@ -79,80 +96,104 @@ struct PlacementAggregateSection: View {
                         .multilineTextAlignment(.center)
                         .padding(.vertical, 20)
                 } else {
-                    mapBody(observations)
+                    controls
+                    Group {
+                        if page == .heat {
+                            heatCanvas(tallies, scored: scored, tappable: tappable)
+                                .onTapGesture { location in
+                                    guard tappable else { return }
+                                    openZone(at: location, shown: shown)
+                                }
+                        } else {
+                            landingsCanvas(shown)
+                        }
+                    }
+                    .aspectRatio(PlacementTable.viewW / PlacementTable.viewH, contentMode: .fit)
+                    .frame(maxWidth: 240)
+                    .frame(maxWidth: .infinity)
+                    if shown.isEmpty {
+                        Text("No trusted landings in this view.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                            .frame(maxWidth: .infinity)
+                    } else if tappable {
+                        Text(hint(shown) ?? "")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PL.text500)
+                            .frame(maxWidth: .infinity)
+                            .multilineTextAlignment(.center)
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .plCard()
+        }
+        .sheet(item: $zoneSheet) { sheet in
+            ZonePointsSheet(
+                zone: sheet.zone,
+                points: sheet.points,
+                gameIndexByPoint: gameIndexByPoint,
+                allPoints: points,
+                whose: who == .me ? (coachView ? "the player" : "you") : opponentLabel,
+                servesOnly: servesOnly,
+                coachView: coachView,
+                onOpen: { point in
+                    zoneSheet = nil
+                    onOpenPoint?(point)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
-    @ViewBuilder
-    private func mapBody(_ observations: [TrustedPlacementObservation]) -> some View {
-        let shown = observations.filter { $0.filter == filter }
-        let used = trustedPlacementPointCount(observations)
-        let total = unflagged.count
+    /// A tap on the drawn table: which square, and which points landed in
+    /// it. Geometry mirrors heatCanvas exactly, in the canvas's own points.
+    private func openZone(at location: CGPoint, shown: [TrustedPlacementObservation]) {
+        let width = 240.0
+        let s = width / PlacementTable.viewW
+        let x = location.x / s
+        let y = location.y / s
+        guard x >= PlacementTable.x, x <= PlacementTable.x + PlacementTable.w,
+              y >= PlacementTable.y, y <= PlacementTable.y + PlacementTable.h
+        else { return }
+        let u = (x - PlacementTable.x) / PlacementTable.w * TABLE_W
+        let v = (1 - (y - PlacementTable.y) / PlacementTable.h) * TABLE_L
+        guard let zone = placementZone(u: u, v: v, filter: filter) else { return }
+        let ids = shown
+            .filter { placementZone(u: $0.u, v: $0.v, filter: filter) == zone }
+            .map(\.pointId)
+        guard !ids.isEmpty else { return }
+        let byIndex = points.enumerated().filter { ids.contains($0.element.id) }
+        zoneSheet = ZoneSheet(zone: zone, points: byIndex.map(\.element))
+    }
 
-        Text(servesOnly
-            ? "Serves mapped for \(used) of \(total) \(total == 1 ? "point" : "points")."
-            : "Mapped for \(used) of \(total) \(total == 1 ? "point" : "points").")
-            .font(.plCaption)
-            .monospacedDigit()
-            .foregroundStyle(PL.text500)
-
-        HStack(spacing: 8) {
-            segmented(
-                [("Landings", Page.landings), ("Heat map", Page.heat)],
-                active: page
-            ) { page = $0 }
+    /// The one line under the title: what a dot means for this filter,
+    /// then how much data is behind it.
+    private func hint(_ shown: [TrustedPlacementObservation]) -> String? {
+        guard userSide != nil, !shown.isEmpty else { return nil }
+        let what = switch filter {
+        case .myServes: coachView ? "Where the player's serves landed" : "Where your serves landed"
+        case .theirServes: coachView ? "Where the opponent's serves landed" : "Where their serves landed"
+        case .myRally: coachView
+            ? "The player's non-serve shots that bounced on the opponent's side"
+            : "Your non-serve shots that bounced on their side"
+        case .theirRally: coachView
+            ? "The opponent's non-serve shots that bounced on the player's side"
+            : "Their non-serve shots that bounced on your side"
         }
+        let landings = shown.count
+        let pointCount = trustedPlacementPointCount(shown)
+        return "\(what) · \(landings) \(landings == 1 ? "landing" : "landings") from \(pointCount) \(pointCount == 1 ? "point" : "points")"
+    }
 
+    private var controls: some View {
         HStack(spacing: 8) {
-            segmented(
-                [("Me", Who.me), (opponentLabel, Who.them)], active: who
-            ) { who = $0 }
+            segmented([(coachView ? "Player" : "Me", PlacementMapWho.me), (opponentLabel, .them)], active: who) { who = $0 }
             // Rally landings are not shown at the confidence they can be
             // reconstructed at, so there is no second thing to choose
             // between and the control comes off entirely.
             if !servesOnly {
-                segmented(
-                    [("Serves", Shot.serves), ("Rally", Shot.rally)], active: shot
-                ) { shot = $0 }
+                segmented([("Serves", PlacementMapShot.serves), ("Rally", .rally)], active: shot) { shot = $0 }
             }
-        }
-
-        let tallies = placementZoneTallies(observations, filter: filter)
-        let scored = placementZonesAreScored(tallies)
-
-        if page == .heat {
-            Text(placementHeatMapTitle(scored: scored))
-                .font(.plCaption)
-                .foregroundStyle(PL.text400)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-
-        Group {
-            if page == .heat {
-                heatCanvas(tallies, scored: scored)
-            } else {
-                landingsCanvas(shown)
-            }
-        }
-        .aspectRatio(PlacementTable.viewW / PlacementTable.viewH, contentMode: .fit)
-        .frame(maxWidth: 260)
-        .frame(maxWidth: .infinity)
-
-        if shown.isEmpty {
-            Text("No trusted landings in this view.")
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
-                .frame(maxWidth: .infinity)
-        } else {
-            Text(caption(shown))
-                .font(.system(size: 11))
-                .foregroundStyle(PL.text500)
-                .frame(maxWidth: .infinity)
-                .multilineTextAlignment(.center)
         }
     }
 
@@ -161,12 +202,13 @@ struct PlacementAggregateSection: View {
     /// A port of buildPlacementHeatCells + PlacementHeatMap on the web,
     /// down to the thirds and the opacity ramp.
     private func heatCanvas(
-        _ tallies: [PlacementZone: PlacementZoneTally], scored: Bool
+        _ tallies: [PlacementZone: PlacementZoneTally], scored: Bool, tappable: Bool
     ) -> some View {
         Canvas { context, size in
             let s = size.width / PlacementTable.viewW
             drawPlacementTable(
-                context, scale: s, topLabel: opponentLabel, bottomLabel: "Me"
+                context, scale: s, topLabel: opponentLabel,
+                bottomLabel: coachView ? "Player" : "Me"
             )
             let tone = who == .me ? youColor : themColor
             let maxTotal = max(1, tallies.values.map(\.total).max() ?? 0)
@@ -215,12 +257,15 @@ struct PlacementAggregateSection: View {
                     let label = scored && tally.scored > 0
                         ? "\(tally.won)/\(tally.scored)"
                         : "\(tally.total)"
+                    // The underline is the tap affordance: a number you can
+                    // open, not a label.
                     context.draw(
                         Text(label)
                             .font(.system(
                                 size: (scored && tally.scored > 0 ? 10 : 11) * s,
                                 weight: .bold
                             ))
+                            .underline(tappable)
                             .foregroundStyle(Color(hex: 0xF8FAFC)),
                         at: CGPoint(x: rect.midX, y: rect.midY)
                     )
@@ -233,7 +278,8 @@ struct PlacementAggregateSection: View {
         Canvas { context, size in
             let s = size.width / PlacementTable.viewW
             drawPlacementTable(
-                context, scale: s, topLabel: opponentLabel, bottomLabel: "Me"
+                context, scale: s, topLabel: opponentLabel,
+                bottomLabel: coachView ? "Player" : "Me"
             )
             let tone = who == .me ? youColor : themColor
             for observation in shown {
@@ -249,20 +295,6 @@ struct PlacementAggregateSection: View {
                 context.stroke(dot, with: .color(Color(hex: 0x0C1222)), lineWidth: 0.75 * s)
             }
         }
-    }
-
-    /// The one line under the map: what a dot means for this filter, then
-    /// how much data is behind it.
-    private func caption(_ shown: [TrustedPlacementObservation]) -> String {
-        let what = switch filter {
-        case .myServes: "Where your serves landed"
-        case .theirServes: "Where their serves landed"
-        case .myRally: "Your non-serve shots that bounced on their side"
-        case .theirRally: "Their non-serve shots that bounced on your side"
-        }
-        let landings = shown.count
-        let pointCount = trustedPlacementPointCount(shown)
-        return "\(what) · \(landings) \(landings == 1 ? "landing" : "landings") from \(pointCount) \(pointCount == 1 ? "point" : "points")"
     }
 
     private func segmented<T: Equatable>(
@@ -284,5 +316,71 @@ struct PlacementAggregateSection: View {
         .padding(2)
         .background(PL.ink.opacity(0.4), in: Capsule())
         .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+    }
+}
+
+
+/// The points behind one heat-map square, in timeline order, each opening
+/// the point. The web's zone sheet, as a PLSheetScaffold + Form like every
+/// other sheet on this screen.
+struct ZonePointsSheet: View {
+    let zone: PlacementZone
+    let points: [MatchPoint]
+    let gameIndexByPoint: [UUID: Int]
+    let allPoints: [MatchPoint]
+    let whose: String
+    let servesOnly: Bool
+    var coachView = false
+    let onOpen: (MatchPoint) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        PLSheetScaffold(title: readableZone(zone).capitalized) {
+            Form {
+                Section {
+                    ForEach(points, id: \.id) { point in
+                        Button {
+                            dismiss()
+                            onOpen(point)
+                        } label: {
+                            HStack(spacing: 12) {
+                                (Text("Point \((allPoints.firstIndex { $0.id == point.id } ?? 0) + 1)")
+                                    .font(.plRowTitle)
+                                    .foregroundStyle(PL.text100)
+                                    + Text("  Game \((gameIndexByPoint[point.id] ?? 0) + 1)")
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.text500))
+                                Spacer()
+                                Text(outcome(point))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(outcomeColor(point))
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } footer: {
+                    Text("\(points.count) \(points.count == 1 ? "point" : "points") with a \(servesOnly ? "serve" : "shot") by \(whose) landing here.")
+                }
+            }
+        }
+    }
+
+    private func outcome(_ point: MatchPoint) -> String {
+        switch point.confirmedWinner {
+        case .user: coachView ? "Player won" : "You won"
+        case .opponent: coachView ? "Opponent won" : "They won"
+        default: "Not scored"
+        }
+    }
+
+    private func outcomeColor(_ point: MatchPoint) -> Color {
+        switch point.confirmedWinner {
+        case .user: PL.cyan
+        case .opponent: PL.magentaSoft
+        default: PL.text500
+        }
     }
 }

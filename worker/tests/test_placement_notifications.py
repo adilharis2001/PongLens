@@ -77,6 +77,9 @@ class PlacementEmailTests(unittest.TestCase):
             sent.append((rendered.subject, rendered.html))
 
         with (
+            # This exercises the legacy notification with capture disabled.
+            # A missing connection alone cannot prove delivery is unmanaged.
+            patch.object(worker.match_ready_delivery, "managed", return_value=False),
             patch.object(worker, "get_user_email", return_value="user@example.com"),
             patch.object(worker, "send_email", side_effect=capture_email),
             patch.object(worker, "get_job_original_name", return_value="vaibhav.mov"),

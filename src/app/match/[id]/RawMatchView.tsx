@@ -111,7 +111,6 @@ export function RawMatchView({
   const services = useProcessingService();
   const processingLabel = processingStageLabel(feedback);
   const cameraWarning = cameraViewWarning(feedback, trimStart, trimEnd ?? Infinity);
-  const [placement, setPlacement] = useState(false);
   const [strictness, setStrictness] = useState<"tight" | "normal" | "loose">(
     "normal",
   );
@@ -462,7 +461,10 @@ export function RawMatchView({
           trimStartS: trimmed ? trimStart : null,
           trimEndS: trimmed ? trimEnd : null,
           points: true,
-          placement,
+          // The detailed analysis rides on the same run for nothing
+          // (the ball is detected and the table found for the cut anyway);
+          // generating it later re-detects the whole video.
+          placement: true,
           strictness,
         }),
       });
@@ -907,19 +909,6 @@ export function RawMatchView({
               {/* Same shape as the upload sheet's options: a labelled row
                   with a switch, not a pill that hides what it means. */}
               <div className="mt-5 divide-y divide-edge/60 rounded-xl border border-edge bg-ink/20">
-                <div className="flex items-center justify-between gap-4 p-3.5">
-                  <div>
-                    <p className="text-sm text-zinc-200">Placement maps</p>
-                    <p className="mt-0.5 text-xs text-zinc-500">
-                      Where each serve landed. Adds processing time.
-                    </p>
-                  </div>
-                  <Switch
-                    on={placement}
-                    onChange={setPlacement}
-                    label="Placement maps"
-                  />
-                </div>
                 <div className="p-3.5">
                   <p className="text-sm text-zinc-200">Cut strictness</p>
                   <p className="mt-0.5 text-xs text-zinc-500">
@@ -1331,40 +1320,5 @@ export function RawMatchView({
         />
       )}
     </div>
-  );
-}
-
-/** The app's switch, matching the upload sheet's option rows. */
-function Switch({
-  on,
-  onChange,
-  label,
-  disabled,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!on)}
-      className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${
-        on
-          ? "border-cyan-glow/60 bg-cyan-glow/30"
-          : "border-edge bg-surface-2"
-      } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
-    >
-      <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full transition-all ${
-          on ? "left-6 bg-cyan-400" : "left-0.5 bg-zinc-500"
-        }`}
-      />
-    </button>
   );
 }

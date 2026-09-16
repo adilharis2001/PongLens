@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
+import { getCoachReviewsEnabled } from "@/lib/config";
 import { sponsoredLeftFor } from "@/lib/reviews/sponsoredLeft";
 import type { CoachProfileRow, CoachQueueItem } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/server";
@@ -18,6 +19,8 @@ export const metadata: Metadata = {
  * coach without a page gets the offer to make one.
  */
 export default async function CoachOrdersPage() {
+  // coach_reviews_enabled off: the page is gone, not just its entrance.
+  if (!(await getCoachReviewsEnabled())) notFound();
   const supabase = await createClient();
   const {
     data: { user },

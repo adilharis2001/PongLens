@@ -106,6 +106,7 @@ export function PointDetail({
   clipPads,
   nav,
   onPointUpdate,
+  onSaveOutcome,
   customReasons = [],
   onCreateCustomReason,
   onNoteAdded,
@@ -172,6 +173,11 @@ export function PointDetail({
     onNext: () => void;
   };
   onPointUpdate: (patch: Partial<Point>) => void;
+  onSaveOutcome?: (patch: {
+    confirmed_winner: "user" | "opponent" | null;
+    confirmed_how: string | null;
+    is_let: boolean;
+  }) => Promise<boolean>;
   /** The owner's own "why I lost it" pills (loss_reason_labels, 060). */
   customReasons?: { id: string; label: string }[];
   onCreateCustomReason?: (label: string) => Promise<string | null>;
@@ -787,6 +793,7 @@ export function PointDetail({
           mapLabels={mapLabels}
           flash={flash}
           onPointUpdate={onPointUpdate}
+          onSaveOutcome={onSaveOutcome}
           onSetServer={onSetServer}
           customReasons={customReasons}
           onCreateCustomReason={onCreateCustomReason}

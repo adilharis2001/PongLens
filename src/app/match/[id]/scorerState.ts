@@ -1,3 +1,5 @@
+import type { CanonicalScoreSnapshot } from "@/lib/scoring/commands";
+
 export type ScorerState = {
   confirmed_winner: "user" | "opponent" | null;
   is_let: boolean;
@@ -76,6 +78,41 @@ export function sameScorerState(_a: ScorerState, _b: ScorerState): boolean {
     _a.is_let === _b.is_let &&
     _a.scored_at_cut_s === _b.scored_at_cut_s
   );
+}
+
+/**
+ * A stale revision means another scorer won the race. Replace only the
+ * scorer-owned outcome fields from the exact server snapshot; structure,
+ * tags, notes and timing stay untouched. The snapshot intentionally does
+ * not expose scored_at_cut_s, so an observation is retained only when the
+ * winner itself still agrees. Otherwise it is cleared rather than attached
+ * to a different outcome.
+ */
+export function reconcileScorerConflict<
+  T extends ScorerStateSource & { id: string; scored_at_cut_s?: number | null },
+>(points: T[], snapshot: CanonicalScoreSnapshot): T[] {
+  const canonical = new Map(
+    snapshot.points.map((point) => [point.pointId, point]),
+  );
+  return points.map((point) => {
+    const serverPoint = canonical.get(point.id);
+    if (!serverPoint) return point;
+    const skipped = serverPoint.skipKind !== null;
+    const winner = skipped ? null : serverPoint.confirmedWinner;
+    const keepObservation =
+      !skipped &&
+      winner !== null &&
+      point.confirmed_winner === winner &&
+      !point.is_let;
+    return {
+      ...point,
+      confirmed_winner: winner,
+      is_let: skipped,
+      scored_at_cut_s: keepObservation
+        ? (point.scored_at_cut_s ?? null)
+        : null,
+    };
+  });
 }
 
 export type ScorePlaybackEvent = {

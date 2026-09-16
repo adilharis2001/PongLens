@@ -21,6 +21,7 @@ import { AutoTextarea } from "@/components/AutoTextarea";
 import { KeyCap as Key } from "@/components/KeyCap";
 import type { ReviewFindingRow } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/client";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 import type { WorkspacePoint } from "./CoachOrder";
 
 /**
@@ -1057,6 +1058,7 @@ function FindingCard({
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   const [transcribing, setTranscribing] = useState(false);
+  const { ensure } = useAiConsent();
   const [drawing, setDrawing] = useState(false);
   const [frame, setFrame] = useState<HTMLCanvasElement | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -1168,6 +1170,8 @@ function FindingCard({
   }
 
   async function startRecording() {
+    // The sheet before the microphone: the words go to Deepgram.
+    if (!(await ensure())) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -1193,16 +1197,20 @@ function FindingCard({
             `finding${mime === "audio/webm" ? ".webm" : ".mp4"}`,
           );
           form.append("tier", "review");
-          const res = await fetch("/api/transcribe", {
+          const res = await fetchWithAiConsent(ensure, "/api/transcribe", {
             method: "POST",
             body: form,
           });
-          const data = (await res.json()) as {
-            audio_path?: string;
-            transcript?: string;
-            url?: string;
-          };
-          if (res.ok && data.audio_path) {
+          const data = res
+            ? ((await res.json()) as {
+                audio_path?: string;
+                transcript?: string;
+                url?: string;
+              })
+            : null;
+          if (!res) {
+            // Not now: dropped quietly.
+          } else if (res.ok && data?.audio_path) {
             setAudioPath(data.audio_path);
             setAudioUrl(data.url ?? null);
             if (data.transcript) {

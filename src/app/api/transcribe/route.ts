@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { deepgramUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { shouldPersistTranscription } from "@/lib/journal/transcription";
 import { createClient } from "@/lib/supabase/server";
+import { requireAiConsent } from "@/lib/consent";
 import { MEDIA_BUCKET, presignGet, putObject } from "@/lib/r2";
+import { checkUploadAllowed, MEDIA_UPLOAD_RULES, refusalStatus } from "@/lib/quota";
 
 export const runtime = "nodejs";
 
@@ -140,6 +142,8 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+  const denied = await requireAiConsent(supabase, user.id);
+  if (denied) return denied;
 
   const apiKey = process.env.DEEPGRAM_API_KEY;
   if (!apiKey) {
@@ -183,6 +187,23 @@ export async function POST(req: Request) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let audioPath: string | null = null;
 
+  // A stored recording is storage like any other; a full account is told
+  // so before the bytes move. Journal dictation stores nothing and is not
+  // asked.
+  if (persist) {
+    const refused = await checkUploadAllowed(
+      supabase,
+      bytes.byteLength,
+      MEDIA_UPLOAD_RULES,
+    );
+    if (refused) {
+      return NextResponse.json(
+        { error: refused, resource: "storage" },
+        { status: refusalStatus(refused) },
+      );
+    }
+  }
+
   try {
     if (persist) {
       const prefix = tier === "review" ? "review" : "voice";
@@ -192,20 +213,18 @@ export async function POST(req: Request) {
       await putObject(MEDIA_BUCKET, key, bytes, mime);
       audioPath = `r2://${MEDIA_BUCKET}/${key}`;
 
-      // Storage ledger (voice tier only; review artifacts are the coach's
-      // work product, not the student's storage). Best-effort: accounting
-      // must not break a recording that is already stored.
-      if (tier === "voice") {
-        const { error: ledgerError } = await supabase.rpc(
-          "ledger_append_voice",
-          {
-            p_bytes: bytes.byteLength,
-            p_key: audioPath,
-          },
-        );
-        if (ledgerError) {
-          console.error("transcribe: ledger append failed:", ledgerError);
-        }
+      // Storage ledger, both tiers: a review recording is the coach's own
+      // storage. Best-effort: accounting must not break a recording that
+      // is already stored, and the nightly measurement corrects a miss.
+      const { error: ledgerError } = await supabase.rpc(
+        tier === "voice" ? "ledger_append_voice" : "ledger_append_own_media",
+        {
+          p_bytes: bytes.byteLength,
+          p_key: audioPath,
+        },
+      );
+      if (ledgerError) {
+        console.error("transcribe: ledger append failed:", ledgerError);
       }
     }
 

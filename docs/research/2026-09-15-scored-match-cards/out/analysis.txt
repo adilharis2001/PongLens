@@ -1,0 +1,130 @@
+
+=== SERVE RULER (scored points, server known) ===
+match                   pts  drawn  no_land  wrong_h  1st_wh   off  noncons  noserve
+lester                  104    63%       10       14       2     6        5        1
+rowel                    80    74%        9        5       2     3        0        2
+prabhas                  55    60%       14        3       0     2        1        2
+ishan                    79    47%       29        3       3     3        4        0
+ali                      44    57%        3        5       3     4        1        3
+chris_aug22              89    82%        2        7       0     6        1        0
+julian_aug23             75    53%       11        9       5     5        1        4
+yuyulin                  92    72%       16        5       0     2        3        0
+brian                    90    33%       31        4       2    18        3        2
+anton                    51    45%        6       12       3     3        1        3
+vaibhav_sep4            146    42%       30       19       6    15       14        0
+chris_aug14              79    80%        2        6       2     5        1        0
+julian_oct25             49    49%       14        6       0     4        1        0
+terry2                   39    18%       12        4       3     3        1        9
+vaibhav_wtc              32    16%        3        9      13     2        0        0
+chris_jul26b             37    81%        3        1       0     3        0        0
+chris_jul26a             27    78%        0        0       3     2        1        0
+chris_jul26c             34    82%        0        1       0     3        1        1
+julian_aug11_pinkrim    118    55%       17       16       4     9        3        4
+TOTAL                  1320    57%      212      129      51    98       42       31
+
+=== BOUNCE INVENTORY AND NOISE FLAGS (share of all bounce candidates) ===
+match                   pts  b/pt  c/pt     p:none     p:band   p:inside near_conta   net_band  edge_band  pre_serve pre_serve_ post_end_t post_termi repeat_spo  fast_pair        any
+lester                  104   7.1   3.1        21%         2%        78%        14%        11%        14%         4%         0%         0%         3%         9%         0%        43%
+rowel                    80   7.5   3.1        23%         2%        76%        18%         7%        16%         4%         2%         4%         0%         7%         0%        45%
+prabhas                  55   6.9   3.1        33%         1%        65%        15%         4%         9%         3%        10%        11%         0%         3%         0%        45%
+ishan                    79   7.6   3.5        42%         1%        57%        16%         4%         8%         4%        17%         6%         0%         1%         0%        47%
+ali                      44   5.8   2.9        21%         0%        79%        18%         9%        13%         4%         0%         0%         0%         0%         0%        40%
+chris_aug22              89   8.1   3.8        22%         3%        75%        15%         6%        13%         3%         0%         0%         5%         4%         0%        36%
+julian_aug23             75   7.9   3.0        33%         2%        65%         9%         4%        12%         5%         0%         0%         0%        14%         0%        38%
+yuyulin                  92   8.1   2.9        37%         1%        62%         9%         4%         9%         7%         0%         0%         0%         6%         0%        31%
+brian                    90   8.6   1.7        47%         2%        50%        13%         6%        15%         6%         0%         0%         0%         1%         0%        38%
+anton                    51   5.5   1.9        25%         1%        74%        15%         4%        11%         5%         2%         0%         0%         7%         0%        36%
+vaibhav_sep4            146   6.6   1.8        37%         3%        60%         9%        10%        20%         6%         0%         0%         0%         9%         3%        50%
+chris_aug14              79   7.8   4.1        10%         2%        88%        14%         6%        15%         4%         0%         0%         1%         1%         0%        34%
+julian_oct25             49   8.0   3.6        33%         2%        65%        19%         6%        18%         6%         0%         0%         0%         7%         0%        44%
+terry2                   39   4.8   2.6        40%         5%        54%        23%         4%        16%         5%         0%         0%         0%         3%         0%        43%
+vaibhav_wtc              32   5.4   2.2        20%         1%        80%        11%         8%        33%         6%         0%         0%         0%         0%         0%        53%
+chris_jul26b             37   6.1   3.4        13%         1%        86%        13%         3%        13%         3%         0%         0%         1%         1%         0%        27%
+chris_jul26a             27   6.3   3.5         9%         1%        90%        17%         6%        10%         1%         0%         0%         1%         0%         0%        28%
+chris_jul26c             34   6.7   3.9        10%         4%        86%         9%         5%        14%         4%         0%         0%         2%         0%         0%        31%
+julian_aug11_pinkrim    118   6.6   3.1        20%         2%        78%        15%         2%        17%         6%         0%         0%         0%         2%         0%        38%
+TOTAL                  1320   7.1   2.9        28%         2%        70%        14%         6%        14%         5%         2%         1%         1%         5%         0%        40%
+
+=== HALF DENSITY of inside-table bounces (camera near vs far) and median pixel y ===
+match                   user   near    far  near%  y_near  y_far   depth bins near->far (6)
+lester                  near    256    317    45%  613.89 550.29    114   97   45   98  104  115
+rowel                    far    208    245    46%  621.63 584.61     79   98   31   58   64  123
+prabhas                 near    132    117    53%  585.84 539.88     48   50   34   18   51   48
+ishan                   near    166    175    49%  585.67 541.89     59   81   26   25   53   97
+ali                     near     88    115    43%  527.27 449.12     10   35   43   18   14   83
+chris_aug22             near    292    250    54%  560.86  518.2    103  127   62   43   74  133
+julian_aug23             far    169    215    44%  533.24 474.32     52   90   27   37   58  120
+yuyulin                 near    223    237    48%  587.27 558.28     36  127   60   42   67  128
+brian                    far    250    138    64%  551.38 535.87     14   92  144   26   18   94
+anton                   near    138     72    66%  548.85 516.15     43   68   27   10   34   28
+vaibhav_sep4             far    245    331    43%  627.87 592.87     21   74  150   78   57  196
+chris_aug14             near    281    262    52%   630.4 582.54     83  146   52   34   82  146
+julian_oct25            near    135    118    53%   689.4 606.12     27   69   39   24   17   77
+terry2                  near     60     41    59%  686.37 626.98     18   30   12   13    5   23
+vaibhav_wtc             near    115     22    84%  516.05 547.89     55   33   27   19    2    1
+chris_jul26b            near    102     92    53%  524.22 475.65     56   34   12   12   35   45
+chris_jul26a            near     66     86    43%  519.25 478.64     29   28    9   14   30   42
+chris_jul26c            near     90    107    46%  514.63 477.51     42   36   12   12   42   53
+julian_aug11_pinkrim    near    265    340    44%   514.8 452.44     70  147   48   39   85  216
+
+=== RALLY FEASIBILITY (rotation hypothesis) ===
+match                   pts  ready  rallyRule  landings chainEval  clean  consist  recv lastLoser rawLastLoser reconSrv  autoPick  suggWin
+lester                  104    12%        12%        28        66    56%      35%   67%       71%          66%      77%    68%/31      55%
+rowel                    80     8%         8%         9        59    44%      34%   68%       68%          75%      70%    61%/18      57%
+prabhas                  55     9%         9%        10        33    52%      48%   61%       94%          84%      71%    81%/16      56%
+ishan                    79     8%         8%        10        37    59%      27%   59%       43%          29%      57%    64%/28      54%
+ali                      44     7%         7%         6        25    60%      20%   60%       48%          54%      70%     75%/8      45%
+chris_aug22              89     8%         8%        20        73    45%      36%   73%       77%          80%      81%    78%/18      51%
+julian_aug23             75     3%         3%         3        40    45%      32%   70%       65%          73%      56%    69%/13      45%
+yuyulin                  92     3%         3%         6        66    56%      42%   61%       70%          77%      50%    48%/23      57%
+brian                    90     1%         1%         1        30    20%      10%   27%       40%          45%      49%     56%/9      55%
+anton                    51    10%        10%         7        23    61%      35%   57%       61%          67%      55%    50%/14      47%
+vaibhav_sep4            146     4%         4%        10        62    52%      31%   44%       53%          55%      57%    70%/43      46%
+chris_aug14              79     8%         8%        11        63    33%      25%   62%       71%          69%      71%    67%/18      47%
+julian_oct25             49     8%         8%         9        24    38%      29%   50%       67%          67%      59%    90%/10        -
+terry2                   39     0%         0%         0         7    43%      14%   43%       71%          56%      38%     75%/4      56%
+vaibhav_wtc              32     0%         0%         0         5    40%       0%   40%       20%          59%      12%      0%/4      66%
+chris_jul26b             37    16%        16%        14        30    53%      43%   53%       83%          68%      89%    90%/10      62%
+chris_jul26a             27    15%        15%        10        21    43%      43%   62%       76%          81%      89%     83%/6      56%
+chris_jul26c             34    21%        21%        12        28    57%      43%   75%       79%          79%      65%     71%/7      59%
+julian_aug11_pinkrim    118     8%         8%        17        65    48%      28%   58%       62%          65%      62%    69%/35      54%
+
+=== HARD REASONS on the rotation hypothesis (share of points) ===
+  unexpected_hitter                               373  316%
+  serve_second_bounce_on_server_half              356  302%
+  landing_on_hitter_half                          312  264%
+  serve_first_bounce_on_receiver_half             283  240%
+  non_alternating_contacts                        127  108%
+  serve_incomplete                                 31  26%
+  worker_trust_contract:serve_first_bounce_off_table     8  7%
+  worker_trust_contract:landing_off_table           4  3%
+
+=== CHAIN LENGTH distribution (bounces after the serve landing, alternating, inside) ===
+  0:40%  1:28%  2:16%  3:9%  4:3%  5:1%  6:1%  7:1%  8:1%
+
+=== INTER-BOUNCE dt histogram (50 ms bins, all consecutive bounce pairs) ===
+  0ms:0%  50ms:0%  100ms:2%  150ms:2%  200ms:7%  250ms:5%  300ms:9%  350ms:6%  400ms:14%  450ms:5%  500ms:9%  550ms:4%  600ms:7%  650ms:3%  700ms:4%  750ms:2%  800ms:2%  850ms:1%  900ms:2%  950ms:1%  1000ms:17%
+
+=== SUGGESTION 'how' distribution ===
+   {'hit into net': 140, 'missed table (long/wide)': 866, 'clean winner': 180, 'double bounce / no return': 37, 'edge/net-cord lucky ball': 20}
+
+=== SCORECARD richness ===
+  lester                 serve described   0%  loss reason   0%  direction   0%
+  rowel                  serve described   0%  loss reason   0%  direction   0%
+  prabhas                serve described   0%  loss reason   0%  direction   0%
+  ishan                  serve described   0%  loss reason   0%  direction   0%
+  ali                    serve described   0%  loss reason   0%  direction   0%
+  chris_aug22            serve described   0%  loss reason   1%  direction   0%
+  julian_aug23           serve described   0%  loss reason   0%  direction   0%
+  yuyulin                serve described   0%  loss reason   1%  direction   0%
+  brian                  serve described   0%  loss reason   0%  direction   0%
+  anton                  serve described   0%  loss reason   0%  direction   0%
+  vaibhav_sep4           serve described   0%  loss reason   0%  direction   0%
+  chris_aug14            serve described   0%  loss reason   0%  direction   0%
+  julian_oct25           serve described   0%  loss reason   0%  direction   0%
+  terry2                 serve described   0%  loss reason   0%  direction   0%
+  vaibhav_wtc            serve described   0%  loss reason   0%  direction   0%
+  chris_jul26b           serve described   0%  loss reason   0%  direction   0%
+  chris_jul26a           serve described  15%  loss reason  15%  direction  67%
+  chris_jul26c           serve described   6%  loss reason   0%  direction   9%
+  julian_aug11_pinkrim   serve described   0%  loss reason   0%  direction   0%

@@ -48,8 +48,7 @@ const steps: Step[] = [
     title: "Upload a match",
     copy: (
       <>
-        Upload a recording from your phone, or import a match straight from
-        a {glow("YouTube link")}.
+        Upload a recording from your {glow("phone or computer")}.
       </>
     ),
     shots: [

@@ -107,7 +107,7 @@ struct JournalScreen: View {
                     .padding(.top, 12)
                     .padding(.bottom, 120)
                 }
-                .refreshable { await store.load(userId: app.userId) }
+                .refreshable { await store.load(userId: app.userId, recollectAvailable: app.recollectEnabled) }
             }
 
             // One button, one thing: the Journal writes notes. Recording
@@ -123,7 +123,7 @@ struct JournalScreen: View {
         // second one here would double the chevron if it were not.
         .scrollDismissesKeyboard(.interactively)
         .task {
-            if !store.loaded { await store.load(userId: app.userId) }
+            if !store.loaded { await store.load(userId: app.userId, recollectAvailable: app.recollectEnabled) }
             store.markCoachSharesSeen(userId: app.userId)
         }
         .onChange(of: store.coachShared) { _, _ in
@@ -142,6 +142,11 @@ struct JournalScreen: View {
         .onChange(of: store.recollectEnabled) { _, enabled in
             if !enabled, tab == "Recollect" { tab = "All" }
         }
+        // The global switch (app_config recollect_enabled) usually lands
+        // before the journal loads; when it lands after, the tab follows.
+        .onChange(of: app.recollectEnabled) { _, available in
+            store.recollectAvailable = available
+        }
         // sheet(item:) rather than a flag beside separate @State. The kind
         // and the text travel WITH the presentation, so the composer cannot
         // be built from values that have not landed yet — which is how a
@@ -150,7 +155,7 @@ struct JournalScreen: View {
             JournalComposer(
                 store: store, initialText: request.text
             ) {
-                Task { await store.load(userId: app.userId) }
+                Task { await store.load(userId: app.userId, recollectAvailable: app.recollectEnabled) }
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
@@ -668,6 +673,8 @@ final class AskState {
     func fire(_ question: String) async {
         let q = question.trimmingCharacters(in: .whitespaces)
         guard askable(q), !loading else { return }
+        // Ask is answered by OpenAI: permission first.
+        guard await AiConsent.shared.ensure() else { return }
         loading = true
         errorMessage = nil
         answer = nil
@@ -1777,6 +1784,12 @@ struct JournalComposer: View {
         let refId = mode == .lesson ? coachRefId : nil
         let named = refId.flatMap { id in
             store.playerCoaches.first(where: { $0.id == id })?.displayName
+        }
+        // Improve with AI sends the words to OpenAI: permission first.
+        // Declined, the composer stays open with everything in it.
+        if summarize, !(await AiConsent.shared.ensure()) {
+            saving = false
+            return
         }
         let ok = await store.saveEntry(
             transcript: body_.trimmingCharacters(in: .whitespacesAndNewlines),

@@ -252,10 +252,25 @@ final class JournalStore {
     var tagStats: [TagStatRow] = []
     var entryTags: [EntryTagRow] = []
     var cues: [FocusPointRow] = []
-    /// Whether the Recollect section shows. No preference row means
-    /// enabled — the web reads it the same way.
-    var recollectEnabled = true
+    /// Whether the Recollect section shows: the global switch AND the
+    /// account's preference. No preference row means enabled — the web
+    /// reads it the same way — but nothing is read while the switch is off.
+    var recollectEnabled: Bool { recollectAvailable && recollectPreference }
+    /// app_config recollect_enabled, handed in by the screen from AppState.
+    var recollectAvailable = false
+    var recollectPreference = true
     var loaded = false
+
+    private struct RecollectPref: Decodable { let enabled: Bool }
+
+    /// The account's own switch, read only while the global one is on.
+    private static func readRecollectPreference(_ available: Bool) async -> [RecollectPref]? {
+        guard available else { return nil }
+        return try? await supa
+            .from("recollect_preferences")
+            .select("enabled")
+            .execute().value
+    }
 
     // MARK: - From your coach, seen or not
 
@@ -348,7 +363,8 @@ final class JournalStore {
     var activeCues: [FocusPointRow] { cues.filter { $0.retiredAt == nil } }
     var retiredCues: [FocusPointRow] { cues.filter { $0.retiredAt != nil } }
 
-    func load(userId: UUID?) async {
+    func load(userId: UUID?, recollectAvailable: Bool = false) async {
+        self.recollectAvailable = recollectAvailable
         struct FeedParams: Encodable { let p_limit: Int }
         async let notesQ: [NoteFeedRow]? = try? supa
             .rpc("note_feed", params: FeedParams(p_limit: 500))
@@ -378,11 +394,7 @@ final class JournalStore {
             .from("entry_tags")
             .select("lesson_id,tag_id")
             .execute().value
-        struct RecollectPref: Decodable { let enabled: Bool }
-        async let recollectQ: [RecollectPref]? = try? supa
-            .from("recollect_preferences")
-            .select("enabled")
-            .execute().value
+        async let recollectQ: [RecollectPref]? = Self.readRecollectPreference(recollectAvailable)
 
         let (n, l, t, c, e, r) = await (notesQ, lessonsQ, tagsQ, cuesQ, entryTagsQ, recollectQ)
         coachShared = (await coachSharedQ) ?? []
@@ -392,7 +404,7 @@ final class JournalStore {
         tagStats = t ?? []
         cues = c ?? []
         entryTags = e ?? []
-        recollectEnabled = r?.first?.enabled ?? true
+        recollectPreference = r?.first?.enabled ?? true
         loaded = true
     }
 

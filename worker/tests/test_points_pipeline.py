@@ -16,6 +16,9 @@ class Cursor:
     def execute(self, query, params=None):
         self.calls.append((" ".join(query.split()), params))
 
+    def fetchone(self):
+        return ("stored-point-id",)
+
 
 class Connection:
     def __init__(self):

@@ -1,66 +1,45 @@
 "use client";
 
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { BetaPill } from "@/components/BetaPill";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { BottomSheet } from "@/components/BottomSheet";
 import type { Point } from "@/lib/types";
 import {
   collectServePlacementObservations,
   collectTrustedPlacementObservations,
   trustedPlacementPointCount,
+  type PlacementZone,
 } from "@/lib/placement/placementAggregate";
 import {
   buildPlacementAggregateView,
   placementAggregateCaption,
-  placementCoverageLine,
   placementFilterFromAxes,
   placementHeatMapTitle,
-  placementViewIsScored,
-  placementPageFromScroll,
-  placementPageOffset,
-  placementSectionTitle,
   placementServeFilter,
-  type PlacementAggregatePage,
+  placementViewIsScored,
   type PlacementAggregateShot,
   type PlacementAggregateWho,
 } from "@/lib/placement/placementAggregateView";
 import type { Side } from "./sides";
-import {
-  LooksWrongButton,
-  MarkedWrongNotice,
-} from "./PlacementFeedback";
 import type { MapLabels } from "./PlacementMap";
 import type { ServeInfo } from "./serving";
-import { PlacementHeatMap } from "./PlacementHeatMap";
+import { PlacementHeatMap, readableZone } from "./PlacementHeatMap";
 import {
   PlacementLandings,
   Segmented,
   THEM_COLOR,
   YOU_COLOR,
 } from "./placementTable";
+import { Card, OWNER_VOICE, type Voice } from "./cards";
 
 const SHOTS: { key: PlacementAggregateShot; label: string }[] = [
   { key: "serves", label: "Serves" },
   { key: "rally", label: "Rally" },
 ];
 
-const PAGES: { key: PlacementAggregatePage; label: string }[] = [
-  { key: "landings", label: "Landings" },
-  { key: "heatmap", label: "Heat map" },
-];
-
-/** Deck gap in px — must match the `gap-3` on the scroller below. */
-const DECK_GAP = 12;
-
 /**
  * A point the owner flagged as wrong stops feeding every map. That is what
- * makes the flag an override rather than a comment: it changes what the
- * match-level maps are built from, so a rally the vision plainly botched
- * can't keep skewing the aggregate the owner is trying to read.
+ * the flag promises ("this point's map is wrong"), and a landing the owner
+ * has disowned would otherwise still colour the heat map.
  */
 export function unflaggedPlacementPoints(points: Point[]): Point[] {
   return points.some((point) => point.placement_flagged)
@@ -93,95 +72,80 @@ export function mappedPointCount(
 }
 
 /**
- * One view of the same filtered landings. Mirrors the AnalysisCards deck
- * shell on purpose: a snap target sized by its content on mobile (so the
- * page scrolls normally), a plain grid cell on desktop.
+ * The placement maps as two cards of the Match analysis deck: where the
+ * serves landed, and the same landings as a heat map with win rates.
+ *
+ * They used to be a section of their own with a second dot pager under
+ * the analysis deck. One deck now (Adil, 2026-09-15): the maps swipe with
+ * the other cards, the Game filter lives on the section and reaches them
+ * through `gameFilter`, and whose serves are drawn is a control ON the
+ * cards, because it is the one thing only these two cards answer.
+ *
+ * A hook rather than a component because the deck is one flat list of
+ * cards; the maps cannot be a component that renders two siblings into
+ * someone else's grid. The zone sheet it returns is rendered by the deck.
  */
-function MapCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+/** One honest line under an unscored match's maps: "Me / Them" is a guess. */
+function EstimatedServerNote() {
   return (
-    <div className="flex w-[86%] shrink-0 snap-center flex-col rounded-2xl border border-edge bg-surface p-4 sm:w-full">
-      <h3 className="shrink-0 text-sm font-semibold text-zinc-100">{title}</h3>
-      <div className="mt-3 flex flex-1 flex-col justify-center">{children}</div>
-    </div>
+    <p className="mt-3 text-center text-[11px] text-zinc-600">
+      Who served is estimated until the match is scored.
+    </p>
   );
 }
 
-/**
- * Match-level placement: where the ball landed across every point with a
- * trusted bounce, always drawn with the user at the bottom.
- *
- * THREE AXES, RANKED — the section used to stack all three as equal
- * centered rows (game pills, four shot tabs, a landings/heat-map toggle)
- * plus a floating caption, which is what made it read as clutter:
- *   - WHICH SHOTS is the question you actually came to ask, so it gets the
- *     one prominent control row — split into whose/which, because four flat
- *     labels ("Their rally shots") overflowed a phone and clipped mid-word;
- *   - GAME SCOPE is changed rarely, so it rides in the header beside the
- *     title as compact numbers;
- *   - LANDINGS vs HEAT MAP stops being a control at all. The two views are
- *     a card deck (swipe on mobile, side by side on desktop, where the
- *     comparison is the point), so the toggle and its duplicate dot pager
- *     collapse into one affordance.
- */
-export function PlacementAggregate({
+export function usePlacementMapCards({
   points: allPoints,
-  matchId,
-  flagged,
-  onFlagChange,
+  gameFilter,
   userSide,
   gameIndexByPoint,
   serving,
   labels,
   ownerHandedness = null,
-  emptyMessage = null,
   servesOnly = false,
+  enabled = true,
+  onOpenPoint,
+  voice = OWNER_VOICE,
+  serverEstimated = false,
 }: {
   points: Point[];
-  matchId: string;
-  /** The owner said this match's maps are wrong (matches.placement_flagged);
-   *  the section stands down to a single undoable line. */
-  flagged: boolean;
-  onFlagChange: (flagged: boolean) => void;
+  gameFilter: number | null;
   userSide: Side | null;
   gameIndexByPoint: Map<string, number>;
   serving: Map<string, ServeInfo>;
   labels: MapLabels;
-  emptyMessage?: string | null;
   ownerHandedness?: "right" | "left" | null;
   /** app_config placement_serves_only (132): serves only, no shot axis. */
   servesOnly?: boolean;
-}) {
+  /** False when the owner flagged the match's maps: no cards at all. */
+  enabled?: boolean;
+  /** Open one point from a heat map zone's list. Without it the zones stay pictures. */
+  onOpenPoint?: (pointId: string) => void;
+  /** "you" for the owner; the players' names for a coach or a share link. */
+  voice?: Voice;
+  /** The match is not scored yet, so who served is the camera's guess. */
+  serverEstimated?: boolean;
+}): {
+  cards: ReactNode[];
+  /** The zone sheet, rendered by the deck so it can sit over every card. */
+  overlay: ReactNode;
+  /** Points with a trusted landing, across every game. */
+  mapped: number;
+  /** Whether any map can be drawn at all, before the game filter. */
+  hasMaps: boolean;
+} {
   const [who, setWho] = useState<PlacementAggregateWho>("me");
   const [shot, setShot] = useState<PlacementAggregateShot>("serves");
-  const [page, setPage] =
-    useState<PlacementAggregatePage>("landings");
-  const [gameFilter, setGameFilter] = useState<number | null>(null);
-  const deckRef = useRef<HTMLDivElement | null>(null);
+  const [zoneSheet, setZoneSheet] = useState<{
+    zone: PlacementZone;
+    pointIds: string[];
+  } | null>(null);
+  const closeZoneSheet = useCallback(() => setZoneSheet(null), []);
 
-  // Points the owner flagged one at a time never reach any of the maths
-  // below — see unflaggedPlacementPoints.
   const points = useMemo(() => unflaggedPlacementPoints(allPoints), [allPoints]);
-
   const filter = servesOnly
     ? placementServeFilter(who)
     : placementFilterFromAxes(who, shot);
-
-  const gameCount = useMemo(() => {
-    let max = -1;
-    for (const point of points) {
-      max = Math.max(
-        max,
-        gameIndexByPoint.get(point.id) ?? 0,
-      );
-    }
-    return max + 1;
-  }, [points, gameIndexByPoint]);
 
   const allObservations = useMemo(
     () =>
@@ -201,8 +165,7 @@ export function PlacementAggregate({
         ? allObservations
         : allObservations.filter(
             (observation) =>
-              (gameIndexByPoint.get(observation.pointId) ?? 0)
-              === gameFilter,
+              (gameIndexByPoint.get(observation.pointId) ?? 0) === gameFilter,
           ),
     [allObservations, gameFilter, gameIndexByPoint],
   );
@@ -210,220 +173,177 @@ export function PlacementAggregate({
     () => buildPlacementAggregateView(observations, filter),
     [observations, filter],
   );
-  const used = useMemo(
-    () => trustedPlacementPointCount(observations),
-    [observations],
+  const mapped = useMemo(
+    () => trustedPlacementPointCount(allObservations),
+    [allObservations],
   );
-  const totalVisible = useMemo(
-    () =>
-      gameFilter === null
-        ? points.length
-        : points.filter(
-            (point) =>
-              (gameIndexByPoint.get(point.id) ?? 0) === gameFilter,
-          ).length,
-    [points, gameFilter, gameIndexByPoint],
-  );
-
-  /** Distance between card origins: card width plus the deck's gap. */
-  const stride = useCallback(() => {
-    const card = deckRef.current?.firstElementChild as HTMLElement | null;
-    return card ? card.offsetWidth + DECK_GAP : 0;
-  }, []);
-
-  const showPage = useCallback(
-    (nextPage: PlacementAggregatePage) => {
-      setPage(nextPage);
-      const deck = deckRef.current;
-      if (!deck) return;
-      deck.scrollTo({
-        left: placementPageOffset(nextPage, stride()),
-        behavior: "smooth",
-      });
-    },
-    [stride],
-  );
-  const handleDeckScroll = useCallback(() => {
-    const deck = deckRef.current;
-    if (!deck) return;
-    setPage(placementPageFromScroll(deck.scrollLeft, stride()));
-  }, [stride]);
+  // Too little to draw reads as broken rather than empty: a table with two
+  // dots on it. Three placed points is the floor, the same one the share
+  // page and the per-view sparse check use.
+  const hasMaps = mapped >= 3;
 
   const caption = placementAggregateCaption(
     filter,
     view.landingCount,
     view.pointCount,
+    { your: voice.your, their: voice.their },
   );
-  // Win rates need scored points; without them the heat map keeps the
-  // landing count it always showed.
   const heatScored = placementViewIsScored(view.observations, filter);
   const mine = who === "me";
   const tone = mine ? YOU_COLOR : THEM_COLOR;
-  const anyPlacement = allObservations.length > 0;
 
-  // One message, not a deck of cards each saying nothing.
-  const blocked =
-    !anyPlacement && emptyMessage !== null
-      ? emptyMessage
-      : userSide === null
-        ? `Tell us which side you played to orient the ${
-            servesOnly ? "serve maps" : "placement maps"
-          }.`
-        : !anyPlacement
-          ? "No high-confidence placement data is available for this match yet."
-          : null;
+  const zonePoints = zoneSheet
+    ? zoneSheet.pointIds
+        .map((id) => {
+          const index = allPoints.findIndex((point) => point.id === id);
+          return index < 0 ? null : { index, point: allPoints[index] };
+        })
+        .filter((row): row is { index: number; point: Point } => row !== null)
+        .sort((a, b) => a.index - b.index)
+    : [];
 
-  return (
-    <section className="mt-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold">
-            {placementSectionTitle(servesOnly)}
-          </h2>
-          <BetaPill />
-        </div>
-        {!flagged && blocked === null && gameCount >= 2 && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500">Game</span>
-            <Segmented
-              ariaLabel="Which games"
-              value={gameFilter === null ? "all" : String(gameFilter)}
-              onChange={(key) =>
-                setGameFilter(key === "all" ? null : Number(key))
-              }
-              options={[
-                { key: "all", label: "All", srLabel: "All games" },
-                ...Array.from({ length: gameCount }, (_, index) => ({
-                  key: String(index),
-                  label: String(index + 1),
-                  srLabel: `Game ${index + 1}`,
-                })),
-              ]}
-            />
-          </div>
-        )}
-      </div>
+  if (!enabled || !hasMaps || userSide === null) {
+    return { cards: [], overlay: null, mapped, hasMaps };
+  }
 
-      {flagged ? (
-        <MarkedWrongNotice
-          className="mt-2"
-          matchId={matchId}
-          onUndo={() => onFlagChange(false)}
+  const controls = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Segmented
+        ariaLabel="Whose shots"
+        value={who}
+        onChange={setWho}
+        options={[
+          { key: "me", label: labels.you },
+          { key: "them", label: labels.them },
+        ]}
+      />
+      {/* Rally landings are not shown at the confidence they can be
+          reconstructed at, so in serve mode there is no second thing to
+          choose between and the control comes off entirely. */}
+      {!servesOnly && (
+        <Segmented
+          ariaLabel="Which shots"
+          value={shot}
+          onChange={setShot}
+          options={SHOTS}
         />
-      ) : blocked !== null ? (
-        <div className="mt-3 rounded-2xl border border-edge bg-surface p-4 sm:max-w-sm lg:max-w-none">
-          <p className="py-6 text-center text-sm text-zinc-500">{blocked}</p>
-        </div>
-      ) : (
-        <>
-          {/* Coverage only. The confidence threshold used to ride on the
-              end of this line, which read as a calibrated number the
-              placement engine cannot actually stand behind. */}
-          <p className="mt-1 text-sm text-zinc-500">
-            {placementCoverageLine(servesOnly, used, totalVisible)}
-          </p>
-
-          {/* The one prominent control: whose shots, and which of them. */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Segmented
-              ariaLabel="Whose shots"
-              value={who}
-              onChange={setWho}
-              options={[
-                { key: "me", label: labels.you },
-                { key: "them", label: labels.them },
-              ]}
-            />
-            {/* Rally landings are not shown at the confidence they can be
-                reconstructed at, so in serve mode there is no second thing
-                to choose between and the control comes off entirely. */}
-            {!servesOnly && (
-              <Segmented
-                ariaLabel="Which shots"
-                value={shot}
-                onChange={setShot}
-                options={SHOTS}
-              />
-            )}
-          </div>
-
-          <div
-            ref={deckRef}
-            onScroll={handleDeckScroll}
-            /* Mobile: a snap carousel where the second card peeks, which is
-               what says there IS a second view. Desktop: both at once —
-               exact landings beside density is the comparison worth having. */
-            className="mt-3 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible"
-          >
-            <MapCard title="Landings">
-              <div className="mx-auto w-full max-w-sm lg:max-w-md">
-                <PlacementLandings
-                  observations={view.observations}
-                  tone={tone}
-                  topLabel={labels.them}
-                  bottomLabel={labels.you}
-                  ownerHandedness={ownerHandedness}
-                  showHands={!mine}
-                />
-              </div>
-              {view.landingCount === 0 && (
-                <p className="text-center text-xs text-zinc-500">
-                  No trusted landings in this view.
-                </p>
-              )}
-            </MapCard>
-
-            <MapCard title={placementHeatMapTitle(heatScored)}>
-              {view.sparse ? (
-                <p className="px-6 py-10 text-center text-sm text-zinc-500">
-                  Not enough trusted landings in this view yet.
-                </p>
-              ) : (
-                <div className="mx-auto w-full max-w-sm lg:max-w-md">
-                  <PlacementHeatMap
-                    observations={view.observations}
-                    filter={filter}
-                    labels={labels}
-                  />
-                </div>
-              )}
-            </MapCard>
-          </div>
-
-          {/* dots: the swipe affordance, mobile only */}
-          <div className="mt-2 flex justify-center gap-1.5 sm:hidden">
-            {PAGES.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                aria-label={`Show ${option.label}`}
-                aria-pressed={page === option.key}
-                onClick={() => showPage(option.key)}
-                className={`h-1.5 rounded-full transition-all ${
-                  page === option.key
-                    ? "w-4 bg-cyan-glow"
-                    : "w-1.5 bg-edge hover:bg-zinc-600"
-                }`}
-              />
-            ))}
-          </div>
-
-          {/* One caption for the deck, not one per card: both cards render
-              the SAME filtered landings, so per-card copy just repeated
-              itself side by side on desktop. */}
-          <p className="mt-2 text-center text-xs text-zinc-500">{caption}</p>
-
-          {/* The whole-match escape hatch: when the table calibration is off
-              every card above is wrong together, so the flag belongs to the
-              section, not to any one card. */}
-          <div className="mt-3 flex justify-center">
-            <LooksWrongButton
-              label="This match's placement maps are wrong"
-              onFlag={() => onFlagChange(true)}
-            />
-          </div>
-        </>
       )}
-    </section>
+    </div>
   );
+
+  const cards: ReactNode[] = [
+    <Card
+      key="landings"
+      title={servesOnly ? "Serve landings" : "Landings"}
+      hint={caption}
+      beta
+    >
+      {controls}
+      <div className="mx-auto mt-3 w-full max-w-[240px]">
+        <PlacementLandings
+          observations={view.observations}
+          tone={tone}
+          topLabel={labels.them}
+          bottomLabel={labels.you}
+          ownerHandedness={ownerHandedness}
+          showHands={!mine}
+        />
+      </div>
+      {view.landingCount === 0 && (
+        <p className="text-center text-xs text-zinc-500">
+          No trusted landings in this view.
+        </p>
+      )}
+      {serverEstimated && <EstimatedServerNote />}
+    </Card>,
+    <Card
+      key="heatmap"
+      title={placementHeatMapTitle(heatScored)}
+      hint={onOpenPoint ? "Tap a zone to see its points" : caption}
+      beta
+    >
+      {controls}
+      {view.sparse ? (
+        <p className="px-6 py-10 text-center text-sm text-zinc-500">
+          Not enough trusted landings in this view yet.
+        </p>
+      ) : (
+        <div className="mx-auto mt-3 w-full max-w-[240px]">
+          <PlacementHeatMap
+            observations={view.observations}
+            filter={filter}
+            labels={labels}
+            sidesOwner={voice.your.charAt(0).toUpperCase() + voice.your.slice(1)}
+            onSelectZone={
+              onOpenPoint
+                ? (zone, pointIds) => setZoneSheet({ zone, pointIds })
+                : undefined
+            }
+          />
+        </div>
+      )}
+      {serverEstimated && <EstimatedServerNote />}
+    </Card>,
+  ];
+
+  const overlay = (
+    <BottomSheet
+      open={zoneSheet !== null}
+      portal
+      title={zoneSheet ? readableZone(zoneSheet.zone) : ""}
+      subtitle={
+        zoneSheet
+          ? `${zonePoints.length} ${zonePoints.length === 1 ? "point" : "points"} with a ${
+              servesOnly ? "serve" : "shot"
+            } by ${mine ? voice.you : labels.them} landing here.`
+          : undefined
+      }
+      onClose={closeZoneSheet}
+      closeLabel="Close the zone's points"
+    >
+      <ul className="mt-4 space-y-2">
+        {zonePoints.map(({ index, point }) => {
+          const game = (gameIndexByPoint.get(point.id) ?? 0) + 1;
+          const outcome =
+            point.confirmed_winner === "user"
+              ? voice.youWon
+              : point.confirmed_winner === "opponent"
+                ? voice.theyWon
+                : "Not scored";
+          return (
+            <li key={point.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  closeZoneSheet();
+                  onOpenPoint?.(point.id);
+                }}
+                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-edge px-3 py-2.5 text-left text-sm transition-colors hover:border-cyan-glow/50"
+              >
+                <span className="font-semibold text-zinc-100">
+                  Point {index + 1}
+                  <span className="ml-2 text-xs font-normal text-zinc-500">
+                    Game {game}
+                  </span>
+                </span>
+                <span
+                  className={`shrink-0 text-xs font-semibold ${
+                    point.confirmed_winner === "user"
+                      ? "text-cyan-glow"
+                      : point.confirmed_winner === "opponent"
+                        ? "text-magenta-soft"
+                        : "text-zinc-500"
+                  }`}
+                >
+                  {outcome}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </BottomSheet>
+  );
+
+  return { cards, overlay, mapped, hasMaps };
 }

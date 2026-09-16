@@ -1,0 +1,18 @@
+........................................................................ [ 49%]
+................................................................. [ 93%]
+.........                                                                [100%]
+=============================== warnings summary ===============================
+worker/tests/test_body_points_parity.py::test_frozen_model_reproduces_fixture
+  /Users/adil/Desktop/Projects/PongLens/.worktrees/combined-cuts-worker/worker/body_features.py:390: RuntimeWarning: All-NaN slice encountered
+    both = np.nanmax(np.column_stack([wsp["near"], wsp["far"]]), axis=1)
+
+worker/tests/test_body_points_parity.py::test_frozen_model_reproduces_fixture
+  /Users/adil/Desktop/Projects/PongLens/.worktrees/combined-cuts-worker/worker/body_features.py:509: RuntimeWarning: All-NaN slice encountered
+    a = _roll(np.nanmax(np.column_stack([sp[side], wsp[side] / 3.0]), axis=1), k_snap)
+
+worker/tests/test_body_points_parity.py::test_frozen_model_reproduces_fixture
+  /Users/adil/Desktop/Projects/PongLens/.worktrees/combined-cuts-worker/worker/body_features.py:523: RuntimeWarning: Mean of empty slice
+    pre = np.array([np.nanmean(e[max(0, i - k1):i + 1]) if i > 0 else np.nan for i in range(len(T))])
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+146 passed, 3 warnings, 7 subtests passed in 140.85s (0:02:20)

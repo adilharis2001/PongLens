@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AutoTextarea } from "@/components/AutoTextarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { createClient } from "@/lib/supabase/client";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 import type { Note } from "@/lib/types";
 
 function timeShort(iso: string) {
@@ -379,6 +380,7 @@ export function NoteComposer({
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { ensure } = useAiConsent();
   const [recState, setRecState] = useState<
     "idle" | "recording" | "transcribing"
   >("idle");
@@ -407,10 +409,11 @@ export function NoteComposer({
       const form = new FormData();
       const ext = blob.type.includes("mp4") ? "note.mp4" : "note.webm";
       form.append("audio", blob, ext);
-      const res = await fetch("/api/transcribe", {
+      const res = await fetchWithAiConsent(ensure, "/api/transcribe", {
         method: "POST",
         body: form,
       });
+      if (!res) return;
       const data = res.ok ? await res.json() : null;
       if (!data?.audio_path) {
         throw new Error(data?.error ?? "transcribe failed");
@@ -427,7 +430,7 @@ export function NoteComposer({
     } finally {
       setRecState("idle");
     }
-  }, []);
+  }, [ensure]);
 
   const startRecording = useCallback(async () => {
     setError(null);
@@ -435,6 +438,8 @@ export function NoteComposer({
       setError("Voice notes aren't supported in this browser.");
       return;
     }
+    // The sheet before the microphone: the words go to Deepgram.
+    if (!(await ensure())) return;
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -473,7 +478,7 @@ export function NoteComposer({
     setElapsed(0);
     setRecState("recording");
     timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
-  }, [transcribe]);
+  }, [ensure, transcribe]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current?.state === "recording") {

@@ -304,7 +304,14 @@ final class RecordingQueue: NSObject {
             update(id) { $0.state = .uploading }
         } catch let APIError.http(status, message) where (400..<500).contains(status) {
             // The server said no (quota, size) — retrying won't change it.
-            fail(id, message: message.isEmpty ? "The upload was refused." : message)
+            // The two consent refusals are different: the row that fixes
+            // them is one tap away, so the footage stays put and Retry
+            // does the rest.
+            if let consent = UploadConsent.refusalCopy(message) {
+                fail(id, message: consent, keepFootage: true)
+            } else {
+                fail(id, message: message.isEmpty ? "The upload was refused." : message)
+            }
         } catch {
             update(id) { $0.attempts += 1 }
             if item.attempts >= 6 {
@@ -611,11 +618,14 @@ final class RecordingQueue: NSObject {
         }
     }
 
-    private func fail(_ id: UUID, message: String) {
+    private func fail(_ id: UUID, message: String, keepFootage: Bool = false) {
         update(id) {
             $0.state = .failed
             $0.errorMessage = message
         }
+        // A refusal the next tap resolves needs no parachute and no
+        // notification; the shelf row says what to do.
+        if keepFootage { return }
         // The footage's parachute: a permanent failure exports the original
         // to Photos so it exists somewhere the player already trusts.
         exportToPhotos(id)
@@ -797,7 +807,7 @@ final class RecordingQueue: NSObject {
             item.partCount = Int((bytes + Self.partSize - 1) / Self.partSize)
             let settings = RecordSettings.load()
             item.processOn = settings.processAfterUpload
-            item.placementOn = settings.placementMaps
+            item.placementOn = true
             items.append(item)
             persist()
             await prepare(item.id)

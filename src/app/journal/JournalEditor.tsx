@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Lesson, Tag } from "@/lib/types";
 import { PointTags } from "@/app/match/[id]/Tags";
 import { DictateMic, useDictation } from "@/components/dictation";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 import {
   AddPhotoButton,
   PhotoPreview,
@@ -92,6 +93,8 @@ export function JournalEditor({
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const [scanState, setScanState] = useState<"idle" | "reading">("idle");
   const [scanNote, setScanNote] = useState<string | null>(null);
+  // Page reading and "Improve with AI" both send the words to OpenAI.
+  const { ensure } = useAiConsent();
 
   const append = useCallback((words: string) => {
     setText((t) => (t.trim() ? `${t.trim()}\n\n${words}` : words));
@@ -132,10 +135,11 @@ export function JournalEditor({
       for (const f of files.slice(0, 6)) {
         form.append("pages", await shrinkImage(f), "page.jpg");
       }
-      const res = await fetch("/api/journal-ocr", {
+      const res = await fetchWithAiConsent(ensure, "/api/journal-ocr", {
         method: "POST",
         body: form,
       });
+      if (!res) return;
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         setScanNote(data?.error ?? "Couldn't read those pages. Try again.");
@@ -184,7 +188,7 @@ export function JournalEditor({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/lesson", {
+      const init: RequestInit = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -197,7 +201,16 @@ export function JournalEditor({
           coachRefId: lessonMode ? coachRefId : null,
           shareWithCoach: lessonMode ? shareWithCoach : false,
         }),
-      });
+      };
+      // Only an improved entry goes to OpenAI; a plain save asks nothing.
+      const res = summarize
+        ? await fetchWithAiConsent(ensure, "/api/lesson", init)
+        : await fetch("/api/lesson", init);
+      if (!res) {
+        // Not now: the words stay in the composer.
+        setSaving(false);
+        return;
+      }
       const data = res.ok ? await res.json() : null;
       if (!data?.id) throw new Error("no id");
       // Tags chosen while composing attach once the entry exists. A

@@ -50,22 +50,22 @@ export default async function LoginPage({
           )}
           <GoogleSignInButton next={safeNext} />
           <EmailSignInForm next={safeNext} />
+          {/* Links only. The agreement itself is the first onboarding
+              screen's "Agree and continue", so this no longer claims one. */}
           <p className="mt-6 text-center text-xs leading-relaxed text-zinc-400">
-            By signing in you agree to our{" "}
             <Link
               href="/terms"
               className="text-zinc-300 underline underline-offset-2 hover:text-cyan-glow"
             >
               Terms
-            </Link>{" "}
-            and{" "}
+            </Link>
+            {" · "}
             <Link
               href="/privacy"
               className="text-zinc-300 underline underline-offset-2 hover:text-cyan-glow"
             >
-              Privacy Policy
+              Privacy
             </Link>
-            .
           </p>
         </div>
         <p className="mt-6 text-center text-sm text-zinc-400">

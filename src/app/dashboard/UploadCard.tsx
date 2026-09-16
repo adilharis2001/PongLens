@@ -7,6 +7,7 @@ import { cameraViewWarning, processingStageLabel } from "@/lib/processingFeedbac
 
 import { tracksServe } from "@/lib/matchTitle";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Uppy from "@uppy/core";
 import AwsS3 from "@uppy/aws-s3";
@@ -41,8 +42,7 @@ import {
 
 /**
  * The limit people meet is 45 MINUTES, not a byte count: minutes are what
- * gets charged, what a match is measured in, and the same rule the YouTube
- * import already applies. Bytes only decide it when the duration will not
+ * gets charged and what a match is measured in. Bytes only decide it when the duration will not
  * parse — real footage in this library runs 2 to 15.3 Mbps, so 45 minutes
  * is anywhere between 0.6 GB and 4.8 GB and no single byte cap expresses
  * the rule. 6 GB clears the worst real case; register_upload allows 8.
@@ -74,7 +74,6 @@ type FormState = {
   venue: string;
   matchType: MatchType;
   points: boolean;
-  placement: boolean;
   strictness: Strictness;
   /** Which end the uploader played from; rides on meta.user_side. */
   userSide: Side | null;
@@ -87,7 +86,6 @@ const DEFAULT_FORM: FormState = {
   venue: "",
   matchType: "",
   points: true,
-  placement: false,
   strictness: "normal",
   userSide: null,
   firstServer: null,
@@ -370,16 +368,28 @@ function Toggle({
 export function UploadCard({
   userId,
   commerceEnabled = false,
+  uploadConfirmed = true,
   orderId = null,
 }: {
   userId: string;
   // 096: uploads become library rows instead of enqueuing processing.
   commerceEnabled?: boolean;
+  // player_profiles.upload_confirmed_at is set. False shows the one-time
+  // checkbox above the button and keeps the button off until it is
+  // ticked (new accounts only; existing rows were backfilled).
+  uploadConfirmed?: boolean;
   // An active review order (096): the upload is held outside the
   // player's storage allowance until the order completes.
   orderId?: string | null;
 }) {
+  const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
+  const [confirmed, setConfirmed] = useState(uploadConfirmed);
+  // The row stays on screen once ticked for the rest of the visit, so the
+  // button does not jump; the next visit reads the column and skips it.
+  const [showConfirmation, setShowConfirmation] = useState(!uploadConfirmed);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   // Commerce mode: the library row created at completion, and the file's
   // duration read from its metadata (the charging basis for processing).
   const [libraryMatchId, setLibraryMatchId] = useState<string | null>(null);
@@ -411,9 +421,6 @@ export function UploadCard({
   const [autoProcess, setAutoProcess] = useState(false);
   const autoProcessRef = useRef(false);
   autoProcessRef.current = autoProcess;
-  const [autoPlacement, setAutoPlacement] = useState(false);
-  const autoPlacementRef = useRef(false);
-  autoPlacementRef.current = autoPlacement;
   // Trim, decided here rather than after the fact. The browser can play
   // the picked file straight off disk, so the whole video is scrubbable
   // before a byte moves — the same trick the side picker already uses —
@@ -614,6 +621,30 @@ export function UploadCard({
     setPhase("error");
   }, []);
 
+  /** The first-upload confirmation. One tick writes upload_confirmed_at
+   *  on the account's own profile row (the same upsert onboarding uses)
+   *  and the box never shows again. /api/upload-url checks the same
+   *  column, so an untouched box is not the only thing in the way. */
+  const confirmUpload = useCallback(async () => {
+    if (confirming || confirmed) return;
+    setConfirming(true);
+    setConfirmError(null);
+    const supabase = createClient();
+    const now = new Date().toISOString();
+    const { error: confirmWriteError } = await supabase
+      .from("player_profiles")
+      .upsert(
+        { user_id: userId, upload_confirmed_at: now, updated_at: now },
+        { onConflict: "user_id" }
+      );
+    setConfirming(false);
+    if (confirmWriteError) {
+      setConfirmError("We couldn't save that. Try again.");
+      return;
+    }
+    setConfirmed(true);
+  }, [confirming, confirmed, userId]);
+
   useEffect(() => {
     if (!active) return;
     const onVisible = () => {
@@ -694,7 +725,8 @@ export function UploadCard({
     const next = {
       ...base,
       points: f.points,
-      placement: f.points && f.placement,
+      // Free on the upload run; see RawMatchView.
+      placement: f.points,
       strictness: f.strictness,
       meta: {
         opponent_name: f.opponent.trim() || null,
@@ -796,7 +828,7 @@ export function UploadCard({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           matchId,
-          placement: autoPlacementRef.current,
+          placement: true,
           // Only when they actually moved a handle. Sending the full
           // window would be the same charge, but the job would then
           // record a trim nobody asked for.
@@ -851,7 +883,7 @@ export function UploadCard({
       status: "queued",
       options: {
         points: f.points,
-        placement: f.points && f.placement,
+        placement: f.points,
         strictness: f.strictness,
         meta: {
           opponent_name: f.opponent.trim() || null,
@@ -1067,6 +1099,23 @@ export function UploadCard({
       });
       uppy.on("upload-error", (_file, err) => {
         errorKindRef.current = "upload";
+        const apiMessage = (err as UploadError | undefined)?.apiMessage;
+        // The consent gates in src/lib/consent.ts answer with a code, not
+        // a sentence. No terms means onboarding never finished: go there.
+        // No confirmation means the checkbox above the button, which
+        // shows (again) instead of a failure panel.
+        if (apiMessage === "terms_required") {
+          releaseWakeLock();
+          router.push("/onboarding");
+          return;
+        }
+        if (apiMessage === "upload_confirmation_required") {
+          releaseWakeLock();
+          setConfirmed(false);
+          setShowConfirmation(true);
+          setPhase("idle");
+          return;
+        }
         // Quota/limit rejections from /api/upload-url carry an exact,
         // user-facing message — show it as-is. A quota wall is not
         // retryable: offering Retry there just fails again in the same
@@ -1075,7 +1124,6 @@ export function UploadCard({
         const quota = Object.values(QUOTA_ERRORS).find((q) => msg.includes(q));
         // Anything else the API wrote is already a sentence for the user,
         // so pass it through rather than replacing it with a guess.
-        const apiMessage = (err as UploadError | undefined)?.apiMessage;
         setError(
           quota ??
             apiMessage ??
@@ -1108,7 +1156,7 @@ export function UploadCard({
       uppyRef.current = uppy;
       return uppy;
     },
-    [queueJob, commerceEnabled, orderId, releaseWakeLock, persistMatchDetails, fail]
+    [queueJob, commerceEnabled, orderId, releaseWakeLock, persistMatchDetails, fail, router]
   );
 
   // --- Start (or resume) the moment a file is picked ----------------------
@@ -1551,6 +1599,37 @@ export function UploadCard({
       actually exists. Tearing it down at "done" was the other half of the
       trim race: the runway after the upload was the exact moment someone
       needed these controls, and it was the moment they disappeared. */
+  /* The first-upload confirmation, above whichever button starts the
+     upload. A real checkbox in a 44px row, ticked once. */
+  const confirmation = showConfirmation ? (
+    <div className="mx-auto mt-4 max-w-md text-left">
+      <label
+        className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors ${
+          confirmed
+            ? "border-cyan-glow/60 bg-cyan-glow/10"
+            : "border-edge bg-surface-2/40 hover:border-cyan-glow/40"
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={confirmed}
+          disabled={confirming || confirmed}
+          onChange={() => void confirmUpload()}
+          className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-edge bg-surface-2 accent-cyan-glow disabled:cursor-default"
+        />
+        <span className="text-sm leading-snug text-zinc-200">
+          I have the right to upload this video, including a parent&apos;s
+          permission for anyone under 18 in it.
+        </span>
+      </label>
+      {confirmError && (
+        <p role="alert" className="mt-2 text-xs text-red-400">
+          {confirmError}
+        </p>
+      )}
+    </div>
+  ) : null;
+
   const processOptions =
     commerceEnabled && !orderId && autoState !== "started" ? (
       /* Locked once the press is given: a decision that keeps quietly
@@ -1573,25 +1652,6 @@ export function UploadCard({
               onChange={setAutoProcess}
               disabled={committed}
               label="Process when the upload finishes"
-            />
-          </div>
-          <div className="flex items-center justify-between gap-4 p-3.5">
-            <div className="min-w-0">
-              <p
-                className={`flex items-center gap-2 text-sm ${autoProcess ? "text-zinc-200" : "text-zinc-500"}`}
-              >
-                Placement maps
-                <BetaPill />
-              </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                Where each serve landed. Adds processing time.
-              </p>
-            </div>
-            <Toggle
-              on={autoProcess && autoPlacement}
-              onChange={setAutoPlacement}
-              disabled={!autoProcess || committed}
-              label="Placement maps"
             />
           </div>
 
@@ -1936,7 +1996,6 @@ export function UploadCard({
                     // changed straight afterwards.
                     const scored = tracksServe(next || null);
                     setField("points", scored, true);
-                    setField("placement", scored, true);
                   }}
                   className={`rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
                     form.matchType === t.value
@@ -1966,25 +2025,6 @@ export function UploadCard({
                   onChange={(v) => setField("points", v, true)}
                   disabled={processingLocked}
                   label="Break it into points"
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4 p-3.5">
-                <div>
-                  <p
-                    className={`flex items-center gap-2 text-sm ${form.points ? "text-zinc-200" : "text-zinc-500"}`}
-                  >
-                    Placement maps
-                    <BetaPill />
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    Adds processing time
-                  </p>
-                </div>
-                <Toggle
-                  on={form.points && form.placement}
-                  onChange={(v) => setField("placement", v, true)}
-                  disabled={!form.points || processingLocked}
-                  label="Placement maps"
                 />
               </div>
               <div className="p-3.5">
@@ -2132,10 +2172,12 @@ export function UploadCard({
               : "Upload interrupted. Pick the same video to continue."}
           </p>
           <p className="mt-1 truncate text-xs text-zinc-500">{fileName}</p>
+          {confirmation}
           <button
             type="button"
+            disabled={!confirmed}
             onClick={() => inputRef.current?.click()}
-            className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
+            className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
           >
             Pick video
           </button>
@@ -2203,6 +2245,7 @@ export function UploadCard({
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);
+            if (!confirmed) return;
             onFiles(e.dataTransfer.files);
           }}
           className={`mt-6 rounded-2xl border-2 border-dashed p-8 text-center transition-colors ${
@@ -2225,15 +2268,16 @@ export function UploadCard({
               d="M12 16V4m0 0-4 4m4-4 4 4M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"
             />
           </svg>
+          {confirmation}
           {/* The primary action of the whole product. It was a 20px
               underlined phrase inside a sentence, which is not a tap
-              target on a phone and read as less important than the
-              YouTube importer's filled button further down the page. */}
+              target on a phone. Off until the confirmation above is
+              ticked, the first time only. */}
           <button
             type="button"
-            disabled={preparing}
+            disabled={preparing || !confirmed}
             onClick={() => inputRef.current?.click()}
-            className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink disabled:opacity-60"
+            className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
           >
             {preparing ? "Reading the video…" : "Choose a video"}
           </button>

@@ -1036,6 +1036,8 @@ private struct DescribeBox: View {
     }
 
     private func write() async {
+        // OpenAI writes the drafts: permission first.
+        guard await AiConsent.shared.ensure() else { return }
         busy = true
         note = nil
         struct Req: Encodable {

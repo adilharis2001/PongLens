@@ -61,8 +61,13 @@ import requests
 from botocore.exceptions import ClientError
 
 if __package__:
+    from . import cut_timeline, match_ready_delivery, point_winner_predictions, processing_outcome
     from .upload_feedback import ProcessingTelemetry
 else:
+    import cut_timeline
+    import match_ready_delivery
+    import point_winner_predictions
+    import processing_outcome
     from upload_feedback import ProcessingTelemetry
 
 # Best-effort measurements are queued in memory and delivered off the job
@@ -137,7 +142,9 @@ def _record_processing(function):
                 payload = json.loads(payload)
             _feedback_telemetry = ProcessingTelemetry(
                 payload["job_id"], msg["read_ct"], LANE,
-                (os.environ.get("PONGLENS_RELEASE_ID") or "unsealed:" + str(_PULSE_CODE_VERSION or "unknown")), _queue_feedback_event)
+                processing_outcome.release_identity()[0]
+                or "unsealed:" + str(_PULSE_CODE_VERSION or "unknown"),
+                _queue_feedback_event)
         except Exception:
             _feedback_telemetry = None
         try:
@@ -195,8 +202,10 @@ except ModuleNotFoundError:  # direct `python worker/worker.py` execution
 # Configuration
 # ---------------------------------------------------------------------------
 TTVID = "/Users/adil/Desktop/Projects/TTVid"
-VENV_PY = f"{TTVID}/vendor/venv/bin/python"          # numpy+cv2 (+torch)
-BLURBALL_INFER = f"{TTVID}/vendor/blurball_infer.py"
+VENV_PY = os.environ.get(
+    "PONGLENS_PIPELINE_PY", f"{TTVID}/vendor/venv/bin/python")
+BLURBALL_INFER = os.environ.get(
+    "PONGLENS_BLURBALL_INFER", f"{TTVID}/vendor/blurball_infer.py")
 POINTS_PIPELINE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "points_pipeline.py")
 # Also under VENV_PY: it needs scipy, which the worker's own venv does not
@@ -244,7 +253,8 @@ VALID_STRICTNESS = ("tight", "normal", "loose")
 # updates itself (`yt-dlp -U`) instead of waiting on a packager, which is
 # the property that matters when the breakage is upstream and dated.
 YTDLP = next(
-    (p for p in (os.environ.get("YTDLP_PATH"),
+    (p for p in (os.environ.get("PONGLENS_YTDLP"),
+                 os.environ.get("YTDLP_PATH"),
                  os.path.expanduser("~/.local/bin/yt-dlp"),
                  shutil.which("yt-dlp"),
                  "/opt/homebrew/bin/yt-dlp")
@@ -446,7 +456,8 @@ if LANE not in ("main", "fast", "hand"):
     LANE = "main"
 QUEUE_NAME = {"fast": "jobs_fast", "hand": "jobs_hand"}.get(LANE, "jobs")
 LOG_PATH = os.path.join(
-    WORKER_DIR, "worker.log" if LANE == "main" else f"worker-{LANE}.log")
+    os.environ.get("PONGLENS_LOG_DIR", WORKER_DIR),
+    "worker.log" if LANE == "main" else f"worker-{LANE}.log")
 
 # Under launchd the wrapper already appends stdout to worker.log, so a
 # stdout handler there would double every line. The stream handler is for
@@ -830,6 +841,25 @@ def send_email(
         }
     if bcc_list:
         payload["bcc"] = bcc_list
+    send_email_payload(
+        payload,
+        idempotency_key=idempotency_key,
+        cost_meter=cost_meter,
+    )
+
+
+def send_email_payload(
+    payload: dict,
+    *,
+    idempotency_key: str | None = None,
+    cost_meter: CostMeter | None = None,
+    require_provider_id: bool = False,
+):
+    """Send one already-rendered payload unchanged across durable retries."""
+    if not RESEND_API_KEY:
+        raise RuntimeError("Email delivery unavailable")
+    if idempotency_key is not None and not (1 <= len(idempotency_key) <= 256):
+        raise ValueError("invalid Resend idempotency key")
     r = requests.post(
         "https://api.resend.com/emails",
         headers={
@@ -847,9 +877,14 @@ def send_email(
     if r.status_code >= 400:
         raise RuntimeError(f"Resend {r.status_code}: {r.text[:300]}")
     try:
-        message_id = str(r.json().get("id") or uuid.uuid4())
+        message_id = r.json().get("id")
     except (ValueError, AttributeError):
-        message_id = str(uuid.uuid4())
+        message_id = None
+    if require_provider_id and (
+        not isinstance(message_id, str) or not message_id.strip()
+    ):
+        raise RuntimeError("Provider did not confirm a message ID")
+    message_id = str(message_id or uuid.uuid4())
     meter = cost_meter or COST_METER
     meter.record([
         meter.email_event(
@@ -859,10 +894,12 @@ def send_email(
     ])
     log.info(
         "  email sent: %r -> %s%s",
-        subject_text,
-        to,
-        f" (bcc {', '.join(bcc_list)})" if bcc_list else "",
+        payload.get("subject"),
+        ", ".join(payload.get("to") or []),
+        f" (bcc {', '.join(payload.get('bcc') or [])})"
+        if payload.get("bcc") else "",
     )
+    return message_id
 
 
 def get_user_email(conn, user_id: str) -> str | None:
@@ -1017,9 +1054,57 @@ def done_email_html(original_name: str, match_id: str | None = None) -> str:
 # notify_job_failed like any other failure.
 
 
+def match_ready_payload(conn, job_id: str, user_id: str) -> dict:
+    """Freeze the existing approved message and recipient before first send."""
+    original_name = get_job_original_name(conn, job_id) or "your match video"
+    match_id = get_job_match_id(conn, job_id)
+    message = render_email(match_ready_message(
+        original_name,
+        f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
+    ))
+    return {
+        "from": EMAIL_FROM,
+        "to": [get_user_email(conn, user_id) or ADMIN_EMAIL],
+        "reply_to": EMAIL_REPLY_TO,
+        "subject": message.subject,
+        "html": message.html,
+        "text": message.text,
+        "headers": {
+            "X-PongLens-Template-Id": message.template_id,
+            "X-PongLens-Template-Version": str(message.template_version),
+        },
+    }
+
+
+def retry_match_ready(conn, job_id: str | None = None) -> bool:
+    if not RESEND_API_KEY:
+        return False
+    meter = CostMeter(conn, logger=log)
+
+    def send(payload, key):
+        with conn:
+            return send_email_payload(
+                payload,
+                idempotency_key=key,
+                cost_meter=meter,
+                require_provider_id=True,
+            )
+
+    return match_ready_delivery.deliver_one(
+        conn,
+        match_ready_payload,
+        send,
+        address_suppressed,
+        job_id=job_id,
+    )
+
+
 def notify_job_done(conn, job_id: str, user_id: str):
     """Email the uploader that their video is ready. Never raises."""
     try:
+        if match_ready_delivery.managed(conn, job_id):
+            retry_match_ready(conn, job_id)
+            return
         original_name = get_job_original_name(conn, job_id) or "your match video"
         match_id = get_job_match_id(conn, job_id)
         message = render_email(match_ready_message(
@@ -1841,6 +1926,9 @@ def run_blurball(
     return blurball_out
 
 
+BALL_CROP_SIDECAR = "ball_crop.json"
+
+
 def detect_ball(
     input_video: str,
     workdir: str,
@@ -1880,10 +1968,29 @@ def detect_ball(
     encode — because a match processed on full-frame detections is the
     outcome we have today, and a match that fails to process is not.
     """
+    sidecar = os.path.join(workdir, BALL_CROP_SIDECAR)
+
+    def record(box, corners_from, reason=None, shape=None):
+        try:
+            with open(sidecar, "w") as fh:
+                json.dump({
+                    "box": [int(v) for v in box] if box else None,
+                    "corners_from": corners_from,
+                    "reason": reason,
+                    "shape": round(float(shape), 3) if shape is not None else None,
+                }, fh)
+        except Exception:
+            log.warning("  table crop: could not write %s", sidecar,
+                        exc_info=True)
+
     if not table_crop:
+        record(None, None, "crop off")
         return run_blurball(input_video, workdir, attempt_key=attempt_key,
                             on_progress=on_progress)
     box = None
+    corners_from = "job" if corners else None
+    reason = None
+    shape = None
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import points_endon
@@ -1893,17 +2000,31 @@ def detect_ball(
         else:
             calib = keypoint_calibrate(input_video, workdir)
             corners = (calib or {}).get("corners_px")
-        if corners:
-            meta = probe(input_video)
-            box = points_endon.ball_crop_box(
-                corners, meta["width"], meta["height"])
-        if box is None:
-            log.info("  table crop: no usable box, detecting on the full frame")
+            corners_from = "keypoints" if corners else None
+        if not corners:
+            reason = "no table"
+        else:
+            allowed, shape = points_endon.crop_allowed(corners)
+            if not allowed:
+                reason = "end-on table"
+                log.info("  table crop: skipped, the table reads end-on "
+                         "(shape %.2f, under %.2f); the full frame keeps "
+                         "the sideways ball", shape,
+                         points_endon.CROP_MIN_SHAPE)
+            else:
+                meta = probe(input_video)
+                box = points_endon.ball_crop_box(
+                    corners, meta["width"], meta["height"])
+                if box is None:
+                    reason = "no usable box"
+        if box is None and reason != "end-on table":
+            log.info("  table crop: %s, detecting on the full frame", reason)
     except Exception:                                       # noqa: BLE001
         log.warning("  table crop: calibration failed, full frame",
                     exc_info=True)
-        box = None
+        box, reason = None, "calibration failed"
     if box is None:
+        record(None, corners_from, reason, shape)
         return run_blurball(input_video, workdir, attempt_key=attempt_key,
                             on_progress=on_progress)
 
@@ -1918,6 +2039,7 @@ def detect_ball(
             check=True, timeout=2 * 3600)
     except Exception:                                       # noqa: BLE001
         log.warning("  table crop: encode failed, full frame", exc_info=True)
+        record(None, corners_from, "encode failed", shape)
         return run_blurball(input_video, workdir, attempt_key=attempt_key,
                             on_progress=on_progress)
 
@@ -1935,6 +2057,7 @@ def detect_ball(
             os.remove(path)
         except OSError:
             pass
+    record(box, corners_from, None, shape)
     return shifted
 
 
@@ -2980,6 +3103,7 @@ def load_placement_attempt_record(
             "a.options->>'processing_version_id' as job_processing_version_id, "
             "m.status, m.placement_status, m.placement_retry_count, "
             "m.placement_mapped_points, m.placement_failure_code, "
+            "coalesce(m.cut_source, 'auto') as cut_source, "
             "m.placement_retry_expires_at, "
             "m.placement_generation_job_id::text as "
             "placement_generation_job_id, "
@@ -3432,7 +3556,7 @@ def placement_for_match(
         # No ball track and no calibrated table: nothing to draw, and
         # placement_backfill would raise on the missing source.fps after a
         # full detector run. Terminal, before anything expensive.
-        or match_cut_source(conn, match_id) == "manual"
+        or record.get("cut_source") == "manual"
     ):
         source_failure = (
             "source_expired"
@@ -4809,6 +4933,31 @@ def insert_points(
     prefix: str,
     *,
     processing_version_id: str | None = None,
+    prediction_rows=None,
+    prediction_provenance=None,
+) -> dict[int, dict]:
+    if prediction_rows is None:
+        return _insert_point_rows(
+            conn, match_id, points, prefix,
+            processing_version_id=processing_version_id,
+        )
+    with point_winner_predictions.atomic_point_writes(conn):
+        inserted = _insert_point_rows(
+            conn, match_id, points, prefix,
+            processing_version_id=processing_version_id,
+        )
+        point_winner_predictions.persist_predictions(
+            conn, inserted, prediction_rows, prediction_provenance)
+    return inserted
+
+
+def _insert_point_rows(
+    conn,
+    match_id: str,
+    points: list[dict],
+    prefix: str,
+    *,
+    processing_version_id: str | None = None,
 ) -> dict[int, dict]:
     inserted = {}
     with conn.cursor() as cur:
@@ -5308,6 +5457,18 @@ def placement_serve_seed_enabled(conn) -> bool:
         return False
 
 
+def players_device(conn) -> str:
+    """Choose the reviewed body-pose runtime, with a safe CPU fallback."""
+    override = os.environ.get("PONGLENS_PLAYERS_DEVICE")
+    if override:
+        return override
+    try:
+        value = get_config(conn, "players_device")
+    except Exception:
+        return "cpu"
+    return value if value in ("cpu", "coreml") else "cpu"
+
+
 def run_points_subprocess(
     input_video: str,
     blurball_out: str,
@@ -5323,6 +5484,8 @@ def run_points_subprocess(
     players_json: str | None = None,
     serve_anchor: bool = False,
     rally_end: bool = False,
+    calibration_json: str | None = None,
+    detections_note: str | None = None,
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
     cut can keep exactly the per-point segments (dead-space round 4).
@@ -5363,6 +5526,10 @@ def run_points_subprocess(
         cmd.append("--placement")
         if placement_serve_seed:
             cmd.append("--placement-serve-seed")
+    if calibration_json:
+        cmd += ["--calibration-json", calibration_json]
+    if detections_note:
+        cmd += ["--detections-note", detections_note]
     if pipeline == "bodies" and players_json:
         cmd += ["--players", players_json]
         # The two card edges (spec 2026-09-09). Passed as flags rather than
@@ -5372,9 +5539,16 @@ def run_points_subprocess(
             cmd.append("--serve-anchor")
         if rally_end:
             cmd.append("--rally-end")
+            if options.get("reviewed_net_splits") is True:
+                cmd.append("--reviewed-net-splits")
+            if serve_anchor and options.get("combined_cuts") is True:
+                cmd.append("--combined-cuts")
+                if options.get("whole_clip_cleanup") is True:
+                    cmd.append("--whole-clip-cleanup")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
-             "pipeline=%s)…",
-             strictness, bool(options.get("placement")), pipeline)
+             "pipeline=%s%s)…",
+             strictness, bool(options.get("placement")), pipeline,
+             " calibration reused" if calibration_json else "")
     # The points pipeline reaches the same paid vision call the placement
     # retry does, through vision_calibrate's colour-independent fallback.
     # Without this the child cannot report it and an upload's table
@@ -5389,6 +5563,135 @@ def run_points_subprocess(
         scope="points-vision",
     )
     return outdir
+
+
+def read_ball_crop_sidecar(workdir: str) -> dict:
+    try:
+        with open(os.path.join(workdir, BALL_CROP_SIDECAR)) as fh:
+            value = json.load(fh)
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+
+def detections_note_from_sidecar(side: dict) -> str:
+    box = side.get("box")
+    if box and len(box) == 4:
+        x, y, width, height = box
+        return (f"detections: crop {width}x{height} at ({x},{y}), corners from "
+                f"{side.get('corners_from') or 'unknown'}")
+    reason = side.get("reason")
+    return "detections: full frame" + (f" ({reason})" if reason else "")
+
+
+def second_pass_wanted(
+    ball_crop: bool, side: dict, calibration: dict | None
+) -> tuple[bool, str]:
+    if not ball_crop:
+        return False, "crop off"
+    if side.get("box"):
+        return False, "first pass already cropped"
+    if side.get("reason") == "end-on table":
+        return False, "table reads end-on"
+    if not calibration or not calibration.get("ok"):
+        return False, "no calibration"
+    if calibration.get("source") != "vision":
+        return False, f"calibration from {calibration.get('source')}"
+    corners = calibration.get("table_corners_px")
+    if not isinstance(corners, dict) or len(corners) != 4:
+        return False, "no corners"
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import points_endon
+    allowed, shape = points_endon.crop_allowed(corners)
+    if not allowed:
+        return False, f"vision table reads end-on (shape {shape:.2f})"
+    return True, "vision table found after a full-frame detection"
+
+
+def append_match_note(match_json_path: str, note: str) -> None:
+    try:
+        with open(match_json_path) as fh:
+            match_json = json.load(fh)
+        match_json.setdefault("notes", []).append(note)
+        with open(match_json_path, "w") as fh:
+            json.dump(match_json, fh, indent=1)
+    except Exception:
+        log.warning("  could not append a note to %s", match_json_path,
+                    exc_info=True)
+
+
+def rerun_points_on_vision_crop(
+    local_input: str,
+    blurball_out: str,
+    workdir: str,
+    options: dict,
+    *,
+    ball_crop: bool,
+    points_kwargs: dict,
+) -> str:
+    """Re-detect only when the points pass found a safe vision table late."""
+    outdir = os.path.join(workdir, "points_out")
+    side = read_ball_crop_sidecar(workdir)
+    try:
+        with open(os.path.join(outdir, "match.json")) as fh:
+            calibration = json.load(fh).get("calibration")
+    except Exception:
+        calibration = None
+    wanted, why = second_pass_wanted(ball_crop, side, calibration)
+    if not wanted:
+        log.info("  second pass: not needed (%s)", why)
+        return outdir
+
+    keep = outdir + ".fullframe"
+    keep_det = blurball_out + ".fullframe"
+    shutil.rmtree(keep, ignore_errors=True)
+    os.replace(outdir, keep)
+    shutil.copyfile(blurball_out, keep_det)
+    usage = Path(workdir) / "points-cost-usage.jsonl"
+    if usage.is_file():
+        usage.replace(usage.with_name("points-cost-usage.pass1.jsonl"))
+    try:
+        pulse_stage("ball_recrop")
+        new_det = detect_ball(
+            local_input,
+            workdir,
+            attempt_key=points_kwargs.get("attempt_key", "manual"),
+            table_crop=True,
+            corners=calibration["table_corners_px"],
+        )
+        side2 = read_ball_crop_sidecar(workdir)
+        if not side2.get("box"):
+            raise RuntimeError(
+                f"no crop box on the second pass ({side2.get('reason')})"
+            )
+        pulse_stage("points")
+        run_points_subprocess(
+            local_input,
+            new_det,
+            workdir,
+            options,
+            calibration_json=os.path.join(keep, "calibration.json"),
+            detections_note=detections_note_from_sidecar(side2) + ", second pass",
+            **points_kwargs,
+        )
+        with open(os.path.join(outdir, "match.json")) as fh:
+            if not json.load(fh).get("points"):
+                raise RuntimeError("the second pass produced no points")
+        return outdir
+    except Exception as error:
+        log.warning("  second pass failed (%s); keeping the full-frame points",
+                    error, exc_info=True)
+        shutil.rmtree(outdir, ignore_errors=True)
+        os.replace(keep, outdir)
+        try:
+            os.replace(keep_det, blurball_out)
+        except OSError:
+            pass
+        append_match_note(
+            os.path.join(outdir, "match.json"),
+            f"second pass failed ({error}); kept the full-frame points",
+        )
+        return outdir
 
 
 # ---------------------------------------------------------------------------
@@ -5457,7 +5760,11 @@ def run_body_points_pass(conn, job_id: str, local_input: str, blurball_out: str,
     width, height = int(src.get("width") or 1920), int(src.get("height") or 1080)
     duration = float(src.get("duration") or 0.0)
     if not corners and not gate.get("bbox"):
-        _note_body_fallback(mj_path, "no table and no activity gate to stand in for it")
+        _note_body_fallback(
+            mj_path,
+            "no table and no activity gate to stand in for it",
+            outcome={"status": "refused", "reason_code": "no_table"},
+        )
         return outdir
     rect, window_word = players_window(corners, gate.get("bbox"), width, height)
     if corners:
@@ -5473,7 +5780,7 @@ def run_body_points_pass(conn, job_id: str, local_input: str, blurball_out: str,
            "--rect", ",".join(str(int(v)) for v in rect),
            "--corners", corners_json,
            "--model", RTMPOSE_MODEL, "--backend", RTMPOSE_BACKEND,
-           "--device", os.environ.get("PONGLENS_PLAYERS_DEVICE", "cpu"),
+           "--device", players_device(conn),
            "--sample-fps", "10", "--progress", progress_path]
     if duration > 0:
         cmd += ["--end", f"{duration:.3f}"]
@@ -5505,7 +5812,11 @@ def run_body_points_pass(conn, job_id: str, local_input: str, blurball_out: str,
         log.info("  bodies: players read in %.0f s", time.perf_counter() - started)
     except Exception as exc:                                    # noqa: BLE001
         log.warning("  bodies: pose pass failed (%s); keeping the ball cards", exc)
-        _note_body_fallback(mj_path, f"pose pass failed: {exc}")
+        _note_body_fallback(
+            mj_path,
+            f"pose pass failed: {exc}",
+            outcome=processing_outcome.failure("pose", exc),
+        )
         return outdir
 
     keep = outdir + ".ballfirst"
@@ -5543,11 +5854,17 @@ def run_body_points_pass(conn, job_id: str, local_input: str, blurball_out: str,
         log.warning("  bodies: second pass failed (%s); restoring the ball cards", exc)
         shutil.rmtree(outdir, ignore_errors=True)
         os.replace(keep, outdir)
-        _note_body_fallback(mj_path, f"second pass failed: {exc}")
+        _note_body_fallback(
+            mj_path,
+            f"second pass failed: {exc}",
+            outcome=processing_outcome.failure("assembly", exc),
+        )
         return outdir
 
 
-def _note_body_fallback(mj_path: str, why: str) -> None:
+def _note_body_fallback(
+    mj_path: str, why: str, *, outcome: dict | None = None
+) -> None:
     """Say in match.json that the bodies were asked for and did not cut it."""
     try:
         with open(mj_path) as fh:
@@ -5556,6 +5873,10 @@ def _note_body_fallback(mj_path: str, why: str) -> None:
         kept = mj.get("pipeline") or "v1"
         notes.append(f"points bodies requested but fell back to {kept}: {why}")
         mj["notes"] = notes
+        mj.setdefault("processing", {"schema": 1})["body"] = outcome or {
+            "status": "error",
+            "reason_code": "body_exception",
+        }
         tmp = mj_path + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(mj, fh)
@@ -5564,7 +5885,9 @@ def _note_body_fallback(mj_path: str, why: str) -> None:
         log.warning("  bodies: could not write the fallback note", exc_info=True)
 
 
-def processing_pipeline_settings(conn, options: dict, attempt_key: str) -> tuple[bool, dict | None, dict]:
+def processing_pipeline_settings(
+    conn, options: dict, attempt_key: str
+) -> tuple[bool, dict | None, dict, dict]:
     """The one detector/assembler configuration shared by active and candidate runs."""
     ball_crop = options.get("ball_crop")
     if ball_crop is None:
@@ -5575,21 +5898,24 @@ def processing_pipeline_settings(conn, options: dict, attempt_key: str) -> tuple
                     for v in corners.values())):
         corners = None
     serve_pad, serve_merge = serve_motif_settings(conn)
-    # The job's own option wins over the config, like ball_crop above: this
-    # is how one match is recut by the other assembler without flipping the
-    # switch for everyone (spec 2026-09-08, section 3.2).
-    pipeline = options.get("points_pipeline")
-    if pipeline not in ("v1", "v2", "bodies"):
-        pipeline = points_pipeline_version(conn)
-    anchor, rally_end = body_card_edges(conn)
+    body_settings = processing_outcome.configuration(
+        options, lambda key: get_config(conn, key)
+    )
+    if options.get("reviewed_net_splits") is True:
+        body_settings["reviewed_net_splits"] = True
+    if options.get("combined_cuts") is True:
+        body_settings["combined_cuts"] = True
+        if options.get("whole_clip_cleanup") is True:
+            body_settings["whole_clip_cleanup"] = True
     return bool(ball_crop), corners, dict(
-        pipeline=pipeline,
+        pipeline=body_settings["pipeline"],
         endon_fallback=endon_fallback_enabled(conn),
         serve_surface_pad=serve_pad, serve_merge_s=serve_merge,
         placement_serve_seed=placement_serve_seed_enabled(conn),
-        serve_anchor=anchor, rally_end=rally_end,
+        serve_anchor=body_settings["serve_anchor"],
+        rally_end=body_settings["rally_end"],
         attempt_key=attempt_key,
-    )
+    ), body_settings
 
 
 def run_points_stage(
@@ -5607,6 +5933,8 @@ def run_points_stage(
     cut_local_path: str | None = None,
     destination: MatchProcessingDestination | None = None,
     points_outdir: str | None = None,
+    processing_source_offset_s: float = 0.0,
+    processing_run=None,
 ):
     """Upload point artifacts, prepare results, and persist to one destination.
 
@@ -5649,13 +5977,6 @@ def run_points_stage(
     # Backfill only: on the commerce path register_upload already wrote it
     # at completion, and the owner may have answered on the raw page since.
     first_server = meta_first_server(meta)
-    if destination.activates_match:
-        create_match(conn, match_id, user_id, job_id, cut_result_path,
-                     opponent_name=opponent_name, match_type=match_type,
-                     venue=venue, played_at=played_at, user_side=user_side,
-                     first_server=first_server,
-                     placement_requested=bool(options.get("placement")),
-                     existing=bool(library_id))
     outdir = points_outdir or os.path.join(workdir, "points_out")
     try:
         # Dead-space round 4: the points stage normally already ran BEFORE
@@ -5681,6 +6002,11 @@ def run_points_stage(
                 scope="points-vision",
             )
 
+        cut_timeline.reconcile_file(
+            os.path.join(outdir, "match.json"),
+            (cut_local_path or os.path.join(workdir, "result.mp4"))
+            + ".timeline.json",
+        )
         with open(os.path.join(outdir, "match.json")) as fh:
             match_json = json.load(fh)
         if destination.effective_settings is not None:
@@ -5695,6 +6021,20 @@ def run_points_stage(
         points = match_json["points"]
         if not points:
             raise RuntimeError("points pipeline found no points")
+        prediction_rows = point_winner_predictions.load_predictions(outdir, points)
+        prediction_provenance = {
+            "job_id": str(job_id),
+            "source_identity": destination.source_path,
+            "source_offset_s": processing_source_offset_s,
+            "release_id": processing_outcome.release_identity()[0] or "unsealed",
+        }
+        if processing_run is not None:
+            processing_run.match_id = match_id
+            processing_run.attach(os.path.join(outdir, "match.json"))
+            publish_processing_run(processing_run)
+            with open(os.path.join(outdir, "match.json")) as fh:
+                match_json = json.load(fh)
+            points = match_json["points"]
         structure_evidence = run_match_structure_stage(
             blurball_out,
             os.path.join(outdir, "match.json"),
@@ -5794,13 +6134,6 @@ def run_points_stage(
             ledger_append(conn, user_id, "other", other_bytes,
                           f"{r2_prefix}/", match_id)
 
-        inserted_points = insert_points(
-            conn,
-            match_id,
-            points,
-            r2_prefix,
-            processing_version_id=destination.processing_version_id,
-        )
         state = copy.deepcopy(destination.match_state)
         state.update({
             "status": "ready", "job_id": job_id, "cut_path": cut_result_path,
@@ -5820,10 +6153,20 @@ def run_points_stage(
             "placement_status": placement_status, "placement_mapped_points": mapped,
             "placement_failure_code": placement_failure_code,
         })
-        if structure_evidence is not None and not destination.activates_match:
-            state["match_structure"] = map_structure_point_ids(
-                structure_evidence, inserted_points)
+
         if not destination.activates_match:
+            inserted_points = insert_points(
+                conn,
+                match_id,
+                points,
+                r2_prefix,
+                processing_version_id=destination.processing_version_id,
+                prediction_rows=prediction_rows,
+                prediction_provenance=prediction_provenance,
+            )
+            if structure_evidence is not None:
+                state["match_structure"] = map_structure_point_ids(
+                    structure_evidence, inserted_points)
             finalize_match_reprocess_success(
                 conn, destination, cut_path=state["cut_path"], thumb_path=thumb_path,
                 match_json_path=state["match_json_path"], match_state=state,
@@ -5831,53 +6174,73 @@ def run_points_stage(
             )
             return match_id
 
-        # Everything below publishes to the active match. Candidate processing
-        # has already finished without changing live state or running any
-        # match-only enrichment.
-        if structure_evidence is not None:
-            persist_match_structure(
+        if not destination.processing_version_id:
+            raise RuntimeError("active worker publication has no processing version")
+
+        # Media is already durable. Keep only the short database publication
+        # inside this transaction: acquire the match/version lock, replace
+        # point rows, project one canonical receipt, then expose ready.
+        with canonical_publication_transaction(conn):
+            create_match(
+                conn, match_id, user_id, job_id, cut_result_path,
+                opponent_name=opponent_name, match_type=match_type,
+                venue=venue, played_at=played_at, user_side=user_side,
+                first_server=first_server,
+                placement_requested=bool(options.get("placement")),
+                existing=bool(library_id),
+            )
+            inserted_points = insert_points(
                 conn,
                 match_id,
-                structure_evidence,
-                inserted_points,
-                user_side,
+                points,
+                r2_prefix,
+                processing_version_id=destination.processing_version_id,
+                prediction_rows=prediction_rows,
+                prediction_provenance=prediction_provenance,
             )
-        # Stamp the clip pads the clips were actually cut with (migration
-        # 048): the app's playhead mapping prefers these over the frozen
-        # per-strictness fallback table. Best-effort — a pre-clip_pads
-        # points_pipeline output simply leaves the column null.
-        if clip_pads:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update public.matches set clip_pads = %s where id = %s",
-                    (json.dumps(clip_pads), match_id),
+            # Everything below publishes to the active match. Candidate
+            # processing returned above without changing live state.
+            if structure_evidence is not None:
+                persist_match_structure(
+                    conn,
+                    match_id,
+                    structure_evidence,
+                    inserted_points,
+                    user_side,
                 )
-        # Where a 9:16 share cuts this camera (135). Computed in the points
-        # pipeline from corners it already had, so this costs nothing here.
-        # Written unconditionally, null included: a reprocess that loses
-        # calibration must clear a stale window rather than leave the old
-        # one framing a camera that has since moved. Absent from pre-135
-        # pipeline output, in which case the key is simply missing and we
-        # leave whatever is there alone.
-        if "story_crop" in match_json:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update public.matches set story_crop = %s where id = %s",
-                    (json.dumps(match_json["story_crop"])
-                     if match_json["story_crop"] else None, match_id),
-                )
-        finish_match(
-            conn,
-            match_id,
-            state["status"],
-            state["match_json_path"],
-            thumb_path=state["thumb_path"],
-            placement_status=state["placement_status"],
-            placement_mapped_points=state["placement_mapped_points"],
-            placement_failure_code=state["placement_failure_code"],
-        )
-        log.info("  match %s ready: %d points -> %s",
-                 match_id, len(points), r2_prefix)
+            # Stamp the clip pads the clips were actually cut with (migration
+            # 048). A pre-clip_pads output simply leaves the column null.
+            if clip_pads:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update public.matches set clip_pads = %s where id = %s",
+                        (json.dumps(clip_pads), match_id),
+                    )
+            # A reprocess that loses calibration must clear a stale story
+            # crop rather than framing a camera that has since moved.
+            if "story_crop" in match_json:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update public.matches set story_crop = %s where id = %s",
+                        (json.dumps(match_json["story_crop"])
+                         if match_json["story_crop"] else None, match_id),
+                    )
+            receipt = finalize_canonical_publication(
+                conn, "finalize_worker_points_v2", match_id,
+                destination.processing_version_id,
+            )
+            finish_match(
+                conn,
+                match_id,
+                state["status"],
+                state["match_json_path"],
+                thumb_path=state["thumb_path"],
+                placement_status=state["placement_status"],
+                placement_mapped_points=state["placement_mapped_points"],
+                placement_failure_code=state["placement_failure_code"],
+            )
+        log.info("  match %s ready: %d points -> %s (canonical revision %s)",
+                 match_id, len(points), r2_prefix, receipt["scoreRevision"])
         return match_id
     except Exception as e:
         if (not destination.activates_match or isinstance(e, MatchVersionChanged)
@@ -6302,16 +6665,22 @@ class _CutMap:
     """
 
     def __init__(self, mj: dict | None):
-        segs = (mj or {}).get("cut_segments") or []
+        match_json = mj or {}
+        segs = match_json.get("cut_segments") or []
         self.segments = [(float(a), float(b)) for a, b in segs]
-        self.offsets: list[float] = []
-        acc = 0.0
-        for s0, s1 in self.segments:
-            self.offsets.append(acc)
-            acc += s1 - s0
+        try:
+            # New exports publish the muxer's measured segment clock. MP4
+            # parts can be slightly longer than their requested source
+            # windows, so a cumulative source-duration guess drifts. Legacy
+            # artifacts have no offsets and intentionally retain that guess.
+            self.offsets = cut_timeline.segment_offsets(match_json)
+        except (TypeError, ValueError):
+            # A present-but-invalid measured clock must fail closed. Falling
+            # back to the legacy guess would silently cut the wrong frames.
+            self.offsets = []
         # idx -> (clip_t0, clip_t1, cut_t0, t1) at birth
         self.born: dict[int, tuple[float, float, float, float]] = {}
-        for p in (mj or {}).get("points") or []:
+        for p in match_json.get("points") or []:
             try:
                 self.born[int(p["idx"])] = (
                     float(p["clip_t0"]), float(p["clip_t1"]),
@@ -6319,7 +6688,7 @@ class _CutMap:
             except (KeyError, TypeError, ValueError):
                 continue
         self.dynamic_tails = (bool(mj)
-                              and (mj or {}).get("pipeline") not in ("v2", "hand-v1"))
+                              and match_json.get("pipeline") not in ("v2", "hand-v1"))
 
     def locate(self, idx: int, c0: float, c1: float) -> float | None:
         """Cut second where the source window [c0, c1] starts, or None
@@ -6375,6 +6744,80 @@ def _load_match_json(conn, match_id: str, workdir: str,
 # one, and a hand-cut match is indistinguishable downstream.
 #
 # Design: docs/superpowers/specs/2026-09-07-hand-cut-design.md
+
+
+@contextmanager
+def canonical_publication_transaction(conn):
+    """Make one worker publication visible in one commit.
+
+    The queue connection normally autocommits. Turning it off here keeps the
+    match/version lock acquired by create_match through point insertion,
+    canonical finalization and the final ready status. Nested callers retain
+    ownership of their existing transaction.
+    """
+    owns_transaction = conn.autocommit
+    try:
+        if owns_transaction:
+            conn.autocommit = False
+        yield
+        if owns_transaction:
+            conn.commit()
+    except Exception:
+        if owns_transaction:
+            conn.rollback()
+        raise
+    finally:
+        if owns_transaction and not conn.closed:
+            conn.autocommit = True
+
+
+def finalize_canonical_publication(
+    conn, function_name: str, match_id: str, publication_id: str
+) -> dict:
+    """Call one versioned database publication boundary and verify receipt."""
+    if function_name not in {"publish_hand_cut_v2", "finalize_worker_points_v2"}:
+        raise ValueError("unknown canonical publication function")
+    with conn.cursor() as cur:
+        cur.execute(
+            f"select public.{function_name}(%s,%s)",
+            (match_id, publication_id),
+        )
+        row = cur.fetchone()
+    value = row[0] if isinstance(row, (tuple, list)) and row else row
+    valid = (
+        isinstance(value, dict)
+        and value.get("ok") is True
+        and value.get("contractVersion") == 1
+        and value.get("scoreProjectionStatus") in {"current", "empty"}
+        and isinstance(value.get("scoreRevision"), int)
+        and isinstance(value.get("pointCount"), int)
+        and value.get("pointCount") >= 0
+    )
+    if not valid:
+        raise RuntimeError("canonical publication receipt is missing or incompatible")
+    return value
+
+
+def verify_worker_database_contract(conn) -> None:
+    """Refuse a sealed release before it can read the queue on an old DB."""
+    expected_migration = os.environ.get("PONGLENS_MINIMUM_DB_MIGRATION")
+    expected_contract = os.environ.get("PONGLENS_CANONICAL_PUBLICATION_CONTRACT")
+    if expected_migration is None and expected_contract is None:
+        return
+    try:
+        expected_contract_number = int(expected_contract or "")
+    except ValueError as error:
+        raise RuntimeError("sealed worker database contract is invalid") from error
+    with conn.cursor() as cur:
+        cur.execute("select public.canonical_worker_contract_v1()")
+        row = cur.fetchone()
+    value = row[0] if isinstance(row, (tuple, list)) and row else row
+    if (
+        not isinstance(value, dict)
+        or value.get("minimumMigration") != expected_migration
+        or value.get("canonicalPublicationContract") != expected_contract_number
+    ):
+        raise RuntimeError("sealed worker database contract is incompatible")
 
 
 def _hand_cut_segments(marks: list[dict], dur: float, pre: float, post: float):
@@ -6690,40 +7133,49 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
 
         pulse_stage("publish")
         update_job(conn, job_id, progress=90)
-        create_match(conn, match_id, user_id, job_id, result_path,
-                     played_at=played_at, existing=True,
-                     hand_cut=True)
-        for p in points:
-            p["rally_end_cut_s"] = None
-            p["highlight_evidence"] = None
-        inserted = insert_points(conn, match_id, points, r2_prefix)
-        with conn.cursor() as cur:
-            for p, m in zip(points, marks):
-                row_id = (inserted.get(int(p["idx"])) or {}).get("id")
-                if not row_id:
-                    continue
-                is_let = bool(m.get("let"))
-                winner = None if is_let else m.get("w")
-                # edited=true on a point with no clip is the reclip
-                # request: the trigger fires on that update and queues one
-                # re-cut for the match.
+        with canonical_publication_transaction(conn):
+            create_match(conn, match_id, user_id, job_id, result_path,
+                         played_at=played_at, existing=True,
+                         hand_cut=True)
+            for p in points:
+                p["rally_end_cut_s"] = None
+                p["highlight_evidence"] = None
+            inserted = insert_points(conn, match_id, points, r2_prefix)
+            with conn.cursor() as cur:
+                for p, m in zip(points, marks):
+                    row_id = (inserted.get(int(p["idx"])) or {}).get("id")
+                    if not row_id:
+                        continue
+                    is_let = bool(m.get("let"))
+                    winner = None if is_let else m.get("w")
+                    # edited=true on a point with no clip is the reclip
+                    # request: the trigger fires on that update and queues
+                    # one re-cut for the match.
+                    cur.execute(
+                        "update public.points set confirmed_winner = %s, "
+                        "is_let = %s, confirmed_how = %s, starred = %s, "
+                        "edited = (edited or %s) "
+                        "where id = %s",
+                        (winner, is_let, "let" if is_let else None,
+                         bool(m.get("star")), int(p["idx"]) in failed_clips,
+                         row_id),
+                    )
                 cur.execute(
-                    "update public.points set confirmed_winner = %s, "
-                    "is_let = %s, confirmed_how = %s, starred = %s, "
-                    "edited = (edited or %s) "
-                    "where id = %s",
-                    (winner, is_let, "let" if is_let else None,
-                     bool(m.get("star")), int(p["idx"]) in failed_clips,
-                     row_id),
+                    "update public.matches set clip_pads = %s where id = %s",
+                    (json.dumps({"pre": pre, "post": post}), match_id),
                 )
-            cur.execute(
-                "update public.matches set clip_pads = %s where id = %s",
-                (json.dumps({"pre": pre, "post": post}), match_id),
+            receipt = finalize_canonical_publication(
+                conn, "publish_hand_cut_v2", match_id, job_id
             )
-        finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json",
-                     thumb_path=thumb_path)
+            # Ready is deliberately after the checked receipt, and still in
+            # the same transaction. Nobody can observe the processing state
+            # between these two statements.
+            finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json",
+                         thumb_path=thumb_path)
         log.info("  hand cut published: match %s, %d points (%d clips "
-                 "left for reclip)", match_id, len(points), len(failed_clips))
+                 "left for reclip), canonical revision %s",
+                 match_id, len(points), len(failed_clips),
+                 receipt["scoreRevision"])
     except MatchVersionChanged:
         # The match has moved on to another job (a resubmission overtook
         # this message). Nothing of this attempt reached the database, so
@@ -9257,6 +9709,7 @@ def run_match_processing_workflow(
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
     outdir = os.path.join(workdir, "points_out")
+    processing_run = None
     if wants_points:
         start_pct = 15 if active else 10
         last_pct = [start_pct]
@@ -9267,8 +9720,18 @@ def run_match_processing_workflow(
                 last_pct[0] = pct
                 update_job(conn, job_id, progress=pct)
 
-        ball_crop, crop_corners, points_kwargs = processing_pipeline_settings(
+        ball_crop, crop_corners, points_kwargs, body_settings = processing_pipeline_settings(
             conn, options, attempt_key)
+        release_id, body_model = processing_outcome.release_identity()
+        processing_run = processing_outcome.ProcessingRun(
+            attempt_key,
+            str(job_id),
+            body_settings["requested_pipeline"],
+            body_settings,
+            release_id,
+            body_model,
+        )
+        publish_processing_run(processing_run)
         if active:
             route = str(points_kwargs.get("pipeline", "unknown")) + (":placement" if options.get("placement") else ":no-placement")
             _record_video_profile(local_input, route, profile_offset_s)
@@ -9298,7 +9761,18 @@ def run_match_processing_workflow(
             pulse_stage("points" if active else "candidate_points")
             outdir = run_points_subprocess(
                 local_input, blurball_out, workdir, options,
+                detections_note=detections_note_from_sidecar(
+                    read_ball_crop_sidecar(workdir)),
                 **points_kwargs)
+            if ball_crop:
+                outdir = rerun_points_on_vision_crop(
+                    local_input,
+                    blurball_out,
+                    workdir,
+                    options,
+                    ball_crop=ball_crop,
+                    points_kwargs=points_kwargs,
+                )
             if active and points_kwargs.get("pipeline") == "bodies":
                 # THE BODY-FIRST ASSEMBLER (spec 2026-09-08). The pass above
                 # built the ball's cards and, with them, the table and the
@@ -9315,6 +9789,9 @@ def run_match_processing_workflow(
         except Exception as error:
             if not active:
                 raise
+            if processing_run is not None:
+                processing_run.body = processing_outcome.failure(
+                    "assembly", error)
             # Preserve ordinary behavior: deliver the span cut, then retry
             # the points stage in legacy spans mode against that cut's clock.
             log.warning("  early points stage failed (%s) — "
@@ -9366,7 +9843,15 @@ def run_match_processing_workflow(
             points_match_id = run_points_stage(
                 conn, job_id, user_id, local_input, blurball_out, workdir, options,
                 result_path, played_at=played_at, attempt_key=attempt_key,
-                cut_local_path=result, destination=destination, points_outdir=outdir)
+                cut_local_path=result, destination=destination, points_outdir=outdir,
+                processing_source_offset_s=profile_offset_s,
+                processing_run=processing_run)
+            if processing_run is not None:
+                processing_run.finished_at = processing_outcome.now()
+                if not points_match_id:
+                    processing_run.status = "failed"
+                    processing_run.reason_code = "publication_failed"
+                publish_processing_run(processing_run)
     return result_path, points_match_id
 
 
@@ -10403,6 +10888,9 @@ def _code_version() -> str:
     """git describe of the checkout the daemon actually loaded, so
     worker.log shows when a long-lived daemon is running stale code
     (root cause of the 2026-07-22 NULL-cut_t0 matches)."""
+    if os.environ.get("PONGLENS_MATCH_RELEASE"):
+        release_id = processing_outcome.release_identity()[0]
+        return "release " + str(release_id)
     try:
         out = subprocess.run(
             ["git", "-C", os.path.dirname(os.path.abspath(__file__)),
@@ -10411,6 +10899,26 @@ def _code_version() -> str:
         return out.stdout.strip() or "unknown"
     except Exception:
         return "unknown"
+
+
+def publish_processing_run(run) -> None:
+    """Health uses a separate bounded connection, never the job transaction."""
+    def send(record):
+        connection = psycopg2.connect(
+            DATABASE_URL,
+            connect_timeout=5,
+            options="-c statement_timeout=5000 -c lock_timeout=2000",
+        )
+        try:
+            connection.autocommit = True
+            processing_outcome.database_sender(connection)(record)
+        finally:
+            connection.close()
+
+    try:
+        processing_outcome.publish(run.record(), send)
+    except Exception:
+        log.warning("processing health unavailable (non-fatal)", exc_info=True)
 
 
 def _ytdlp_version() -> str:
@@ -10540,12 +11048,35 @@ def start_pulse_monitor():
     return monitor
 
 
+def worker_claim_ready():
+    """Check mutable launch boundaries directly before a queue claim."""
+    release = os.environ.get("PONGLENS_MATCH_RELEASE")
+    if release:
+        from match_release import verify_unchanged
+        try:
+            verify_unchanged(release)
+        except Exception:
+            pulse_stage("release_invalid")
+            log.exception("release verification failed; no work will be claimed")
+            time.sleep(30)
+            return False
+    drain_file = os.environ.get("PONGLENS_DRAIN_FILE")
+    if drain_file and os.path.exists(drain_file):
+        pulse_stage("drained")
+        time.sleep(POLL_SLEEP_S)
+        return False
+    # Clear a lifted pause even when no job arrives to report a new stage.
+    pulse_stage(None)
+    return True
+
+
 def main():
     log.info("PongLens worker starting (lane=%s queue=%s supabase=%s, "
              "code=%s, yt-dlp=%s at %s)",
              LANE, QUEUE_NAME, SUPABASE_URL, _code_version(),
              _ytdlp_version(), YTDLP)
     conn = connect()
+    verify_worker_database_contract(conn)
     # Both lanes pulse. A lane that is running and a lane that is not must
     # be distinguishable on /admin/processing, and only the process itself
     # can say which it is.
@@ -10561,6 +11092,10 @@ def main():
 
     while True:
         try:
+            # A paused worker must not start housekeeping while its launcher
+            # is being switched to another sealed release.
+            if not worker_claim_ready():
+                continue
             if housekeeping and (
                     time.time() - last_cleanup > CLEANUP_EVERY_S
                     or last_cleanup == 0):
@@ -10577,6 +11112,10 @@ def main():
                 maybe_send_qa_closed_digest(conn)    # never raises
                 last_digest_check = time.time()
 
+            # Housekeeping can take time. Recheck at the actual queue boundary
+            # so a drain or integrity failure cannot race a new claim.
+            if not worker_claim_ready():
+                continue
             msg = read_message(conn)
             if msg is None:
                 time.sleep(POLL_SLEEP_S)
@@ -10705,6 +11244,7 @@ def main():
             time.sleep(30)
             try:
                 conn = connect()
+                verify_worker_database_contract(conn)
             except Exception as e2:
                 log.error("reconnect failed: %s", e2)
                 time.sleep(60)

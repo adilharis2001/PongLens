@@ -24,7 +24,7 @@ struct ToolsSection: View {
     @State private var exportOpen = false
     @State private var detailsOpen = false
     @State private var sideOpen = false
-    @State private var placementOpen = false
+    @State private var analysisRequestOpen = false
     @State private var automaticHighlights: AutomaticHighlightsResponse?
 
     var body: some View {
@@ -44,26 +44,17 @@ struct ToolsSection: View {
                     highlightsOpen = true
                 }
                 divider
-                if MatchTitle.tracksServe(match.matchType) {
+                // One row for the whole analysis section: the score cards,
+                // the video cards and the serve maps live under it, and its
+                // trailing text names whatever the section is waiting on.
+                // Generating maps is a card in that section now.
+                if MatchTitle.tracksServe(match.matchType) || match.placementStatus == "ready" {
                     toolRow("Match analysis", trailing: .text(analysisTrailing)) {
-                        onScrollToAnalysis()
+                        // Past the bar the row is the trigger for the analysis.
+                        if analysisRowAction { analysisRequestOpen = true } else { onScrollToAnalysis() }
                     }
                     divider
                 }
-                toolRow(
-                    app.placementServesOnly ? "Serve placement" : "Placement maps",
-                    trailing: .text(placementTrailing), beta: true
-                ) {
-                    // Ready means there is something to scroll to; every
-                    // other state needs the sheet, which is the only place
-                    // generation can actually be started.
-                    if match.placementStatus == "ready" {
-                        onScrollToPlacement()
-                    } else {
-                        placementOpen = true
-                    }
-                }
-                divider
                 toolRow("Share a link", trailing: .text("Not shared")) { shareOpen = true }
                 divider
                 toolRow("Coach", trailing: .text("Invite your coach")) { coachOpen = true }
@@ -126,18 +117,13 @@ struct ToolsSection: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $sideOpen) {
-            YourSideSheet(match: match) {
-                onRowChanged()
-            }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
+        .sheet(isPresented: $analysisRequestOpen) {
+            PlacementRequestSheet(match: match, onChanged: onRowChanged)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $placementOpen) {
-            PlacementRequestSheet(match: match) {
-                // Same staleness as details/side: the row's "Generating…"
-                // comes from match.placementStatus, so the screen's copy
-                // must refresh or the tap looks like it did nothing.
+        .sheet(isPresented: $sideOpen) {
+            YourSideSheet(match: match, videoURL: model.videoURL) {
                 onRowChanged()
             }
             .presentationDetents([.medium])
@@ -176,20 +162,38 @@ struct ToolsSection: View {
         score.confirmedCount > 0 ? .games(score.gamesYou, score.gamesThem) : .text("")
     }
 
-    private var placementTrailing: String {
+    /// What the section is waiting on: points to score, maps to generate,
+    /// or the detail still missing. The same gate as the deck (and as the
+    /// highlights), so the row and the card it jumps to never disagree
+    /// about what "unlocked" means.
+    /// Whether a tap on the Match analysis row should start the analysis
+    /// rather than scroll to it: the match is scored past the bar and the
+    /// analysis has not been generated, or can be tried again.
+    private var analysisRowAction: Bool {
+        guard MatchTitle.tracksServe(match.matchType), match.cutSource != "manual",
+              scoredCardsGate(model.visible).open else { return false }
         switch match.placementStatus {
-        case "ready": "Ready"
-        case "processing": "Generating…"
-        case "retrying": "Retrying…"
-        case "retry_available": "Try again"
-        case "final_failed": "Unavailable"
-        default: "Generate"
+        case nil, "not_requested", "retry_available": return true
+        default: return false
         }
     }
 
-    /// The web's own summary: readiness first, then completeness. A bare
-    /// percentage here would read as a number the app invented.
     private var analysisTrailing: String {
+        if !MatchTitle.tracksServe(match.matchType) { return "Serve maps" }
+        let gate = scoredCardsGate(model.visible)
+        if !gate.open {
+            return gate.scored == 0
+                ? "Score points to unlock"
+                : "\(gate.scored) of \(gate.eligible) scored"
+        }
+        switch match.placementStatus {
+        case "processing": return "Generating…"
+        case "retrying": return "Retrying…"
+        case "retry_available" where match.cutSource != "manual": return "Try again"
+        case nil, "not_requested":
+            if match.cutSource != "manual" { return "Generate detailed analysis" }
+        default: break
+        }
         let serving = computeServing(
             model.visible, firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
         )
@@ -507,12 +511,12 @@ struct PlacementRequestSheet: View {
     private var status: String { match.placementStatus ?? "not_requested" }
 
     var body: some View {
-        PLSheetScaffold(title: "Placement maps") {
+        PLSheetScaffold(title: "Detailed analysis") {
             Form {
                 Section {
                     if started {
                         Label(
-                            "Started. We'll email you when they're ready.",
+                            "Started. It takes a few minutes.",
                             systemImage: "checkmark.circle.fill"
                         )
                         .font(.plBody)
@@ -552,22 +556,22 @@ struct PlacementRequestSheet: View {
     private var body_: String {
         switch status {
         case "processing", "retrying":
-            "Placement maps are generating. We'll email you when they're ready."
+            "The detailed analysis is generating. It takes a few minutes."
         case "retry_available":
-            "Placement maps couldn't be generated because the table was hard to detect in this video. You can try once more."
+            "The detailed analysis couldn't be generated because the table was hard to detect in this video. You can try once more."
         case "final_failed":
-            "Placement maps couldn't be generated for this video."
+            "The detailed analysis couldn't be generated for this video."
         default:
-            "Placement maps haven't been generated for this match yet."
+            "The detailed analysis reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes."
         }
     }
 
     /// nil while a run is in flight or the match is past retrying.
     private var actionLabel: String? {
         switch status {
-        case "retry_available": "Try placement again"
+        case "retry_available": "Try again"
         case "processing", "retrying", "final_failed": nil
-        default: "Generate placement maps"
+        default: "Generate detailed analysis"
         }
     }
 
@@ -1286,11 +1290,17 @@ struct MatchDetailsEditor: View {
 
 struct YourSideSheet: View {
     let match: MatchRow
+    /// The cut video, for the still the question is answered from. Nil
+    /// asks without a picture, which is the thing to avoid: near/far is a
+    /// guess without one, and a wrong answer mirrors every map.
+    var videoURL: URL? = nil
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
     @State private var saving = false
+    @State private var frame: UIImage?
+    @State private var frameFailed = false
     /// Which row is being written, so only that one shows the spinner.
     @State private var savingSide: String?
     @State private var errorMessage: String?
@@ -1298,11 +1308,18 @@ struct YourSideSheet: View {
     var body: some View {
         PLSheetScaffold(title: "Which player are you?") {
             Form {
+                if videoURL != nil, !frameFailed {
+                    Section {
+                        frameView
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                    }
+                }
                 Section {
                     sideRow("Bottom of video", side: "near")
                     sideRow("Top of video", side: "far")
                 } footer: {
-                    Text("So your labels and placement maps come out right.")
+                    Text("So your labels and serve maps come out right.")
                 }
                 if let errorMessage {
                     Section {
@@ -1313,6 +1330,44 @@ struct YourSideSheet: View {
                 }
             }
         }
+    }
+
+    /// A quarter of the way in, capped at two and a half minutes: the same
+    /// rule as the upload sheet's picker, where the first second is two
+    /// people walking to the table. Marked Top and Bottom so the rows
+    /// under it need no explaining.
+    private var frameView: some View {
+        ZStack {
+            if let frame {
+                Image(uiImage: frame)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Color.clear.frame(height: 200)
+                ProgressView().tint(PL.cyan)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: 360)
+        .overlay(alignment: .top) { edgeLabel("Top") }
+        .overlay(alignment: .bottom) { edgeLabel("Bottom") }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .task(id: videoURL) {
+            guard let videoURL else { return }
+            let seconds = min(150, (match.durationS ?? 0) * 0.25)
+            frame = await ClipFrameLoader.still(from: videoURL, at: max(1, seconds))
+            frameFailed = frame == nil
+        }
+    }
+
+    private func edgeLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(PL.text100)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(PL.ink.opacity(0.75), in: Capsule())
+            .padding(8)
     }
 
     /// The web's chooseSide, column for column (MatchView

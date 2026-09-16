@@ -268,7 +268,7 @@ struct MainTabView: View {
             // The Account toggle just moved; the journal's Recollect tab
             // follows without waiting for a reload.
             if let enabled = note.userInfo?["enabled"] as? Bool {
-                journal.recollectEnabled = enabled
+                journal.recollectPreference = enabled
             }
         }
         .sheet(isPresented: $bellOpen) {
@@ -363,7 +363,7 @@ struct MainTabView: View {
             await library.load()
             await scores.load(for: library.matches.filter { $0.status == .ready })
             if !journal.loaded {
-                await journal.load(userId: app.userId)
+                await journal.load(userId: app.userId, recollectAvailable: app.recollectEnabled)
             }
             library.startPolling()
         }

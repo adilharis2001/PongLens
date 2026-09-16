@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
-import { getReviewFeeConfig } from "@/lib/config";
+import { getCoachReviewsEnabled, getReviewFeeConfig } from "@/lib/config";
 import type { OfferingRow } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/server";
 import { OfferingsEditor } from "./OfferingsEditor";
@@ -13,6 +13,8 @@ export const metadata: Metadata = {
 };
 
 export default async function OfferingsPage() {
+  // coach_reviews_enabled off: the page is gone, not just its entrance.
+  if (!(await getCoachReviewsEnabled())) notFound();
   const supabase = await createClient();
   const {
     data: { user },

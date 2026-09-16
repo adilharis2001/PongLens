@@ -274,6 +274,10 @@ final class LessonTranscriber {
     }
 
     private static func viaServer(_ url: URL) async throws -> String {
+        // The route hands the audio to Deepgram: permission first. The
+        // caller swallows the throw, so a declined sheet leaves the
+        // segment untranscribed rather than failing the lesson.
+        guard await AiConsent.shared.ensure() else { throw AiConsent.Declined() }
         let data = try Data(contentsOf: url)
         // A five-minute AAC segment at 32 kbps is about 1.2 MB, which sits
         // under both this route's own 10 MB cap and Vercel's 4.5 MB body

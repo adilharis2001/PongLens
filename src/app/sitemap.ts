@@ -21,7 +21,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
           title: "How PongLens works",
           thumbnail_loc: `${BASE}/demo/walkthrough-desktop.jpg`,
           description:
-            "A walkthrough of PongLens: upload a table tennis match from your phone or YouTube, get it back with the dead time between points removed, score it in about ten minutes, and read what the match says about your game.",
+            "A walkthrough of PongLens: upload a table tennis match from your phone, get it back with the dead time between points removed, score it in about ten minutes, and read what the match says about your game.",
           content_loc: `${BASE}/demo/walkthrough-desktop.mp4`,
           duration: WALKTHROUGH.durationSeconds,
           publication_date: WALKTHROUGH.uploaded,

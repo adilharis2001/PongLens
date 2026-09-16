@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { PAYMENTS_ENABLED } from "@/lib/flags";
 import type { StorageState } from "@/lib/quota";
 import { formatUsd } from "@/lib/reviews/money";
+import { CATEGORY_LABELS, STORAGE_CATEGORIES } from "@/lib/storage/inventory";
 import { AllowanceRequest } from "@/components/AllowanceRequest";
 
 const GB = 1024 ** 3;
@@ -15,6 +16,20 @@ function gb(n: number, decimals = 1) {
   const v = n / GB;
   const rounded = v.toFixed(decimals);
   return rounded.endsWith(".0") ? rounded.slice(0, -2) : rounded;
+}
+
+/**
+ * What last night's measurement found, by kind, largest first. Kinds the
+ * account has nothing of are left out; the list is about what is there.
+ */
+function breakdownRows(state: StorageState | null) {
+  const b = state?.breakdown;
+  if (!b) return [];
+  // A kind that would read "0 GB" is left off the list: a few kilobytes of
+  // sketches is not something to show a row for.
+  return STORAGE_CATEGORIES.map((key) => ({ key, label: CATEGORY_LABELS[key], bytes: b[key] ?? 0 }))
+    .filter((r) => gb(r.bytes) !== "0")
+    .sort((a, b) => b.bytes - a.bytes);
 }
 
 export function StorageSection({
@@ -62,9 +77,10 @@ export function StorageSection({
   }, [load]);
 
   const used = state?.used_bytes ?? 0;
-  const limit = state?.storage_limit_bytes ?? 5 * GB;
+  const limit = state?.storage_limit_bytes ?? 25 * GB;
   const full = state !== null && used >= limit;
   const pct = Math.min(100, Math.round((used / limit) * 100));
+  const rows = breakdownRows(state);
 
   return (
     <section className="rounded-2xl border border-edge bg-surface p-5">
@@ -100,14 +116,20 @@ export function StorageSection({
         </p>
       )}
 
-      {purchasesEnabled && packs.length > 0 && (
-        <p className="mt-2 text-xs text-zinc-500">
-          Storage holds your match videos, so your playing history lives in
-          one place instead of scattered across phones. Your uploads and
-          their cut versions count toward the space. Point clips and notes
-          don&apos;t.
-        </p>
+      {rows.length > 0 && (
+        <dl className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-xs">
+          {rows.map((r) => (
+            <div key={r.key} className="contents">
+              <dt className="truncate text-zinc-400">{r.label}</dt>
+              <dd className="tabular-nums text-zinc-300">{gb(r.bytes)} GB</dd>
+            </div>
+          ))}
+        </dl>
       )}
+
+      {/* No explanatory paragraph under the breakdown: the list already
+          says what counts (Adil, 2026-09-14). */}
+
       {purchasesEnabled && packs.length > 0 && (
         <div className="mt-4">
           <PackTiles

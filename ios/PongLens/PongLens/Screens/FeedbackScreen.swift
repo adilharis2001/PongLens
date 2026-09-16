@@ -332,6 +332,9 @@ struct FeedbackScreen: View {
             let itemId: String
             let body: String
         }
+        // The polish is OpenAI's: permission first. The post is already
+        // sent either way; declining leaves the card saying "Sent."
+        guard await AiConsent.shared.ensure() else { return }
         let result: FeedbackAssist? = try? await API.post(
             "api/feedback/assist",
             Req(itemId: itemId.uuidString.lowercased(), body: body)

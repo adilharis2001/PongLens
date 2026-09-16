@@ -1,0 +1,76 @@
+{
+  "source": "Owner answers read from the existing rendered form fields via browser UI on 2026-09-14",
+  "focused_answers": 12,
+  "good": 9,
+  "preparation_only_first_clips": 3,
+  "feedback": [
+    {
+      "id": "50caea29-44",
+      "quality": "Good as shown",
+      "notes": ""
+    },
+    {
+      "id": "8cb54f9f-86",
+      "quality": "Good as shown",
+      "notes": ""
+    },
+    {
+      "id": "d59d7610-36",
+      "quality": "Good as shown",
+      "notes": ""
+    },
+    {
+      "id": "d59d7610-78",
+      "quality": "Good as shown",
+      "notes": ""
+    },
+    {
+      "id": "9ef09000-10",
+      "quality": "Good as shown",
+      "notes": ""
+    },
+    {
+      "id": "19a1efc7-3",
+      "quality": "Good as shown",
+      "notes": ""
+    },
+    {
+      "id": "6d55dfb7-55",
+      "quality": "Good as shown",
+      "notes": ""
+    },
+    {
+      "id": "eabb4fc2-44",
+      "quality": "Good as shown",
+      "notes": ""
+    },
+    {
+      "id": "fa96cd0e-13",
+      "quality": "Good as shown",
+      "notes": ""
+    },
+    {
+      "id": "8cb54f9f-51",
+      "quality": "A clip contains no point",
+      "notes": "Clip 1 does not contain a point. It's just a ball toss, nothing else "
+    },
+    {
+      "id": "50caea29-59",
+      "quality": "A clip contains no point",
+      "notes": "Clip 1 here does not contain a point. Otherwise clip 2 is really good. Serve detection worked and works very well. "
+    },
+    {
+      "id": "9e15ed10-61",
+      "quality": "A clip contains no point",
+      "notes": "Again clip 1 here does not contain a point. Otherwise clip 2 is really good "
+    }
+  ],
+  "interpretation": "Keep the real second points; fix preparation-only first fragments. Owner accepted the Chris ending previously flagged by frame screening. Reconcile that discrepancy during worker integration; frame screening alone is not a physical point label.",
+  "next_steps": [
+    "Add owner-labelled regression fixtures for three empty first fragments while preserving the following points.",
+    "Implement a general first-attempt check and replay all nine recordings, keeping short genuine attempts.",
+    "Integrate reviewed rules in actual worker export flow, preserving timing and private winner storage; do not publish prototype card JSON.",
+    "Present any changed visual trade-offs before production rollout."
+  ],
+  "production_changed": false
+}

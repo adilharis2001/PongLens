@@ -91,6 +91,8 @@ final class Dictation {
                 let words = (result.transcript ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !words.isEmpty { deliver(words) }
+            } catch is AiConsent.Declined {
+                // Not now on the permission sheet: nothing to report.
             } catch {
                 errorMessage = "Couldn't transcribe that. Try again."
             }

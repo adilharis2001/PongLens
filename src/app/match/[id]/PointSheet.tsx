@@ -158,6 +158,7 @@ export function PointSheet({
   onPrev,
   onNext,
   onPointUpdate,
+  onSaveOutcome,
   onNoteAdded,
   onDelete,
   deleteBefore,
@@ -209,6 +210,11 @@ export function PointSheet({
   onPrev: () => void;
   onNext: () => void;
   onPointUpdate: (patch: Partial<Point>) => void;
+  onSaveOutcome?: (patch: {
+    confirmed_winner: "user" | "opponent" | null;
+    confirmed_how: string | null;
+    is_let: boolean;
+  }) => Promise<boolean>;
   onNoteAdded: (note: Note) => void;
   onDelete: (point: Point) => void;
   /** Bulk "delete all before this point" (owner, ≥2 earlier points). */
@@ -529,6 +535,7 @@ export function PointSheet({
               onNext: () => commitTo(-1),
             }}
             onPointUpdate={onPointUpdate}
+            onSaveOutcome={onSaveOutcome}
             onNoteAdded={onNoteAdded}
             onDelete={onDelete}
             deleteBefore={deleteBefore}

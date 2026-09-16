@@ -202,10 +202,15 @@ def _scaled_corners(
 
 
 def _create_pose_model(
-    model_path: Path,
+    model_path: Path | str,
     backend: str,
     device: str,
 ) -> tuple[Any, str]:
+    if __package__:
+        from .match_release import resolve_model_asset
+    else:
+        from match_release import resolve_model_asset
+    model_path = resolve_model_asset(model_path, 'pose')
     try:
         from rtmlib import RTMPose
     except ImportError as exc:

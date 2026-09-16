@@ -14,6 +14,7 @@ import {
   updateExistingEntryMatch,
 } from "@/lib/coach/entryMatch";
 import { DictateMic, useDictation } from "@/components/dictation";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 import {
   AddPhotoButton,
   EntryImage,
@@ -154,6 +155,7 @@ export function StudentView({
   const [draftMatchId, setDraftMatchId] = useState<string | null>(null);
   const [improve, setImprove] = useState(true);
   const [saving, setSaving] = useState(false);
+  const { ensure } = useAiConsent();
   const [composerError, setComposerError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
@@ -293,7 +295,7 @@ export function StudentView({
     setSaving(true);
     setComposerError(null);
     try {
-      const res = await fetch("/api/lesson", {
+      const init: RequestInit = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -302,7 +304,15 @@ export function StudentView({
           summarize: improve,
           imagePath: photo?.path ?? null,
         }),
-      });
+      };
+      // "Improve with AI" sends the words to OpenAI; a plain save does not.
+      const res = improve
+        ? await fetchWithAiConsent(ensure, "/api/lesson", init)
+        : await fetch("/api/lesson", init);
+      if (!res) {
+        setSaving(false);
+        return;
+      }
       const data = res.ok ? await res.json() : null;
       if (!data?.id) throw new Error("no id");
       const supabase = createClient();

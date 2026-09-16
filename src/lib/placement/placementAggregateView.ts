@@ -71,18 +71,35 @@ export function placementAxesFromFilter(
   }
 }
 
+/**
+ * The possessives the captions are written in: "your" and "their" for the
+ * owner, the players' names for a coach or a share-link viewer, on whose
+ * screen "your" would mean them.
+ */
+export interface PlacementCaptionVoice {
+  your: string;
+  their: string;
+}
+
+export const OWNER_CAPTION_VOICE: PlacementCaptionVoice = {
+  your: "your",
+  their: "their",
+};
+
 export function placementAggregateFilterCopy(
   filter: PlacementAggregateFilter,
+  voice: PlacementCaptionVoice = OWNER_CAPTION_VOICE,
 ): string {
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   switch (filter) {
     case "myServes":
-      return "Where your serves landed.";
+      return `Where ${voice.your} serves landed.`;
     case "theirServes":
-      return "Where their serves landed.";
+      return `Where ${voice.their} serves landed.`;
     case "myRally":
-      return "Your non-serve shots that bounced on their side.";
+      return `${cap(voice.your)} non-serve shots that bounced on ${voice.their} side.`;
     case "theirRally":
-      return "Their non-serve shots that bounced on your side.";
+      return `${cap(voice.their)} non-serve shots that bounced on ${voice.your} side.`;
   }
 }
 
@@ -100,8 +117,9 @@ export function placementAggregateCaption(
   filter: PlacementAggregateFilter,
   landingCount: number,
   pointCount: number,
+  voice: PlacementCaptionVoice = OWNER_CAPTION_VOICE,
 ): string {
-  const what = placementAggregateFilterCopy(filter).replace(/\.$/, "");
+  const what = placementAggregateFilterCopy(filter, voice).replace(/\.$/, "");
   if (landingCount <= 0) return what;
   const landings = `${landingCount} ${
     landingCount === 1 ? "landing" : "landings"

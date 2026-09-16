@@ -35,6 +35,23 @@ export interface StorageState {
   entitlement_bytes?: number;
   entitlement_expires_at?: string | null;
   held_bytes?: number;
+  // When the buckets were last measured for this account, and what they
+  // held by kind (lib/storage/inventory.ts names the keys). Null until
+  // the first nightly measurement has run.
+  snapshot_at?: string | null;
+  breakdown?: Partial<Record<string, number>>;
+}
+
+/**
+ * The storage rule for everything that is not a match upload: voice
+ * notes, sketches, photos, re-cut clips, coach files. Queue and daily
+ * limits are match-upload anti-spam and do not apply to a 200 KB sketch.
+ */
+export const MEDIA_UPLOAD_RULES = { skipQueue: true, skipDaily: true } as const;
+
+/** 413 when the account is full; 503 when the allowance could not be read. */
+export function refusalStatus(message: string): number {
+  return message === QUOTA_ERRORS.unavailable ? 503 : 413;
 }
 
 /**

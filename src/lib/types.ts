@@ -175,6 +175,11 @@ export interface Match {
   // Authority for first_server. A user value is never replaced by worker
   // reprocessing; detected values may be refreshed from new evidence.
   first_server_source: "user" | "detected" | null;
+  /** Monotonic owner-score command clock. Optional only for projections
+   * compiled against the additive migration before it reaches a database. */
+  score_revision?: number;
+  score_projection_revision?: number;
+  score_projection_status?: "current" | "error";
   // Versioned, summarized RTMPose evidence. Raw frames/keypoints never land
   // here; owner server/game overrides remain separate and authoritative.
   match_structure: MatchStructureEvidence | null;

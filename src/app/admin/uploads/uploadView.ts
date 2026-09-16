@@ -228,6 +228,45 @@ export interface UploadDetail {
   points: AdminUploadPoint[];
 }
 
+export interface ScoreProjectionDiagnostic {
+  score_revision: number;
+  projection_revision: number;
+  status: "empty" | "current" | "stale" | "error";
+  visible_points: number;
+  answered_points: number;
+  skipped_points: number;
+  last_action: string | null;
+  last_result_revision: number | null;
+  projection_error_code: string | null;
+}
+
+/** Compact admin-only wording for the existing processing facts grid. */
+export function scoreProjectionReading(
+  diagnostic: ScoreProjectionDiagnostic | null
+): { value: string; detail: string | null } | null {
+  if (!diagnostic) return null;
+  const scoreRevision = Number(diagnostic.score_revision);
+  const projectionRevision = Number(diagnostic.projection_revision);
+  const status = diagnostic.status[0].toUpperCase() + diagnostic.status.slice(1);
+  const value =
+    scoreRevision === projectionRevision
+      ? `${status} · revision ${projectionRevision}`
+      : `${status} · revision ${projectionRevision} of ${scoreRevision}`;
+  const code = diagnostic.projection_error_code ?? diagnostic.last_action;
+  const readableCode = code?.replaceAll("_", " ") ?? null;
+  const detail =
+    diagnostic.status === "error"
+      ? readableCode
+      : [
+          `${Number(diagnostic.visible_points)} visible`,
+          `${Number(diagnostic.answered_points)} answered`,
+          readableCode ? `last ${readableCode}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null;
+  return { value, detail };
+}
+
 /* -------------------------------------------------------------------------
  * The table
  * ---------------------------------------------------------------------- */

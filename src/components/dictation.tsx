@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 
 /**
  * Speaking instead of typing, in one place.
@@ -27,6 +28,9 @@ export function useDictation({
   onError: (line: string) => void;
 }) {
   const [state, setState] = useState<DictationState>("idle");
+  // The words go to Deepgram, so the AI features sheet comes before the
+  // microphone does: nobody records a minute to be asked afterwards.
+  const { ensure } = useAiConsent();
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const discardRef = useRef(false);
@@ -37,6 +41,7 @@ export function useDictation({
 
   const start = useCallback(async () => {
     discardRef.current = false;
+    if (!(await ensure())) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
@@ -59,10 +64,12 @@ export function useDictation({
           const form = new FormData();
           form.append("audio", blob, "journal.webm");
           form.append("persist", "false");
-          const res = await fetch("/api/transcribe", {
+          const res = await fetchWithAiConsent(ensure, "/api/transcribe", {
             method: "POST",
             body: form,
           });
+          // Not now: the recording is dropped without an error line.
+          if (!res) return;
           const data = res.ok ? await res.json() : null;
           const words = String(data?.transcript ?? "").trim();
           if (!words) throw new Error("empty");
@@ -80,7 +87,7 @@ export function useDictation({
       // the person can only act on one of them.
       onError("Microphone unavailable. Check the browser's permission.");
     }
-  }, [onError, onText]);
+  }, [ensure, onError, onText]);
 
   const stop = useCallback(() => {
     recorderRef.current?.stop();

@@ -12,6 +12,7 @@ What is in it, so you can go straight to the part you need:
 | Section | When you need it |
 | --- | --- |
 | Talking to Adil | Every reply. He knows the product completely and the code barely at all. |
+| Reports and pages | Any artifact. Three sentences at the top, evidence below it, and the evidence is visual — never walls of prose. |
 | Judgement | Before agreeing, before objecting, before reversing a position. |
 | Think in surfaces | Any change. There are four surfaces and they drift apart quietly. |
 | One processing pipeline, two execution locations | Anything touching the worker or the models. |
@@ -22,6 +23,7 @@ What is in it, so you can go straight to the part you need:
 | Placement maps | Where a ball landed, and what has already been measured dead. |
 | Ground truth: score, winner and who served | What Adil's own scoring proves, and what it cannot. |
 | **Reconstructing production's cards** | **Any experiment scored against the scorekeeper — how to read his cards, his taps and his ends back out.** |
+| **Canonical scored-match state** | **Any score, serve, game, point-order, manual-cutter timing or structural-edit change. Includes the shadow projection and parity fixture.** |
 | What we refuse to process | The two gates before anything expensive runs. |
 | Support email | Anything touching mail, in or out. |
 | What the public can read | Anything touching RLS or `app_config`. |
@@ -35,6 +37,13 @@ Two things that catch every new session, both covered in full there:
 - **State what you verified and what you did not.** "Typecheck passed" is
   the sentence most often used to skip a real check, so it is the one that
   must never be wrong.
+- **Manual-cutter `t0`/`t1` are source-clock human ground truth.** Preserve
+  their `manual_cutter` provenance and reaction metadata; read the canonical
+  scored-match section in `CLAUDE.md` before changing them.
+- **Canonical commands default off and are account-scoped.** Web and iOS may
+  fall back only on `not_enabled`; workers must satisfy the sealed database
+  contract before claiming work. Read the canonical section and the current
+  release note before touching scoring or worker publication.
 
 ## Required design and copy checkpoint
 
@@ -74,3 +83,31 @@ Approved implementation references: `src/components/AllowanceRequest.tsx`,
 `AllowanceRequestRow.swift` / `AllowanceRecoveryView.swift` components.
 The local preview URL is temporary; these committed sources and the
 standards above are the durable reference for future tasks.
+
+## Mandatory visual-reference gate
+
+This gate applies to every user-visible UI change. It is a release
+requirement, not a suggestion, and it still applies when a shared design
+component appears close enough.
+
+1. Before editing, name the exact shipped screen or component that will be
+   used as the visual reference. Inspect its rendered state and its source.
+2. If Adil names or shows a reference screen, that specific screen outranks
+   a generic design-system component. Reproduce its hierarchy, spacing,
+   alignment, sizing, container treatment and button treatment. Do not
+   substitute a different existing pattern merely because it is reusable.
+3. Before touching SwiftUI, read `ios/AGENTS.override.md`. Before touching
+   web UI, read `src/AGENTS.override.md`. Root-started tasks do not discover
+   nested instruction files automatically, so this explicit read is
+   mandatory.
+4. If no shipped analogue exists, or two plausible references conflict,
+   stop and ask Adil which direction to use before inventing a pattern.
+5. Render every changed state on every affected surface. For web, verify
+   desktop and 393×660 mobile. For native iOS, use the simulator; a web
+   screenshot does not count as native verification.
+6. Show Adil screenshots of the rendered change and obtain approval before
+   publishing web UI or uploading an iOS build, unless he explicitly waives
+   screenshot review for that change.
+7. Tests that search source code for a style or component name do not prove
+   visual consistency. Use rendered or snapshot coverage where practical,
+   and always perform the screenshot comparison above.

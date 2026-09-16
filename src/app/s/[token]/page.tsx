@@ -14,20 +14,18 @@ import { Logo } from "@/components/Logo";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
 import { clipPad } from "@/app/match/[id]/clipEdit";
 import { skipSpans } from "@/app/match/[id]/playhead";
-import { computeMatchAnalysis } from "@/app/match/[id]/matchAnalysis";
-import { computeMatchStats } from "@/app/match/[id]/matchStats";
 import { computeServing } from "@/app/match/[id]/serving";
 import {
   collectServePlacementObservations,
   collectTrustedPlacementObservations,
   trustedPlacementPointCount,
 } from "@/lib/placement/placementAggregate";
+import { slimPlacementForShare } from "@/lib/placement/sharePlacement";
 import type { MapLabels } from "@/app/match/[id]/PlacementMap";
 import type { Point } from "@/lib/types";
 import { ShareView } from "./ShareView";
 import { ShareResult } from "./ShareResult";
-import { ShareStats } from "./ShareStats";
-import { SharePlacement } from "./SharePlacement";
+import { ShareAnalysis } from "./ShareAnalysis";
 import { StarredView, type StarredClip } from "./StarredView";
 import { ShareEntry } from "./ShareEntry";
 import { LessonRecapView } from "./LessonRecapView";
@@ -119,6 +117,19 @@ const resolveHighlightTimeline = cache(
   },
 );
 
+// The match's clip pads (139): the player's skips and the deck's point
+// clock both read them. Null when the function answers nothing, and null
+// means the defaults, as before 139.
+const resolveSharePads = cache(
+  async (token: string): Promise<{ pre: number; post: number } | null> => {
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("resolve_share_clip_pads", {
+      p_token: token,
+    });
+    return (data ?? null) as { pre: number; post: number } | null;
+  }
+);
+
 // The dead footage a MATCH link's player jumps: the deleted cards'
 // boundaries (139) plus the match's clip pads, folded together with the
 // visible points through playhead.skipSpans. Either call failing answers
@@ -130,11 +141,11 @@ const resolveShareSkips = cache(
     visible: Point[]
   ): Promise<{ start: number; end: number }[]> => {
     const supabase = await createClient();
-    const [removedRes, padsRes, tapEnd, rallyOn, rallyBuffer,
+    const [removedRes, pads, tapEnd, rallyOn, rallyBuffer,
            rallyTightBuffer] =
       await Promise.all([
         supabase.rpc("resolve_share_removed", { p_token: token }),
-        supabase.rpc("resolve_share_clip_pads", { p_token: token }),
+        resolveSharePads(token),
         getTapEndPlayback(),
         getUnscoredRallyEnd(),
         getUnscoredRallyEndBufferS(),
@@ -167,10 +178,7 @@ const resolveShareSkips = cache(
           scored_at_cut_s: null,
         }) as unknown as Point
     );
-    const pad = clipPad(
-      null,
-      (padsRes.data ?? null) as { pre: number; post: number } | null
-    );
+    const pad = clipPad(null, pads);
     const rows = [...visible, ...removed].sort(
       (a, b) =>
         Number(a.cut_t0 ?? Number.POSITIVE_INFINITY) -
@@ -338,88 +346,28 @@ function LinkOff() {
   );
 }
 
+
 /**
- * The placement maps, fetched and reduced on the server.
- *
- * Its own async component, awaited inline. It was briefly behind a
- * Suspense boundary — the placement column is hundreds of kilobytes of
- * JSON and the video has no reason to wait for it — but the streamed
- * content never got swapped out of React's hidden staging div, so the
- * maps rendered into a `<div hidden>` and were never seen. Not worth
- * chasing: the whole request measures ~160ms WITH this fetch in it,
- * because the heavy part never crosses the wire to the browser. If the
- * fetch ever does become the slow half, stream it then and verify the
- * swap actually happens.
+ * Every visible point's placement, reduced to what the deck reads
+ * (slimPlacementForShare): the full record is 400 to 700 kB a match and
+ * this is a page a stranger opens on a phone. Keyed by point id; an empty
+ * map when the link has no placement to show.
  */
-async function PlacementSection({
-  token,
-  points,
-  userSide,
-  firstServer,
-  labels,
-}: {
-  token: string;
-  points: Point[];
-  userSide: "near" | "far" | null;
-  firstServer: "user" | "opponent" | null;
-  labels: MapLabels;
-}) {
-  const supabase = await createClient();
-  const { data } = await supabase.rpc("resolve_share_placement", {
-    p_token: token,
-  });
-  const rows = (data ?? []) as ResolvedSharePlacement[];
-  if (rows.length === 0) return null;
-
-  const byId = new Map(rows.map((r) => [r.id, r.placement]));
-  const withPlacement = points.map((p) => ({
-    ...p,
-    placement: byId.get(p.id) ?? null,
-  }));
-
-  // Players change ends every game, so the user's physical side flips on
-  // odd games — the maps are wrong without this. Same walk MatchView does.
-  const score = computeMatchScore(withPlacement);
-  const gameIndexByPoint = new Map<string, number>();
-  let game = 0;
-  for (const p of withPlacement) {
-    gameIndexByPoint.set(p.id, game);
-    if (score.boundaryAfter.has(p.id)) game += 1;
-  }
-
-  const serving = computeServing(withPlacement, firstServer);
-  // The same switch the owner's match page reads (132), so one match
-  // cannot show serves here and every landing there.
-  const servesOnly = await getPlacementServesOnly();
-  const observations = (
-    servesOnly
-      ? collectServePlacementObservations
-      : collectTrustedPlacementObservations
-  )({
-    points: withPlacement,
-    userSide,
-    gameIndexByPoint,
-    serving,
-  });
-  // Too little to draw is not the same as nothing to draw, and on a public
-  // page it looks the same as broken: a table with two dots on it reads as
-  // a feature that failed, not as a match the vision could not follow.
-  // Three is the floor the aggregate's own `sparse` check uses, so the two
-  // surfaces agree about what counts as too little. Matches whose
-  // calibration was poor simply have no maps section here.
-  const mappedPoints = trustedPlacementPointCount(observations);
-  if (mappedPoints < 3) return null;
-
-  return (
-    <SharePlacement
-      observations={observations}
-      mappedPoints={mappedPoints}
-      totalPoints={points.length}
-      labels={labels}
-      servesOnly={servesOnly}
-    />
-  );
-}
+const resolveSharePlacement = cache(
+  async (
+    token: string,
+    servesOnly: boolean,
+  ): Promise<Map<string, Point["placement"]>> => {
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("resolve_share_placement", {
+      p_token: token,
+    });
+    const rows = (data ?? []) as ResolvedSharePlacement[];
+    return new Map(
+      rows.map((r) => [r.id, slimPlacementForShare(r.placement, servesOnly)]),
+    );
+  },
+);
 
 export default async function SharePage({
   params,
@@ -588,19 +536,47 @@ export default async function SharePage({
   // The scored half of the page, computed here rather than in the browser:
   // MatchScore carries a Map and a Set, neither of which survives the
   // server-to-client boundary, and none of this needs to be interactive.
-  const asPoints = sharePointsAsPoints(points, link.match_id);
-  const deadSpans = isMatch ? await resolveShareSkips(token, asPoints) : [];
   const scored =
     (isMatch || isHighlights) &&
     link.show_score &&
     points.some((p) => !p.is_let && p.confirmed_winner !== null);
-  const score = scored ? computeMatchScore(asPoints) : null;
-  const serving = scored ? computeServing(asPoints, link.first_server) : null;
-  const stats =
-    score && serving ? computeMatchStats(asPoints, serving, score) : null;
-  const analysis = serving ? computeMatchAnalysis(asPoints, serving) : null;
   const showMaps =
     scored && link.placement_status === "ready" && !link.placement_flagged;
+  // The same switch the owner's match page reads (132), so one match
+  // cannot show serves here and every landing there.
+  const servesOnly = showMaps ? await getPlacementServesOnly() : true;
+  const asPoints = sharePointsAsPoints(
+    points,
+    link.match_id,
+    showMaps ? await resolveSharePlacement(token, servesOnly) : undefined,
+  );
+  const deadSpans = isMatch ? await resolveShareSkips(token, asPoints) : [];
+  const score = scored ? computeMatchScore(asPoints) : null;
+  // Too little to draw is not the same as nothing to draw, and on a public
+  // page it looks the same as broken: a table with two dots on it reads as
+  // a feature that failed, not as a match the vision could not follow.
+  // Three is the floor the aggregate's own `sparse` check uses, so the two
+  // surfaces agree about what counts as too little. Matches whose
+  // calibration was poor simply have no maps here.
+  const placementTrusted = showMaps && (() => {
+    const gameIndexByPoint = new Map<string, number>();
+    let game = 0;
+    for (const p of asPoints) {
+      gameIndexByPoint.set(p.id, game);
+      if (score!.boundaryAfter.has(p.id)) game += 1;
+    }
+    const observations = (
+      servesOnly
+        ? collectServePlacementObservations
+        : collectTrustedPlacementObservations
+    )({
+      points: asPoints,
+      userSide: link.user_side,
+      gameIndexByPoint,
+      serving: computeServing(asPoints, link.first_server),
+    });
+    return trustedPlacementPointCount(observations) >= 3;
+  })();
   // near/far are the neutral fallbacks the maps use when a side has no
   // name of its own; here the two players are always known by then.
   const mapLabels = {
@@ -702,22 +678,18 @@ export default async function SharePage({
             />
           )}
 
-          {stats && analysis && (
-            <ShareStats
-              stats={stats}
-              momentum={analysis.momentum}
-              you={you}
-              them={them}
-            />
-          )}
-
-          {showMaps && (
-            <PlacementSection
-              token={token}
+          {/* The match analysis deck, read-only: the owner's own cards,
+              minus the two built on notes the owner wrote about
+              themselves, which are never in the payload. */}
+          {scored && (
+            <ShareAnalysis
               points={asPoints}
-              userSide={link.user_side}
               firstServer={link.first_server}
+              userSide={link.user_side}
               labels={mapLabels}
+              servesOnly={servesOnly}
+              pads={await resolveSharePads(token)}
+              placementTrusted={placementTrusted}
             />
           )}
 

@@ -297,8 +297,10 @@ def upload_failed_message(source: str, safe_reason: str) -> EmailMessage:
 
 def hand_cut_failed_message(match_url: str, safe_reason: str) -> EmailMessage:
     return EmailMessage(
-        template_id="match.hand-cut-failed", template_version=1, category="match", audience="player",
-        subject="We couldn't finish cutting your match", preheader="Your marks are saved. Open the match to send them again.",
+        template_id="match.hand-cut-failed", template_version=1,
+        category="match", audience="player",
+        subject="We couldn't finish cutting your match",
+        preheader="Your marks are saved. Open the match to send them again.",
         heading="This match couldn't be cut",
         blocks=[
             {"type": "paragraph", "text": safe_reason},

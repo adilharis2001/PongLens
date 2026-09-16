@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { displayNameError, normalizeDisplayName } from "@/lib/auth/profile";
@@ -11,12 +12,18 @@ import {
   signupSourceOption,
   type SignupSource,
 } from "@/lib/auth/signupSource";
+import { isUnderAge, minimumAgeForCountry } from "@/lib/consent";
 import { createClient } from "@/lib/supabase/client";
 import { setWorkspace } from "@/lib/workspace";
 
 /**
  * First-login setup, cut to what actually changes something:
  *
+ *   start  — birth month and year plus the terms, once, for any account
+ *            whose terms_accepted_at is still null. Under the minimum
+ *            age (13, 16 in the EEA) the flow stops here, signs out and
+ *            removes the empty account. First for everyone, ahead of the
+ *            role card, and the coach auto-finish waits on it.
  *   name   — only when the account has none (email sign-ins; Google
  *            arrives with one).
  *   source — how did you hear about us. Brand-new accounts only, and a
@@ -111,6 +118,33 @@ const LEVELS: { value: Level; label: string; blurb: string }[] = [
   },
 ];
 
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** This year down to 1920. Nothing is pre-selected: a wheel that starts
+ *  on a plausible year is a tap away from a wrong age either way. */
+const YEARS = (() => {
+  const current = new Date().getUTCFullYear();
+  const years: number[] = [];
+  for (let y = current; y >= 1920; y -= 1) years.push(y);
+  return years;
+})();
+
+const FIELD_CLASS =
+  "w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none md:py-3.5 md:text-base focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60";
+
 function Choice({
   selected,
   onClick,
@@ -127,7 +161,7 @@ function Choice({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`relative rounded-xl border px-3 py-3 text-sm font-medium transition-colors ${
+      className={`relative rounded-xl border px-3 py-3 text-sm font-medium transition-colors md:py-3.5 md:text-base ${
         selected
           ? "border-cyan-glow/60 bg-cyan-glow/10 text-white"
           : "border-edge bg-surface-2/40 text-zinc-300 hover:border-cyan-glow/40"
@@ -135,7 +169,7 @@ function Choice({
     >
       {children}
       {hint && (
-        <span className="mt-1 block text-[10px] font-normal leading-tight text-cyan-glow/80">
+        <span className="mt-1 block text-[10px] font-normal leading-tight md:text-xs text-cyan-glow/80">
           {hint}
         </span>
       )}
@@ -144,11 +178,20 @@ function Choice({
 }
 
 export function OnboardingFlow({
+  needsTerms,
+  country,
+  termsVersion,
   needsName,
   isCoach,
   isNew,
   next,
 }: {
+  /** player_profiles.terms_accepted_at is null: show the start screen. */
+  needsTerms: boolean;
+  /** ISO country from the request, or null; decides the age threshold. */
+  country: string | null;
+  /** Stamped alongside terms_accepted_at so a bump can re-prompt. */
+  termsVersion: string;
   needsName: boolean;
   isCoach: boolean;
   /** No player_profiles row yet. The role question keys on this, not on
@@ -168,6 +211,13 @@ export function OnboardingFlow({
   const [step, setStep] = useState<"name" | "source" | "play">(
     needsName ? "name" : isNew && !isCoach ? "source" : "play"
   );
+  // The start screen. `termsDone` flips on "Agree and continue"; until
+  // then nothing else renders and the coach auto-finish stays quiet.
+  const [termsDone, setTermsDone] = useState(!needsTerms);
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthYear, setBirthYear] = useState("");
+  // The threshold the account missed, once known. Null means not under.
+  const [underAge, setUnderAge] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [handedness, setHandedness] = useState<Handedness | null>(null);
   const [grip, setGrip] = useState<Grip | null>(null);
@@ -258,6 +308,92 @@ export function OnboardingFlow({
     router.refresh();
   };
 
+  /** "Agree and continue". Checks the age first and writes nothing for
+   *  an account that is under it. Otherwise the birthdate goes to its
+   *  owner-only table and the terms stamp goes on the profile row, which
+   *  finish() will fill in later (upsert merges; setup_done_at is left
+   *  alone here so the playing questions are still offered). */
+  const acceptTerms = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const month = Number(birthMonth);
+    const year = Number(birthYear);
+    if (!month || !year || saving) return;
+    if (isUnderAge(year, month, country)) {
+      setUnderAge(minimumAgeForCountry(country));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
+    const now = new Date().toISOString();
+    const { error: birthError } = await supabase
+      .from("player_birthdates")
+      .upsert(
+        { user_id: user.id, birth_year: year, birth_month: month, updated_at: now },
+        { onConflict: "user_id" }
+      );
+    if (birthError) {
+      setSaving(false);
+      setError("We couldn't save that. Try again.");
+      return;
+    }
+    const { error: termsError } = await supabase
+      .from("player_profiles")
+      .upsert(
+        {
+          user_id: user.id,
+          terms_accepted_at: now,
+          terms_version: termsVersion,
+          updated_at: now,
+        },
+        { onConflict: "user_id" }
+      );
+    setSaving(false);
+    if (termsError) {
+      setError("We couldn't save that. Try again.");
+      return;
+    }
+    setTermsDone(true);
+  };
+
+  /** The under-age exit. An account with no matches is removed through
+   *  the same route Account uses; anything else, or a failure, still
+   *  signs out. */
+  const signOutUnderAge = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/delete-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview" }),
+      });
+      const preview = res.ok
+        ? ((await res.json()) as { matches?: number })
+        : null;
+      if (preview && (preview.matches ?? 0) === 0) {
+        await fetch("/api/delete-account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "delete", confirm: "DELETE" }),
+        });
+      }
+    } catch {
+      // The sign-out below is what matters; a failed removal is retried
+      // the next time the account is signed in and reaches this screen.
+    }
+    await createClient().auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  };
+
   const submitName = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const validationError = displayNameError(name);
@@ -302,13 +438,109 @@ export function OnboardingFlow({
 
   // A coach who arrived with a name (Google) has nothing to answer:
   // write the all-null row and move on without showing player questions.
+  // Not before the start screen is done, though: the terms come first
+  // for everyone.
   useEffect(() => {
-    if (isCoach && !needsName && !autoFinished.current) {
+    if (termsDone && isCoach && !needsName && !autoFinished.current) {
       autoFinished.current = true;
       void finish({}, next, false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCoach, needsName]);
+  }, [termsDone, isCoach, needsName]);
+
+  if (underAge != null) {
+    return (
+      <>
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
+          PongLens is for players {underAge} and over.
+        </h1>
+        <p className="mt-4 text-center text-sm text-zinc-400 md:text-base">
+          A parent or guardian can create an account and add you.
+        </p>
+        <button
+          type="button"
+          onClick={() => void signOutUnderAge()}
+          disabled={saving}
+          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? "Signing out…" : "Sign out"}
+        </button>
+      </>
+    );
+  }
+
+  if (!termsDone) {
+    return (
+      <>
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
+          When were you born?
+        </h1>
+        <form onSubmit={acceptTerms} className="mt-7">
+          <div className="grid grid-cols-2 gap-2 md:gap-3">
+            <select
+              aria-label="Month"
+              required
+              disabled={saving}
+              value={birthMonth}
+              onChange={(event) => setBirthMonth(event.target.value)}
+              className={`${FIELD_CLASS} ${birthMonth ? "" : "text-zinc-500"}`}
+            >
+              <option value="">Month</option>
+              {MONTHS.map((label, index) => (
+                <option key={label} value={index + 1}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Year"
+              required
+              disabled={saving}
+              value={birthYear}
+              onChange={(event) => setBirthYear(event.target.value)}
+              className={`${FIELD_CLASS} ${birthYear ? "" : "text-zinc-500"}`}
+            >
+              <option value="">Year</option>
+              {YEARS.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="mt-4 text-center text-xs leading-relaxed text-zinc-400 md:text-sm">
+            By continuing you agree to the{" "}
+            <Link
+              href="/terms"
+              className="text-zinc-300 underline underline-offset-2 hover:text-cyan-glow"
+            >
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link
+              href="/privacy"
+              className="text-zinc-300 underline underline-offset-2 hover:text-cyan-glow"
+            >
+              Privacy Policy
+            </Link>
+            .
+          </p>
+          {error && (
+            <p role="alert" className="mt-3 text-center text-xs text-red-400">
+              {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={!birthMonth || !birthYear || saving}
+            className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Agree and continue"}
+          </button>
+        </form>
+      </>
+    );
+  }
 
   if (isCoach && !needsName) {
     return (
@@ -338,7 +570,7 @@ export function OnboardingFlow({
     };
     return (
       <>
-        <h1 className="text-center text-xl font-semibold sm:text-2xl">
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
           How will you use PongLens?
         </h1>
         <div className="mt-7 space-y-3">
@@ -373,7 +605,7 @@ export function OnboardingFlow({
           type="button"
           onClick={() => void continueFromRole()}
           disabled={!role || saving}
-          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-40"
         >
           {saving ? "Saving…" : "Continue"}
         </button>
@@ -384,10 +616,10 @@ export function OnboardingFlow({
   if (step === "name") {
     return (
       <>
-        <h1 className="text-center text-xl font-semibold">
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
           What should we call you?
         </h1>
-        <p className="mt-2 text-center text-sm text-zinc-400">
+        <p className="mt-2 text-center text-sm text-zinc-400 md:text-base">
           We&apos;ll use this across PongLens.
         </p>
         <form onSubmit={submitName} className="mt-7">
@@ -402,7 +634,7 @@ export function OnboardingFlow({
             onChange={(event) => setName(event.target.value)}
             placeholder="Alex"
             aria-label="Your name"
-            className="w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none md:py-3.5 md:text-base placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60"
           />
           {error && (
             <p role="alert" className="mt-3 text-center text-xs text-red-400">
@@ -412,7 +644,7 @@ export function OnboardingFlow({
           <button
             type="submit"
             disabled={saving}
-            className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+            className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Continue"}
           </button>
@@ -432,7 +664,7 @@ export function OnboardingFlow({
     };
     return (
       <>
-        <h1 className="text-center text-xl font-semibold">
+        <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">
           How did you hear about us?
         </h1>
 
@@ -462,7 +694,7 @@ export function OnboardingFlow({
           <div className="mt-4">
             <label
               htmlFor="signup-source-detail"
-              className="block text-sm font-medium text-zinc-200"
+              className="block text-sm font-medium text-zinc-200 md:text-base"
             >
               {picked.detailLabel}
             </label>
@@ -479,7 +711,7 @@ export function OnboardingFlow({
               value={sourceDetail}
               onChange={(event) => setSourceDetail(event.target.value)}
               placeholder={picked.detailPlaceholder ?? ""}
-              className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none md:py-3.5 md:text-base placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60"
             />
           </div>
         )}
@@ -496,7 +728,7 @@ export function OnboardingFlow({
           type="button"
           onClick={continueFromSource}
           disabled={saving}
-          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-60"
         >
           {saving ? "Saving…" : source ? "Continue" : "Skip for now"}
         </button>
@@ -506,10 +738,10 @@ export function OnboardingFlow({
 
   return (
     <>
-      <h1 className="text-center text-xl font-semibold">How do you play?</h1>
+      <h1 className="text-center text-xl font-semibold sm:text-2xl md:text-3xl">How do you play?</h1>
 
-      <p className="mt-6 text-sm font-medium text-zinc-200">Handedness</p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <p className="mt-6 text-sm font-medium text-zinc-200 md:text-base">Handedness</p>
+      <div className="mt-2 grid grid-cols-2 gap-2 md:gap-3">
         <Choice
           selected={handedness === "right"}
           onClick={() => setHandedness("right")}
@@ -524,8 +756,8 @@ export function OnboardingFlow({
         </Choice>
       </div>
 
-      <p className="mt-5 text-sm font-medium text-zinc-200">Grip</p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <p className="mt-5 text-sm font-medium text-zinc-200 md:text-base">Grip</p>
+      <div className="mt-2 grid grid-cols-2 gap-2 md:gap-3">
         <Choice
           selected={grip === "shakehand"}
           onClick={() => setGrip("shakehand")}
@@ -537,10 +769,10 @@ export function OnboardingFlow({
         </Choice>
       </div>
 
-      <p className="mt-5 text-sm font-medium text-zinc-200">Your level</p>
+      <p className="mt-5 text-sm font-medium text-zinc-200 md:text-base">Your level</p>
       {/* The rungs overlap by design — an advanced player who turns out
           for a league is both. One line settles it. */}
-      <p className="mt-0.5 text-xs text-zinc-500">
+      <p className="mt-0.5 text-xs text-zinc-500 md:text-sm">
         Pick the highest one that&apos;s true.
       </p>
       {/* grid, not space-y: a button is inline-block, so a plain stack
@@ -554,7 +786,7 @@ export function OnboardingFlow({
             onClick={() => setLevel(l.value)}
           >
             <span className="block text-left">{l.label}</span>
-            <span className="mt-0.5 block text-left text-xs font-normal text-zinc-400">
+            <span className="mt-0.5 block text-left text-xs font-normal text-zinc-400 md:text-sm">
               {l.blurb}
             </span>
           </Choice>
@@ -575,7 +807,7 @@ export function OnboardingFlow({
         type="button"
         onClick={() => void finish({ handedness, grip, level })}
         disabled={saving}
-        className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+        className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink md:py-3.5 md:text-base disabled:cursor-not-allowed disabled:opacity-60"
       >
         {saving
           ? "Saving…"
@@ -583,7 +815,7 @@ export function OnboardingFlow({
             ? "Done"
             : "Skip for now"}
       </button>
-      <p className="mt-3 text-center text-xs text-zinc-500">
+      <p className="mt-3 text-center text-xs text-zinc-500 md:text-sm">
         You can change any of this later in Account.
       </p>
     </>
@@ -617,14 +849,14 @@ function RoleCard({
       type="button"
       onClick={onClick}
       aria-pressed={selected}
-      className={`flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition-all ${
+      className={`flex w-full items-center gap-4 rounded-2xl border p-4 text-left md:p-5 transition-all ${
         selected
           ? "border-cyan-glow/70 bg-cyan-glow/[0.08] shadow-[0_0_28px_rgba(34,211,238,0.18)]"
           : "border-edge bg-surface-2/60 hover:border-zinc-500"
       }`}
     >
       <span
-        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${
+        className={`flex h-11 w-11 shrink-0 items-center md:h-12 md:w-12 justify-center rounded-full transition-colors ${
           selected ? "bg-cyan-glow text-ink" : "bg-cyan-glow/10 text-cyan-glow"
         }`}
       >
@@ -642,8 +874,8 @@ function RoleCard({
         </svg>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-base font-semibold text-zinc-100">{title}</span>
-        <span className="mt-0.5 block text-sm leading-snug text-zinc-400">{blurb}</span>
+        <span className="block text-base font-semibold text-zinc-100 md:text-lg">{title}</span>
+        <span className="mt-0.5 block text-sm leading-snug text-zinc-400 md:text-base">{blurb}</span>
       </span>
       <svg
         viewBox="0 0 24 24"

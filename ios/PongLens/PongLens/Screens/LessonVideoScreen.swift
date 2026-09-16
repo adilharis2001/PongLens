@@ -46,6 +46,11 @@ struct LessonVideoScreen: View {
         playerImport ? .videoPlayer : .videoCoach
     }
 
+    /// The first-upload checkbox (new accounts only). Both import buttons
+    /// wait for it; ticked stays ticked for this visit.
+    @State private var uploadTicked = false
+    private var uploadAllowed: Bool { !UploadConsent.shared.needed || uploadTicked }
+
     private var uploads: [QueuedLessonVideo] {
         queue.items.filter {
             guard $0.ownerId == app.userId, $0.state != "done" else { return false }
@@ -71,6 +76,8 @@ struct LessonVideoScreen: View {
                         .foregroundStyle(PL.textBody)
 
                     importControls
+
+                    StorageUsageLine()
 
                     if let error {
                         Text(
@@ -234,19 +241,22 @@ struct LessonVideoScreen: View {
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
                     .lineSpacing(4)
+                if UploadConsent.shared.needed || uploadTicked {
+                    UploadConfirmationRow(ticked: $uploadTicked)
+                }
                 HStack(spacing: 12) {
                     Button { beginImport(); photosOpen = true } label: {
                         Label("Photos", systemImage: "photo.on.rectangle")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PLPrimaryButtonStyle())
-                    .disabled(importing || !answered)
+                    .disabled(importing || !answered || !uploadAllowed)
                     Button { beginImport(); filesOpen = true } label: {
                         Label("Files", systemImage: "folder")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PLSecondaryButtonStyle())
-                    .disabled(importing || !answered)
+                    .disabled(importing || !answered || !uploadAllowed)
                 }
                 if importing {
                     HStack(spacing: 10) {
@@ -359,6 +369,12 @@ struct LessonVideoScreen: View {
                 do {
                     guard let owner = importOwner, app.userId == owner else {
                         throw LessonVideoLocalError.message("Sign back in before importing this video.")
+                    }
+                    // The video is transcribed and summarised once it
+                    // lands: permission before the first byte moves.
+                    guard await AiConsent.shared.ensure() else {
+                        try? FileManager.default.removeItem(at: file.url)
+                        return
                     }
                     try await queue.enqueue(
                         copy: file.url, originalName: file.name, ownerId: owner,

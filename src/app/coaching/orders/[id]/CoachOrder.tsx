@@ -21,6 +21,7 @@ import type { Point } from "@/lib/types";
 import { ChatThread } from "@/components/reviews/ChatThread";
 import { deliveryBlocker } from "@/lib/reviews/deliveryGate";
 import { createClient } from "@/lib/supabase/client";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 import { DictateButton } from "@/components/DictateButton";
 import { FindingEditor } from "./FindingEditor";
 import { UpLink } from "@/components/UpLink";
@@ -525,6 +526,8 @@ function Workspace({
    * back text the coach can undo in one press, check hands back a list.
    */
   const [tool, setTool] = useState<"tidy" | "check" | null>(null);
+  // Both tools send the write-up to OpenAI.
+  const { ensure } = useAiConsent();
   const [undoTo, setUndoTo] = useState<ReviewSectionContent[] | null>(null);
   const [toolNote, setToolNote] = useState<string | null>(null);
   const [answered, setAnswered] = useState<
@@ -563,11 +566,12 @@ function Workspace({
     setTool("tidy");
     setToolNote(null);
     try {
-      const res = await fetch("/api/reviews/assist", {
+      const res = await fetchWithAiConsent(ensure, "/api/reviews/assist", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ orderId: detail.id, action: "tidy" }),
       });
+      if (!res) return;
       const data = (await res.json()) as {
         sections?: { key: string; after: string; changed: boolean }[];
         code?: string;
@@ -614,11 +618,12 @@ function Workspace({
     setTool("check");
     setToolNote(null);
     try {
-      const res = await fetch("/api/reviews/assist", {
+      const res = await fetchWithAiConsent(ensure, "/api/reviews/assist", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ orderId: detail.id, action: "check" }),
       });
+      if (!res) return;
       const data = (await res.json()) as {
         answered?: { question: string; covered: boolean }[];
         code?: string;
@@ -1079,7 +1084,13 @@ function AttachmentManager({
   }
 
   async function remove(id: string) {
-    await createClient().from("review_attachments").delete().eq("id", id);
+    // The route removes the file before the row. Deleting the row here
+    // used to leave the file in the bucket and the bytes on the tally.
+    await fetch("/api/review-attachment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "delete", orderId, attachmentId: id }),
+    });
     onChanged();
   }
 

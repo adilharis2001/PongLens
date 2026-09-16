@@ -7,6 +7,56 @@ enum WinnerOrSkip { case user, opponent, skip }
 // The point detail view's write surface — all column-scoped patches,
 // optimistic with rollback, mirroring PointScorecard.tsx's writes.
 extension MatchDetailModel {
+    @discardableResult
+    func saveCanonicalOutcome(
+        _ point: MatchPoint,
+        winner: Winner?,
+        confirmedHow: String?,
+        isLet: Bool,
+        scoredAt: Double? = nil
+    ) async -> Bool {
+        guard let index = points.firstIndex(where: { $0.id == point.id }) else { return false }
+        let before = points[index]
+        points[index].confirmedWinner = winner
+        points[index].confirmedHow = confirmedHow
+        points[index].isLet = isLet
+        points[index].scoredAtCutS = winner == nil ? nil : scoredAt
+        let outcome = winner?.rawValue ?? (isLet ? (confirmedHow ?? "other") : "clear")
+        let result = await canonicalCommand(
+            "set_point_outcome_v2",
+            args: [
+                "p_point_id": .uuid(point.id),
+                "p_outcome": .string(outcome),
+                "p_confirmed_how": confirmedHow.map(CanonicalJSON.string) ?? .null,
+                "p_scored_at_cut_s": winner == nil
+                    ? .null
+                    : (scoredAt.map(CanonicalJSON.number) ?? .null),
+            ]
+        ) {
+            do {
+                try await supa.from("points").update([
+                    "confirmed_winner": winner.map { .string($0.rawValue) } ?? .null,
+                    "confirmed_how": confirmedHow.map(AnyJSON.string) ?? .null,
+                    "is_let": .bool(isLet),
+                ] as [String: AnyJSON])
+                .eq("id", value: point.id.uuidString.lowercased()).execute()
+                return true
+            } catch { return false }
+        }
+        switch result {
+        case .canonical: return true
+        case .legacy(let saved):
+            if !saved { points[index] = before }
+            return saved
+        case .conflict(let snapshot):
+            reconcileCanonical(snapshot)
+            return true
+        case .rejected, .transportError:
+            points[index] = before
+            return false
+        }
+    }
+
     /// Set (or clear, with nil) a point's serve correction.
     ///
     /// set_server_override (migration 100) writes the anchor AND clears
@@ -38,14 +88,30 @@ extension MatchDetailModel {
                 points[i].serverOverride = nil
             }
         }
-        do {
-            _ = try await supa
-                .rpc("set_server_override", params: Params(
+        let result = await canonicalCommand(
+            "set_server_override_v2",
+            args: [
+                "p_point_id": .uuid(point.id),
+                "p_server": side.map { .string($0.rawValue) } ?? .null,
+            ]
+        ) {
+            do {
+                _ = try await supa.rpc("set_server_override", params: Params(
                     p_id: point.id.uuidString.lowercased(),
-                    p_value: side?.rawValue
-                ))
-                .execute()
-        } catch {
+                    p_value: side?.rawValue)).execute()
+                return true
+            } catch { return false }
+        }
+        switch result {
+        case .canonical, .legacy(true): break
+        case .conflict(let snapshot):
+            for (id, was) in restore {
+                if let i = points.firstIndex(where: { $0.id == id }) {
+                    points[i].serverOverride = was
+                }
+            }
+            reconcileCanonical(snapshot)
+        case .legacy(false), .rejected, .transportError:
             for (id, was) in restore {
                 if let i = points.firstIndex(where: { $0.id == id }) {
                     points[i].serverOverride = was
@@ -108,13 +174,8 @@ extension MatchDetailModel {
             ? .skip
             : point.confirmedWinner.map { $0 == .user ? .user : .opponent }
         if next == confirmed {
-            let ok = await patch(point, fields: [
-                "confirmed_winner": .null, "confirmed_how": .null, "is_let": .bool(false),
-            ]) {
-                $0.confirmedWinner = nil
-                $0.confirmedHow = nil
-                $0.isLet = false
-            }
+            let ok = await saveCanonicalOutcome(
+                point, winner: nil, confirmedHow: nil, isLet: false)
             if ok, let current = points.first(where: { $0.id == point.id }) {
                 if current.serveSpin != nil || current.serveSidespin == true || current.serveLength != nil {
                     await clearServeDetail(current)
@@ -126,17 +187,12 @@ extension MatchDetailModel {
             return ok
         }
         let nextHow = next == .skip ? canonicalSkipReason(point.confirmedHow) : ""
-        let ok = await patch(point, fields: [
-            "confirmed_winner": next == .skip
-                ? .null
-                : .string(next == .user ? Winner.user.rawValue : Winner.opponent.rawValue),
-            "confirmed_how": nextHow.isEmpty ? .null : .string(nextHow),
-            "is_let": .bool(next == .skip),
-        ]) {
-            $0.confirmedWinner = next == .skip ? nil : (next == .user ? .user : .opponent)
-            $0.confirmedHow = nextHow.isEmpty ? nil : nextHow
-            $0.isLet = next == .skip
-        }
+        let ok = await saveCanonicalOutcome(
+            point,
+            winner: next == .skip ? nil : (next == .user ? .user : .opponent),
+            confirmedHow: nextHow.isEmpty ? nil : nextHow,
+            isLet: next == .skip,
+            scoredAt: next == .skip ? nil : point.scoredAtCutS)
         if ok, let current = points.first(where: { $0.id == point.id }) {
             if next != .opponent, !(current.lossReasons ?? []).isEmpty {
                 await patch(current, fields: ["loss_reasons": .null]) { $0.lossReasons = nil }
@@ -169,15 +225,8 @@ extension MatchDetailModel {
     /// Skip reasons write confirmed_how on the is_let partition.
     @discardableResult
     func setSkipReason(_ point: MatchPoint, _ value: String?) async -> Bool {
-        await patch(point, fields: [
-            "confirmed_winner": .null,
-            "confirmed_how": value.map { .string($0) } ?? .null,
-            "is_let": .bool(true),
-        ]) {
-            $0.confirmedWinner = nil
-            $0.confirmedHow = value
-            $0.isLet = true
-        }
+        await saveCanonicalOutcome(
+            point, winner: nil, confirmedHow: value, isLet: true)
     }
 
     /// Spin and "No spin"/sidespin are mutually exclusive — the web's
@@ -259,26 +308,52 @@ extension MatchDetailModel {
     /// and stores the answer on the closing point. Passing nil clears it,
     /// which is how tapping the named side again un-names it.
     func setGameWinner(_ point: MatchPoint, _ winner: Winner?) async {
-        await patch(
-            point,
-            fields: ["game_winner_override": winner.map { .string($0.rawValue) } ?? .null]
-        ) {
-            $0.gameWinnerOverride = winner
-        }
+        await saveBoundary(point, boundary: point.gameEndOverride, winner: winner)
     }
 
     /// One button, web semantics: the label names what the tap DOES.
     /// Reopening an end clears the named winner in the same write.
     func setBoundary(_ point: MatchPoint, next: GameEndOverride?) async {
-        var fields: [String: AnyJSON] = [
-            "game_end_override": next.map { .string($0.rawValue) } ?? .null
+        await saveBoundary(
+            point, boundary: next,
+            winner: next == .end ? point.gameWinnerOverride : nil)
+    }
+
+    private func saveBoundary(
+        _ point: MatchPoint,
+        boundary: GameEndOverride?,
+        winner: Winner?
+    ) async {
+        guard let index = points.firstIndex(where: { $0.id == point.id }) else { return }
+        let before = points[index]
+        let fields: [String: AnyJSON] = [
+            "game_end_override": boundary.map { .string($0.rawValue) } ?? .null,
+            "game_winner_override": winner.map { .string($0.rawValue) } ?? .null,
         ]
-        if next != .end {
-            fields["game_winner_override"] = .null
+        points[index].gameEndOverride = boundary
+        points[index].gameWinnerOverride = winner
+        let result = await canonicalCommand(
+            "set_game_boundary_v2",
+            args: [
+                "p_point_id": .uuid(point.id),
+                "p_boundary": boundary.map { .string($0.rawValue) } ?? .null,
+                "p_game_winner": winner.map { .string($0.rawValue) } ?? .null,
+                "p_previous_point_id": .null,
+            ]
+        ) {
+            do {
+                try await supa.from("points").update(fields)
+                    .eq("id", value: point.id.uuidString.lowercased()).execute()
+                return true
+            } catch { return false }
         }
-        await patch(point, fields: fields) {
-            $0.gameEndOverride = next
-            if next != .end { $0.gameWinnerOverride = nil }
+        switch result {
+        case .canonical, .legacy(true): break
+        case .conflict(let snapshot):
+            points[index] = before
+            reconcileCanonical(snapshot)
+        case .legacy(false), .rejected, .transportError:
+            points[index] = before
         }
     }
 

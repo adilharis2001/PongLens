@@ -141,10 +141,11 @@ def backfill_match(conn, match_id: str, dry_run: bool = False) -> dict:
         # is no way to put a source second on the cut clock, and a guess
         # here would stop playback in the wrong place.
         return {"match": match_id, "skipped": "no cut_segments"}
-    offsets, acc = [], 0.0
-    for s0, s1 in segments:
-        offsets.append(acc)
-        acc += s1 - s0
+    from .cut_timeline import segment_offsets
+    try:
+        offsets = segment_offsets(mj)
+    except (TypeError, ValueError):
+        return {"match": match_id, "skipped": "invalid measured cut timeline"}
 
     cur.execute("""select id, idx, t0, t1, placement, rally_end_cut_s
                    from public.points

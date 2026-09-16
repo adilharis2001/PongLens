@@ -130,6 +130,18 @@ final class AppState {
     /// the cushion it left. False on any failure.
     var rallyEndRespectsCard = false
 
+    /// app_config recollect_enabled: the global Recollect switch. Off hides
+    /// the journal tab and the Account row and stops every read of
+    /// recollect_preferences. False unless the value is exactly "true",
+    /// which is also what a failed read answers.
+    var recollectEnabled = false
+
+    /// app_config terms_version and ai_consent_version: stamped on the
+    /// profile by "Agree and continue" and by the AI features sheet.
+    /// Bumping either value in the config re-prompts on both platforms.
+    var termsVersion: String?
+    var aiConsentVersion: String?
+
     /// What the players and the picker pass to Playhead.effectiveEnd.
     var endOptions: EndOptions {
         EndOptions(
@@ -154,6 +166,7 @@ final class AppState {
                 "unscored_rally_end_tight_buffer_s",
                 "game_end_detection",
                 "keep_score_full_card", "rally_end_respects_card",
+                "recollect_enabled", "terms_version", "ai_consent_version",
             ])
             .execute().value
         placementServesOnly = (rows?.first {
@@ -180,6 +193,20 @@ final class AppState {
         rallyEndRespectsCard = rows?.first {
             $0.key == "rally_end_respects_card"
         }?.value == "on"
+        recollectEnabled = rows?.first {
+            $0.key == "recollect_enabled"
+        }?.value == "true"
+        termsVersion = Self.versionValue(rows?.first { $0.key == "terms_version" }?.value)
+        aiConsentVersion = Self.versionValue(rows?.first { $0.key == "ai_consent_version" }?.value)
+        AiConsent.shared.consentVersion = aiConsentVersion
+    }
+
+    /// A version stamp as stored, minus the quotes a JSON-typed value
+    /// carries; nil when there is nothing there so the callers fall back.
+    private static func versionValue(_ raw: String?) -> String? {
+        let clean = (raw ?? "").replacingOccurrences(of: "\"", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        return clean.isEmpty ? nil : clean
     }
 
     // MARK: - Workspace

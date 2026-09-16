@@ -181,6 +181,7 @@ class MatchReprocessPipelineTests(unittest.TestCase):
                 patch.object(worker, "detect_ball", return_value="blurball.json"), \
                 patch.object(worker, "run_points_subprocess", return_value=directory), \
                 patch.object(worker, "run_cut", return_value=str(Path(directory) / "cut.mp4")), \
+                patch.object(worker.cut_timeline, "reconcile_file"), \
                 patch.object(worker, "extract_thumb", return_value=False), \
                 patch.object(worker, "update_job"), \
                 patch.object(worker, "pulse_stage"), \

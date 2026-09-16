@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { MEDIA_BUCKET, presignGet, putObject } from "@/lib/r2";
+import { checkUploadAllowed, MEDIA_UPLOAD_RULES, refusalStatus } from "@/lib/quota";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -64,11 +65,29 @@ export async function POST(req: Request) {
     );
   }
 
+  const refused = await checkUploadAllowed(supabase, file.size, MEDIA_UPLOAD_RULES);
+  if (refused) {
+    return NextResponse.json(
+      { error: refused, resource: "storage" },
+      { status: refusalStatus(refused) },
+    );
+  }
+
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const key = `offer/${user.id}/${crypto.randomUUID()}${ext}`;
     await putObject(MEDIA_BUCKET, key, bytes, mime);
-    return NextResponse.json({ image: `r2://${MEDIA_BUCKET}/${key}` });
+    const imagePath = `r2://${MEDIA_BUCKET}/${key}`;
+    // Counts like everything else the account stores. Best-effort; the
+    // nightly measurement corrects a miss.
+    const { error: ledgerError } = await supabase.rpc("ledger_append_own_media", {
+      p_bytes: bytes.byteLength,
+      p_key: imagePath,
+    });
+    if (ledgerError) {
+      console.error("offering-image: ledger append failed:", ledgerError);
+    }
+    return NextResponse.json({ image: imagePath });
   } catch (e) {
     console.error("offering-image error:", e);
     return NextResponse.json(

@@ -24,7 +24,17 @@ export default async function PlayerImportPage() {
   } = await db.auth.getUser();
   if (!user) redirect("/login?next=/coaching/import");
 
-  const { data: coaches } = await db.rpc("player_coaches_list");
+  // The coaches to file it under, and whether the first-upload box has
+  // been ticked (player_profiles.upload_confirmed_at, same column the
+  // match upload card and /api/lesson-video read).
+  const [{ data: coaches }, { data: profile }] = await Promise.all([
+    db.rpc("player_coaches_list"),
+    db
+      .from("player_profiles")
+      .select("upload_confirmed_at")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+  ]);
 
   // Their own imports only. A dual-role account's coach-side imports must
   // not stand in for this, or a coach importing their first lesson AS A
@@ -53,6 +63,7 @@ export default async function PlayerImportPage() {
         ).map((c) => ({ id: c.id, display_name: c.display_name }))}
         userId={user.id}
         initialStudent=""
+        uploadConfirmed={!!profile?.upload_confirmed_at}
       />
     </AppShell>
   );

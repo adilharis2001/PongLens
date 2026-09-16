@@ -227,7 +227,7 @@ export const coachGuides: Guide[] = [
           "Open a student and choose one of the matches they shared.",
           "Watch the cut match or open Original for the upload exactly as the player sent it.",
           "Move point by point and follow the score the player recorded.",
-          "Open Match analysis and placement maps when you need the player's wider read of the match.",
+          "Open Match analysis when you need the player's wider read of the match.",
         ],
         images: [
           { src: "/showcase/coach-shared-match-m.jpg", alt: "A connected student's shared match in the coaching roster", kind: "m" },
@@ -239,7 +239,7 @@ export const coachGuides: Guide[] = [
         heading: "Use the same evidence as the player",
         paragraphs: [
           "The cut removes the time between rallies, while Original keeps the complete upload. Open individual points to connect an observation to the exact rally.",
-          "The score, match analysis, and placement maps reflect the player's scoring and processing choices.",
+          "The score and match analysis reflect the player's scoring.",
         ],
       },
       {

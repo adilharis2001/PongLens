@@ -1,11 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   placementZoneCounts,
   placementZonesAreScored,
   TABLE_LENGTH_M,
   TABLE_WIDTH_M,
   type PlacementAggregateFilter,
+  type PlacementZone,
   type TrustedPlacementObservation,
 } from "@/lib/placement/placementAggregate";
 import {
@@ -21,7 +23,7 @@ import {
   TY,
 } from "./placementTable";
 
-function readableZone(zone: string) {
+export function readableZone(zone: string) {
   const [depth, lateral] = zone.split("_");
   return `${depth} ${lateral}`;
 }
@@ -30,12 +32,32 @@ export function PlacementHeatMap({
   observations,
   filter,
   labels,
+  onSelectZone,
+  sidesOwner = "Your",
 }: {
   observations: readonly TrustedPlacementObservation[];
   filter: PlacementAggregateFilter;
   labels: MapLabels;
+  /** Whose left and right the sidelines are: "Your" for the owner, a name's possessive for a viewer. */
+  sidesOwner?: string;
+  /**
+   * A zone with landings in it becomes a button. The points behind its
+   * number are handed over in timeline order, so the caller can list them
+   * and open one; the map itself stays a picture.
+   */
+  onSelectZone?: (zone: PlacementZone, pointIds: string[]) => void;
 }) {
   const counts = placementZoneCounts(observations, filter);
+  const pointsByZone = useMemo(() => {
+    const byZone = new Map<PlacementZone, string[]>();
+    for (const observation of observations) {
+      if (observation.filter !== filter) continue;
+      const ids = byZone.get(observation.zone) ?? [];
+      if (!ids.includes(observation.pointId)) ids.push(observation.pointId);
+      byZone.set(observation.zone, ids);
+    }
+    return byZone;
+  }, [observations, filter]);
   const cells = buildPlacementHeatCells(counts, filter);
   const tone = placementHeatTone(filter);
   // Win rates need somebody to have scored the points. On a match with
@@ -65,8 +87,36 @@ export function PlacementHeatMap({
           const height =
             (TH * (cell.bounds.v1 - cell.bounds.v0))
             / TABLE_LENGTH_M;
+          const ids = pointsByZone.get(cell.zone) ?? [];
+          const tappable = onSelectZone !== undefined && ids.length > 0;
+          const select = () => {
+            if (tappable) onSelectZone(cell.zone, ids);
+          };
           return (
-            <g key={cell.zone}>
+            <g
+              key={cell.zone}
+              role={tappable ? "button" : undefined}
+              tabIndex={tappable ? 0 : undefined}
+              aria-label={
+                tappable
+                  ? `${readableZone(cell.zone)}: show ${ids.length} ${
+                      ids.length === 1 ? "point" : "points"
+                    }`
+                  : undefined
+              }
+              onClick={select}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  select();
+                }
+              }}
+              className={
+                tappable
+                  ? "cursor-pointer outline-none transition-opacity hover:opacity-80 focus-visible:opacity-80"
+                  : undefined
+              }
+            >
               {/* One string, not five children. A <title> can only hold
                   text, and React refuses to join an array into one — it
                   warned on every render of this map, and on a streamed
@@ -101,6 +151,9 @@ export function PlacementHeatMap({
                   fontSize={scored && cell.scored > 0 ? "10" : "11"}
                   fontWeight="700"
                   fill="#f8fafc"
+                  /* The underline is the tap affordance: a number you can
+                     open, not a label (Adil, 2026-09-15). */
+                  textDecoration={tappable ? "underline" : undefined}
                 >
                   {scored && cell.scored > 0
                     ? `${cell.won}/${cell.scored}`
@@ -112,8 +165,8 @@ export function PlacementHeatMap({
         })}
       </Table>
       <div className="-mt-1 flex justify-between px-6 text-[10px] text-zinc-500">
-        <span>Your left</span>
-        <span>Your right</span>
+        <span>{sidesOwner} left</span>
+        <span>{sidesOwner} right</span>
       </div>
     </div>
   );

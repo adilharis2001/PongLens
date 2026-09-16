@@ -12,12 +12,15 @@ import { SignOutRow } from "./SignOutRow";
 import { DeleteAccountSection } from "./DeleteAccountSection";
 import {
   isAdminEmail,
+  getAiConsentVersion,
   getCommerceEnabled,
   getPurchasesEnabled,
   getMinutePacks,
   getStoragePacks,
+  getRecollectEnabled,
   getSupportEmail,
 } from "@/lib/config";
+import { AiFeaturesSetting } from "./AiFeaturesSetting";
 import { RecollectSetting } from "./RecollectSetting";
 import { WorkspaceSwitch } from "./WorkspaceSwitch";
 import { rememberedWorkspace } from "@/lib/workspaceServer";
@@ -114,11 +117,22 @@ export default async function AccountPage() {
   const [minutePacks, storagePacks] = purchasesEnabled
     ? await Promise.all([getMinutePacks(), getStoragePacks()])
     : [[], []];
+  // Recollect's row only draws while the global switch is on; the
+  // per-account preference is read either way so nothing changes for it.
+  const recollectEnabled = await getRecollectEnabled();
   const { data: recollectPreference } = await supabase
     .from("recollect_preferences")
     .select("enabled")
     .eq("user_id", user.id)
     .maybeSingle();
+  const [aiConsentVersion, { data: aiProfile }] = await Promise.all([
+    getAiConsentVersion(),
+    supabase
+      .from("player_profiles")
+      .select("ai_features_enabled")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+  ]);
   const name =
     (user.user_metadata?.full_name as string | undefined) ??
     (user.user_metadata?.name as string | undefined) ??
@@ -178,9 +192,15 @@ export default async function AccountPage() {
             <RowLink href="/stats?view=tactics" label="Tactics" />
             <RowLink href="/starred" label="Starred points" />
             <RowLink href="/account/player" label="Player profile" />
-            <RecollectSetting
-              initialEnabled={recollectPreference?.enabled !== false}
+            <AiFeaturesSetting
+              initialEnabled={aiProfile?.ai_features_enabled === true}
+              version={aiConsentVersion}
             />
+            {recollectEnabled && (
+              <RecollectSetting
+                initialEnabled={recollectPreference?.enabled !== false}
+              />
+            )}
           </div>
         </div>
       )}

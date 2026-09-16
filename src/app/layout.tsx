@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { AiConsentProvider } from "@/components/AiConsentProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -97,7 +98,7 @@ export default function RootLayout({
           Skip to content
         </a>
         <div id="content" className="flex min-h-screen flex-col">
-          {children}
+          <AiConsentProvider>{children}</AiConsentProvider>
         </div>
         <Analytics />
       </body>

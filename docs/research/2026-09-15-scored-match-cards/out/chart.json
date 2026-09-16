@@ -1,0 +1,290 @@
+{
+ "matches": [
+  {
+   "slug": "lester",
+   "opponent": "Lester",
+   "venue": "Pingpod",
+   "points": 104,
+   "serve": 66,
+   "receive": 44,
+   "ending": 71,
+   "dur": 83,
+   "rally_end": 85
+  },
+  {
+   "slug": "rowel",
+   "opponent": "Rowel",
+   "venue": "Pingpod",
+   "points": 80,
+   "serve": 59,
+   "receive": 36,
+   "ending": 59,
+   "dur": 64,
+   "rally_end": 67
+  },
+  {
+   "slug": "prabhas",
+   "opponent": "Prabhas",
+   "venue": "LYTTC",
+   "points": 55,
+   "serve": 33,
+   "receive": 18,
+   "ending": 42,
+   "dur": 51,
+   "rally_end": 53
+  },
+  {
+   "slug": "ishan",
+   "opponent": "Ishan",
+   "venue": "LYTTC",
+   "points": 79,
+   "serve": 37,
+   "receive": 23,
+   "ending": 19,
+   "dur": 70,
+   "rally_end": 72
+  },
+  {
+   "slug": "ali",
+   "opponent": "Ali",
+   "venue": "LYTTC",
+   "points": 44,
+   "serve": 25,
+   "receive": 14,
+   "ending": 17,
+   "dur": 40,
+   "rally_end": 41
+  },
+  {
+   "slug": "chris_aug22",
+   "opponent": "Chris",
+   "venue": "Pingpod",
+   "points": 89,
+   "serve": 73,
+   "receive": 52,
+   "ending": 74,
+   "dur": 79,
+   "rally_end": 80
+  },
+  {
+   "slug": "julian_aug23",
+   "opponent": "Julian",
+   "venue": "Pingpod",
+   "points": 75,
+   "serve": 40,
+   "receive": 27,
+   "ending": 55,
+   "dur": 55,
+   "rally_end": 57
+  },
+  {
+   "slug": "yuyulin",
+   "opponent": "Yu Yu Lin",
+   "venue": "Westchester TTC",
+   "points": 92,
+   "serve": 66,
+   "receive": 35,
+   "ending": 63,
+   "dur": 85,
+   "rally_end": 87
+  },
+  {
+   "slug": "brian",
+   "opponent": "Brian",
+   "venue": "2026 US Nationals",
+   "points": 90,
+   "serve": 30,
+   "receive": 4,
+   "ending": 41,
+   "dur": 78,
+   "rally_end": 82
+  },
+  {
+   "slug": "anton",
+   "opponent": "Anton",
+   "venue": "Pingpod",
+   "points": 51,
+   "serve": 23,
+   "receive": 10,
+   "ending": 31,
+   "dur": 44,
+   "rally_end": 46
+  },
+  {
+   "slug": "vaibhav_sep4",
+   "opponent": "Vaibhav",
+   "venue": "Pingpod",
+   "points": 146,
+   "serve": 62,
+   "receive": 23,
+   "ending": 70,
+   "dur": 121,
+   "rally_end": 122
+  },
+  {
+   "slug": "chris_aug14",
+   "opponent": "Chris",
+   "venue": "Pingpod",
+   "points": 79,
+   "serve": 63,
+   "receive": 35,
+   "ending": 58,
+   "dur": 79,
+   "rally_end": 79
+  },
+  {
+   "slug": "julian_oct25",
+   "opponent": "Julian",
+   "venue": "PingPod Dobro",
+   "points": 49,
+   "serve": 24,
+   "receive": 11,
+   "ending": 32,
+   "dur": 0,
+   "rally_end": 0
+  },
+  {
+   "slug": "terry2",
+   "opponent": "Terry 2",
+   "venue": "Westchester TTC",
+   "points": 39,
+   "serve": 7,
+   "receive": 1,
+   "ending": 17,
+   "dur": 0,
+   "rally_end": 0
+  },
+  {
+   "slug": "vaibhav_wtc",
+   "opponent": "Vaibhav",
+   "venue": "Westchester TTC",
+   "points": 32,
+   "serve": 5,
+   "receive": 2,
+   "ending": 19,
+   "dur": 0,
+   "rally_end": 0
+  },
+  {
+   "slug": "chris_jul26b",
+   "opponent": "Chris",
+   "venue": "PingPod",
+   "points": 37,
+   "serve": 30,
+   "receive": 21,
+   "ending": 25,
+   "dur": 0,
+   "rally_end": 0
+  },
+  {
+   "slug": "chris_jul26a",
+   "opponent": "Chris",
+   "venue": "PingPod",
+   "points": 27,
+   "serve": 21,
+   "receive": 17,
+   "ending": 22,
+   "dur": 0,
+   "rally_end": 0
+  },
+  {
+   "slug": "chris_jul26c",
+   "opponent": "Chris",
+   "venue": "PingPod",
+   "points": 34,
+   "serve": 28,
+   "receive": 20,
+   "ending": 25,
+   "dur": 0,
+   "rally_end": 0
+  },
+  {
+   "slug": "julian_aug11_pinkrim",
+   "opponent": "Julian",
+   "venue": "PingPod",
+   "points": 118,
+   "serve": 65,
+   "receive": 43,
+   "ending": 72,
+   "dur": 107,
+   "rally_end": 112
+  }
+ ],
+ "edge": {
+  "far end line": 586,
+  "near end line": 113,
+  "camera-left sideline": 512,
+  "camera-right sideline": 135
+ },
+ "edge_contact": {
+  "far end line": 52,
+  "camera-left sideline": 92,
+  "near end line": 68,
+  "camera-right sideline": 25
+ },
+ "depth_contact": {
+  "1": [
+   118,
+   1413
+  ],
+  "3": [
+   53,
+   598
+  ],
+  "0": [
+   281,
+   863
+  ],
+  "4": [
+   7,
+   881
+  ],
+  "5": [
+   44,
+   1418
+  ],
+  "2": [
+   35,
+   825
+  ]
+ },
+ "serve_depth": {
+  "half-long": [
+   362,
+   183
+  ],
+  "long": [
+   291,
+   161
+  ],
+  "short": [
+   104,
+   54
+  ]
+ },
+ "dur": {
+  "short <3s": [
+   506,
+   216
+  ],
+  "mid 3-6s": [
+   273,
+   116
+  ],
+  "long 6s+": [
+   177,
+   93
+  ]
+ },
+ "totals": {
+  "points": 1320,
+  "has_rally_end": 983,
+  "has_scored_tap": 1117,
+  "dur_ok": 956,
+  "ending_candidate": 1253,
+  "ending_on_loser": 812,
+  "serve_drawn": 757,
+  "receive": 436,
+  "has_serve_tap": 207
+ }
+}

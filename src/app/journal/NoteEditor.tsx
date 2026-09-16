@@ -6,6 +6,7 @@ import { AutoTextarea } from "@/components/AutoTextarea";
 import { CoachPicker } from "./CoachPicker";
 import type { PlayerCoach } from "@/lib/coaches/playerCoaches";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
 import {
   EntryImage,
   forgetEntryImage,
@@ -185,6 +186,10 @@ export function NoteEditor({
   const [photoPath, setPhotoPath] = useState<string | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  // A replaced photo is read by OpenAI. The two saves below never are:
+  // the note edit stores text, and the transcript edit sends
+  // summarize: false.
+  const { ensure } = useAiConsent();
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const box = useVisibleBox(open);
@@ -262,10 +267,14 @@ export function NoteEditor({
     try {
       const form = new FormData();
       form.append("image", await shrinkImage(file), "photo.jpg");
-      const res = await fetch("/api/entry-image", {
+      const res = await fetchWithAiConsent(ensure, "/api/entry-image", {
         method: "POST",
         body: form,
       });
+      if (!res) {
+        URL.revokeObjectURL(preview);
+        return;
+      }
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.image_path) {
         URL.revokeObjectURL(preview);

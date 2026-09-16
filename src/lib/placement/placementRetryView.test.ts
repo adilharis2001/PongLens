@@ -77,7 +77,7 @@ test("accepted placement requests each receive a fresh acknowledgement sequence"
     sheetOpen: false,
     acknowledgement: {
       id: 1,
-      message: "Placement maps are generating. We'll email you when they're ready.",
+      message: "The detailed analysis is generating. It takes a few minutes.",
     },
     acknowledgementSequence: 1,
   });
@@ -88,7 +88,7 @@ test("accepted placement requests each receive a fresh acknowledgement sequence"
     sheetOpen: false,
     acknowledgement: {
       id: 2,
-      message: "Placement maps are generating. We'll email you when they're ready.",
+      message: "The detailed analysis is generating. It takes a few minutes.",
     },
     acknowledgementSequence: 2,
   });
@@ -223,31 +223,31 @@ test("only completed placement lifecycle states trigger a server refresh", () =>
 test("placement request errors use plain user-facing copy", () => {
   assert.equal(
     placementRequestErrorCopy("source_expired"),
-    "Placement maps couldn't be generated because the original video is no longer available.",
+    "The detailed analysis couldn't be generated because the original video is no longer available.",
   );
   assert.equal(
     placementRequestErrorCopy("generation_already_processing"),
-    "Placement maps are generating. We'll email you when they're ready.",
+    "The detailed analysis is generating. It takes a few minutes.",
   );
   assert.equal(
     placementRequestErrorCopy("already_retrying"),
-    "We're trying again. We'll email you when they're ready.",
+    "We're trying again. It takes a few minutes.",
   );
   assert.equal(
     placementRequestErrorCopy("retry_already_used"),
-    "Placement maps have already been requested.",
+    "The detailed analysis has already been requested.",
   );
   assert.equal(
     placementRequestErrorCopy("not_owner"),
-    "Only the match owner can request placement maps.",
+    "Only the match owner can request the detailed analysis.",
   );
   assert.equal(
     placementRequestErrorCopy("not_authenticated"),
-    "Please sign in again before requesting placement maps.",
+    "Please sign in again before requesting the detailed analysis.",
   );
   assert.equal(
     placementRequestErrorCopy("unknown"),
-    "Placement maps couldn't be generated. Please try again.",
+    "The detailed analysis couldn't be generated. Please try again.",
   );
 });
 
@@ -255,11 +255,11 @@ test("placement notices direct non-owners to the match owner", () => {
   const generate = placementLifecycleView("not_requested", 0, future, now);
   assert.equal(
     placementNoticeForViewer(generate, true),
-    "Placement maps haven't been generated for this match. You can generate them from Tools.",
+    "The detailed analysis hasn't been generated for this match yet. You can generate it from Match analysis.",
   );
   assert.equal(
     placementNoticeForViewer(generate, false),
-    "The match owner can generate placement maps.",
+    "The match owner can generate the detailed analysis.",
   );
 
   const retry = placementLifecycleView("retry_available", 0, future, now);
@@ -274,10 +274,10 @@ test("retry available exposes one friendly primary action", () => {
     placementRetryView("retry_available", 0, future, now),
     {
       tone: "warning",
-      title: "Placement maps need another try",
+      title: "The detailed analysis needs another try",
       body:
-        "Placement maps couldn't be generated because the table was hard to detect in this video. You can try once more from Tools.",
-      action: "Try placement again",
+        "The detailed analysis couldn't be generated because the table was hard to detect in this video. You can try once more from Match analysis.",
+      action: "Try again",
       poll: false,
     },
   );
@@ -307,7 +307,7 @@ test("expired retry shows final source-retention copy", () => {
   assert.equal(view?.action, null);
   assert.equal(
     view?.body,
-    "Placement maps couldn't be generated because the original video is no longer available.",
+    "The detailed analysis couldn't be generated because the original video is no longer available.",
   );
 });
 
@@ -317,14 +317,14 @@ test("live not-requested placement offers generation", () => {
     {
       tone: "muted",
       toolStatus: "Generate",
-      sheetTitle: "Generate placement maps?",
+      sheetTitle: "Generate the detailed analysis?",
       sheetBody:
-        "Placement maps haven't been generated for this match. You can generate them from Tools.",
-      noticeTitle: "Placement maps haven't been generated",
+        "Reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes.",
+      noticeTitle: "The detailed analysis hasn't been generated",
       noticeBody:
-        "Placement maps haven't been generated for this match. You can generate them from Tools.",
+        "The detailed analysis hasn't been generated for this match yet. You can generate it from Match analysis.",
       actionKind: "generate",
-      actionLabel: "Generate placement maps",
+      actionLabel: "Generate detailed analysis",
       poll: false,
       showAggregate: false,
     },
@@ -342,28 +342,32 @@ test("expired not-requested placement has no action", () => {
   assert.equal(view.actionKind, null);
   assert.equal(
     view.noticeBody,
-    "Placement maps couldn't be generated because the original video is no longer available.",
+    "The detailed analysis couldn't be generated because the original video is no longer available.",
   );
 });
 
 test("lifecycle states use approved plain-language copy", () => {
+  // The sheet sits inside the deck's next-step card, beside its Generate
+  // button, so it says what the analysis is; the notice appears elsewhere
+  // on the page and still points to Match analysis.
   const cases = [
     ["not_requested", 0, future,
-      "Placement maps haven't been generated for this match. You can generate them from Tools."],
+      "Reads the video for where each serve landed, how fast it was and where points ended. It takes a few minutes.",
+      "The detailed analysis hasn't been generated for this match yet. You can generate it from Match analysis."],
     ["processing", 0, future,
-      "Placement maps are generating. We'll email you when they're ready."],
+      "The detailed analysis is generating. It takes a few minutes."],
     ["retry_available", 0, future,
-      "Placement maps couldn't be generated because the table was hard to detect in this video. You can try once more from Tools."],
+      "The detailed analysis couldn't be generated because the table was hard to detect in this video. You can try once more from Match analysis."],
     ["retrying", 1, future,
-      "We're trying again. We'll email you when they're ready."],
+      "We're trying again. It takes a few minutes."],
     ["final_failed", 1, null,
-      "Placement maps couldn't be generated because the table was hard to detect in this video."],
+      "The detailed analysis couldn't be generated because the table was hard to detect in this video."],
   ] as const;
 
-  for (const [status, count, expiry, copy] of cases) {
+  for (const [status, count, expiry, copy, notice] of cases) {
     const view = placementLifecycleView(status, count, expiry, now);
     assert.equal(view.sheetBody, copy, status);
-    assert.equal(view.noticeBody, copy, status);
+    assert.equal(view.noticeBody, notice ?? copy, status);
   }
 
   const sourceUnavailable = placementLifecycleView(
@@ -371,7 +375,7 @@ test("lifecycle states use approved plain-language copy", () => {
   );
   assert.equal(
     sourceUnavailable.sheetBody,
-    "Placement maps couldn't be generated because the original video is no longer available.",
+    "The detailed analysis couldn't be generated because the original video is no longer available.",
   );
   assert.equal(sourceUnavailable.noticeBody, sourceUnavailable.sheetBody);
 });
@@ -397,7 +401,7 @@ test("source failures use source-unavailable copy at either attempt", () => {
     );
     assert.equal(
       view.sheetBody,
-      "Placement maps couldn't be generated because the original video is no longer available.",
+      "The detailed analysis couldn't be generated because the original video is no longer available.",
     );
   }
 });
@@ -412,7 +416,7 @@ test("final failure copy stays simple regardless of attempts", () => {
   );
   assert.equal(
     normal.sheetBody,
-    "Placement maps couldn't be generated because the table was hard to detect in this video.",
+    "The detailed analysis couldn't be generated because the table was hard to detect in this video.",
   );
 
   const retry = placementLifecycleView(
