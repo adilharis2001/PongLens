@@ -6,6 +6,10 @@ const migrationUrl = new URL(
   "../../../supabase/migrations/20260915190000_canonical_scored_match_state.sql",
   import.meta.url
 );
+const commandsMigrationUrl = new URL(
+  "../../../supabase/migrations/20260916120000_canonical_score_commands.sql",
+  import.meta.url
+);
 const setupUrl = new URL(
   "../../../scripts/scoring/setup-local-db.mjs",
   import.meta.url
@@ -18,6 +22,15 @@ function migrationSql(): string {
     "canonical scored-match migration must exist"
   );
   return readFileSync(migrationUrl, "utf8");
+}
+
+function commandsMigrationSql(): string {
+  assert.equal(
+    existsSync(commandsMigrationUrl),
+    true,
+    "canonical score commands migration must exist"
+  );
+  return readFileSync(commandsMigrationUrl, "utf8");
 }
 
 test("projection, observation, and ledger tables are private and RLS protected", () => {
@@ -67,7 +80,7 @@ test("client roles cannot execute internal projection or observation functions",
     assert.match(
       sql,
       new RegExp(
-        `revoke all on function public\\.${signature.replace(/[()]/g, "\\$&")} from public, anon, authenticated`,
+        `revoke all on function public\\.${signature.replace(/[()]/g, "\\$&")}\\s+from public, anon, authenticated`,
         "i"
       )
     );
@@ -160,4 +173,53 @@ test("database setup waits for the requested database, not only the server socke
     /"exec", CONTAINER, "psql", "-At", "-U", "postgres", "-d", DATABASE,\s*"-c", "select 1"/
   );
   assert.doesNotMatch(setup, /pg_isready/);
+});
+
+test("canonical score commands start disabled and use the approved account rollout grammar", () => {
+  const sql = commandsMigrationSql();
+  assert.match(
+    sql,
+    /insert into public\.app_config\s*\(\s*key\s*,\s*value\s*\)[\s\S]*?'canonical_score_commands'\s*,\s*'off'/i
+  );
+  assert.match(
+    sql,
+    /create or replace function public\.canonical_score_commands_enabled\(\)[\s\S]*?public\.is_admin\(\)[\s\S]*?c\.value\s*=\s*'on'[\s\S]*?'user:'[\s\S]*?'users:%'/i
+  );
+});
+
+test("canonical command helpers are private and the capability is authenticated only", () => {
+  const sql = commandsMigrationSql();
+  for (const signature of [
+    "_canonical_score_snapshot(uuid)",
+    "_canonical_score_command_context(uuid,uuid,bigint,text)",
+  ]) {
+    assert.match(
+      sql,
+      new RegExp(
+        `revoke all on function public\\.${signature.replace(/[()]/g, "\\$&")}\\s+from public, anon, authenticated`,
+        "i"
+      )
+    );
+  }
+  assert.match(
+    sql,
+    /revoke all on function public\.canonical_score_commands_enabled\(\)\s+from public, anon, authenticated/i
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.canonical_score_commands_enabled\(\)\s+to authenticated/i
+  );
+});
+
+test("command context locks the match and distinguishes duplicate, conflict, and new work", () => {
+  const sql = commandsMigrationSql();
+  const context = sql.match(
+    /create or replace function public\._canonical_score_command_context\([\s\S]*?\n\$\$;/i
+  )?.[0];
+  assert.ok(context, "command context must be defined");
+  assert.match(context, /from public\.matches[\s\S]*?for update/i);
+  assert.match(context, /from public\.match_score_mutations[\s\S]*?request_id\s*=\s*p_request_id/i);
+  assert.match(context, /'duplicate'/i);
+  assert.match(context, /'score_conflict'/i);
+  assert.match(context, /'new'/i);
 });

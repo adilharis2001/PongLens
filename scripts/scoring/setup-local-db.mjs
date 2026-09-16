@@ -65,6 +65,11 @@ create schema if not exists auth;
 create table auth.users (id uuid primary key, email text);
 grant usage on schema auth to authenticated;
 
+create table public.app_config (
+  key text primary key,
+  value text not null
+);
+
 create or replace function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
@@ -152,17 +157,16 @@ create policy points_match_access on public.points for select to authenticated
 grant select on public.matches, public.points to authenticated;
 `;
 
-const migration = readFileSync(
-  new URL(
-    "../../supabase/migrations/20260915190000_canonical_scored_match_state.sql",
-    import.meta.url
-  ),
-  "utf8"
+const migrations = [
+  "20260915190000_canonical_scored_match_state.sql",
+  "20260916120000_canonical_score_commands.sql",
+].map((name) =>
+  readFileSync(new URL(`../../supabase/migrations/${name}`, import.meta.url), "utf8")
 );
 
 docker(
   ["exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE],
-  { input: `${bootstrap}\n${migration}` }
+  { input: `${bootstrap}\n${migrations.join("\n")}` }
 );
 
 process.stdout.write(

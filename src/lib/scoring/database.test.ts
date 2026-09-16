@@ -37,10 +37,20 @@ function resetFixture(): void {
       ('${COACH}','coach@example.test'),
       ('${STRANGER}','stranger@example.test'),
       ('${ADMIN}','admin@example.test');
+    update public.app_config set value='off'
+     where key='canonical_score_commands';
     insert into public.matches(
       id,user_id,first_server,first_server_source,active_processing_version_id
     ) values ('${MATCH}','${OWNER}','user','user','${VERSION}');
   `);
+}
+
+function authenticated(actor: string, statement: string): string {
+  return sql(`begin;
+    set local role authenticated;
+    select set_config('request.jwt.claim.sub','${actor}',true);
+    ${statement}
+    rollback;`);
 }
 
 databaseTest("SQL projector matches literal score, boundary, serve, and revision facts", () => {
@@ -224,4 +234,91 @@ databaseTest("admin research labels never change owner projection revision", () 
   `);
   const after = sql(`select score_revision from public.matches where id='${MATCH}';`);
   assert.equal(after, before);
+});
+
+databaseTest("canonical command capability is private and follows the account rollout", () => {
+  resetFixture();
+  assert.match(authenticated(OWNER, `select 'RESULT:' || public.canonical_score_commands_enabled();`), /RESULT:false/);
+
+  sql(`update public.app_config set value='user:${OWNER}'
+        where key='canonical_score_commands';`);
+  assert.match(authenticated(OWNER, `select 'RESULT:' || public.canonical_score_commands_enabled();`), /RESULT:true/);
+  assert.match(authenticated(STRANGER, `select 'RESULT:' || public.canonical_score_commands_enabled();`), /RESULT:false/);
+  assert.match(authenticated(ADMIN, `select 'RESULT:' || public.canonical_score_commands_enabled();`), /RESULT:true/);
+
+  const denied = spawnSync(
+    "docker",
+    [
+      "exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1",
+      "-At", "-U", "postgres", "-d", DATABASE,
+    ],
+    {
+      input: `set role anon; select public.canonical_score_commands_enabled();`,
+      encoding: "utf8",
+    }
+  );
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /permission denied/i);
+});
+
+databaseTest("command context locks one current snapshot and reports conflicts without writing", () => {
+  resetFixture();
+  sql(`
+    update public.app_config set value='user:${OWNER}'
+      where key='canonical_score_commands';
+    insert into public.points(id,match_id,processing_version_id,idx,t0,t1,confirmed_winner)
+    values ('30000000-0000-0000-0000-000000000001','${MATCH}','${VERSION}',1,1,2,'user');
+  `);
+
+  const fresh = JSON.parse(sql(`
+    select set_config('request.jwt.claim.sub','${OWNER}',false);
+    select public._canonical_score_command_context(
+      '${MATCH}','40000000-0000-0000-0000-000000000001',1,'set_point_outcome'
+    );
+  `).split("\n").at(-1)!);
+  assert.deepEqual(fresh, {
+    state: "new",
+    matchId: MATCH,
+    baseRevision: 1,
+  });
+
+  const conflict = JSON.parse(sql(`
+    select set_config('request.jwt.claim.sub','${OWNER}',false);
+    select public._canonical_score_command_context(
+      '${MATCH}','40000000-0000-0000-0000-000000000002',0,'set_point_outcome'
+    );
+  `).split("\n").at(-1)!);
+  assert.equal(conflict.state, "score_conflict");
+  assert.equal(conflict.response.code, "score_conflict");
+  assert.equal(conflict.response.revision, 1);
+  assert.equal(conflict.response.snapshot.revision, 1);
+  assert.equal(conflict.response.snapshot.points[0].confirmedWinner, "user");
+  assert.equal(
+    sql(`select count(*) from public.match_score_mutations where match_id='${MATCH}';`),
+    "0"
+  );
+});
+
+databaseTest("authenticated clients cannot execute private command helpers", () => {
+  resetFixture();
+  for (const statement of [
+    `select public._canonical_score_snapshot('${MATCH}');`,
+    `select public._canonical_score_command_context(
+      '${MATCH}','40000000-0000-0000-0000-000000000001',0,'set_point_outcome'
+    );`,
+  ]) {
+    const denied = spawnSync(
+      "docker",
+      [
+        "exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1",
+        "-At", "-U", "postgres", "-d", DATABASE,
+      ],
+      {
+        input: `set role authenticated; ${statement}`,
+        encoding: "utf8",
+      }
+    );
+    assert.notEqual(denied.status, 0);
+    assert.match(denied.stderr, /permission denied/i);
+  }
 });

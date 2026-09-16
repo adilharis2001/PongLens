@@ -41,7 +41,7 @@
 - Consumes: `refresh_match_score_state(uuid)`, `matches.score_revision`, `match_score_mutations`, `point_score_state`, `match_score_state`, `has_match_access(uuid)`.
 - Produces: `canonical_score_commands_enabled() returns boolean`, private `_canonical_score_snapshot(uuid) returns jsonb`, private `_canonical_score_command_context(uuid,uuid,bigint,text) returns jsonb`, and TypeScript `CanonicalScoreSnapshot`, `CanonicalCommandResult`, `parseCanonicalCommandResult`.
 
-- [ ] **Step 1: Write RED static and parser tests**
+- [x] **Step 1: Write RED static and parser tests**
 
 Add tests proving the migration seeds `canonical_score_commands = off`, the capability function uses the approved per-user grammar, all internal functions revoke client execution, and the parser accepts exactly:
 
@@ -52,13 +52,13 @@ type CanonicalCommandResult =
   | { ok: false; code: "not_enabled" | "not_owner" | "not_found" | "invalid_input" };
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `node --test --experimental-strip-types src/lib/scoring/commands.test.ts src/lib/scoring/migration.test.ts`
 
 Expected: FAIL because the second migration and parser do not exist.
 
-- [ ] **Step 3: Implement the command kernel**
+- [x] **Step 3: Implement the command kernel**
 
 The migration must:
 
@@ -82,7 +82,7 @@ $$;
 
 `_canonical_score_command_context` locks the match, verifies owner/capability, returns a prior ledger `after_state` for a matching duplicate request, rejects a reused request for another action/match, and returns a conflict object without writing when the expected revision is stale. `_canonical_score_snapshot` refuses mixed revisions and returns the match summary plus ordered point rows.
 
-- [ ] **Step 4: Extend the isolated database setup and run GREEN**
+- [x] **Step 4: Extend the isolated database setup and run GREEN**
 
 Apply both canonical migrations in timestamp order and add the minimum `app_config` schema/grants used by the capability. Run:
 
