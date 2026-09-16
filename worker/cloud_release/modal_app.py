@@ -61,6 +61,10 @@ for _name in VENV_NAMES:
 image = (
     image
     .run_commands(*venv_install_commands())
+    # rtmlib depends on the non-headless OpenCV build, which links libGL even
+    # though nothing here opens a window. Installed after the environments so
+    # a change to this line does not rebuild them.
+    .run_commands('apt-get update && apt-get install -y --no-install-recommends libgl1 && rm -rf /var/lib/apt/lists/*')
     .add_local_dir(str(SOURCE), SOURCE_RELEASE_REMOTE, copy=True,
                    ignore=['__pycache__', '*.pyc', '.DS_Store'])
     .add_local_dir(str(HERE), PACKAGE_REMOTE, copy=True,
