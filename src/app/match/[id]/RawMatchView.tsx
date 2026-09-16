@@ -461,6 +461,10 @@ export function RawMatchView({
           trimStartS: trimmed ? trimStart : null,
           trimEndS: trimmed ? trimEnd : null,
           points: true,
+          // The detailed analysis rides on the same run for nothing
+          // (the ball is detected and the table found for the cut anyway);
+          // generating it later re-detects the whole video.
+          placement: true,
           strictness,
         }),
       });

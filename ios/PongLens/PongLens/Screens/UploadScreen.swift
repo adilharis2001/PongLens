@@ -360,7 +360,9 @@ struct UploadScreen: View {
         // Read at the moment of upload rather than held in state: the
         // owner may have changed it in Record settings since this screen
         // appeared, and load() reads UserDefaults fresh every call.
-        placementOn = false
+        // Free on the upload run: the ball is detected and the table found
+        // for the cut anyway. Generating later re-detects the whole video.
+        placementOn = true
         queue.enqueue(
             fileURL: url, durationS: duration, sessionId: sessionId,
             metadata: draft, processOn: false, placementOn: placementOn,
