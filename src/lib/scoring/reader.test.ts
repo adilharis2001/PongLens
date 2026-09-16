@@ -418,3 +418,97 @@ test("summary shadow evidence chunks large libraries and returns one aggregate",
     mismatchedCount: 0,
   });
 });
+
+test("share shadow loads one token-pinned snapshot and exact legacy source", async () => {
+  const reader = await import("./reader.ts");
+  assert.equal(
+    typeof (reader as Record<string, unknown>).loadCanonicalShareScoreShadow,
+    "function",
+  );
+  const calls: unknown[] = [];
+  const result = await reader.loadCanonicalShareScoreShadow({
+    token: "a".repeat(48),
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      calls.push([name, args]);
+      return {
+        data: {
+          ok: true,
+          snapshot,
+          legacy: {
+            firstServer: "user",
+            points: [{
+              id: snapshot.points[0].pointId,
+              idx: 1,
+              t0: 1,
+              deleted: false,
+              is_let: false,
+              confirmed_how: "point",
+              confirmed_winner: "user",
+              server_override: null,
+              game_end_override: null,
+              game_winner_override: null,
+            }],
+          },
+        },
+        error: null,
+      };
+    },
+  });
+  assert.deepEqual(calls, [[
+    "canonical_share_score_shadow_v1",
+    { p_token: "a".repeat(48) },
+  ]]);
+  assert.equal(result.kind, "canonical");
+  if (result.kind === "canonical") {
+    assert.equal(result.snapshot.revision, 4);
+    assert.equal(result.legacy.match.firstServer, "user");
+    assert.equal(result.legacy.points[0]?.pointId, snapshot.points[0].pointId);
+  }
+});
+
+test("share shadow fails closed and emits identifier-free diagnostics", async () => {
+  const reader = await import("./reader.ts");
+  for (const code of ["not_enabled", "not_found", "unavailable"] as const) {
+    const result = await reader.loadCanonicalShareScoreShadow({
+      token: "b".repeat(48),
+      rpc: async () => ({ data: { ok: false, code }, error: null }),
+    });
+    assert.deepEqual(result, { kind: "legacy", reason: code });
+  }
+  const malformed = await reader.loadCanonicalShareScoreShadow({
+    token: "short",
+    rpc: async () => {
+      throw new Error("must not call RPC");
+    },
+  });
+  assert.deepEqual(malformed, { kind: "legacy", reason: "invalid_input" });
+
+  const diagnostic = reader.canonicalShareScoreDiagnostic({
+    kind: "canonical",
+    snapshot,
+    legacy: {
+      match: snapshot.match,
+      points: snapshot.points.map(({ revision, ...point }) => {
+        void revision;
+        return point;
+      }),
+    },
+  });
+  assert.deepEqual(diagnostic, {
+    kind: "parity",
+    revision: 4,
+    matches: true,
+    mismatchedMatchFields: 0,
+    mismatchedPoints: 0,
+    canonicalPointCount: 1,
+    legacyPointCount: 1,
+  });
+  assert.equal(JSON.stringify(diagnostic).includes(snapshot.matchId), false);
+  assert.equal(
+    reader.canonicalShareScoreDiagnostic({
+      kind: "legacy",
+      reason: "not_enabled",
+    }),
+    null,
+  );
+});

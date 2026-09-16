@@ -30,7 +30,7 @@ function resetFixture(): void {
   sql(`
     truncate public.point_timing_observations, public.match_score_mutations,
       public.point_score_state, public.match_score_state, public.hand_cut_drafts,
-      public.fullmatch_labels, public.points, public.coach_links,
+      public.fullmatch_labels, public.share_links, public.points, public.coach_links,
       public.jobs, public.matches, auth.users cascade;
     insert into auth.users(id,email) values
       ('${OWNER}','owner@example.test'),
@@ -690,6 +690,75 @@ databaseTest("canonical reader snapshot is default-off and access-scoped for own
   );
   assert.notEqual(batchDenied.status, 0);
   assert.match(batchDenied.stderr, /permission denied/i);
+});
+
+databaseTest("public share shadow is live-token scoped, owner-canary gated, and never repairs", () => {
+  resetFixture();
+  insertScorePoints();
+  sql(`
+    update public.matches
+       set first_server='opponent', first_server_source='detected'
+     where id='${MATCH}';
+    insert into public.share_links(match_id,token,kind,show_score)
+    values ('${MATCH}',repeat('s',48),'match',true);
+  `);
+
+  const service = (expression: string): Record<string, unknown> => {
+    const output = sql(`begin;
+      set local role service_role;
+      select set_config('request.jwt.claim.role','service_role',true);
+      select 'RESULT:' || (${expression})::text;
+      rollback;`);
+    const line = output.split("\n").find((candidate) => candidate.startsWith("RESULT:"));
+    assert.ok(line, output);
+    return JSON.parse(line.slice("RESULT:".length));
+  };
+
+  assert.equal(
+    service(`public.canonical_share_score_shadow_v1(repeat('s',48))`).code,
+    "not_enabled"
+  );
+  sql(`update public.app_config set value='user:${OWNER}'
+        where key='canonical_score_readers';`);
+  const result = service(`public.canonical_share_score_shadow_v1(repeat('s',48))`);
+  assert.equal(result.ok, true);
+  assert.equal((result.snapshot as { matchId: string }).matchId, MATCH);
+  assert.equal((result.legacy as { firstServer: string }).firstServer, "opponent");
+  assert.equal((result.legacy as { points: unknown[] }).points.length, 3);
+
+  sql(`update public.share_links set revoked_at=now()
+        where token=repeat('s',48);`);
+  assert.equal(
+    service(`public.canonical_share_score_shadow_v1(repeat('s',48))`).code,
+    "not_found"
+  );
+  sql(`update public.share_links set revoked_at=null where token=repeat('s',48);
+       update public.matches set score_projection_status='stale' where id='${MATCH}';`);
+  assert.equal(
+    service(`public.canonical_share_score_shadow_v1(repeat('s',48))`).code,
+    "unavailable"
+  );
+  assert.equal(
+    sql(`select score_projection_status from public.matches where id='${MATCH}';`),
+    "stale",
+    "share shadows must not repair stale canonical state"
+  );
+
+  for (const role of ["anon", "authenticated"]) {
+    const denied = spawnSync(
+      "docker",
+      [
+        "exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1",
+        "-At", "-U", "postgres", "-d", DATABASE,
+      ],
+      {
+        input: `set role ${role}; select public.canonical_share_score_shadow_v1(repeat('s',48));`,
+        encoding: "utf8",
+      }
+    );
+    assert.notEqual(denied.status, 0);
+    assert.match(denied.stderr, /permission denied/i);
+  }
 });
 
 databaseTest("command context locks one current snapshot and reports conflicts without writing", () => {

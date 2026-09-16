@@ -53,6 +53,16 @@ begin
        'public.canonical_score_summaries_v1(uuid[])', 'execute') then
     raise exception 'authenticated canonical summary grant missing';
   end if;
+  if has_function_privilege('anon',
+       'public.canonical_share_score_shadow_v1(text)', 'execute')
+     or has_function_privilege('authenticated',
+       'public.canonical_share_score_shadow_v1(text)', 'execute') then
+    raise exception 'public role unexpectedly has canonical share shadow execution';
+  end if;
+  if not has_function_privilege('service_role',
+       'public.canonical_share_score_shadow_v1(text)', 'execute') then
+    raise exception 'service canonical share shadow grant missing';
+  end if;
   if coalesce((select value from public.app_config
                 where key='canonical_score_readers'), '') <> 'off' then
     raise exception 'canonical reader did not start disabled';
@@ -97,6 +107,22 @@ begin
   end if;
 end;
 $$;
+
+set role service_role;
+do $$
+declare
+  v_response jsonb;
+begin
+  v_response := public.canonical_share_score_shadow_v1(repeat('p',48));
+  if not coalesce((v_response->>'ok')::boolean,false)
+     or v_response#>>'{snapshot,matchId}' <> md5('match-220')::uuid::text
+     or jsonb_array_length(v_response#>'{legacy,points}') <>
+        (v_response#>>'{snapshot,match,visiblePointCount}')::integer then
+    raise exception 'service canonical share shadow failed: %',v_response;
+  end if;
+end;
+$$;
+reset role;
 
 -- A manually named winner is a real stats input. Changing it must invalidate
 -- the owner's cached point fold even when every other point field is stable.

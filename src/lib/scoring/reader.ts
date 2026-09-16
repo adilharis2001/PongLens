@@ -41,6 +41,23 @@ export type CanonicalScoreSummariesReadExecution =
         | "revision_changed";
     };
 
+export type CanonicalShareScoreReadExecution =
+  | {
+      kind: "canonical";
+      snapshot: CanonicalScoreSnapshot;
+      legacy: CanonicalProjection;
+    }
+  | {
+      kind: "legacy";
+      reason:
+        | "invalid_input"
+        | "not_enabled"
+        | "not_found"
+        | "unavailable"
+        | "transport_error"
+        | "invalid_response";
+    };
+
 export type CanonicalScoreReaderDiagnostic =
   | ({ kind: "parity" } & Omit<
       ReturnType<typeof compareCanonicalProjection>,
@@ -77,6 +94,19 @@ export type CanonicalScoreSummariesDiagnostic =
       >;
     };
 
+export type CanonicalShareScoreDiagnostic =
+  | ({ kind: "parity" } & Omit<
+      ReturnType<typeof compareCanonicalProjection>,
+      "matchId"
+    >)
+  | {
+      kind: "fallback";
+      reason: Exclude<
+        Extract<CanonicalShareScoreReadExecution, { kind: "legacy" }>['reason'],
+        "not_enabled"
+      >;
+    };
+
 type JsonObject = Record<string, unknown>;
 
 function object(value: unknown): JsonObject | null {
@@ -96,6 +126,38 @@ export interface LegacyScoreSourceRow {
   server_override: CanonicalPlayer | null;
   game_end_override: CanonicalGameEndOverride;
   game_winner_override: CanonicalPlayer | null;
+}
+
+function nullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function legacyScoreSourceRow(value: unknown): LegacyScoreSourceRow | null {
+  const row = object(value);
+  if (
+    !row ||
+    typeof row.id !== "string" ||
+    !Number.isInteger(row.idx) ||
+    (row.t0 !== null && typeof row.t0 !== "number") ||
+    typeof row.deleted !== "boolean" ||
+    typeof row.is_let !== "boolean" ||
+    !nullableString(row.confirmed_how) ||
+    (row.confirmed_winner !== null &&
+      row.confirmed_winner !== "user" &&
+      row.confirmed_winner !== "opponent") ||
+    (row.server_override !== null &&
+      row.server_override !== "user" &&
+      row.server_override !== "opponent") ||
+    (row.game_end_override !== null &&
+      row.game_end_override !== "end" &&
+      row.game_end_override !== "continue") ||
+    (row.game_winner_override !== null &&
+      row.game_winner_override !== "user" &&
+      row.game_winner_override !== "opponent")
+  ) {
+    return null;
+  }
+  return row as unknown as LegacyScoreSourceRow;
 }
 
 /**
@@ -258,6 +320,81 @@ export async function loadCanonicalScoreSummaries(deps: {
 }
 
 /**
+ * Loads the service-only public-share shadow. The database validates the live
+ * token, owner canary, active point version and one locked score revision. The
+ * established public surface treats every stored first-server value as its
+ * rotation anchor, so this legacy oracle intentionally does the same: a
+ * detector-authored anchor becomes a measurable mismatch instead of being
+ * normalized away during comparison.
+ */
+export async function loadCanonicalShareScoreShadow(deps: {
+  token: string;
+  rpc: (
+    name: "canonical_share_score_shadow_v1",
+    args: { p_token: string },
+  ) => PromiseLike<ReaderRpcResponse>;
+}): Promise<CanonicalShareScoreReadExecution> {
+  if (deps.token.length < 32 || deps.token.length > 128) {
+    return { kind: "legacy", reason: "invalid_input" };
+  }
+
+  let response: ReaderRpcResponse;
+  try {
+    response = await deps.rpc("canonical_share_score_shadow_v1", {
+      p_token: deps.token,
+    });
+  } catch {
+    return { kind: "legacy", reason: "transport_error" };
+  }
+  if (response.error) {
+    return { kind: "legacy", reason: "transport_error" };
+  }
+
+  const row = object(response.data);
+  if (!row || typeof row.ok !== "boolean") {
+    return { kind: "legacy", reason: "invalid_response" };
+  }
+  if (!row.ok) {
+    if (
+      row.code === "invalid_input" ||
+      row.code === "not_enabled" ||
+      row.code === "not_found" ||
+      row.code === "unavailable"
+    ) {
+      return { kind: "legacy", reason: row.code };
+    }
+    return { kind: "legacy", reason: "invalid_response" };
+  }
+
+  const snapshot = parseCanonicalScoreSnapshot(row.snapshot);
+  const legacy = object(row.legacy);
+  if (
+    !snapshot ||
+    !legacy ||
+    (legacy.firstServer !== null &&
+      legacy.firstServer !== "user" &&
+      legacy.firstServer !== "opponent") ||
+    !Array.isArray(legacy.points)
+  ) {
+    return { kind: "legacy", reason: "invalid_response" };
+  }
+  const sourceRows = legacy.points.map(legacyScoreSourceRow);
+  if (sourceRows.some((point) => point === null)) {
+    return { kind: "legacy", reason: "invalid_response" };
+  }
+
+  return {
+    kind: "canonical",
+    snapshot,
+    legacy: projectLegacyScoreRows({
+      firstServer: legacy.firstServer,
+      firstServerSource: legacy.firstServer === null ? null : "user",
+      points: sourceRows as LegacyScoreSourceRow[],
+    }),
+  };
+}
+
+/**
  * Sanitized shadow evidence only. A disabled reader is expected and silent;
  * every other fallback emits one stable code, and parity contains aggregate
  * counts rather than point ids or snapshot payloads.
@@ -268,6 +405,29 @@ export function canonicalScoreReaderDiagnostic(
 ): CanonicalScoreReaderDiagnostic | null {
   if (execution.kind === "canonical") {
     const parity = compareCanonicalProjection(execution.snapshot, legacy);
+    return {
+      kind: "parity",
+      revision: parity.revision,
+      matches: parity.matches,
+      mismatchedMatchFields: parity.mismatchedMatchFields,
+      mismatchedPoints: parity.mismatchedPoints,
+      canonicalPointCount: parity.canonicalPointCount,
+      legacyPointCount: parity.legacyPointCount,
+    };
+  }
+  if (execution.reason === "not_enabled") return null;
+  return { kind: "fallback", reason: execution.reason };
+}
+
+/** Public-share shadow evidence contains no token, match id, or payload. */
+export function canonicalShareScoreDiagnostic(
+  execution: CanonicalShareScoreReadExecution,
+): CanonicalShareScoreDiagnostic | null {
+  if (execution.kind === "canonical") {
+    const parity = compareCanonicalProjection(
+      execution.snapshot,
+      execution.legacy,
+    );
     return {
       kind: "parity",
       revision: parity.revision,

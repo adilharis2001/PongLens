@@ -18,6 +18,10 @@ const readersMigrationUrl = new URL(
   "../../../supabase/migrations/20260916143000_canonical_score_readers.sql",
   import.meta.url
 );
+const shareReaderMigrationUrl = new URL(
+  "../../../supabase/migrations/20260916153000_canonical_share_score_shadow.sql",
+  import.meta.url
+);
 const setupUrl = new URL(
   "../../../scripts/scoring/setup-local-db.mjs",
   import.meta.url
@@ -57,6 +61,15 @@ function readersMigrationSql(): string {
     "canonical score readers migration must exist"
   );
   return readFileSync(readersMigrationUrl, "utf8");
+}
+
+function shareReaderMigrationSql(): string {
+  assert.equal(
+    existsSync(shareReaderMigrationUrl),
+    true,
+    "canonical share score shadow migration must exist"
+  );
+  return readFileSync(shareReaderMigrationUrl, "utf8");
 }
 
 test("projection, observation, and ledger tables are private and RLS protected", () => {
@@ -306,6 +319,41 @@ test("canonical summary batches are bounded, access-scoped, current-revision rea
   assert.doesNotMatch(
     reader,
     /refresh_match_score_state|match_score_mutations|point_timing_observations|before_state|after_state|reaction_meta/i
+  );
+});
+
+test("public-share score shadow is token-scoped, revision-pinned, and service-only", () => {
+  const sql = shareReaderMigrationSql();
+  const reader = sql.match(
+    /create or replace function public\.canonical_share_score_shadow_v1\(p_token text\)[\s\S]*?\n\$\$;/i
+  )?.[0] ?? "";
+  assert.match(reader, /share_links[\s\S]*?sl\.token\s*=\s*p_token/i);
+  assert.match(reader, /sl\.revoked_at\s+is\s+null/i);
+  assert.match(reader, /sl\.kind\s+in\s*\('match',\s*'highlights'\)/i);
+  assert.match(reader, /sl\.show_score/i);
+  assert.match(reader, /canonical_score_readers[\s\S]*?v_owner_id/i);
+  assert.match(
+    reader,
+    /score_revision\s*=\s*m\.score_projection_revision[\s\S]*?score_projection_status\s+in\s*\('current',\s*'empty'\)[\s\S]*?for share/i
+  );
+  assert.match(reader, /public\._canonical_score_snapshot\(v_match_id\)/i);
+  assert.match(reader, /p\.processing_version_id\s*=\s*v_processing_version_id/i);
+  assert.doesNotMatch(reader, /refresh_match_score_state/i);
+  assert.doesNotMatch(
+    reader,
+    /match_score_mutations|point_timing_observations|before_state|after_state|reaction_meta/i
+  );
+  assert.match(
+    sql,
+    /revoke all on function public\.canonical_share_score_shadow_v1\(text\)\s+from public, anon, authenticated, service_role/i
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.canonical_share_score_shadow_v1\(text\)\s+to service_role/i
+  );
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function public\.canonical_share_score_shadow_v1\(text\)\s+to anon|grant execute on function public\.canonical_share_score_shadow_v1\(text\)\s+to authenticated/i
   );
 });
 

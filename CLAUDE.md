@@ -702,6 +702,16 @@ legacy point cache must download and fingerprint `game_winner_override` via
 `20260916150000_stats_game_winner_fingerprint.sql`; never cache or publish a
 stats walk after a partial point fetch.
 
+Public match and automatic-highlight links retain their existing anonymous
+resolver and display fold. Migration
+`20260916153000_canonical_share_score_shadow.sql` adds a separate service-only
+shadow: the server must present a live, unrevoked, score-visible token, the
+match owner must be in the reader canary, and the RPC pins one current score
+revision plus its active-version legacy source. Anon and authenticated roles
+cannot execute it. The page logs aggregate parity only and never a token,
+match id or score payload; any missing service configuration or shadow failure
+leaves the public link on its established behavior.
+
 - **Authority stays separated.** Owner outcomes, skips, first-server choices,
   serve overrides and game-boundary overrides are canonical inputs. Worker
   `points.server`, suggestions, detected side changes and rally evidence are
