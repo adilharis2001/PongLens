@@ -807,7 +807,7 @@ final class RecordingQueue: NSObject {
             item.partCount = Int((bytes + Self.partSize - 1) / Self.partSize)
             let settings = RecordSettings.load()
             item.processOn = settings.processAfterUpload
-            item.placementOn = false
+            item.placementOn = true
             items.append(item)
             persist()
             await prepare(item.id)
