@@ -31,6 +31,7 @@ struct MatchDetailSnapshot {
     let videoURL: URL?
     let matchStructure: MatchStructure?
     var canonicalCommandsEnabled = false
+    var canonicalScoreRead: CanonicalScoreReadExecution? = nil
 }
 
 /// Replace only transport in tests. The model owns version comparison,
@@ -59,11 +60,27 @@ struct MatchDetailClient {
                 expectedVersionId: ready ? match.activeProcessingVersionId : nil))
             let commandsEnabled: Bool =
                 (try? await supa.rpc("canonical_score_commands_enabled").execute().value) ?? false
+            let readersEnabled: Bool =
+                (try? await supa.rpc("canonical_score_readers_enabled").execute().value) ?? false
+            var canonicalScoreRead: CanonicalScoreReadExecution?
+            if readersEnabled {
+                struct ReaderRequest: Encodable { let p_match_id: String }
+                let reader = CanonicalScoreReader { requested in
+                    try await supa.rpc(
+                        "canonical_score_snapshot_v1",
+                        params: ReaderRequest(p_match_id: requested.uuidString.lowercased())
+                    ).execute().value
+                }
+                canonicalScoreRead = await reader.load(
+                    matchId: match.id,
+                    expectedRevision: match.scoreRevision)
+            }
             return MatchDetailSnapshot(
                 points: points,
                 videoURL: response.url.flatMap(URL.init),
                 matchStructure: match.matchStructure,
-                canonicalCommandsEnabled: commandsEnabled)
+                canonicalCommandsEnabled: commandsEnabled,
+                canonicalScoreRead: canonicalScoreRead)
         }
     )
 }
@@ -81,6 +98,8 @@ final class MatchDetailModel {
     @ObservationIgnored private var canonicalCommands: CanonicalScoreCommandTransport?
     @ObservationIgnored var canonicalSplitRequestByChild: [UUID: UUID] = [:]
     private(set) var canonicalCommandsEnabled = false
+    private(set) var canonicalScoreRead: CanonicalScoreReadExecution?
+    private(set) var canonicalScoreReaderParity: CanonicalScoreReaderParity?
 
     init(client: MatchDetailClient? = nil) { self.client = client ?? .live }
     var points: [MatchPoint] = []
@@ -112,8 +131,8 @@ final class MatchDetailModel {
         },
         persist: { [weak self] id, state in
             guard let self else { return false }
-            let skipKind = points.first(where: { $0.id == id })
-                .map { canonicalSkipReason($0.confirmedHow) } ?? "other"
+            let skipKind = canonicalSkipCommandKind(
+                points.first(where: { $0.id == id })?.confirmedHow)
             let outcome = state.winner?.rawValue ?? (state.isLet ? skipKind : "clear")
             let result = await canonicalCommand(
                 "set_point_outcome_v2",
@@ -325,6 +344,25 @@ final class MatchDetailModel {
                     try await supa.rpc(name, params: params).execute().value
                 }
                 canonicalCommandsEnabled = snapshot.canonicalCommandsEnabled
+                canonicalScoreRead = snapshot.canonicalScoreRead
+                canonicalScoreReaderParity = nil
+                if case .canonical(let canonical)? = snapshot.canonicalScoreRead {
+                    let parity = compareCanonicalScoreReader(
+                        canonical,
+                        firstServer: fresh.firstServer.flatMap(Winner.init(rawValue:)),
+                        points: snapshot.points.map(CanonicalReaderLegacyPoint.init))
+                    canonicalScoreReaderParity = parity
+                    print(
+                        "canonical score reader parity revision=\(parity.revision) "
+                        + "matches=\(parity.matches) "
+                        + "match_fields=\(parity.mismatchedMatchFields) "
+                        + "points=\(parity.mismatchedPoints) "
+                        + "canonical_count=\(parity.canonicalPointCount) "
+                        + "legacy_count=\(parity.legacyPointCount)")
+                } else if case .legacy(let reason)? = snapshot.canonicalScoreRead,
+                          reason != "not_enabled" {
+                    print("canonical score reader fallback reason=\(reason)")
+                }
                 loadedVersionId = fresh.activeProcessingVersionId
                 loadedMatchId = matchId
                 loadedMatchStatus = fresh.status

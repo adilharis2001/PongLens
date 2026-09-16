@@ -86,11 +86,38 @@ Additional automated evidence:
   16/16, frozen point parity 17/17, actual CoreML pose, table, ball and repeated
   side-change smoke checks, followed by a complete integrity recheck.
 
-## Remaining acceptance before widening
+## Final production acceptance
 
-Do not widen the capability or migrate owner readers yet. First log into the
-installed simulator build and confirm an existing scored match loads, then make
-and undo one safe score correction. The next real automatic and manual-cut
-production jobs should also be checked for publication health. These are
-acceptance checks, not missing implementation; all mutation families and both
-publication paths are covered by the database and package suites above.
+Native build 220 is available to internal testers and Adil exercised Score,
+Skip, Adjust, Split and Join on the Nathan vs Brian production match. The match
+stood at source/projection revision 57 with status `current` and no error.
+The join was one atomic `merge_points` command: it kept the first clip's start,
+extended through the second clip's end, archived the joined row, preserved the
+final point-end evidence and saved the selected opponent outcome in the same
+mutation.
+
+The final read-only audit found all 218 production matches current with matching
+source/projection revisions and zero projection errors. Two real automatic
+worker publications have completed through `replace_worker_points`; all 156
+stored timing observations remain valid. Both Mac lanes and both Modal lanes
+reported the intended `9e53da33...` Mac release, and the cloud twin reported its
+matching `33ab83f0...` release. The latest web deployment built from `main` at
+`1239953a`, completed successfully and holds all production aliases.
+
+No further player-facing web, native or admin test is required for this
+account-scoped rollout. The first naturally-created manual-cut publication is
+still worth checking because no post-rollout live manual cut exists yet; do not
+create or alter a production match solely to manufacture that evidence.
+
+The capability remains `user:a2e61027-2ee9-4026-a058-dc07441ee633`. Widening it
+to every account and migrating owner readers are separate product rollout
+decisions, not unfinished implementation.
+
+## Deferred native cleanup
+
+The Scorekeeper shortcut that splits by answering the second point performs the
+split and child score as two consecutive commands. If the second request alone
+fails, the child remains visibly unanswered and the existing retry error is
+shown; no incorrect score is silently stored. Modify Split and Join are already
+atomic, so this should be folded into the next normal iOS build rather than
+shipping a dedicated build 221.

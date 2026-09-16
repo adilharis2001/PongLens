@@ -2,17 +2,127 @@ import Foundation
 
 @MainActor
 func runCanonicalScoreCommandChecks() async {
+    suite("canonical skip command normalization") {
+        check(canonicalSkipCommandKind(nil) == "other",
+              "a plain Skip is sent as the accepted generic outcome")
+        check(canonicalSkipCommandKind("") == "other",
+              "an empty stored Skip reason is sent as the accepted generic outcome")
+        check(canonicalSkipCommandKind("hit_into_net") == "other",
+              "a retired winner reason cannot become an invalid Skip outcome")
+        check(canonicalSkipCommandKind("let") == "let",
+              "an explicit let remains a let")
+        check(canonicalSkipCommandKind("misrecorded") == "misrecorded",
+              "an explicit wrong-recording reason remains intact")
+    }
+
     suite("canonical command decoding") {
         let json = """
         {"ok":true,"requestId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","revision":8,
          "snapshot":{"matchId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","revision":8,
-         "status":"current","points":[{"pointId":"cccccccc-cccc-cccc-cccc-cccccccccccc",
-         "confirmedWinner":"user","skipKind":null}]},"payload":{"pointId":"cccccccc-cccc-cccc-cccc-cccccccccccc"}}
+         "status":"current","match":{"gamesUser":1,"gamesOpponent":0,
+         "currentGameNumber":2,"currentScoreUser":1,"currentScoreOpponent":0,
+         "completedGames":[{"gameNumber":1,"scoreUser":11,"scoreOpponent":8,
+         "winner":"user","closingPointId":"dddddddd-dddd-dddd-dddd-dddddddddddd",
+         "boundarySource":"automatic_score"}],"visiblePointCount":2,"answeredPointCount":2,
+         "skippedPointCount":0,"allVisiblePointsAnswered":true,"firstServer":"user",
+         "firstServerSource":"user","ordering":"source_time"},
+         "points":[{"pointId":"cccccccc-cccc-cccc-cccc-cccccccccccc","revision":8,
+         "timelineOrdinal":1,"displayNumber":2,"gameNumber":2,"scoreUserBefore":0,
+         "scoreOpponentBefore":0,"scoreUserAfter":1,"scoreOpponentAfter":0,
+         "confirmedWinner":"user","skipKind":null,"resolvedServer":"opponent",
+         "serverSource":"rotation","serveNumberInBlock":1,"endsGame":false,
+         "gameBoundarySource":null,"resolvedGameWinner":null,
+         "allVisiblePointsAnsweredThroughHere":true}]},
+         "payload":{"pointId":"cccccccc-cccc-cccc-cccc-cccccccccccc"}}
         """
         let decoded = try! JSONDecoder().decode(
             CanonicalScoreCommandResponse.self, from: Data(json.utf8))
         check(decoded.ok && decoded.revision == 8, "success response decodes")
         check(decoded.snapshot?.points.first?.confirmedWinner == "user", "snapshot point decodes")
+        let snapshotFields = decoded.snapshot.map {
+            Set(Mirror(reflecting: $0).children.compactMap(\.label))
+        } ?? []
+        let pointFields = decoded.snapshot?.points.first.map {
+            Set(Mirror(reflecting: $0).children.compactMap(\.label))
+        } ?? []
+        check(snapshotFields.contains("match"), "snapshot retains canonical match totals")
+        check(pointFields.contains("resolvedServer"), "snapshot retains canonical serve state")
+        check(pointFields.contains("endsGame"), "snapshot retains canonical boundary state")
+
+        let mixedJSON = json.replacingOccurrences(
+            of: "\"pointId\":\"cccccccc-cccc-cccc-cccc-cccccccccccc\",\"revision\":8",
+            with: "\"pointId\":\"cccccccc-cccc-cccc-cccc-cccccccccccc\",\"revision\":7")
+        let mixed = try? JSONDecoder().decode(
+            CanonicalScoreCommandResponse.self, from: Data(mixedJSON.utf8))
+        check(mixed == nil, "snapshot rejects points from another revision")
+    }
+
+    print("\ncanonical reader fallback boundary")
+    do {
+        check(
+            MatchRow.detailSelect.contains("first_server_source"),
+            "native reader fetches first-server authority with the score facts")
+        let match = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let point = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        let complete = CanonicalScoreSnapshot(
+            matchId: match, revision: 8, status: "current",
+            match: CanonicalScoreSnapshotMatch(
+                gamesUser: 0, gamesOpponent: 0, currentGameNumber: 1,
+                currentScoreUser: 1, currentScoreOpponent: 0, completedGames: [],
+                visiblePointCount: 1, answeredPointCount: 1, skippedPointCount: 0,
+                allVisiblePointsAnswered: true, firstServer: "user",
+                firstServerSource: "user", ordering: "source_time"),
+            points: [CanonicalScoreSnapshotPoint(
+                pointId: point, revision: 8, timelineOrdinal: 0, displayNumber: 1,
+                gameNumber: 1, scoreUserBefore: 0, scoreOpponentBefore: 0,
+                scoreUserAfter: 1, scoreOpponentAfter: 0,
+                confirmedWinner: "user", skipKind: nil, resolvedServer: "user",
+                serverSource: "rotation", serveNumberInBlock: 1, endsGame: false,
+                gameBoundarySource: nil, resolvedGameWinner: nil,
+                allVisiblePointsAnsweredThroughHere: true)])
+        let reader = CanonicalScoreReader { requested in
+            check(requested == match, "reader sends the requested match id")
+            return CanonicalScoreReadResponse(ok: true, snapshot: complete, code: nil)
+        }
+        let loaded = await reader.load(matchId: match, expectedRevision: 8)
+        if case .canonical(let snapshot) = loaded {
+            check(snapshot == complete, "reader returns one complete canonical revision")
+        } else { check(false, "reader returns one complete canonical revision") }
+        let parity = compareCanonicalScoreReader(
+            complete,
+            firstServer: .user,
+            points: [CanonicalReaderLegacyPoint(
+                id: point, idx: 1, t0: 1, deleted: false, isLet: false,
+                confirmedHow: nil, confirmedWinner: .user,
+                serverOverride: nil, gameEndOverride: nil,
+                gameWinnerOverride: nil)])
+        check(parity.matches, "native reader shadow matches the established fold")
+        check(
+            !Set(Mirror(reflecting: parity).children.compactMap(\.label)).contains("matchId"),
+            "native reader diagnostics omit match identifiers")
+        check(parity.mismatchedMatchFields == 0, "native parity reports aggregate match counts")
+        check(parity.mismatchedPoints == 0, "native parity reports aggregate point counts")
+        check(
+            await reader.load(matchId: match, expectedRevision: 7) == .legacy("revision_changed"),
+            "reader refuses a snapshot newer than its source rows")
+
+        let disabled = CanonicalScoreReader { _ in
+            CanonicalScoreReadResponse(ok: false, snapshot: nil, code: "not_enabled")
+        }
+        let fallback = await disabled.load(matchId: match, expectedRevision: 8)
+        check(fallback == .legacy("not_enabled"), "reader keeps the legacy fold while disabled")
+
+        let wrongMatch = CanonicalScoreReader { _ in
+            CanonicalScoreReadResponse(
+                ok: true,
+                snapshot: CanonicalScoreSnapshot(
+                    matchId: UUID(), revision: 8, status: "current",
+                    match: complete.match, points: complete.points),
+                code: nil)
+        }
+        check(
+            await wrongMatch.load(matchId: match, expectedRevision: 8) == .legacy("invalid_response"),
+            "reader rejects a snapshot for another match")
     }
 
     print("\ncanonical command retry and fallback")

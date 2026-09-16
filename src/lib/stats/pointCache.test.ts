@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { Point } from "../types.ts";
 import { splitByFreshness } from "./pointCache.ts";
@@ -66,4 +67,25 @@ test("the split covers every match exactly once", () => {
   );
   assert.deepEqual(fresh.map(([id]) => id), ["a", "d"]);
   assert.deepEqual(stale, ["b", "c"]);
+});
+
+test("manual game winners are downloaded and invalidate the stats point cache", () => {
+  const aggregateSource = readFileSync(
+    new URL("../../app/stats/useAggregate.ts", import.meta.url),
+    "utf8",
+  );
+  const migration = readFileSync(
+    new URL(
+      "../../../supabase/migrations/20260916151000_stats_game_winner_fingerprint.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(aggregateSource, /POINT_COLS[\s\S]*game_winner_override/);
+  assert.match(migration, /create or replace function public\.my_match_point_fingerprints\(\)/i);
+  assert.match(migration, /coalesce\(p\.game_winner_override/i);
+  assert.match(migration, /p\.processing_version_id\s*=\s*m\.active_processing_version_id/i);
+  assert.match(migration, /p\.deleted\s*=\s*false/i);
+  assert.match(migration, /revoke all on function public\.my_match_point_fingerprints\(\) from public, anon/i);
+  assert.match(migration, /grant execute on function public\.my_match_point_fingerprints\(\)\s+to authenticated, service_role/i);
 });

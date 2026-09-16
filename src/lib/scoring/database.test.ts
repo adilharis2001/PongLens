@@ -30,7 +30,7 @@ function resetFixture(): void {
   sql(`
     truncate public.point_timing_observations, public.match_score_mutations,
       public.point_score_state, public.match_score_state, public.hand_cut_drafts,
-      public.fullmatch_labels, public.points, public.coach_links,
+      public.fullmatch_labels, public.share_links, public.points, public.coach_links,
       public.jobs, public.matches, auth.users cascade;
     insert into auth.users(id,email) values
       ('${OWNER}','owner@example.test'),
@@ -38,7 +38,7 @@ function resetFixture(): void {
       ('${STRANGER}','stranger@example.test'),
       ('${ADMIN}','admin@example.test');
     update public.app_config set value='off'
-     where key='canonical_score_commands';
+     where key in ('canonical_score_commands', 'canonical_score_readers');
     insert into public.matches(
       id,user_id,first_server,first_server_source,active_processing_version_id
     ) values ('${MATCH}','${OWNER}','user','user','${VERSION}');
@@ -555,6 +555,210 @@ databaseTest("canonical command capability is private and follows the account ro
   );
   assert.notEqual(denied.status, 0);
   assert.match(denied.stderr, /permission denied/i);
+});
+
+databaseTest("canonical reader snapshot is default-off and access-scoped for owner, coach, and admin", () => {
+  resetFixture();
+  insertScorePoints();
+
+  assert.equal(
+    command(OWNER, `public.canonical_score_snapshot_v1('${MATCH}')`).code,
+    "not_enabled"
+  );
+
+  sql(`update public.app_config set value='user:${OWNER}'
+        where key='canonical_score_readers';`);
+  const owner = command(OWNER, `public.canonical_score_snapshot_v1('${MATCH}')`);
+  assert.equal(owner.ok, true);
+  assert.equal((owner.snapshot as { matchId: string }).matchId, MATCH);
+  const ownerBatch = command(
+    OWNER,
+    `public.canonical_score_summaries_v1(array[
+       '${MATCH}'::uuid,
+       'ffffffff-ffff-4fff-8fff-ffffffffffff'::uuid
+     ])`
+  );
+  assert.equal(ownerBatch.ok, true);
+  assert.deepEqual(
+    (ownerBatch.summaries as { matchId: string }[]).map((row) => row.matchId),
+    [MATCH]
+  );
+  const oversizedIds = Array.from(
+    { length: 251 },
+    (_, index) =>
+      `'00000000-0000-4000-8000-${String(index).padStart(12, "0")}'::uuid`
+  ).join(",");
+  assert.equal(
+    command(
+      OWNER,
+      `public.canonical_score_summaries_v1(array[${oversizedIds}])`
+    ).code,
+    "invalid_input"
+  );
+
+  sql(`insert into public.coach_links(player_id,coach_id,status,all_matches)
+       values ('${OWNER}','${COACH}','accepted',true);`);
+  assert.equal(
+    command(COACH, `public.canonical_score_snapshot_v1('${MATCH}')`).code,
+    "not_enabled"
+  );
+  sql(`update public.app_config set value='user:${COACH}'
+        where key='canonical_score_readers';`);
+  assert.equal(
+    command(COACH, `public.canonical_score_snapshot_v1('${MATCH}')`).ok,
+    true
+  );
+  assert.equal(
+    (command(
+      COACH,
+      `public.canonical_score_summaries_v1(array['${MATCH}'::uuid])`
+    ).summaries as unknown[]).length,
+    1
+  );
+
+  sql(`update public.app_config set value='user:${STRANGER}'
+        where key='canonical_score_readers';`);
+  assert.equal(
+    command(STRANGER, `public.canonical_score_snapshot_v1('${MATCH}')`).code,
+    "not_found"
+  );
+  assert.deepEqual(
+    command(
+      STRANGER,
+      `public.canonical_score_summaries_v1(array['${MATCH}'::uuid])`
+    ).summaries,
+    []
+  );
+
+  sql(`update public.app_config set value='user:${ADMIN}'
+        where key='canonical_score_readers';`);
+  assert.equal(
+    command(ADMIN, `public.canonical_score_snapshot_v1('${MATCH}')`).ok,
+    true
+  );
+  assert.equal(
+    command(ADMIN, `public.canonical_score_snapshot_v1('ffffffff-ffff-4fff-8fff-ffffffffffff')`).code,
+    "not_found"
+  );
+
+  sql(`update public.app_config set value='user:${OWNER}'
+        where key='canonical_score_readers';
+       update public.matches set score_projection_status='stale'
+        where id='${MATCH}';`);
+  assert.equal(
+    command(OWNER, `public.canonical_score_snapshot_v1('${MATCH}')`).code,
+    "unavailable"
+  );
+  assert.equal(
+    sql(`select score_projection_status from public.matches where id='${MATCH}';`),
+    "stale",
+    "a reader must never repair or otherwise mutate projection state"
+  );
+  assert.deepEqual(
+    command(
+      OWNER,
+      `public.canonical_score_summaries_v1(array['${MATCH}'::uuid])`
+    ).summaries,
+    [],
+    "batch readers omit stale projections rather than repairing them"
+  );
+
+  const denied = spawnSync(
+    "docker",
+    [
+      "exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1",
+      "-At", "-U", "postgres", "-d", DATABASE,
+    ],
+    {
+      input: `set role anon; select public.canonical_score_snapshot_v1('${MATCH}');`,
+      encoding: "utf8",
+    }
+  );
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /permission denied/i);
+
+  const batchDenied = spawnSync(
+    "docker",
+    [
+      "exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1",
+      "-At", "-U", "postgres", "-d", DATABASE,
+    ],
+    {
+      input: `set role anon; select public.canonical_score_summaries_v1(array['${MATCH}'::uuid]);`,
+      encoding: "utf8",
+    }
+  );
+  assert.notEqual(batchDenied.status, 0);
+  assert.match(batchDenied.stderr, /permission denied/i);
+});
+
+databaseTest("public share shadow is live-token scoped, owner-canary gated, and never repairs", () => {
+  resetFixture();
+  insertScorePoints();
+  sql(`
+    update public.matches
+       set first_server='opponent', first_server_source='detected'
+     where id='${MATCH}';
+    insert into public.share_links(match_id,token,kind,show_score)
+    values ('${MATCH}',repeat('s',48),'match',true);
+  `);
+
+  const service = (expression: string): Record<string, unknown> => {
+    const output = sql(`begin;
+      set local role service_role;
+      select set_config('request.jwt.claim.role','service_role',true);
+      select 'RESULT:' || (${expression})::text;
+      rollback;`);
+    const line = output.split("\n").find((candidate) => candidate.startsWith("RESULT:"));
+    assert.ok(line, output);
+    return JSON.parse(line.slice("RESULT:".length));
+  };
+
+  assert.equal(
+    service(`public.canonical_share_score_shadow_v1(repeat('s',48))`).code,
+    "not_enabled"
+  );
+  sql(`update public.app_config set value='user:${OWNER}'
+        where key='canonical_score_readers';`);
+  const result = service(`public.canonical_share_score_shadow_v1(repeat('s',48))`);
+  assert.equal(result.ok, true);
+  assert.equal((result.snapshot as { matchId: string }).matchId, MATCH);
+  assert.equal((result.legacy as { firstServer: string }).firstServer, "opponent");
+  assert.equal((result.legacy as { points: unknown[] }).points.length, 3);
+
+  sql(`update public.share_links set revoked_at=now()
+        where token=repeat('s',48);`);
+  assert.equal(
+    service(`public.canonical_share_score_shadow_v1(repeat('s',48))`).code,
+    "not_found"
+  );
+  sql(`update public.share_links set revoked_at=null where token=repeat('s',48);
+       update public.matches set score_projection_status='stale' where id='${MATCH}';`);
+  assert.equal(
+    service(`public.canonical_share_score_shadow_v1(repeat('s',48))`).code,
+    "unavailable"
+  );
+  assert.equal(
+    sql(`select score_projection_status from public.matches where id='${MATCH}';`),
+    "stale",
+    "share shadows must not repair stale canonical state"
+  );
+
+  for (const role of ["anon", "authenticated"]) {
+    const denied = spawnSync(
+      "docker",
+      [
+        "exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1",
+        "-At", "-U", "postgres", "-d", DATABASE,
+      ],
+      {
+        input: `set role ${role}; select public.canonical_share_score_shadow_v1(repeat('s',48));`,
+        encoding: "utf8",
+      }
+    );
+    assert.notEqual(denied.status, 0);
+    assert.match(denied.stderr, /permission denied/i);
+  }
 });
 
 databaseTest("command context locks one current snapshot and reports conflicts without writing", () => {

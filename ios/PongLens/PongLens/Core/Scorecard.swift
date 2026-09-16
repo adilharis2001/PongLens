@@ -131,6 +131,15 @@ func canonicalSkipReason(_ value: String?) -> String {
     return value
 }
 
+/// The canonical score command requires every skipped point to carry one of
+/// its three accepted outcomes. A plain Skip has no selected reason in the
+/// UI, so persist it as the generic `other` outcome rather than an empty
+/// string that the database must reject.
+func canonicalSkipCommandKind(_ value: String?) -> String {
+    let reason = canonicalSkipReason(value)
+    return reason.isEmpty ? "other" : reason
+}
+
 // MARK: - Custom reasons ("custom:<uuid>" in loss_reasons)
 
 /// One of the owner's own "why I lost it" pills (loss_reason_labels, 060).

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
+import { scoreChipsForPoints } from "@/app/dashboard/shared";
+import { loadCanonicalScoreSummaryDiagnostic } from "@/lib/scoring/reader";
 import {
   readCached,
   splitByFreshness,
@@ -10,6 +12,7 @@ import {
 } from "@/lib/stats/pointCache";
 import {
   aggregateStats,
+  isNeutral,
   type AggregateStats,
   type MatchLite,
 } from "./aggregate";
@@ -18,7 +21,7 @@ import {
 const POINT_COLS =
   "id, match_id, idx, t0, is_let, confirmed_winner, confirmed_how, " +
   "direction, serve_spin, serve_sidespin, serve_length, loss_reasons, " +
-  "game_end_override, server_override, server";
+  "game_end_override, game_winner_override, server_override, server";
 
 /**
  * There is no summary row anywhere: every one of these numbers is folded
@@ -67,7 +70,7 @@ async function walk(
   const { data: ms } = await supabase
     .from("matches")
     .select(
-      "id, opponent_name, match_type, played_at, first_server, first_server_source, user_side, player_near_name, player_far_name"
+      "id, opponent_name, match_type, played_at, first_server, first_server_source, user_side, player_near_name, player_far_name, score_revision"
     )
     .eq("user_id", userId);
   const list = (ms as MatchLite[]) ?? [];
@@ -90,6 +93,7 @@ async function walk(
   const cached = await readCached(userId, ids);
   const { fresh, stale } = splitByFreshness(ids, fingerprints, cached);
   const byMatch = new Map<string, Point[]>(fresh);
+  let pointFetchComplete = true;
 
   // Only the matches that actually moved. On an ordinary visit this is
   // empty and nothing is downloaded at all. Points arrive in match-id
@@ -102,26 +106,37 @@ async function walk(
     const perChunk = await Promise.all(
       chunks.map(async (chunk) => {
         const rows: Point[] = [];
+        let complete = true;
         for (let from = 0; ; from += 1000) {
-          const { data: ps } = await supabase
+          const { data: ps, error } = await supabase
             .from("points")
             .select(POINT_COLS)
             .in("match_id", chunk)
             .eq("deleted", false)
             .range(from, from + 999);
+          if (error || !ps) {
+            complete = false;
+            break;
+          }
           const page = (ps as unknown as Point[]) ?? [];
           rows.push(...page);
           if (page.length < 1000) break;
         }
-        return rows;
+        return { rows, complete };
       })
     );
     for (const id of stale) byMatch.set(id, []);
-    for (const rows of perChunk) {
+    for (const result of perChunk) {
+      pointFetchComplete = pointFetchComplete && result.complete;
+      const { rows } = result;
       for (const p of rows) {
         byMatch.get(p.match_id)?.push(p);
       }
     }
+    // A partial cross-match walk is a convincing but wrong answer. Preserve
+    // the last completed in-session result (when there is one) and retry on
+    // the next visit; never cache incomplete rows under a current fingerprint.
+    if (!pointFetchComplete) return null;
     void writeCached(
       userId,
       stale.map((id) => ({
@@ -133,7 +148,39 @@ async function walk(
     );
   }
 
-  return aggregateStats(list, byMatch, accountName);
+  const stats = aggregateStats(list, byMatch, accountName);
+  const scoredMatchIds = list
+    .filter((match) => !isNeutral(match, accountName))
+    .map((match) => match.id);
+  const included = new Set(scoredMatchIds);
+  const revisions = new Map<string, number>();
+  for (const match of list) {
+    if (
+      included.has(match.id) &&
+      typeof match.score_revision === "number"
+    ) {
+      revisions.set(match.id, match.score_revision);
+    }
+  }
+  const diagnostic = await loadCanonicalScoreSummaryDiagnostic({
+    matchIds: scoredMatchIds,
+    expectedRevisions: revisions,
+    legacyByMatch: scoreChipsForPoints(
+      [...byMatch.entries()]
+        .filter(([matchId]) => included.has(matchId))
+        .flatMap(([, points]) => points),
+    ),
+    rpc: (name, args) => supabase.rpc(name, args),
+  });
+  if (diagnostic?.kind === "parity") {
+    console.info("aggregate stats canonical score reader parity", diagnostic);
+  } else if (diagnostic) {
+    console.warn("aggregate stats canonical score reader fallback", {
+      reason: diagnostic.reason,
+    });
+  }
+
+  return stats;
 }
 
 function share(key: string, userId: string, accountName: string | null) {

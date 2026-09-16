@@ -14,6 +14,14 @@ const capabilityRollbackMigrationUrl = new URL(
   "../../../supabase/migrations/20260916133000_canonical_score_capability_rollback.sql",
   import.meta.url
 );
+const readersMigrationUrl = new URL(
+  "../../../supabase/migrations/20260916143000_canonical_score_readers.sql",
+  import.meta.url
+);
+const shareReaderMigrationUrl = new URL(
+  "../../../supabase/migrations/20260916153000_canonical_share_score_shadow.sql",
+  import.meta.url
+);
 const setupUrl = new URL(
   "../../../scripts/scoring/setup-local-db.mjs",
   import.meta.url
@@ -44,6 +52,24 @@ function capabilityRollbackMigrationSql(): string {
     "canonical score capability rollback migration must exist"
   );
   return readFileSync(capabilityRollbackMigrationUrl, "utf8");
+}
+
+function readersMigrationSql(): string {
+  assert.equal(
+    existsSync(readersMigrationUrl),
+    true,
+    "canonical score readers migration must exist"
+  );
+  return readFileSync(readersMigrationUrl, "utf8");
+}
+
+function shareReaderMigrationSql(): string {
+  assert.equal(
+    existsSync(shareReaderMigrationUrl),
+    true,
+    "canonical share score shadow migration must exist"
+  );
+  return readFileSync(shareReaderMigrationUrl, "utf8");
 }
 
 test("projection, observation, and ledger tables are private and RLS protected", () => {
@@ -90,10 +116,11 @@ test("client roles cannot execute internal projection or observation functions",
     "refresh_match_score_state(uuid)",
     "normalize_manual_cut_observations(uuid)",
   ]) {
+    const escaped = signature.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(
       sql,
       new RegExp(
-        `revoke all on function public\\.${signature.replace(/[()]/g, "\\$&")}\\s+from public, anon, authenticated`,
+        `revoke all on function public\\.${escaped}\\s+from public, anon, authenticated`,
         "i"
       )
     );
@@ -224,6 +251,109 @@ test("canonical command helpers are private and the capability is authenticated 
   assert.match(
     sql,
     /grant execute on function public\.canonical_score_commands_enabled\(\)\s+to authenticated/i
+  );
+});
+
+test("canonical readers are a separate default-off account canary with a narrow snapshot boundary", () => {
+  const sql = readersMigrationSql();
+  assert.match(
+    sql,
+    /insert into public\.app_config\s*\(\s*key\s*,\s*value\s*\)[\s\S]*?'canonical_score_readers'\s*,\s*'off'/i
+  );
+  const capability = sql.match(
+    /create or replace function public\.canonical_score_readers_enabled\(\)[\s\S]*?\n\$\$;/i
+  )?.[0] ?? "";
+  assert.match(capability, /c\.value\s*=\s*'on'[\s\S]*?'user:'[\s\S]*?'users:%'/i);
+  assert.doesNotMatch(capability, /public\.is_admin\(\)/i);
+
+  const reader = sql.match(
+    /create or replace function public\.canonical_score_snapshot_v1\(p_match_id uuid\)[\s\S]*?\n\$\$;/i
+  )?.[0] ?? "";
+  assert.match(reader, /canonical_score_readers_enabled\(\)/i);
+  assert.match(reader, /has_match_access\(p_match_id\)[\s\S]*?public\.is_admin\(\)/i);
+  assert.match(reader, /public\._canonical_score_snapshot\(p_match_id\)/i);
+  assert.match(reader, /'not_enabled'/i);
+  assert.match(reader, /'not_found'/i);
+  assert.match(reader, /'unavailable'/i);
+  assert.match(
+    reader,
+    /score_revision\s*=\s*m\.score_projection_revision[\s\S]*?score_projection_status\s+in\s*\('current',\s*'empty'\)[\s\S]*?for share/i
+  );
+  assert.doesNotMatch(reader, /refresh_match_score_state/i);
+  assert.doesNotMatch(reader, /match_score_mutations|point_timing_observations|before_state|after_state|reaction_meta/i);
+
+  for (const signature of [
+    "canonical_score_readers_enabled()",
+    "canonical_score_snapshot_v1(uuid)",
+    "canonical_score_summaries_v1(uuid[])",
+  ]) {
+    const escaped = signature.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(
+      sql,
+      new RegExp(
+        `revoke all on function public\\.${escaped}\\s+from public, anon, authenticated`,
+        "i"
+      )
+    );
+    assert.match(
+      sql,
+      new RegExp(
+        `grant execute on function public\\.${escaped}\\s+to authenticated`,
+        "i"
+      )
+    );
+  }
+});
+
+test("canonical summary batches are bounded, access-scoped, current-revision reads", () => {
+  const sql = readersMigrationSql();
+  const reader = sql.match(
+    /create or replace function public\.canonical_score_summaries_v1\(\s*p_match_ids uuid\[\]\s*\)[\s\S]*?\n\$\$;/i
+  )?.[0] ?? "";
+  assert.match(reader, /canonical_score_readers_enabled\(\)/i);
+  assert.match(reader, /array_length\(p_match_ids,\s*1\)[\s\S]*?>\s*250/i);
+  assert.match(reader, /has_match_access\(m\.id\)[\s\S]*?public\.is_admin\(\)/i);
+  assert.match(reader, /m\.score_revision\s*=\s*m\.score_projection_revision/i);
+  assert.match(reader, /m\.score_projection_status\s+in\s*\('current',\s*'empty'\)/i);
+  assert.match(reader, /'summaries'/i);
+  assert.doesNotMatch(
+    reader,
+    /refresh_match_score_state|match_score_mutations|point_timing_observations|before_state|after_state|reaction_meta/i
+  );
+});
+
+test("public-share score shadow is token-scoped, revision-pinned, and service-only", () => {
+  const sql = shareReaderMigrationSql();
+  const reader = sql.match(
+    /create or replace function public\.canonical_share_score_shadow_v1\(p_token text\)[\s\S]*?\n\$\$;/i
+  )?.[0] ?? "";
+  assert.match(reader, /share_links[\s\S]*?sl\.token\s*=\s*p_token/i);
+  assert.match(reader, /sl\.revoked_at\s+is\s+null/i);
+  assert.match(reader, /sl\.kind\s+in\s*\('match',\s*'highlights'\)/i);
+  assert.match(reader, /sl\.show_score/i);
+  assert.match(reader, /canonical_score_readers[\s\S]*?v_owner_id/i);
+  assert.match(
+    reader,
+    /score_revision\s*=\s*m\.score_projection_revision[\s\S]*?score_projection_status\s+in\s*\('current',\s*'empty'\)[\s\S]*?for share/i
+  );
+  assert.match(reader, /public\._canonical_score_snapshot\(v_match_id\)/i);
+  assert.match(reader, /p\.processing_version_id\s*=\s*v_processing_version_id/i);
+  assert.doesNotMatch(reader, /refresh_match_score_state/i);
+  assert.doesNotMatch(
+    reader,
+    /match_score_mutations|point_timing_observations|before_state|after_state|reaction_meta/i
+  );
+  assert.match(
+    sql,
+    /revoke all on function public\.canonical_share_score_shadow_v1\(text\)\s+from public, anon, authenticated, service_role/i
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.canonical_share_score_shadow_v1\(text\)\s+to service_role/i
+  );
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function public\.canonical_share_score_shadow_v1\(text\)\s+to anon|grant execute on function public\.canonical_share_score_shadow_v1\(text\)\s+to authenticated/i
   );
 });
 

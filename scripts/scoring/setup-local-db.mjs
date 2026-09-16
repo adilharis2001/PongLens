@@ -149,6 +149,14 @@ create table public.fullmatch_labels (
   kind text not null,
   t_s numeric not null
 );
+create table public.share_links (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references public.matches(id) on delete cascade,
+  token text not null unique,
+  kind text not null,
+  show_score boolean not null default true,
+  revoked_at timestamptz
+);
 
 create or replace function public.is_admin() returns boolean
 language sql stable security definer set search_path = public, auth as $$
@@ -275,6 +283,9 @@ const migrations = [
   "20260915190000_canonical_scored_match_state.sql",
   "20260916120000_canonical_score_commands.sql",
   "20260916133000_canonical_score_capability_rollback.sql",
+  "20260916143000_canonical_score_readers.sql",
+  "20260916151000_stats_game_winner_fingerprint.sql",
+  "20260916153000_canonical_share_score_shadow.sql",
 ].map((name) =>
   readFileSync(new URL(`../../supabase/migrations/${name}`, import.meta.url), "utf8")
 );
@@ -343,6 +354,9 @@ select md5('match-'||m)::uuid,
         ) order by p) from generate_series(1,90) p),
        now()
   from generate_series(1,5) m;
+
+insert into public.share_links(match_id,token,kind,show_score)
+values (md5('match-220')::uuid,repeat('p',48),'match',true);
 `;
   docker(
     ["exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE],

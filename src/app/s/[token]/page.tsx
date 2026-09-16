@@ -2,6 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  canonicalShareScoreDiagnostic,
+  loadCanonicalShareScoreShadow,
+  type CanonicalShareScoreReadExecution,
+} from "@/lib/scoring/reader";
 import {
   getPlacementServesOnly,
   getSupportEmail,
@@ -105,6 +111,27 @@ const resolveSharePoints = cache(
     });
     return (data ?? []) as ResolvedSharePoint[];
   }
+);
+
+// Public viewers keep using the established share resolver and fold. This
+// service-only shadow is separately owner-canary gated in PostgreSQL and
+// returns one locked revision for comparison; a missing server secret or any
+// transport problem must never make a public link unavailable.
+const resolveCanonicalShareScoreShadow = cache(
+  async (token: string): Promise<CanonicalShareScoreReadExecution> => {
+    try {
+      const admin = createAdminClient();
+      return await loadCanonicalShareScoreShadow({
+        token,
+        rpc: async (name, args) => {
+          const { data, error } = await admin.rpc(name, args);
+          return { data, error };
+        },
+      });
+    } catch {
+      return { kind: "legacy", reason: "transport_error" };
+    }
+  },
 );
 
 const resolveHighlightTimeline = cache(
@@ -552,6 +579,18 @@ export default async function SharePage({
   );
   const deadSpans = isMatch ? await resolveShareSkips(token, asPoints) : [];
   const score = scored ? computeMatchScore(asPoints) : null;
+  if (scored) {
+    const diagnostic = canonicalShareScoreDiagnostic(
+      await resolveCanonicalShareScoreShadow(token),
+    );
+    if (diagnostic?.kind === "parity") {
+      console.info("public share canonical score reader parity", diagnostic);
+    } else if (diagnostic) {
+      console.warn("public share canonical score reader fallback", {
+        reason: diagnostic.reason,
+      });
+    }
+  }
   // Too little to draw is not the same as nothing to draw, and on a public
   // page it looks the same as broken: a table with two dots on it reads as
   // a feature that failed, not as a match the vision could not follow.

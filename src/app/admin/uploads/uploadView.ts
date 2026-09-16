@@ -121,7 +121,7 @@ export interface AdminUploadPoint {
   cut_t0: number | null;
   has_clip: boolean;
   server: string | null;
-  server_override: string | null;
+  server_override: "user" | "opponent" | null;
   confirmed_winner: "user" | "opponent" | null;
   confirmed_how: string | null;
   is_let: boolean;
@@ -135,8 +135,8 @@ export interface AdminUploadPoint {
   scored_at_cut_s: number | null;
   serve_start_at_cut_s: number | null;
   rally_end_cut_s: number | null;
-  game_end_override: string | null;
-  game_winner_override: string | null;
+  game_end_override: "end" | "continue" | null;
+  game_winner_override: "user" | "opponent" | null;
   placement_status: string | null;
   placement_flagged: boolean;
   notes: number;

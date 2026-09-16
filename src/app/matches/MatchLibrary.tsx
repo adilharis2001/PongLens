@@ -14,6 +14,7 @@ import { deriveMatchTitle, deriveMatchTitleParts, tracksServe } from "@/lib/matc
 import { ShareSheet } from "@/components/ShareSheet";
 import { CoachCta } from "@/components/reviews/CoachCta";
 import { chipTargetIds } from "./chipTargets";
+import { loadCanonicalScoreSummaryDiagnostic } from "@/lib/scoring/reader";
 import {
   Chip,
   Thumb,
@@ -142,6 +143,7 @@ export function MatchLibrary({
   const [pointsByMatch, setPointsByMatch] = useState<Map<string, PointLite[]>>(
     new Map()
   );
+  const [pointsLoadedKey, setPointsLoadedKey] = useState<string | null>(null);
   /** Bumped by the poll so the scoped point fetch refreshes with everything
    *  else, without coupling it to fetchAll's identity. */
   const [tick, setTick] = useState(0);
@@ -425,15 +427,21 @@ export function MatchLibrary({
     tokens,
   });
   const chipKey = chipIds === null ? "*" : chipIds.join(",");
+  const pointRequestKey = `${chipKey}:${tick}`;
 
   useEffect(() => {
     let cancelled = false;
+    setPointsLoadedKey(null);
     void (async () => {
       const ids = chipKey === "*" ? null : chipKey ? chipKey.split(",") : [];
       if (ids !== null && ids.length === 0) return;
+      let complete = true;
       const rows = await fetchPointsPaged<PointLite>(
         "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, game_winner_override",
-        ids
+        ids,
+        () => {
+          complete = false;
+        },
       );
       const fetched = new Map<string, PointLite[]>();
       for (const p of rows) {
@@ -448,11 +456,76 @@ export function MatchLibrary({
       setPointsByMatch((prev) =>
         ids === null ? fetched : new Map([...prev, ...fetched])
       );
+      // A partial legacy fetch still preserves the page's historical display
+      // behavior, but it is not valid parity evidence for a canonical batch.
+      if (complete) setPointsLoadedKey(pointRequestKey);
     })();
     return () => {
       cancelled = true;
     };
-  }, [chipKey, tick]);
+  }, [chipKey, pointRequestKey, tick]);
+
+  // Dormant reader migration evidence. The established point fold continues
+  // to drive every visible chip; an allowlisted account silently compares one
+  // bounded canonical batch after those same point rows finish loading.
+  const scoreShadowIds = useMemo(
+    () => chipKey === "*"
+      ? (matches ?? [])
+          .filter((match) => match.status === "ready")
+          .map((match) => match.id)
+      : chipKey
+        ? chipKey.split(",")
+        : [],
+    [chipKey, matches],
+  );
+  const scoreShadowRevisions = useMemo(() => {
+    const revisions = new Map<string, number>();
+    const requested = new Set(scoreShadowIds);
+    for (const match of matches ?? []) {
+      if (requested.has(match.id) && typeof match.score_revision === "number") {
+        revisions.set(match.id, match.score_revision);
+      }
+    }
+    return revisions;
+  }, [matches, scoreShadowIds]);
+  const scoreShadowRevisionKey = scoreShadowIds
+    .map((matchId) => `${matchId}:${scoreShadowRevisions.get(matchId) ?? "?"}`)
+    .join(",");
+
+  useEffect(() => {
+    if (
+      pointsLoadedKey !== pointRequestKey ||
+      scoreShadowIds.length === 0
+    ) return;
+    let cancelled = false;
+    void (async () => {
+      const supabase = createClient();
+      const diagnostic = await loadCanonicalScoreSummaryDiagnostic({
+        matchIds: scoreShadowIds,
+        expectedRevisions: scoreShadowRevisions,
+        legacyByMatch: scoreChipByMatch,
+        rpc: (name, args) => supabase.rpc(name, args),
+      });
+      if (cancelled) return;
+      if (diagnostic?.kind === "parity") {
+        console.info("match library canonical score reader parity", diagnostic);
+      } else if (diagnostic) {
+        console.warn("match library canonical score reader fallback", {
+          reason: diagnostic.reason,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    pointRequestKey,
+    pointsLoadedKey,
+    scoreChipByMatch,
+    scoreShadowIds,
+    scoreShadowRevisionKey,
+    scoreShadowRevisions,
+  ]);
 
   const filtersActive =
     statusFilter !== "all" ||

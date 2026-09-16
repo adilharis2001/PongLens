@@ -126,6 +126,13 @@ export interface CanonicalScoreSnapshot {
   points: CanonicalSnapshotPoint[];
 }
 
+export interface CanonicalScoreSummary {
+  matchId: string;
+  revision: number;
+  status: "current" | "empty";
+  match: CanonicalMatchState;
+}
+
 export type CanonicalCommandResult =
   | {
       ok: true;
@@ -239,7 +246,9 @@ function pointState(value: unknown, revision: number): CanonicalSnapshotPoint | 
   return row as unknown as CanonicalSnapshotPoint;
 }
 
-function snapshot(value: unknown): CanonicalScoreSnapshot | null {
+export function parseCanonicalScoreSnapshot(
+  value: unknown
+): CanonicalScoreSnapshot | null {
   const row = object(value);
   if (
     !row ||
@@ -262,6 +271,28 @@ function snapshot(value: unknown): CanonicalScoreSnapshot | null {
   } as CanonicalScoreSnapshot;
 }
 
+export function parseCanonicalScoreSummary(
+  value: unknown
+): CanonicalScoreSummary | null {
+  const row = object(value);
+  if (
+    !row ||
+    typeof row.matchId !== "string" ||
+    !integer(row.revision) ||
+    (row.status !== "current" && row.status !== "empty")
+  ) {
+    return null;
+  }
+  const match = matchState(row.match);
+  if (!match) return null;
+  return {
+    matchId: row.matchId,
+    revision: row.revision,
+    status: row.status,
+    match,
+  } as CanonicalScoreSummary;
+}
+
 export function parseCanonicalCommandResult(
   value: unknown
 ): CanonicalCommandResult | null {
@@ -269,7 +300,7 @@ export function parseCanonicalCommandResult(
   if (!row || typeof row.ok !== "boolean") return null;
 
   if (row.ok) {
-    const parsedSnapshot = snapshot(row.snapshot);
+    const parsedSnapshot = parseCanonicalScoreSnapshot(row.snapshot);
     if (
       typeof row.requestId !== "string" ||
       !integer(row.revision) ||
@@ -288,7 +319,7 @@ export function parseCanonicalCommandResult(
   }
 
   if (row.code === "score_conflict") {
-    const parsedSnapshot = snapshot(row.snapshot);
+    const parsedSnapshot = parseCanonicalScoreSnapshot(row.snapshot);
     if (
       !integer(row.revision) ||
       !parsedSnapshot ||

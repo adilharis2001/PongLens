@@ -89,6 +89,33 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ---
 
+## Canonical scored-match commands are live for Adil
+
+**Verified in production on 2026-09-16:** The database, web app, automatic
+worker and native iOS build 220 carry the revisioned scored-match command
+system described in `docs/releases/2026-09-16-canonical-score-commands.md`.
+The source is on `main`; the capability remains deliberately scoped to Adil's
+account rather than all players. Do not widen it or migrate old owner readers
+without a separate rollout decision.
+
+The Nathan vs Brian production match exercised Score, Skip, Adjust, Split and
+Join from build 220. Its projection is current at revision 57 with no error;
+the join stored structure, outcome and final-point timing in one canonical
+mutation. Across production, all 218 matches have matching source/projection
+revisions and no projection errors. Two real automatic worker publications
+also completed through the canonical boundary. The next naturally-created
+manual cut should be checked after publication, but no synthetic production
+match is needed for acceptance.
+
+One small native follow-up is intentionally deferred: the Scorekeeper shortcut
+that splits by immediately answering the second point saves the split and the
+second answer as two commands. A lost second request leaves a visible,
+unanswered child and the app offers retry; it does not silently record the
+wrong score. Modify Split and Join are already atomic. Batch this shortcut
+cleanup into the next normal iOS release rather than making a dedicated build.
+
+---
+
 ## The processing page has to keep up with the worker
 
 **Worker release/health rollout, 2026-09-11:** main/fast now run the sealed
@@ -129,6 +156,31 @@ The claim repeats that check. The scheduled dispatcher never receives a media
 job or reports a worker heartbeat; the 4-CPU/8GiB worker has no schedule.
 `cloud_enabled` stays false until the same sealed bundle is installed on the
 Mac and Modal and its parity is accepted.
+
+**The cloud twin (2026-09-16).** Match processing has a second execution
+location: the same sealed release the Mac runs, rebuilt for Linux and run on
+a rented NVIDIA T4 through Modal (`worker/cloud_release`, app
+`ponglens-match-worker`, workspace `adilharis2001`). It is a backup, not a
+second ordinary consumer. The switch lives on `/admin/processing`, Cloud
+section, backed by `processing_control.cloud_mode`: **Off** (`disabled`),
+**Standby** (`automatic`: a container starts when the Mac's main and fast
+lanes have been silent for fifteen minutes with work waiting thirty, and
+stops after its current job once the Mac reports again), **Run once**
+(`manual`: one session now, then back to Off). `cloud_worker_decision()`
+answers the question once a minute and writes why into the control row; the
+page says it in words. The cloud lanes pulse as `modal:main` and
+`modal:fast` and get their own rows; their silence is Standby or Off, never
+an alarm, until a session has been started and nothing reports. A cloud
+build is tied to the exact Mac release it was built from
+(`cloud_mac_release_id`): when the Mac switches release the dispatcher
+reports `release_mismatch` and refuses until the twin is rebuilt (the steps
+are in `worker/cloud_release/README.md`). Never import Python from a live
+sealed release directory without `-B`: a bytecode cache inside the payload
+makes the Mac workers refuse every claim. `processing_control` still carries the
+abandoned 2026-09-05 design's columns: its word-list rule on
+`latest_dispatch_reason` refused the first press of Run once and was dropped
+(`20260916173909`); do not add fixed-vocabulary constraints to columns the
+dispatcher writes its reasons into.
 
 **The code is built so a missed update is visible rather than silent.** An
 unrecognised kind or stage renders as its own raw name with a marker
@@ -680,6 +732,37 @@ Conflicts reconcile from the returned complete snapshot and never perform a
 second write. Keep the capability `off` for an ordinary deploy, canary with
 `user:<uuid>`, and disable it without deleting projection data if anything is
 unclear.
+
+**The phase-three reader foundation is separate and also defaults off.**
+Migration `20260916143000_canonical_score_readers.sql` adds the authenticated
+`canonical_score_snapshot_v1` boundary and the independent
+`canonical_score_readers` account canary. Owner, accepted-coach and admin
+access still goes through the existing match boundary; admin status never
+enables the canary. Web match detail and native iOS may shadow-compare one
+revision-pinned snapshot when that account is allowlisted, but displays still
+use the established folds. Admin Upload Detail shares the same legacy adapter,
+the owner match library and accepted-coach student cards can shadow-read up to
+250 revision-current summaries in one `canonical_score_summaries_v1` call.
+Missing, inaccessible and stale rows are deliberately omitted together;
+readers must not repair them or turn the batch into an existence oracle.
+Shadow diagnostics contain only aggregate mismatch counts or stable fallback
+codes, never match ids. Do not activate or widen this reader flag until the
+entry gates in
+`docs/superpowers/plans/2026-09-16-canonical-score-reader-migration.md` pass.
+Aggregate stats also use the summary shadow for non-neutral match games. Their
+legacy point cache must download and fingerprint `game_winner_override` via
+`20260916151000_stats_game_winner_fingerprint.sql`; never cache or publish a
+stats walk after a partial point fetch.
+
+Public match and automatic-highlight links retain their existing anonymous
+resolver and display fold. Migration
+`20260916153000_canonical_share_score_shadow.sql` adds a separate service-only
+shadow: the server must present a live, unrevoked, score-visible token, the
+match owner must be in the reader canary, and the RPC pins one current score
+revision plus its active-version legacy source. Anon and authenticated roles
+cannot execute it. The page logs aggregate parity only and never a token,
+match id or score payload; any missing service configuration or shadow failure
+leaves the public link on its established behavior.
 
 - **Authority stays separated.** Owner outcomes, skips, first-server choices,
   serve overrides and game-boundary overrides are canonical inputs. Worker
