@@ -93,7 +93,7 @@ SCORING_STATE_LOCAL_DB_TEST=1 npm run test:scoring-state
 
 Expected: all tests pass with capability off by default, enabled only for the selected owner/admin, and no public/anon command access.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/20260916120000_canonical_score_commands.sql scripts/scoring/setup-local-db.mjs src/lib/scoring
@@ -112,7 +112,7 @@ git commit -m "Add canonical score command kernel"
 - Consumes: Task 1 command context and snapshot.
 - Produces: `set_point_outcome_v2`, `set_first_server_v2`, `set_server_override_v2`, `set_game_boundary_v2` returning `CanonicalCommandResult` JSON.
 
-- [ ] **Step 1: Write RED real-database cases**
+- [x] **Step 1: Write RED real-database cases**
 
 For every command assert: successful mutation and snapshot, coach/stranger rejection, stale revision with no write, duplicate request returning byte-equivalent JSON, reused request mismatch rejection, and projection failure rolling back the owner write.
 
@@ -125,21 +125,21 @@ set_server_override_v2: set/clear and clears later anchors exactly like existing
 set_game_boundary_v2: end/continue/clear plus named incomplete-game winner; clearing/reopening clears stale game_winner_override
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `SCORING_STATE_LOCAL_DB_TEST=1 npm run test:scoring-state`
 
 Expected: FAIL because the four public commands are absent.
 
-- [ ] **Step 3: Implement minimal commands**
+- [x] **Step 3: Implement minimal commands**
 
 Each SECURITY DEFINER function validates narrow enum inputs, performs one coupled write, explicitly calls `refresh_match_score_state`, inserts one `match_score_mutations` row with `base_revision`, `result_revision`, before/after fields and the returned response, and returns that response. Grant execution only to `authenticated`; revoke from `public` and `anon`.
 
-- [ ] **Step 4: Run GREEN and migration postcondition checks**
+- [x] **Step 4: Run GREEN and migration postcondition checks**
 
 Run the real database suite twice without rebuilding the container between runs to prove request idempotency survives process boundaries.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/20260916120000_canonical_score_commands.sql src/lib/scoring

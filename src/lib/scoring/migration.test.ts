@@ -223,3 +223,19 @@ test("command context locks the match and distinguishes duplicate, conflict, and
   assert.match(context, /'score_conflict'/i);
   assert.match(context, /'new'/i);
 });
+
+test("typed score commands share one atomic finalizer and narrow client grants", () => {
+  const commandMigration = commandsMigrationSql();
+  for (const name of [
+    "set_point_outcome_v2",
+    "set_first_server_v2",
+    "set_server_override_v2",
+    "set_game_boundary_v2",
+  ]) {
+    assert.match(commandMigration, new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${name}\\b`, "i"));
+    assert.match(commandMigration, new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${name}[^;]+to\\s+authenticated`, "is"));
+    assert.match(commandMigration, new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${name}[^;]+from\\s+public\\s*,\\s*anon`, "is"));
+  }
+  assert.match(commandMigration, /create\s+or\s+replace\s+function\s+public\._canonical_score_finish_command\b/i);
+  assert.match(commandMigration, /insert\s+into\s+public\.match_score_mutations/i);
+});

@@ -5,6 +5,62 @@ import type {
   CanonicalPointState,
 } from "./canonical.ts";
 
+export const canonicalScoreCommandRpcs = {
+  pointOutcome: "set_point_outcome_v2",
+  firstServer: "set_first_server_v2",
+  serverOverride: "set_server_override_v2",
+  gameBoundary: "set_game_boundary_v2",
+} as const;
+
+export type CanonicalPointOutcome =
+  | CanonicalPlayer
+  | "let"
+  | "misrecorded"
+  | "other"
+  | "clear";
+
+export function isCanonicalPointOutcome(
+  value: unknown
+): value is CanonicalPointOutcome {
+  return (
+    value === "user" ||
+    value === "opponent" ||
+    value === "let" ||
+    value === "misrecorded" ||
+    value === "other" ||
+    value === "clear"
+  );
+}
+
+export interface CanonicalCommandIdentity {
+  matchId: string;
+  requestId: string;
+  expectedRevision: number;
+}
+
+export interface SetPointOutcomeCommand extends CanonicalCommandIdentity {
+  pointId: string;
+  outcome: CanonicalPointOutcome;
+  confirmedHow?: string | null;
+  scoredAtCutS?: number | null;
+}
+
+export interface SetFirstServerCommand extends CanonicalCommandIdentity {
+  firstServer: CanonicalPlayer | null;
+}
+
+export interface SetServerOverrideCommand extends CanonicalCommandIdentity {
+  pointId: string;
+  server: CanonicalPlayer | null;
+}
+
+export interface SetGameBoundaryCommand extends CanonicalCommandIdentity {
+  pointId: string;
+  boundary: "end" | "continue" | null;
+  gameWinner: CanonicalPlayer | null;
+  previousPointId?: string | null;
+}
+
 export interface CanonicalSnapshotPoint extends CanonicalPointState {
   revision: number;
 }

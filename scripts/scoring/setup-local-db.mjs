@@ -103,6 +103,7 @@ create table public.points (
   server_override text check (server_override in ('user', 'opponent')),
   game_end_override text check (game_end_override in ('end', 'continue')),
   game_winner_override text check (game_winner_override in ('user', 'opponent')),
+  scored_at_cut_s numeric check (scored_at_cut_s is null or scored_at_cut_s >= 0),
   check (not (is_let and confirmed_winner is not null))
 );
 create table public.coach_links (

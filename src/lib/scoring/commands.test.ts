@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseCanonicalCommandResult } from "./commands.ts";
+import {
+  canonicalScoreCommandRpcs,
+  isCanonicalPointOutcome,
+  parseCanonicalCommandResult,
+} from "./commands.ts";
 
 const point = {
   pointId: "30000000-0000-0000-0000-000000000001",
@@ -108,4 +112,25 @@ test("rejects a mixed-revision or structurally incomplete response", () => {
     }),
     null
   );
+});
+
+test("exports the exact v2 RPC vocabulary used by command clients", () => {
+  assert.deepEqual(canonicalScoreCommandRpcs, {
+    pointOutcome: "set_point_outcome_v2",
+    firstServer: "set_first_server_v2",
+    serverOverride: "set_server_override_v2",
+    gameBoundary: "set_game_boundary_v2",
+  });
+  for (const value of [
+    "user",
+    "opponent",
+    "let",
+    "misrecorded",
+    "other",
+    "clear",
+  ]) {
+    assert.equal(isCanonicalPointOutcome(value), true);
+  }
+  assert.equal(isCanonicalPointOutcome("skip"), false);
+  assert.equal(isCanonicalPointOutcome(null), false);
 });
