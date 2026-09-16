@@ -293,7 +293,7 @@ export default async function MatchPage({
       <AppNav avatarUrl={avatarUrl} remembered={workspace} />
       <main className="bg-arena flex-1 pb-28 md:pb-16">
         <MatchView
-          key={activeMatchVersionKey(id, matchRes.data.active_processing_version_id)}
+          key={`${activeMatchVersionKey(id, matchRes.data.active_processing_version_id)}:${matchRes.data.score_revision ?? 0}`}
           match={matchRes.data as Match}
           initialPoints={(pointsRes.data ?? []) as Point[]}
           initialNotes={(notesRes.data ?? []) as Note[]}

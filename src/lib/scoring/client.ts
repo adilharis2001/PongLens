@@ -42,7 +42,9 @@ export interface CanonicalCommandInvocation<T> {
   /** The exact pre-rollout write. Used only when rollout is off/not enabled. */
   legacy: () => Promise<T>;
   /** Read after the optimistic local fold; used only for shadow parity. */
-  legacyProjection?: () => CanonicalProjection;
+  /** null explicitly suppresses comparison for a compound optimistic batch
+   * until its local mirror has been applied. */
+  legacyProjection?: (() => CanonicalProjection) | null;
   /** Reconcile score state after a stale revision; never mutates structure. */
   onConflict?: (snapshot: CanonicalScoreSnapshot) => void;
 }
@@ -136,6 +138,61 @@ export class CanonicalScoreCommandClient {
       };
     }
     return { kind: "rejected", code: result.code };
+  }
+}
+
+/**
+ * One revision clock per open match. Canonical commands are deliberately
+ * serialized across points: the database revision covers the whole match,
+ * so two independently valid taps sent with the same revision would make
+ * the second look stale. Legacy writes are still delegated unchanged when
+ * rollout is off.
+ */
+export class CanonicalMatchCommandClient {
+  private readonly matchId: string;
+  private readonly transport: CanonicalScoreCommandClient;
+  private currentRevision: number;
+  private tail: Promise<void> = Promise.resolve();
+
+  constructor(deps: {
+    matchId: string;
+    initialRevision: number;
+    transport: CanonicalScoreCommandClient;
+  }) {
+    this.matchId = deps.matchId;
+    this.currentRevision = deps.initialRevision;
+    this.transport = deps.transport;
+  }
+
+  get revision(): number {
+    return this.currentRevision;
+  }
+
+  execute<T>(
+    invocation: CanonicalCommandInvocation<T>,
+  ): Promise<CanonicalCommandExecution<T>> {
+    const work = async () => {
+      const result = await this.transport.execute({
+        ...invocation,
+        args: {
+          ...invocation.args,
+          p_match_id: this.matchId,
+          p_expected_revision: this.currentRevision,
+        },
+      });
+      if (result.kind === "canonical") {
+        this.currentRevision = result.result.revision;
+      } else if (result.kind === "conflict") {
+        this.currentRevision = result.revision;
+      }
+      return result;
+    };
+    const result = this.tail.then(work, work);
+    this.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 }
 

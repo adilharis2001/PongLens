@@ -653,6 +653,54 @@ databaseTest("visibility command removes and restores a point without discarding
   assert.equal(sql(`select visible_point_count from public.match_score_state where match_id='${MATCH}';`), "1");
 });
 
+databaseTest("reset score clears one selected segment atomically and keeps its boundary", () => {
+  resetFixture();
+  enableCommands();
+  insertScorePoints();
+  sql(`update public.points set
+         confirmed_winner='user', confirmed_how='forced_error',
+         scored_at_cut_s=t1, server_override='opponent',
+         game_end_override='end', game_winner_override='user',
+         serve_spin='topspin', serve_sidespin=true, serve_length='short',
+         direction='wide', loss_reasons=array['late'], misread_kind='type'
+       where match_id='${MATCH}';`);
+  const revision = scoreRevision();
+  const request = "40000000-0000-0000-0000-000000000390";
+  const expression = `public.reset_match_score_v2(
+    '${MATCH}',array[
+      '30000000-0000-0000-0000-000000000001'::uuid,
+      '30000000-0000-0000-0000-000000000002'::uuid
+    ],array['30000000-0000-0000-0000-000000000002'::uuid],false,
+    '${request}',${revision}
+  )`;
+  const result = command(OWNER, expression);
+  assert.equal(result.ok, true);
+  assert.deepEqual(command(OWNER, expression), result);
+  assert.equal(
+    sql(`select idx || '|' || coalesce(confirmed_winner,'null') || '|' ||
+                coalesce(confirmed_how,'null') || '|' || is_let || '|' ||
+                coalesce(server_override,'null') || '|' ||
+                coalesce(game_end_override,'null') || '|' ||
+                coalesce(game_winner_override,'null') || '|' ||
+                coalesce(scored_at_cut_s::text,'null') || '|' ||
+                coalesce(serve_spin,'null') || '|' ||
+                coalesce(array_length(loss_reasons,1),0)
+           from public.points where match_id='${MATCH}' order by idx;`),
+    [
+      "1|null|null|false|null|end|user|null|null|0",
+      "2|null|null|false|null|end|user|null|null|0",
+      "3|user|forced_error|false|opponent|end|user|6|topspin|1",
+    ].join("\n"),
+  );
+  assert.equal(
+    command(COACH, `public.reset_match_score_v2(
+      '${MATCH}',array['30000000-0000-0000-0000-000000000001'::uuid],
+      '{}'::uuid[],false,gen_random_uuid(),${result.revision}
+    )`).code,
+    "not_owner",
+  );
+});
+
 databaseTest("multi-marker split and unsplit are atomic and restore the exact parent", () => {
   resetFixture();
   enableCommands();

@@ -14,7 +14,14 @@ import { createClient } from "@/lib/supabase/client";
 import { activeCutPreview } from "@/lib/matchIssues/activeVersion";
 import type { Note, Point, ServeStartMeta, Tag } from "@/lib/types";
 import { ModifyClip } from "./ModifyClip";
-import { runJoinPlan, runSplitPlan, type JoinDirection } from "./modifyOps";
+import {
+  runJoinPlan,
+  runSplitPlan,
+  type CanonicalJoinExecutor,
+  type CanonicalSplitExecutor,
+  type JoinDirection,
+  type UnsplitRecord,
+} from "./modifyOps";
 import {
   computeMatchScore,
   createBoundaryWalk,
@@ -463,6 +470,7 @@ type UndoEntry =
       /** Parent's cut_t0, so undo can seek back to replay the rejoined
        *  point. */
       parentCutT0: number | null;
+      splitRequestId?: string;
     }
   | {
       /** Modify-modal Split (2-3 way). ONE compound undo: reverse every
@@ -481,6 +489,7 @@ type UndoEntry =
       rootPrevWinner: "user" | "opponent" | null;
       rootPrevSkipped: boolean;
       rootCutT0: number | null;
+      splitRequestId?: string;
     }
   | {
       /** Modify-modal Adjust (timing fix). Undo writes the previous
@@ -807,17 +816,13 @@ export const Player = forwardRef<
      * (reuses MatchView.addSplitPoint / updatePoint / scheduleReclip).
      */
     onSplit?: (parent: Point, patch: Partial<Point>, child: Point) => void;
-    /**
-     * Undo of a split: the Player has already run unsplit_point (child B
-     * deleted, parent A restored in the DB). This mirrors it locally —
-     * remove B, restore A's pre-split fields. Optional, wired alongside
-     * onSplit.
-     */
-    onUnsplit?: (
-      parentId: string,
-      patch: Partial<Point>,
-      childId: string
-    ) => void;
+    /** Atomic v2 structural executors supplied by MatchView during rollout. */
+    canonicalSplitExecutor?: CanonicalSplitExecutor;
+    canonicalJoinExecutor?: CanonicalJoinExecutor;
+    onUndoSplitPlan: (
+      splitRequestId: string | undefined,
+      unsplits: UnsplitRecord[],
+    ) => Promise<boolean>;
     /**
      * Modify-modal Join: the Player has already run merge_points (the
      * survivor grew its t1, the merged-away rows are hard-deleted in the DB).
@@ -866,6 +871,15 @@ export const Player = forwardRef<
     neutral: boolean;
     /** Apply an analysis-panel write to the page's copy of the point. */
     onPointUpdate: (pointId: string, patch: Partial<Point>) => void;
+    /** Coupled owner outcome command, including the scorecard's reason. */
+    onSaveOutcome: (
+      point: Point,
+      patch: {
+        confirmed_winner: "user" | "opponent" | null;
+        confirmed_how: string | null;
+        is_let: boolean;
+      },
+    ) => Promise<boolean>;
     /** The owner's own "why I lost it" pills (loss_reason_labels, 060). */
     customReasons?: { id: string; label: string }[];
     onCreateCustomReason?: (label: string) => Promise<string | null>;
@@ -915,7 +929,9 @@ export const Player = forwardRef<
   onDismissSideChange,
     onToggleStar,
     onSplit,
-    onUnsplit,
+    canonicalSplitExecutor,
+    canonicalJoinExecutor,
+    onUndoSplitPlan,
     onMerge,
     onAdjustTiming,
     onOpenPoint,
@@ -928,6 +944,7 @@ export const Player = forwardRef<
     mapLabels,
     neutral,
     onPointUpdate,
+    onSaveOutcome,
     customReasons = [],
     onCreateCustomReason,
     tagsForPoint,
@@ -4107,10 +4124,21 @@ export const Player = forwardRef<
       clearSplitArm();
       setArmHold(heldServer);
       setModifyBusy(true);
-      const { ok, created, unsplits } = await runSplitPlan({
+      const {
+        ok,
+        created,
+        unsplits,
+        outcomesApplied,
+        splitRequestId,
+      } = await runSplitPlan({
         point: A,
         pad: padRef.current,
         cutTimes: [armed.atCut],
+        outcomes: [
+          A.is_let ? "skip" : (A.confirmed_winner ?? "clear"),
+          call,
+        ],
+        canonical: canonicalSplitExecutor,
         onChild: onSplit,
       });
       setModifyBusy(false);
@@ -4127,6 +4155,7 @@ export const Player = forwardRef<
               rootPrevWinner: prevWinner,
               rootPrevSkipped: prevSkipped,
               rootCutT0,
+              splitRequestId,
             },
           ]);
         }
@@ -4144,6 +4173,7 @@ export const Player = forwardRef<
           rootPrevWinner: prevWinner,
           rootPrevSkipped: prevSkipped,
           rootCutT0,
+          splitRequestId,
         },
       ]);
       // No ending observation: a hand-cut half is `edited`, and the scorer
@@ -4155,14 +4185,15 @@ export const Player = forwardRef<
       // the same road: the card is cut and the new half is the let. Skip
       // meaning something else while this is up would make the row of
       // buttons under one sentence answer two different questions.
-      void (call === "skip"
-        ? onSetSkipped(child, true)
-        : onSetWinner(child, call)
-      )
-        .catch(() => ({ failed: true }) as ScorerCommandResult)
-        .then((result) => {
-          if (isScorerFailure(result)) showToast("Couldn't save. Tap again.");
-        });
+      if (!outcomesApplied) {
+        void (call === "skip"
+          ? onSetSkipped(child, true)
+          : onSetWinner(child, call))
+          .catch(() => ({ failed: true }) as ScorerCommandResult)
+          .then((result) => {
+            if (isScorerFailure(result)) showToast("Couldn't save. Tap again.");
+          });
+      }
       showFlash(
         `Split · ${
           call === "skip" ? "let" : call === "user" ? youLabel : themLabel
@@ -4184,6 +4215,7 @@ export const Player = forwardRef<
     },
     [
       onSplit,
+      canonicalSplitExecutor,
       modifyBusy,
       nowT,
       clearSplitArm,
@@ -4609,10 +4641,18 @@ export const Player = forwardRef<
 
       // The marker math and the split_point sequence live in modifyOps.ts,
       // shared with the point view's Modify.
-      const { ok, created, unsplits } = await runSplitPlan({
+      const {
+        ok,
+        created,
+        unsplits,
+        outcomesApplied,
+        splitRequestId,
+      } = await runSplitPlan({
         point: A,
         pad: cpad,
         cutTimes,
+        outcomes: segments,
+        canonical: canonicalSplitExecutor,
         onChild: onSplit,
       });
       if (!ok) {
@@ -4631,6 +4671,7 @@ export const Player = forwardRef<
             rootPrevWinner: origWinner,
             rootPrevSkipped: origSkipped,
             rootCutT0: cutT0,
+            splitRequestId,
           },
         ]);
         setModifyPoint(null);
@@ -4640,10 +4681,12 @@ export const Player = forwardRef<
 
       // Apply each segment's outcome: [root, ...children] in timeline order.
       const segPoints = [A, ...created];
-      for (let i = 0; i < segPoints.length && i < segments.length; i++) {
-        const d = segments[i];
-        if (d === "skip") onSetSkipped(segPoints[i], true);
-        else onSetWinner(segPoints[i], d);
+      if (!outcomesApplied) {
+        for (let i = 0; i < segPoints.length && i < segments.length; i++) {
+          const d = segments[i];
+          if (d === "skip") onSetSkipped(segPoints[i], true);
+          else onSetWinner(segPoints[i], d);
+        }
       }
 
       setUndoStack((s) => [
@@ -4655,6 +4698,7 @@ export const Player = forwardRef<
           rootPrevWinner: origWinner,
           rootPrevSkipped: origSkipped,
           rootCutT0: cutT0,
+          splitRequestId,
         },
       ]);
       setModifyBusy(false);
@@ -4680,6 +4724,7 @@ export const Player = forwardRef<
     [
       modifyBusy,
       onSplit,
+      canonicalSplitExecutor,
       onSetWinner,
       onSetSkipped,
       pinEndPause,
@@ -4711,7 +4756,14 @@ export const Player = forwardRef<
 
       setModifyBusy(true);
       pauseBoth();
-      const plan = await runJoinPlan({ point: A, points: ps, count, direction });
+      const plan = await runJoinPlan({
+        point: A,
+        points: ps,
+        count,
+        direction,
+        outcome: winner,
+        canonical: canonicalJoinExecutor,
+      });
       if (!plan) {
         setModifyBusy(false);
         showToast("Couldn't join. Try again.");
@@ -4722,8 +4774,10 @@ export const Player = forwardRef<
       // rows that go, so the patch and the score land on the survivor by
       // its own id, never on A's.
       onMerge(survivor.id, survivorPatch, mergedIds);
-      if (winner === "skip") onSetSkipped(survivor, true);
-      else onSetWinner(survivor, winner);
+      if (!plan.outcomeApplied) {
+        if (winner === "skip") onSetSkipped(survivor, true);
+        else onSetWinner(survivor, winner);
+      }
 
       setModifyBusy(false);
       setModifyPoint(null);
@@ -4743,6 +4797,7 @@ export const Player = forwardRef<
     },
     [
       modifyBusy,
+      canonicalJoinExecutor,
       onMerge,
       modifyPoint,
       onSetWinner,
@@ -5309,27 +5364,22 @@ export const Player = forwardRef<
       // (scheduled by onUnsplit) regenerates it to the restored extent.
       // Optimistic local mirror rejoins the timeline into one point;
       // seeking back replays it (unscored ⇒ its end re-arms and pauses).
-      const patch: Partial<Point> = {
-        t1: e.prevT1,
-        tight_end: e.prevTightEnd,
-        edited: true,
-      };
       pinEndPause(null);
       endPauseFiredRef.current = null;
       (async () => {
-        const supabase = createClient();
-        const { error } = await supabase.rpc("unsplit_point", {
-          p_parent: e.parentId,
-          p_child: e.childId,
-          parent_t1: e.prevT1,
-          parent_tight_end: e.prevTightEnd,
-          parent_edited: e.prevEdited,
-        });
-        if (error) {
+        const ok = await onUndoSplitPlan(e.splitRequestId, [
+          {
+            parentId: e.parentId,
+            childId: e.childId,
+            prevT1: e.prevT1,
+            prevTightEnd: e.prevTightEnd,
+            prevEdited: e.prevEdited,
+          },
+        ]);
+        if (!ok) {
           showToast("Couldn't undo the split. Try again.");
           return;
         }
-        onUnsplit?.(e.parentId, patch, e.childId);
         if (e.parentCutT0 !== null && phase !== "review") {
           seekTo(e.parentCutT0); // zoom persists
           playNow();
@@ -5345,24 +5395,18 @@ export const Player = forwardRef<
       pinEndPause(null);
       endPauseFiredRef.current = null;
       (async () => {
-        const supabase = createClient();
-        for (const u of e.unsplits) {
-          const { error } = await supabase.rpc("unsplit_point", {
-            p_parent: u.parentId,
-            p_child: u.childId,
-            parent_t1: u.prevT1,
-            parent_tight_end: u.prevTightEnd,
-            parent_edited: u.prevEdited,
-          });
-          if (error) {
-            showToast("Couldn't fully undo. Try again.");
-            return;
+        if (!(await onUndoSplitPlan(e.splitRequestId, e.unsplits))) {
+          showToast("Couldn't fully undo. Try again.");
+          return;
+        }
+        if (e.splitRequestId) {
+          // The atomic inverse restored the root's complete pre-split row,
+          // including its outcome; no follow-up score command is needed.
+          if (e.rootCutT0 !== null && phase !== "review") {
+            seekTo(e.rootCutT0);
+            playNow();
           }
-          onUnsplit?.(
-            u.parentId,
-            { t1: u.prevT1, tight_end: u.prevTightEnd, edited: true },
-            u.childId
-          );
+          return;
         }
         // Root restore: children are gone, so only the root's own outcome
         // needs putting back.
@@ -5409,7 +5453,7 @@ export const Player = forwardRef<
   }, [
     undoStack,
     onUndoDelete,
-    onUnsplit,
+    onUndoSplitPlan,
     onAdjustTiming,
     onRestoreScorer,
     clearSplitArm,
@@ -8143,6 +8187,9 @@ export const Player = forwardRef<
                       );
                       onPointUpdate(analysisPoint.id, patch);
                     }}
+                    onSaveOutcome={(patch) =>
+                      onSaveOutcome(analysisPoint, patch)
+                    }
                     onSetServer={(v) => onSetServer(analysisPoint, v)}
                   />
                 )}

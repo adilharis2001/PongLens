@@ -241,7 +241,7 @@ Verification on 2026-09-16: the focused transport/integration suite passed
 warnings plus the pre-existing unused `SideChangeMarker` warning in
 `MatchView`; the command transport introduced no build errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/scoring/client.ts src/lib/scoring/client.test.ts 'src/app/match/[id]'
@@ -263,19 +263,19 @@ git commit -m "Add web canonical score command transport"
 - Consumes: Task 4 transport and existing direct-write callbacks.
 - Produces: capability-gated web outcome, first-server, server override, boundary, delete/restore, Split/Unsplit/Join/Adjust/Insert calls.
 
-- [ ] **Step 1: Add failing integration cases for every mutation path**
+- [x] **Step 1: Add failing integration cases for every mutation path**
 
 Use the existing scorer harness to prove v2 success, stale conflict, duplicate retry, mid-command error, Undo and capability-off legacy behavior. Preserve loss reasons, notes, tags, clips, strictness, reclip requests and optimistic rollback exactly as today.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npm run test:scorer && npm run test:match-structure`
 
-- [ ] **Step 3: Route score-affecting writes through the transport**
+- [x] **Step 3: Route score-affecting writes through the transport**
 
 Non-score metadata (`starred`, loss reasons, serve details, placement flag, notes, tags, side-change dismissal) remains on its current path because it does not increment canonical score revision. Do not alter layout or copy.
 
-- [ ] **Step 4: Run GREEN and production build**
+- [x] **Step 4: Run GREEN and production build**
 
 Run:
 
@@ -285,6 +285,14 @@ npm run test:match-structure
 npm run test:scorecard
 npm run build
 ```
+
+Verification on 2026-09-16: the canonical PostgreSQL suite passed 66/66,
+the scorer suite passed 43/43, the scorecard suite passed 15/15, focused
+web transport and structural mutation tests passed 12/12, targeted lint
+reported no errors, and the full production build completed. The broader
+match-structure suite passed 140/141; its only failure is the established
+unrelated Highlights source assertion for `min-h-11 w-full`, also recorded
+before this task.
 
 - [ ] **Step 5: Commit**
 

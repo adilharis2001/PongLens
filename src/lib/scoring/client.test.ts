@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CanonicalProjection } from "./canonical.ts";
 import {
+  CanonicalMatchCommandClient,
   CanonicalScoreCommandClient,
   compareCanonicalProjection,
 } from "./client.ts";
@@ -50,7 +51,7 @@ function success(requestId: string) {
     snapshot: {
       matchId: "match-1",
       revision: 8,
-      status: "current",
+      status: "current" as const,
       match,
       points: [{ ...point, revision: 8 }],
     },
@@ -212,4 +213,95 @@ test("projection comparison ignores transport-only point revisions", () => {
       legacyPointCount: 1,
     },
   );
+});
+
+test("match command serialization feeds each committed revision into the next call", async () => {
+  const expected: unknown[] = [];
+  const requestIds = ["request-1", "request-2"];
+  const coordinator = new CanonicalMatchCommandClient({
+    matchId: "match-1",
+    initialRevision: 7,
+    transport: new CanonicalScoreCommandClient({
+      enabled: true,
+      requestId: () => requestIds.shift()!,
+      rpc: async (_name, args) => {
+        expected.push(args.p_expected_revision);
+        const revision = Number(args.p_expected_revision) + 1;
+        const response = success(String(args.p_request_id));
+        response.revision = revision;
+        response.snapshot.revision = revision;
+        response.snapshot.points[0].revision = revision;
+        return { data: response, error: null };
+      },
+    }),
+  });
+
+  const [first, second] = await Promise.all([
+    coordinator.execute({
+      rpc: "set_point_outcome_v2",
+      args: { p_point_id: "point-1" },
+      legacy: async () => true,
+    }),
+    coordinator.execute({
+      rpc: "set_point_outcome_v2",
+      args: { p_point_id: "point-1" },
+      legacy: async () => true,
+    }),
+  ]);
+
+  assert.equal(first.kind, "canonical");
+  assert.equal(second.kind, "canonical");
+  assert.deepEqual(expected, [7, 8]);
+  assert.equal(coordinator.revision, 9);
+});
+
+test("a conflict advances the coordinator before the next queued action", async () => {
+  const expected: unknown[] = [];
+  let call = 0;
+  const coordinator = new CanonicalMatchCommandClient({
+    matchId: "match-1",
+    initialRevision: 2,
+    transport: new CanonicalScoreCommandClient({
+      enabled: true,
+      requestId: () => `request-${call + 1}`,
+      rpc: async (_name, args) => {
+        expected.push(args.p_expected_revision);
+        call += 1;
+        if (call === 1) {
+          const conflictSnapshot = success("unused").snapshot;
+          conflictSnapshot.revision = 8;
+          conflictSnapshot.points[0].revision = 8;
+          return {
+            data: {
+              ok: false,
+              code: "score_conflict",
+              revision: 8,
+              snapshot: conflictSnapshot,
+            },
+            error: null,
+          };
+        }
+        const response = success(String(args.p_request_id));
+        response.revision = 9;
+        response.snapshot.revision = 9;
+        response.snapshot.points[0].revision = 9;
+        return { data: response, error: null };
+      },
+    }),
+  });
+
+  const first = coordinator.execute({
+    rpc: "set_point_outcome_v2",
+    args: {},
+    legacy: async () => true,
+  });
+  const second = coordinator.execute({
+    rpc: "set_point_outcome_v2",
+    args: {},
+    legacy: async () => true,
+  });
+  assert.equal((await first).kind, "conflict");
+  assert.equal((await second).kind, "canonical");
+  assert.deepEqual(expected, [2, 8]);
+  assert.equal(coordinator.revision, 9);
 });

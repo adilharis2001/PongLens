@@ -249,6 +249,7 @@ test("typed structural commands are present and authenticated-only", () => {
     "merge_points_v2",
     "adjust_point_v2",
     "insert_point_v2",
+    "reset_match_score_v2",
   ]) {
     assert.match(commandMigration, new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${name}\\b`, "i"));
     assert.match(commandMigration, new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${name}[^;]+to\\s+authenticated`, "is"));

@@ -9,6 +9,16 @@ insert into public.app_config (key, value)
 values ('canonical_score_commands', 'off')
 on conflict (key) do nothing;
 
+alter table public.match_score_mutations
+  drop constraint if exists match_score_mutations_action_check;
+alter table public.match_score_mutations
+  add constraint match_score_mutations_action_check check (action in (
+    'set_point_outcome', 'set_first_server', 'set_server_override',
+    'set_game_boundary', 'split_point', 'unsplit_point', 'merge_points',
+    'adjust_point', 'insert_point', 'set_point_visibility',
+    'publish_hand_cut', 'replace_worker_points', 'reset_match_score'
+  ));
+
 create or replace function public.canonical_score_commands_enabled()
 returns boolean
 language sql
@@ -1255,4 +1265,89 @@ revoke all on function public.insert_point_v2(
 ) from public, anon;
 grant execute on function public.insert_point_v2(
   uuid,uuid,uuid,numeric,numeric,numeric,text,uuid,bigint
+) to authenticated;
+
+-- Unscore is one owner action, not a sequence of best-effort row writes.
+-- It clears exactly the selected scoring/analysis rows and can preserve the
+-- positional game breaks needed when only one game is reset.
+create or replace function public.reset_match_score_v2(
+  p_match_id uuid,
+  p_point_ids uuid[],
+  p_pin_end_ids uuid[],
+  p_clear_boundaries boolean,
+  p_request_id uuid,
+  p_expected_revision bigint
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_context jsonb;
+  v_version uuid;
+  v_found integer;
+  v_before jsonb;
+  v_after jsonb;
+begin
+  v_context := public._canonical_score_command_context(
+    p_match_id,p_request_id,p_expected_revision,'reset_match_score'
+  );
+  if v_context->>'state'<>'new' then return v_context->'response'; end if;
+  if p_point_ids is null or cardinality(p_point_ids)<1
+     or cardinality(array(select distinct unnest(p_point_ids)))
+          <>cardinality(p_point_ids)
+     or p_pin_end_ids is null
+     or cardinality(array(select distinct unnest(p_pin_end_ids)))
+          <>cardinality(p_pin_end_ids)
+     or p_clear_boundaries is null
+     or exists (select 1 from unnest(p_pin_end_ids) id
+                 where not (id=any(p_point_ids))) then
+    return jsonb_build_object('ok',false,'code','invalid_input');
+  end if;
+
+  select active_processing_version_id into v_version
+    from public.matches where id=p_match_id;
+  select count(*) into v_found from (
+    select p.id from public.points p
+     where p.match_id=p_match_id
+       and p.processing_version_id=v_version
+       and p.id=any(p_point_ids)
+     order by p.id for update
+  ) locked;
+  if v_found<>cardinality(p_point_ids) then
+    return jsonb_build_object('ok',false,'code','not_found');
+  end if;
+
+  select jsonb_agg(to_jsonb(p) order by p.id) into v_before
+    from public.points p where p.id=any(p_point_ids);
+  update public.points set
+    confirmed_winner=null,confirmed_how=null,is_let=false,
+    scored_at_cut_s=null,server_override=null,
+    serve_spin=null,serve_sidespin=null,serve_length=null,
+    direction=null,loss_reasons=null,misread_kind=null,
+    game_end_override=case
+      when p_clear_boundaries then null
+      when id=any(p_pin_end_ids) then 'end'
+      else game_end_override end,
+    game_winner_override=case
+      when p_clear_boundaries then null else game_winner_override end
+   where id=any(p_point_ids);
+  select jsonb_agg(to_jsonb(p) order by p.id) into v_after
+    from public.points p where p.id=any(p_point_ids);
+
+  return public._canonical_score_finish_command(
+    p_match_id,p_request_id,'reset_match_score',
+    (v_context->>'baseRevision')::bigint,p_point_ids,
+    jsonb_build_object('points',v_before),
+    jsonb_build_object('points',v_after)
+  );
+end;
+$$;
+
+revoke all on function public.reset_match_score_v2(
+  uuid,uuid[],uuid[],boolean,uuid,bigint
+) from public, anon;
+grant execute on function public.reset_match_score_v2(
+  uuid,uuid[],uuid[],boolean,uuid,bigint
 ) to authenticated;

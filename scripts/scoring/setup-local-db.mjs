@@ -106,6 +106,12 @@ create table public.points (
   game_winner_override text check (game_winner_override in ('user', 'opponent')),
   scored_at_cut_s numeric check (scored_at_cut_s is null or scored_at_cut_s >= 0),
   rally_end_cut_s numeric check (rally_end_cut_s is null or rally_end_cut_s >= 0),
+  serve_spin text,
+  serve_sidespin boolean,
+  serve_length text,
+  direction text,
+  loss_reasons text[],
+  misread_kind text,
   edited boolean not null default false,
   check (not (is_let and confirmed_winner is not null))
 );

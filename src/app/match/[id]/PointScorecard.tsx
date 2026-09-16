@@ -199,6 +199,7 @@ export function PointScorecard({
   flash,
   variant = "full",
   onPointUpdate,
+  onSaveOutcome,
   onSetServer,
   customReasons = [],
   onCreateCustomReason,
@@ -219,6 +220,13 @@ export function PointScorecard({
    */
   variant?: "full" | "analysis";
   onPointUpdate: (patch: Partial<Point>) => void;
+  /** Host-owned outcome command. When present, all coupled outcome fields
+   * travel through the match revision instead of a direct row update. */
+  onSaveOutcome?: (patch: {
+    confirmed_winner: "user" | "opponent" | null;
+    confirmed_how: string | null;
+    is_let: boolean;
+  }) => Promise<boolean>;
   /** Answer "Who served?". Lives on the host because a correction also
    *  clears the corrections after it, which needs the whole timeline —
    *  see MatchView.setServerOverride. Required even for the "analysis"
@@ -294,19 +302,22 @@ export function PointScorecard({
       is_let: boolean;
     }) => {
       markError(null);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update(patch)
-        .eq("id", point.id);
-      if (error) {
+      const saved = onSaveOutcome
+        ? await onSaveOutcome(patch)
+        : !(
+            await createClient()
+              .from("points")
+              .update(patch)
+              .eq("id", point.id)
+          ).error;
+      if (!saved) {
         markError("Couldn't save. Tap again.");
         return;
       }
       onPointUpdate(patch);
       markSaved();
     },
-    [point.id, onPointUpdate, markSaved, markError]
+    [point.id, onPointUpdate, onSaveOutcome, markSaved, markError]
   );
 
   // One write for the optional detail columns. Callers set their own state

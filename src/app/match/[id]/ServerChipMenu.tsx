@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
 import { skipChipLabel } from "./scorecard";
 import { CHIP_TONE, serverChip, type Side } from "./sides";
@@ -28,8 +27,8 @@ export function ServerChipMenu({
   userSide,
   isOwner,
   neutralLabels,
-  onPointUpdate,
   onSetServer,
+  onSetSkipped,
 }: {
   point: Point;
   serve: ServeInfo | undefined;
@@ -39,11 +38,11 @@ export function ServerChipMenu({
    *  MatchView's `neutral`): replaces "I"/"They" wording on the chip and its
    *  override menu. undefined for a normal match. */
   neutralLabels?: { you: string; them: string };
-  onPointUpdate: (pointId: string, patch: Partial<Point>) => void;
   /** Set (or clear, with null) this point's serve correction. Lives on the
    *  host because a correction also clears the corrections after it, which
    *  needs the whole timeline — see MatchView.setServerOverride. */
   onSetServer: (value: MatchServer | null) => void | Promise<void>;
+  onSetSkipped: (value: boolean) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -64,27 +63,15 @@ export function ServerChipMenu({
       ? serverChip(point.server, userSide, isOwner, neutralLabels)
       : null;
 
-  const save = useCallback(
-    async (
-      patch: Partial<Pick<Point, "is_let" | "confirmed_winner">>
-    ) => {
+  const saveSkipped = useCallback(
+    async (next: boolean) => {
       if (busy) return;
       setBusy(true);
       setOpen(false);
-      const prev = {
-        is_let: point.is_let,
-        confirmed_winner: point.confirmed_winner,
-      };
-      onPointUpdate(point.id, patch);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update(patch)
-        .eq("id", point.id);
+      await onSetSkipped(next);
       setBusy(false);
-      if (error) onPointUpdate(point.id, prev);
     },
-    [busy, point.id, point.is_let, point.confirmed_winner, onPointUpdate]
+    [busy, onSetSkipped]
   );
 
   // Serve corrections go through the host, not `save`: the write clears
@@ -225,11 +212,7 @@ export function ServerChipMenu({
                 // Skipped never scores: skipping clears any winner in the
                 // same write (mutual exclusion, mirrors MatchView.setSkipped
                 // and the DB constraint points_let_never_scored).
-                void save(
-                  point.is_let
-                    ? { is_let: false }
-                    : { is_let: true, confirmed_winner: null }
-                );
+                void saveSkipped(!point.is_let);
               }}
               className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-ink/60"
             >

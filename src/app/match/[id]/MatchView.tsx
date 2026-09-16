@@ -44,6 +44,13 @@ import { mappedPointCount } from "./PlacementAggregate";
 import { usePlacementLifecycle } from "./usePlacementLifecycle";
 import { AnalysisCards } from "./AnalysisCards";
 import { scoredCardsGate } from "@/lib/placement/scoredCards";
+import { projectCanonicalScore } from "@/lib/scoring/canonical";
+import {
+  CanonicalMatchCommandClient,
+  CanonicalScoreCommandClient,
+  type CanonicalCommandExecution,
+  type CanonicalCommandInvocation,
+} from "@/lib/scoring/client";
 import { ShareResult } from "@/app/s/[token]/ShareResult";
 import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
@@ -56,7 +63,10 @@ import {
   runJoinPlan,
   runSplitPlan,
   type AdjustRestore,
+  type CanonicalJoinExecutor,
+  type CanonicalSplitExecutor,
   type JoinDirection,
+  type UnsplitRecord,
 } from "./modifyOps";
 import { reanchorCutT0 } from "./clipEdit";
 import { Player, type PlayerHandle } from "./Player";
@@ -90,6 +100,7 @@ import {
 import {
   ScorerCommands,
   applySynchronousStateUpdate,
+  reconcileScorerConflict,
   scorerTimingGuard,
   type ScorerCommandReceipt,
   type ScorerCommandResult,
@@ -503,10 +514,6 @@ export function MatchView({
    *  paint instead of appearing a beat later and shifting the layout. */
   hasOriginal?: boolean;
 }) {
-  // Task 5 consumes this gate when each existing mutation is moved behind
-  // the command transport. Receiving it now keeps capability loading and
-  // UI migration as separately verifiable changes, with no behavior drift.
-  void canonicalCommandsEnabled;
   // MatchPage keys this entire state tree by the active processing version.
   // Publish/restore starts from that version's rows, never a merge of scores,
   // notes, tags or signed clip URLs from the previous timeline.
@@ -1452,24 +1459,6 @@ export function MatchView({
     []
   );
 
-  const saveFirstServer = useCallback(
-    async (value: MatchServer) => {
-      const prev = firstServer;
-      setFirstServer(value);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("matches")
-        .update(userFirstServerUpdate(value))
-        .eq("id", match.id);
-      if (error) setFirstServer(prev);
-      else {
-        match.first_server = value;
-        match.first_server_source = "user";
-      }
-    },
-    [firstServer, match]
-  );
-
   // Desktop always shows a point in the pane (default: the first).
   // Mobile opens the sheet only after a tap.
   const selectedPoint =
@@ -1584,6 +1573,221 @@ export function MatchView({
     [updatePoints]
   );
 
+  const localCanonicalProjection = useCallback(
+    () =>
+      projectCanonicalScore({
+        firstServer,
+        firstServerSource: firstServer === null ? null : "user",
+        points: pointsRef.current.map((point) => ({
+          id: point.id,
+          idx: point.idx,
+          t0: point.t0,
+          deleted: point.deleted,
+          isLet: point.is_let,
+          confirmedHow: point.confirmed_how,
+          confirmedWinner: point.confirmed_winner,
+          serverOverride: point.server_override,
+          gameEndOverride: point.game_end_override ?? null,
+          gameWinnerOverride: point.game_winner_override ?? null,
+        })),
+      }),
+    [firstServer],
+  );
+
+  const canonicalMatchCommands = useMemo(
+    () =>
+      new CanonicalMatchCommandClient({
+        matchId: match.id,
+        initialRevision: Number(match.score_revision ?? 0),
+        transport: new CanonicalScoreCommandClient({
+          enabled: canonicalCommandsEnabled,
+          rpc: async (name, args) => {
+            const { data, error } = await createClient().rpc(name, args);
+            return { data, error };
+          },
+          onParity: (diagnostic) => {
+            if (!diagnostic.matches) {
+              // Aggregate facts only: no point ids, names, notes or media.
+              console.warn("canonical score parity mismatch", diagnostic);
+            }
+          },
+        }),
+      }),
+    [canonicalCommandsEnabled, match.id, match.score_revision],
+  );
+
+  const executeCanonical = useCallback(
+    async <T,>(
+      invocation: CanonicalCommandInvocation<T>,
+    ): Promise<CanonicalCommandExecution<T>> =>
+      canonicalMatchCommands.execute({
+        ...invocation,
+        legacyProjection:
+          invocation.legacyProjection === null
+            ? undefined
+            : (invocation.legacyProjection ?? localCanonicalProjection),
+        onConflict: (snapshot) => {
+          updatePoints((current) =>
+            reconcileScorerConflict(current, snapshot),
+          );
+          invocation.onConflict?.(snapshot);
+          // Re-read server props after another editor advanced the match.
+          // Score state is already reconciled immediately above.
+          refreshActiveSnapshot();
+        },
+      }),
+    [canonicalMatchCommands, localCanonicalProjection, refreshActiveSnapshot, updatePoints],
+  );
+
+  const canonicalSplitExecutor = useMemo<CanonicalSplitExecutor | undefined>(
+    () =>
+      canonicalCommandsEnabled
+        ? async ({ parent, splitTimes, childCutT0s, outcomes }) => {
+            const result = await executeCanonical({
+              rpc: "split_point_v2",
+              args: {
+                p_parent_id: parent.id,
+                p_split_times: splitTimes,
+                p_child_cut_t0s: childCutT0s,
+                p_outcomes: outcomes.map((outcome) =>
+                  outcome === "skip" ? "other" : outcome,
+                ),
+              },
+              legacy: async () => ({ kind: "legacy" as const }),
+              legacyProjection: null,
+            });
+            if (result.kind === "legacy") return result.value;
+            if (result.kind !== "canonical") return null;
+            const payload = result.result.payload as {
+              points?: unknown;
+            } | null;
+            if (!payload || !Array.isArray(payload.points)) return null;
+            return {
+              kind: "canonical" as const,
+              requestId: result.result.requestId,
+              points: payload.points as Point[],
+            };
+          }
+        : undefined,
+    [canonicalCommandsEnabled, executeCanonical],
+  );
+
+  const canonicalJoinExecutor = useMemo<CanonicalJoinExecutor | undefined>(
+    () =>
+      canonicalCommandsEnabled
+        ? async ({ pointIds, outcome }) => {
+            const result = await executeCanonical({
+              rpc: "merge_points_v2",
+              args: {
+                p_point_ids: pointIds,
+                p_outcome: outcome === "skip" ? "other" : outcome,
+              },
+              legacy: async () => ({ kind: "legacy" as const }),
+              legacyProjection: null,
+            });
+            if (result.kind === "legacy") return result.value;
+            if (result.kind !== "canonical") return null;
+            const payload = result.result.payload as {
+              points?: unknown;
+            } | null;
+            if (!payload || !Array.isArray(payload.points)) return null;
+            return {
+              kind: "canonical" as const,
+              points: payload.points as Point[],
+            };
+          }
+        : undefined,
+    [canonicalCommandsEnabled, executeCanonical],
+  );
+
+  const undoSplitPlan = useCallback(
+    async (
+      splitRequestId: string | undefined,
+      unsplits: UnsplitRecord[],
+    ): Promise<boolean> => {
+      const applyLegacyUnsplit = async (): Promise<boolean> => {
+        for (const undo of unsplits) {
+          const { error } = await createClient().rpc("unsplit_point", {
+            p_parent: undo.parentId,
+            p_child: undo.childId,
+            parent_t1: undo.prevT1,
+            parent_tight_end: undo.prevTightEnd,
+            parent_edited: undo.prevEdited,
+          });
+          if (error) return false;
+          updatePoints((current) =>
+            current
+              .filter((point) => point.id !== undo.childId)
+              .map((point) =>
+                point.id === undo.parentId
+                  ? {
+                      ...point,
+                      t1: undo.prevT1,
+                      tight_end: undo.prevTightEnd,
+                      edited: true,
+                    }
+                  : point,
+              ),
+          );
+        }
+        return true;
+      };
+
+      if (!splitRequestId) return applyLegacyUnsplit();
+      const result = await executeCanonical({
+        rpc: "unsplit_point_v2",
+        args: { p_split_request_id: splitRequestId },
+        legacy: applyLegacyUnsplit,
+        legacyProjection: null,
+      });
+      if (result.kind === "legacy") return result.value;
+      if (result.kind !== "canonical") return false;
+      const payload = result.result.payload as {
+        point?: unknown;
+        removedPointIds?: unknown;
+      } | null;
+      if (!payload?.point || !Array.isArray(payload.removedPointIds)) {
+        return false;
+      }
+      const restored = payload.point as Point;
+      const removed = new Set(payload.removedPointIds as string[]);
+      updatePoints((current) =>
+        current
+          .filter((point) => !removed.has(point.id))
+          .map((point) => (point.id === restored.id ? restored : point)),
+      );
+      return true;
+    },
+    [executeCanonical, updatePoints],
+  );
+
+  const saveFirstServer = useCallback(
+    async (value: MatchServer) => {
+      const prev = firstServer;
+      setFirstServer(value);
+      const result = await executeCanonical({
+        rpc: "set_first_server_v2",
+        args: { p_first_server: value },
+        legacy: async () => {
+          const { error } = await createClient()
+            .from("matches")
+            .update(userFirstServerUpdate(value))
+            .eq("id", match.id);
+          return !error;
+        },
+      });
+      const saved =
+        result.kind === "canonical" ||
+        (result.kind === "legacy" && result.value);
+      if (!saved) setFirstServer(prev);
+      else {
+        match.first_server = value;
+        match.first_server_source = "user";
+      }
+    },
+    [executeCanonical, firstServer, match],
+  );
+
   const scorerCommands = useMemo(
     () =>
       new ScorerCommands({
@@ -1591,15 +1795,108 @@ export function MatchView({
           pointsRef.current.find((point) => point.id === pointId) ?? null,
         apply: (pointId, state) => updatePoint(pointId, state),
         persist: async (pointId, state) => {
-          const supabase = createClient();
-          const { error } = await supabase
-            .from("points")
-            .update(state)
-            .eq("id", pointId);
-          return !error;
+          const current = pointsRef.current.find((point) => point.id === pointId);
+          if (!current) return false;
+          const outcome = state.confirmed_winner ??
+            (state.is_let
+              ? current.confirmed_how === "let" ||
+                current.confirmed_how === "misrecorded" ||
+                current.confirmed_how === "other"
+                ? current.confirmed_how
+                : "other"
+              : "clear");
+          const confirmedHow =
+            outcome === "user" || outcome === "opponent"
+              ? current.is_let
+                ? null
+                : current.confirmed_how
+              : outcome === "clear"
+                ? null
+                : outcome;
+          const result = await executeCanonical({
+            rpc: "set_point_outcome_v2",
+            args: {
+              p_point_id: pointId,
+              p_outcome: outcome,
+              p_confirmed_how: confirmedHow,
+              p_scored_at_cut_s: state.scored_at_cut_s,
+            },
+            legacy: async () => {
+              const { error } = await createClient()
+                .from("points")
+                .update(state)
+                .eq("id", pointId);
+              return !error;
+            },
+          });
+          return (
+            result.kind === "canonical" ||
+            (result.kind === "legacy" && result.value)
+          );
         },
       }),
-    [updatePoint]
+    [executeCanonical, updatePoint]
+  );
+
+  const savePointOutcome = useCallback(
+    async (
+      point: Point,
+      patch: {
+        confirmed_winner: "user" | "opponent" | null;
+        confirmed_how: string | null;
+        is_let: boolean;
+      },
+    ): Promise<boolean> => {
+      const previous = {
+        confirmed_winner: point.confirmed_winner,
+        confirmed_how: point.confirmed_how,
+        is_let: point.is_let,
+        scored_at_cut_s: point.scored_at_cut_s ?? null,
+      };
+      const optimisticPatch = {
+        ...patch,
+        ...(patch.confirmed_winner === null ? { scored_at_cut_s: null } : {}),
+      };
+      updatePoint(point.id, optimisticPatch);
+      const skipKind =
+        patch.confirmed_how === "let" ||
+        patch.confirmed_how === "misrecorded" ||
+        patch.confirmed_how === "other"
+          ? patch.confirmed_how
+          : "other";
+      const outcome = patch.confirmed_winner ??
+        (patch.is_let ? skipKind : "clear");
+      const result = await executeCanonical({
+        rpc: "set_point_outcome_v2",
+        args: {
+          p_point_id: point.id,
+          p_outcome: outcome,
+          p_confirmed_how:
+            outcome === "clear"
+              ? null
+              : patch.is_let
+                ? skipKind
+                : patch.confirmed_how,
+          p_scored_at_cut_s:
+            patch.confirmed_winner === null
+              ? null
+              : (point.scored_at_cut_s ?? null),
+        },
+        legacy: async () => {
+          const { error } = await createClient()
+            .from("points")
+            .update(patch)
+            .eq("id", point.id);
+          return !error;
+        },
+      });
+      const saved =
+        result.kind === "canonical" ||
+        (result.kind === "legacy" && result.value);
+      if (!saved) updatePoint(point.id, previous);
+      return saved;
+    },
+    [executeCanonical, updatePoint],
   );
 
   // Optimistic confirmed_winner write; shared by the card taps and
@@ -1716,17 +2013,26 @@ export function MatchView({
       const prev = point.server_override;
       updatePoint(point.id, { server_override: next });
       for (const s of stale) updatePoint(s.id, { server_override: null });
-      const supabase = createClient();
-      const { error } = await supabase.rpc("set_server_override", {
-        p_id: point.id,
-        p_value: next,
+      const result = await executeCanonical({
+        rpc: "set_server_override_v2",
+        args: { p_point_id: point.id, p_server: next },
+        legacy: async () => {
+          const { error } = await createClient().rpc("set_server_override", {
+            p_id: point.id,
+            p_value: next,
+          });
+          return !error;
+        },
       });
-      if (error) {
+      const saved =
+        result.kind === "canonical" ||
+        (result.kind === "legacy" && result.value);
+      if (!saved) {
         updatePoint(point.id, { server_override: prev });
         for (const s of stale) updatePoint(s.id, { server_override: s.was });
       }
     },
-    [updatePoint, visiblePoints]
+    [executeCanonical, updatePoint, visiblePoints]
   );
 
   // Optimistic game-boundary override write (Keep score's pills and the
@@ -1751,12 +2057,26 @@ export function MatchView({
         ...(clearWinner ? { game_winner_override: null } : {}),
       };
       updatePoint(point.id, patch);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update(patch)
-        .eq("id", point.id);
-      if (error) {
+      const result = await executeCanonical({
+        rpc: "set_game_boundary_v2",
+        args: {
+          p_point_id: point.id,
+          p_boundary: next,
+          p_game_winner: next === "end" ? prevWinner : null,
+          p_previous_point_id: null,
+        },
+        legacy: async () => {
+          const { error } = await createClient()
+            .from("points")
+            .update(patch)
+            .eq("id", point.id);
+          return !error;
+        },
+      });
+      const saved =
+        result.kind === "canonical" ||
+        (result.kind === "legacy" && result.value);
+      if (!saved) {
         updatePoint(point.id, {
           game_end_override: prev,
           ...(clearWinner ? { game_winner_override: prevWinner } : {}),
@@ -1765,7 +2085,7 @@ export function MatchView({
       }
       return true;
     },
-    [updatePoint]
+    [executeCanonical, updatePoint]
   );
 
   // Optimistic game-winner naming (099): who took the game that ends at
@@ -1776,14 +2096,28 @@ export function MatchView({
       const prev = point.game_winner_override;
       if (prev === next) return;
       updatePoint(point.id, { game_winner_override: next });
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ game_winner_override: next })
-        .eq("id", point.id);
-      if (error) updatePoint(point.id, { game_winner_override: prev });
+      const result = await executeCanonical({
+        rpc: "set_game_boundary_v2",
+        args: {
+          p_point_id: point.id,
+          p_boundary: point.game_end_override ?? null,
+          p_game_winner: next,
+          p_previous_point_id: null,
+        },
+        legacy: async () => {
+          const { error } = await createClient()
+            .from("points")
+            .update({ game_winner_override: next })
+            .eq("id", point.id);
+          return !error;
+        },
+      });
+      const saved =
+        result.kind === "canonical" ||
+        (result.kind === "legacy" && result.value);
+      if (!saved) updatePoint(point.id, { game_winner_override: prev });
     },
-    [updatePoint]
+    [executeCanonical, updatePoint]
   );
 
   // Hide a detected side-change marker (146). Display only, and
@@ -1836,6 +2170,32 @@ export function MatchView({
     setSnackbar(null);
   }, []);
 
+  const persistPointVisibility = useCallback(
+    async (
+      pointId: string,
+      visible: boolean,
+      suppressParity = false,
+    ): Promise<boolean> => {
+      const result = await executeCanonical({
+        rpc: "set_point_visibility_v2",
+        args: { p_point_id: pointId, p_visible: visible },
+        legacy: async () => {
+          const { error } = await createClient()
+            .from("points")
+            .update({ deleted: !visible })
+            .eq("id", pointId);
+          return !error;
+        },
+        legacyProjection: suppressParity ? null : undefined,
+      });
+      return (
+        result.kind === "canonical" ||
+        (result.kind === "legacy" && result.value)
+      );
+    },
+    [executeCanonical],
+  );
+
   // Undo accepts one id (Player undo stack, Removed list) or a whole set
   // (the bulk snackbar) — either way it's ONE restore write. Defined above
   // its producers: the snackbar entries close over it.
@@ -1846,17 +2206,24 @@ export function MatchView({
       updatePoints((ps) =>
         ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
       );
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ deleted: false })
-        .in("id", [...ids]);
-      if (error)
-        updatePoints((ps) =>
-          ps.map((p) => (ids.has(p.id) ? { ...p, deleted: true } : p))
-        );
+      if (!canonicalCommandsEnabled) {
+        const { error } = await createClient()
+          .from("points")
+          .update({ deleted: false })
+          .in("id", [...ids]);
+        if (error)
+          updatePoints((ps) =>
+            ps.map((p) => (ids.has(p.id) ? { ...p, deleted: true } : p))
+          );
+        return;
+      }
+      for (const id of ids) {
+        if (!(await persistPointVisibility(id, true, ids.size > 1))) {
+          updatePoint(id, { deleted: true });
+        }
+      }
     },
-    [dismissSnackbar, updatePoints]
+    [canonicalCommandsEnabled, dismissSnackbar, persistPointVisibility, updatePoint, updatePoints]
   );
 
   // Soft delete: hide from the timeline immediately, undoable for a bit.
@@ -1878,17 +2245,12 @@ export function MatchView({
         undo: () => void undoDelete([point.id]),
       });
       snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 6000);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ deleted: true })
-        .eq("id", point.id);
-      if (error) {
+      if (!(await persistPointVisibility(point.id, false))) {
         updatePoint(point.id, { deleted: false });
         dismissSnackbar();
       }
     },
-    [updatePoint, dismissSnackbar, undoDelete, visiblePoints]
+    [updatePoint, dismissSnackbar, persistPointVisibility, undoDelete, visiblePoints]
   );
 
   // Player-originated soft delete (score mode's Delete button): same
@@ -1899,14 +2261,11 @@ export function MatchView({
   const deletePointQuiet = useCallback(
     async (point: Point) => {
       updatePoint(point.id, { deleted: true });
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ deleted: true })
-        .eq("id", point.id);
-      if (error) updatePoint(point.id, { deleted: false });
+      if (!(await persistPointVisibility(point.id, false))) {
+        updatePoint(point.id, { deleted: false });
+      }
     },
-    [updatePoint]
+    [persistPointVisibility, updatePoint]
   );
 
   // Bulk soft delete: everything before a point, in ONE batched write.
@@ -1928,19 +2287,29 @@ export function MatchView({
         undo: () => void undoDelete([...ids]),
       });
       snackbarTimer.current = window.setTimeout(() => setSnackbar(null), 8000);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ deleted: true })
-        .in("id", [...ids]);
-      if (error) {
-        updatePoints((ps) =>
-          ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
-        );
-        dismissSnackbar();
+      if (!canonicalCommandsEnabled) {
+        const { error } = await createClient()
+          .from("points")
+          .update({ deleted: true })
+          .in("id", [...ids]);
+        if (error) {
+          updatePoints((ps) =>
+            ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
+          );
+          dismissSnackbar();
+        }
+        return;
       }
+      let failed = false;
+      for (const id of ids) {
+        if (!(await persistPointVisibility(id, false, true))) {
+          failed = true;
+          updatePoint(id, { deleted: false });
+        }
+      }
+      if (failed) dismissSnackbar();
     },
-    [visiblePoints, dismissSnackbar, undoDelete, updatePoints]
+    [canonicalCommandsEnabled, visiblePoints, dismissSnackbar, persistPointVisibility, undoDelete, updatePoint, updatePoints]
   );
 
   // The pad's "match starts here" sweep: same write as deleteAllBefore but
@@ -1954,17 +2323,24 @@ export function MatchView({
       updatePoints((ps) =>
         ps.map((p) => (ids.has(p.id) ? { ...p, deleted: true } : p))
       );
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ deleted: true })
-        .in("id", [...ids]);
-      if (error)
-        updatePoints((ps) =>
-          ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
-        );
+      if (!canonicalCommandsEnabled) {
+        const { error } = await createClient()
+          .from("points")
+          .update({ deleted: true })
+          .in("id", [...ids]);
+        if (error)
+          updatePoints((ps) =>
+            ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
+          );
+        return;
+      }
+      for (const id of ids) {
+        if (!(await persistPointVisibility(id, false, true))) {
+          updatePoint(id, { deleted: false });
+        }
+      }
     },
-    [visiblePoints, updatePoints]
+    [canonicalCommandsEnabled, persistPointVisibility, updatePoint, visiblePoints, updatePoints]
   );
 
   // The owner's own name: their tagged side's name (a null user_side falls
@@ -2109,41 +2485,67 @@ export function MatchView({
       loss_reasons: null,
       misread_kind: null,
     };
-    try {
+    const picked = unscoreWhole
+      ? []
+      : gameSegments.filter((segment) => unscoreGames.has(segment.game));
+    const ids = unscoreWhole
+      ? pointsRef.current.map((point) => point.id)
+      : picked.flatMap((segment) => segment.pointIds);
+    // Pin each cleared game's end where it already is. A game normally
+    // closes because someone reached 11 — take those scores away and
+    // the automatic boundary stops firing, so Game 2 and Game 3 would
+    // silently merge and every game after would renumber. The last
+    // game needs no pin: nothing follows it to run into.
+    const lastGame = gameSegments[gameSegments.length - 1]?.game;
+    const pins = unscoreWhole
+      ? []
+      : picked
+          .filter((segment) => segment.complete && segment.game !== lastGame)
+          .map((segment) => segment.pointIds[segment.pointIds.length - 1]);
+
+    const applyLegacyReset = async (): Promise<boolean> => {
       if (unscoreWhole) {
         const { error } = await supabase
           .from("points")
           .update({ ...CLEARED, game_end_override: null })
           .eq("match_id", match.id);
-        if (error) throw error;
-      } else {
-        const picked = gameSegments.filter((s) => unscoreGames.has(s.game));
-        const ids = picked.flatMap((s) => s.pointIds);
-        // Pin each cleared game's end where it already is. A game normally
-        // closes because someone reached 11 — take those scores away and
-        // the automatic boundary stops firing, so Game 2 and Game 3 would
-        // silently merge and every game after would renumber. The last
-        // game needs no pin: nothing follows it to run into.
-        const lastGame = gameSegments[gameSegments.length - 1]?.game;
-        const pins = picked
-          .filter((s) => s.complete && s.game !== lastGame)
-          .map((s) => s.pointIds[s.pointIds.length - 1]);
-        // Chunked: ids ride in the query string.
-        for (let i = 0; i < ids.length; i += 100) {
-          const { error } = await supabase
-            .from("points")
-            .update(CLEARED)
-            .in("id", ids.slice(i, i + 100));
-          if (error) throw error;
-        }
-        if (pins.length > 0) {
-          const { error } = await supabase
-            .from("points")
-            .update({ game_end_override: "end" })
-            .in("id", pins);
-          if (error) throw error;
-        }
+        return !error;
       }
+      // Chunked: ids ride in the query string.
+      for (let i = 0; i < ids.length; i += 100) {
+        const { error } = await supabase
+          .from("points")
+          .update(CLEARED)
+          .in("id", ids.slice(i, i + 100));
+        if (error) return false;
+      }
+      if (pins.length > 0) {
+        const { error } = await supabase
+          .from("points")
+          .update({ game_end_override: "end" })
+          .in("id", pins);
+        if (error) return false;
+      }
+      return true;
+    };
+
+    try {
+      if (ids.length === 0) throw new Error("No points to unscore");
+      const result = await executeCanonical({
+        rpc: "reset_match_score_v2",
+        args: {
+          p_point_ids: ids,
+          p_pin_end_ids: pins,
+          p_clear_boundaries: unscoreWhole,
+        },
+        legacy: applyLegacyReset,
+        // The page reload below is the local mirror for this compound batch.
+        legacyProjection: null,
+      });
+      const saved =
+        result.kind === "canonical" ||
+        (result.kind === "legacy" && result.value);
+      if (!saved) throw new Error("Unscore command was not applied");
     } catch {
       setUnscoreError("Couldn't unscore. Try again.");
       setUnscoring(false);
@@ -2153,7 +2555,7 @@ export function MatchView({
     // score, the analysis, the serve rotation, the game rail. Reloading is
     // the honest way to bring all of them back in step at once.
     window.location.reload();
-  }, [match.id, unscoreWhole, unscoreGames, gameSegments]);
+  }, [executeCanonical, match.id, unscoreWhole, unscoreGames, gameSegments]);
 
   const openDeleteConfirm = useCallback(async () => {
     setSettingsOpen(false);
@@ -2236,16 +2638,44 @@ export function MatchView({
       cutT0: number,
       winner: "user" | "opponent" | null
     ): Promise<boolean> => {
-      const supabase = createClient();
-      const { data, error } = await supabase.rpc("insert_point", {
-        p_prev_id: prevPoint?.id ?? null,
-        p_next_id: nextPoint?.id ?? null,
-        p_t0: t0,
-        p_t1: t1,
-        p_cut_t0: cutT0,
+      const result = await executeCanonical<Point | null>({
+        rpc: "insert_point_v2",
+        args: {
+          p_prev_id: prevPoint?.id ?? null,
+          p_next_id: nextPoint?.id ?? null,
+          p_t0: t0,
+          p_t1: t1,
+          p_cut_t0: cutT0,
+          p_outcome: winner ?? "clear",
+        },
+        legacy: async () => {
+          const { data, error } = await createClient().rpc("insert_point", {
+            p_prev_id: prevPoint?.id ?? null,
+            p_next_id: nextPoint?.id ?? null,
+            p_t0: t0,
+            p_t1: t1,
+            p_cut_t0: cutT0,
+          });
+          return error || !data ? null : (data as Point);
+        },
+        legacyProjection: null,
       });
-      if (error || !data) return false;
-      const created = data as Point;
+      let created: Point | null = null;
+      let outcomeApplied = false;
+      if (result.kind === "canonical") {
+        const payload = result.result.payload as {
+          pointId?: unknown;
+          points?: unknown;
+        } | null;
+        const rows = payload && Array.isArray(payload.points)
+          ? (payload.points as Point[])
+          : [];
+        created = rows.find((row) => row.id === payload?.pointId) ?? null;
+        outcomeApplied = created !== null;
+      } else if (result.kind === "legacy") {
+        created = result.value;
+      }
+      if (!created) return false;
       addSplitPoint(created);
       // Mirror what the RPC did to the neighbours and to any stale
       // corrections, so the strip is truthful before any refetch.
@@ -2272,7 +2702,7 @@ export function MatchView({
       // The clip has to be cut from the raw: this footage is either missing
       // from the cut video entirely or shared with a neighbour that just
       // gave it up.
-      if (winner) void setWinner(created, winner);
+      if (winner && !outcomeApplied) void setWinner(created, winner);
       return true;
     },
     [
@@ -2280,6 +2710,7 @@ export function MatchView({
       updatePoint,
       visiblePoints,
       setWinner,
+      executeCanonical,
       pad,
     ]
   );
@@ -2330,21 +2761,42 @@ export function MatchView({
             }
           : {}),
       });
-      const supabase = createClient();
-      const { data, error } = await supabase.rpc("adjust_point", {
-        p_id: point.id,
-        p_t0: t0New,
-        p_t1: t1New,
-        p_tight_start: restore?.tight_start ?? null,
-        p_tight_end: restore?.tight_end ?? null,
-        p_scored_at_cut_s: restore?.scored_at_cut_s ?? null,
-        p_rally_end_cut_s: restore?.rally_end_cut_s ?? null,
+      const result = await executeCanonical<Point | null>({
+        rpc: "adjust_point_v2",
+        args: {
+          p_point_id: point.id,
+          p_t0: t0New,
+          p_t1: t1New,
+          p_tight_start: tightStartNew,
+          p_tight_end: patch.tight_end ?? point.tight_end,
+          p_scored_at_cut_s: restore?.scored_at_cut_s ?? null,
+          p_rally_end_cut_s: restore?.rally_end_cut_s ?? null,
+        },
+        legacy: async () => {
+          const { data, error } = await createClient().rpc("adjust_point", {
+            p_id: point.id,
+            p_t0: t0New,
+            p_t1: t1New,
+            p_tight_start: restore?.tight_start ?? null,
+            p_tight_end: restore?.tight_end ?? null,
+            p_scored_at_cut_s: restore?.scored_at_cut_s ?? null,
+            p_rally_end_cut_s: restore?.rally_end_cut_s ?? null,
+          });
+          return error || !data ? null : (data as Point);
+        },
+        legacyProjection: null,
       });
-      if (error || !data) {
+      let row: Point | null = null;
+      if (result.kind === "canonical") {
+        const payload = result.result.payload as { point?: unknown } | null;
+        row = payload?.point ? (payload.point as Point) : null;
+      } else if (result.kind === "legacy") {
+        row = result.value;
+      }
+      if (!row) {
         updatePoint(point.id, prev);
         return false;
       }
-      const row = data as Point;
       updatePoint(point.id, {
         t0: row.t0,
         t1: row.t1,
@@ -2357,7 +2809,7 @@ export function MatchView({
       });
       return true;
     },
-    [updatePoint, pad]
+    [executeCanonical, updatePoint, pad]
   );
 
   // Cmd/Ctrl+Z presses the snackbar's Undo while it's on screen. The
@@ -2397,10 +2849,18 @@ export function MatchView({
     ): Promise<boolean> => {
       const origWinner = point.confirmed_winner;
       const origSkipped = point.is_let;
-      const { ok, created, unsplits } = await runSplitPlan({
+      const {
+        ok,
+        created,
+        unsplits,
+        outcomesApplied,
+        splitRequestId,
+      } = await runSplitPlan({
         point,
         pad,
         cutTimes,
+        outcomes: segments,
+        canonical: canonicalSplitExecutor,
         onChild: (parent, patch, child) => {
           updatePoint(parent.id, patch);
           addSplitPoint(child);
@@ -2408,34 +2868,18 @@ export function MatchView({
       });
       if (!ok && unsplits.length === 0) return false;
       const segPoints = [point, ...created];
-      for (let i = 0; i < segPoints.length && i < segments.length; i++) {
-        const d = segments[i];
-        if (d === "skip") void setSkipped(segPoints[i], true);
-        else void setWinner(segPoints[i], d);
+      if (!outcomesApplied) {
+        for (let i = 0; i < segPoints.length && i < segments.length; i++) {
+          const d = segments[i];
+          if (d === "skip") void setSkipped(segPoints[i], true);
+          else void setWinner(segPoints[i], d);
+        }
       }
       const undoSplit = () => {
         dismissSnackbar();
         void (async () => {
-          const supabase = createClient();
-          for (const u of unsplits) {
-            const { error } = await supabase.rpc("unsplit_point", {
-              p_parent: u.parentId,
-              p_child: u.childId,
-              parent_t1: u.prevT1,
-              parent_tight_end: u.prevTightEnd,
-              parent_edited: u.prevEdited,
-            });
-            if (error) return;
-            updatePoints((ps) =>
-              ps
-                .filter((p) => p.id !== u.childId)
-                .map((p) =>
-                  p.id === u.parentId
-                    ? { ...p, t1: u.prevT1, tight_end: u.prevTightEnd, edited: true }
-                    : p
-                )
-            );
-          }
+          if (!(await undoSplitPlan(splitRequestId, unsplits))) return;
+          if (outcomesApplied) return;
           // The root row survives every unsplit; the writes key on its id.
           // Its state right now is whatever the modal's first segment set,
           // so hand setWinner/setSkipped THAT as the baseline — the stale
@@ -2463,11 +2907,13 @@ export function MatchView({
     },
     [
       pad,
+      canonicalSplitExecutor,
       updatePoint,
       addSplitPoint,
       setWinner,
       setSkipped,
       dismissSnackbar,
+      undoSplitPlan,
       updatePoints,
     ]
   );
@@ -2486,6 +2932,8 @@ export function MatchView({
         points: visiblePoints,
         count,
         direction,
+        outcome: winner,
+        canonical: canonicalJoinExecutor,
       });
       if (!plan) return false;
       const drop = new Set(plan.mergedIds);
@@ -2495,15 +2943,17 @@ export function MatchView({
           .filter((p) => !drop.has(p.id))
           .map((p) => (p.id === sid ? { ...p, ...plan.survivorPatch } : p))
       );
-      if (winner === "skip") void setSkipped(plan.survivor, true);
-      else void setWinner(plan.survivor, winner);
+      if (!plan.outcomeApplied) {
+        if (winner === "skip") void setSkipped(plan.survivor, true);
+        else void setWinner(plan.survivor, winner);
+      }
       // Joined backwards, the point on screen is one of the rows that
       // just went; follow the merged point rather than falling to
       // whatever now sits at that position.
       if (sid !== point.id) setActivePointId(sid);
       return true;
     },
-    [visiblePoints, setWinner, setSkipped, updatePoints]
+    [canonicalJoinExecutor, visiblePoints, setWinner, setSkipped, updatePoints]
   );
 
   // While clips are regenerating, poll so the fresh clip arrives without a
@@ -3064,6 +3514,7 @@ export function MatchView({
                 void setServeStart(p, at, meta)
               }
               onSetSkipped={setSkipped}
+              onSaveOutcome={savePointOutcome}
               onSetServer={(p, v) => void setServerOverride(p, v)}
               onInsertPoint={isOwner ? insertMissingPoint : undefined}
               onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
@@ -3079,13 +3530,9 @@ export function MatchView({
                 updatePoint(parent.id, patch);
                 addSplitPoint(child);
               }}
-              onUnsplit={(parentId, patch, childId) => {
-                updatePoints((ps) =>
-                  ps
-                    .filter((p) => p.id !== childId)
-                    .map((p) => (p.id === parentId ? { ...p, ...patch } : p))
-                );
-              }}
+              canonicalSplitExecutor={canonicalSplitExecutor}
+              canonicalJoinExecutor={canonicalJoinExecutor}
+              onUndoSplitPlan={undoSplitPlan}
               onMerge={(survivorId, patch, removedIds) => {
                 const drop = new Set(removedIds);
                 updatePoints((ps) =>
@@ -3781,8 +4228,10 @@ export function MatchView({
                                 ? { you: mapLabels.you, them: mapLabels.them }
                                 : undefined
                             }
-                            onPointUpdate={updatePoint}
                             onSetServer={(v) => setServerOverride(point, v)}
+                            onSetSkipped={async (v) => {
+                              await setSkipped(point, v);
+                            }}
                           />}
                           {scored && point.confirmed_winner && !point.is_let && (
                             <span
@@ -4290,6 +4739,7 @@ export function MatchView({
                 onNext: () => goToIndex(paneIndex + 1),
               }}
               onPointUpdate={(patch) => updatePoint(panePoint.id, patch)}
+              onSaveOutcome={(patch) => savePointOutcome(panePoint, patch)}
               onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
               onDelete={(p) => void deletePoint(p)}
               deleteBefore={
@@ -4612,6 +5062,7 @@ export function MatchView({
             )
           }
           onPointUpdate={(patch) => updatePoint(selectedPoint.id, patch)}
+          onSaveOutcome={(patch) => savePointOutcome(selectedPoint, patch)}
           onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
           onDelete={(p) => void deletePoint(p)}
           deleteBefore={

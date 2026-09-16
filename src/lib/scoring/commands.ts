@@ -16,6 +16,7 @@ export const canonicalScoreCommandRpcs = {
   mergePoints: "merge_points_v2",
   adjustPoint: "adjust_point_v2",
   insertPoint: "insert_point_v2",
+  resetMatchScore: "reset_match_score_v2",
 } as const;
 
 export type CanonicalPointOutcome =
@@ -105,6 +106,12 @@ export interface InsertPointCommand extends CanonicalCommandIdentity {
   t1: number;
   cutT0: number | null;
   outcome: CanonicalPointOutcome;
+}
+
+export interface ResetMatchScoreCommand extends CanonicalCommandIdentity {
+  pointIds: string[];
+  pinEndPointIds: string[];
+  clearBoundaries: boolean;
 }
 
 export interface CanonicalSnapshotPoint extends CanonicalPointState {

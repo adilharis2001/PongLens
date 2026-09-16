@@ -126,6 +126,7 @@ test("exports the exact v2 RPC vocabulary used by command clients", () => {
     mergePoints: "merge_points_v2",
     adjustPoint: "adjust_point_v2",
     insertPoint: "insert_point_v2",
+    resetMatchScore: "reset_match_score_v2",
   });
   for (const value of [
     "user",
