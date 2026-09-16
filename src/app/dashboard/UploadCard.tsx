@@ -725,6 +725,8 @@ export function UploadCard({
     const next = {
       ...base,
       points: f.points,
+      // Free on the upload run; see RawMatchView.
+      placement: f.points,
       strictness: f.strictness,
       meta: {
         opponent_name: f.opponent.trim() || null,
@@ -826,6 +828,7 @@ export function UploadCard({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           matchId,
+          placement: true,
           // Only when they actually moved a handle. Sending the full
           // window would be the same charge, but the job would then
           // record a trim nobody asked for.
@@ -880,6 +883,7 @@ export function UploadCard({
       status: "queued",
       options: {
         points: f.points,
+        placement: f.points,
         strictness: f.strictness,
         meta: {
           opponent_name: f.opponent.trim() || null,

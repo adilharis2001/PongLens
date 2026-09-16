@@ -614,7 +614,7 @@ struct RecordScreen: View {
                     fileURL: url, durationS: duration, sessionId: sessionId,
                     metadata: draft,
                     processOn: kind.forcesProcessingOff ? false : settings.processAfterUpload,
-                    placementOn: false
+                    placementOn: !kind.forcesProcessingOff
                 )
             }
             recorder.onSessionEnd = {
@@ -732,7 +732,7 @@ struct RecordScreen: View {
                 recentVenues: library.recentValues(\.venue),
                 kind: kind,
                 processOn: kind.forcesProcessingOff ? false : settings.processAfterUpload,
-                placementOn: false
+                placementOn: !kind.forcesProcessingOff
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)

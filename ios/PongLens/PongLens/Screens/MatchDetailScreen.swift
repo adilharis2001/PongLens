@@ -1735,7 +1735,7 @@ struct MatchDetailScreen: View {
     private func runProcess() async {
         processBusy = true
         processError = await model.process(
-            current, placement: false,
+            current, placement: true,
             trimStart: trimmed ? trimStart : nil,
             trimEnd: trimmed ? trimEnd : nil,
             strictness: strictness

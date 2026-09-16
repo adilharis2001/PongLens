@@ -523,8 +523,12 @@ at once. Viewers never see the next-step card.
 Scoring re-runs nothing: the worker's records are read at view time.
 **The upload-time "Placement maps" toggle is gone (2026-09-15):** the
 analysis has one entry point, the next-step card after scoring, so it
-runs on confirmed cuts. The `placement` job option still exists for the
-worker and admin backfills; the apps always send false.
+runs on confirmed cuts. The apps now send the `placement` option as TRUE on
+every processed upload (Adil, 2026-09-16): on the upload run it is
+arithmetic on the ball track and table the cut already computed, minutes
+at most; the standalone job re-detects the whole video and averaged 32
+minutes of wall time. Generate on the next-step card is for matches that
+never got it or whose run failed.
 
 They show **serves only** (132, `app_config.placement_serves_only`). The
 full record is `docs/research/2026-08-23-placement-yield.md` and
