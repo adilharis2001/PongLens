@@ -89,6 +89,33 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ---
 
+## Canonical scored-match commands are live for Adil
+
+**Verified in production on 2026-09-16:** The database, web app, automatic
+worker and native iOS build 220 carry the revisioned scored-match command
+system described in `docs/releases/2026-09-16-canonical-score-commands.md`.
+The source is on `main`; the capability remains deliberately scoped to Adil's
+account rather than all players. Do not widen it or migrate old owner readers
+without a separate rollout decision.
+
+The Nathan vs Brian production match exercised Score, Skip, Adjust, Split and
+Join from build 220. Its projection is current at revision 57 with no error;
+the join stored structure, outcome and final-point timing in one canonical
+mutation. Across production, all 218 matches have matching source/projection
+revisions and no projection errors. Two real automatic worker publications
+also completed through the canonical boundary. The next naturally-created
+manual cut should be checked after publication, but no synthetic production
+match is needed for acceptance.
+
+One small native follow-up is intentionally deferred: the Scorekeeper shortcut
+that splits by immediately answering the second point saves the split and the
+second answer as two commands. A lost second request leaves a visible,
+unanswered child and the app offers retry; it does not silently record the
+wrong score. Modify Split and Join are already atomic. Batch this shortcut
+cleanup into the next normal iOS release rather than making a dedicated build.
+
+---
+
 ## The processing page has to keep up with the worker
 
 **Worker release/health rollout, 2026-09-11:** main/fast now run the sealed
