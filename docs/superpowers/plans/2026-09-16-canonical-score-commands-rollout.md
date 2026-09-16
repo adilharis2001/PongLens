@@ -490,7 +490,7 @@ update public.app_config set value='off' where key='canonical_score_commands';
 
 and state that this returns new clients to legacy writes while leaving additive projection data intact.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add supabase/migrations/20260916120000_canonical_score_commands.sql src/app/admin CLAUDE.md AGENTS.md docs/releases
@@ -507,7 +507,7 @@ git commit -m "Add canonical score rollout diagnostics"
 - Consumes: Tasks 1–9.
 - Produces: verified release candidate, production canary evidence and a phase-three reader-migration input.
 
-- [ ] **Step 1: Run the full automated matrix**
+- [x] **Step 1: Run the full automated matrix**
 
 ```bash
 SCORING_STATE_LOCAL_DB_TEST=1 npm run test:scoring-state
@@ -524,11 +524,11 @@ python3 -m unittest discover -s worker/tests
 git diff --check
 ```
 
-- [ ] **Step 2: Verify production-like database migration**
+- [x] **Step 2: Verify production-like database migration**
 
 Apply both migrations to a fresh PostgreSQL container populated with representative legacy rows. Measure backfill and command p95, verify owner/coach/admin/anon/worker grants, and verify rollback leaves old readers/writers intact.
 
-- [ ] **Step 3: Production deployment checkpoint**
+- [x] **Step 3: Production deployment checkpoint**
 
 Publish web/backend with `canonical_score_commands=off`. Verify projection health first. Enable only `user:<Adil UUID>` for the production canary; do not enable globally.
 
@@ -536,13 +536,30 @@ Publish web/backend with `canonical_score_commands=off`. Verify projection healt
 
 On Adil’s account verify web desktop/mobile and native iOS: score, Undo, first server, boundary, Split/Unsplit/Join/Adjust/Insert, delete/restore and manual cutter. Compare returned snapshots to legacy folds and require zero unexplained differences.
 
+Production checkpoint on 2026-09-16: the owner web page rendered and all 12
+command families returned matching snapshots in an authenticated transaction
+that was rolled back without changing the match. The final native build passed
+1,200 tests, built, installed and launched, but installation cleared the saved
+simulator login. Authenticated native interaction and a real manual-cutter job
+remain explicit human acceptance checks, so this step is intentionally open.
+
 - [ ] **Step 5: Worker package and rollback drill**
 
 Install the reconciled package only while no match is actively publishing, verify release acceptance/heartbeats, process one automatic and one hand-cut match, then demonstrate the documented previous-package rollback without deleting projection data.
 
-- [ ] **Step 6: Record evidence and proceed to phase three**
+Package activation and the real rollback drill are complete. Both idle lanes
+ran previous release `62295e48…`, reported healthy, drained, and returned to
+active release `9e53da33…`; zero jobs were open throughout. Actual automatic
+and hand-cut publication remain to be observed on the next real production
+jobs, so this step is intentionally open.
+
+- [x] **Step 6: Record evidence and prepare phase three**
 
 Update the spec to “phase two canary verified” only with exact build/package/migration identifiers. Create the phase-three reader-migration plan from measured parity evidence; do not switch owner readers as part of this phase-two commit.
+
+Evidence is in `docs/releases/2026-09-16-canonical-score-commands.md`; the
+reader plan is `2026-09-16-canonical-score-reader-migration.md`. Phase three is
+prepared but blocked on the two open production acceptance checks above.
 
 ## Phase-two exit gate
 

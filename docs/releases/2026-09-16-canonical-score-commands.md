@@ -54,10 +54,37 @@ release. Do not run an older package that fails the active database contract.
 
 ## Verification record
 
+| Item | Production evidence on September 16, 2026 |
+| --- | --- |
+| Source | Commit `41322bc44cb1da907b3cde5f5872fe45d53c6656`; later documentation-only commits do not change the packaged source. |
+| Database | Migrations `20260915190000` and `20260916120000` applied. All 216 match projections were current, with zero unhealthy projections and zero revision mismatches. |
+| Capability | `canonical_score_commands=user:a2e61027-2ee9-4026-a058-dc07441ee633`. Ordinary accounts remain on legacy writes. The real `off` switch was exercised and restored without changing match rows. |
+| Web | Vercel production deployment `Ec35wbhsq8mmJzAA9NG3rFqejT48` succeeded for commit `41322bc4`; production Upload Detail and an owner match rendered successfully. |
+| Command canary | All 12 command families succeeded against an Adil-owned production match inside one authenticated transaction. The transaction was rolled back; revision `0` and 116 point rows were unchanged afterward. |
+| Worker | Active release `9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce` on both `main` and `fast`. The previous release `62295e48b91091b93ef796d2cf8688482d524af3df863f757b170f437d00fea1` was actually booted on both lanes, observed healthy and idle, drained, and replaced by the active release. Zero jobs were open throughout. |
+| Native | 1,200 unit/parity checks passed and the complete simulator build succeeded. The final build installs and launches. Installing it cleared the simulator login, so authenticated production UI interaction remains a human acceptance check. |
+
+Additional automated evidence:
+
 - Isolated PostgreSQL canonical suite: 78/78, including admin/owner/coach/anon
   grants, automatic and manual publication, old-worker compatibility and
   forced rollback cases.
-- Worker production-feature reconciliation: 176 focused detector/publication
-  tests, 48 release/email/health tests, and 154 broader regression tests.
-- Web, iOS, full build, production-like migration timing and production canary
-  evidence are recorded here at the final release checkpoint.
+- Production-like database copy: 220 legacy matches, 19,800 points and five
+  manual-cut drafts; 2.17-second migration; all 220 projections current; 900
+  manual-cutter observations exact; command p50 15.281 ms and p95 18.242 ms
+  over 100 commands.
+- Web: scorer 43/43, structure 141/141, scorecard 15/15, statistics 6/6,
+  placement 120/120, lesson video 60/60, costs/admin 244/244, and the real
+  production Next build.
+- Worker package: claim-boundary 10/10, release 27/27, canonical publication
+  16/16, frozen point parity 17/17, actual CoreML pose, table, ball and repeated
+  side-change smoke checks, followed by a complete integrity recheck.
+
+## Remaining acceptance before widening
+
+Do not widen the capability or migrate owner readers yet. First log into the
+installed simulator build and confirm an existing scored match loads, then make
+and undo one safe score correction. The next real automatic and manual-cut
+production jobs should also be checked for publication health. These are
+acceptance checks, not missing implementation; all mutation families and both
+publication paths are covered by the database and package suites above.
