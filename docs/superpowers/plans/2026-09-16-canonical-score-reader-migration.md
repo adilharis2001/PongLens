@@ -16,6 +16,12 @@ unexplained differences.
 - Keep `canonical_score_commands` account-scoped. Do not enable ordinary users
   while validating readers.
 
+Current status: the production corpus gate is complete. On September 16, 2026,
+all 216 matches and all 12,827 nonempty point rows matched the legacy fold with
+zero invalid rows and zero field differences. Reader activation remains blocked
+on the native authenticated check and one observed automatic plus manual-cut
+publication; corpus parity alone does not authorize a display switch.
+
 ## Migration order
 
 1. Add one shared, typed canonical snapshot loader for authenticated owner,
