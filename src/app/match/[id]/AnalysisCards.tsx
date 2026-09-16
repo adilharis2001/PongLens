@@ -18,6 +18,7 @@ import type { ServeInfo } from "./serving";
 import type { Side } from "./sides";
 import type { MapLabels } from "./PlacementMap";
 import { LooksWrongButton, MarkedWrongNotice } from "./PlacementFeedback";
+import { PickSide } from "./PickSide";
 import { usePlacementMapCards } from "./PlacementAggregate";
 import { Segmented } from "./placementTable";
 import { buildScoredCards } from "./ScoredCards";
@@ -190,6 +191,7 @@ function NextStepCard({
   scoredType,
   sideMissing,
   onSetUserSide,
+  sideVideoSrc = null,
   controller,
   onScore,
 }: {
@@ -197,6 +199,8 @@ function NextStepCard({
   scoredType: boolean;
   sideMissing: boolean;
   onSetUserSide?: (side: Side) => void;
+  /** The cut video, so the side is chosen from a frame of the match. */
+  sideVideoSrc?: string | null;
   controller: PlacementLifecycleController | null;
   onScore?: () => void;
 }) {
@@ -214,14 +218,20 @@ function NextStepCard({
       <div className="divide-y divide-edge/60">
         {sideMissing && onSetUserSide && (
           <NextStepRow title="Which end did you play from?">
-            <div className="mt-3 flex gap-2">
-              <button type="button" className={SECONDARY_BUTTON} onClick={() => onSetUserSide("near")}>
-                Bottom of video
-              </button>
-              <button type="button" className={SECONDARY_BUTTON} onClick={() => onSetUserSide("far")}>
-                Top of video
-              </button>
-            </div>
+            {sideVideoSrc ? (
+              <div className="mt-3">
+                <PickSide src={sideVideoSrc} onPick={onSetUserSide} />
+              </div>
+            ) : (
+              <div className="mt-3 flex gap-2">
+                <button type="button" className={SECONDARY_BUTTON} onClick={() => onSetUserSide("near")}>
+                  Bottom of video
+                </button>
+                <button type="button" className={SECONDARY_BUTTON} onClick={() => onSetUserSide("far")}>
+                  Top of video
+                </button>
+              </div>
+            )}
           </NextStepRow>
         )}
         {showScoring && (
@@ -332,6 +342,7 @@ export function AnalysisCards({
   onOpenPoint,
   onScore,
   onSetUserSide,
+  sideVideoSrc = null,
   viewer,
 }: {
   stats: MatchStats;
@@ -360,6 +371,8 @@ export function AnalysisCards({
   onScore?: () => void;
   /** Record which end the owner played from, for the next-step card. */
   onSetUserSide?: (side: Side) => void;
+  /** The cut video, so the end is chosen from a frame of the match. */
+  sideVideoSrc?: string | null;
   /**
    * Set for a coach or a share link: the deck is read-only and speaks in
    * the players' names. The public page also drops the teaser, which is a
@@ -675,6 +688,7 @@ export function AnalysisCards({
         scoredType={scoredType}
         sideMissing={sideMissing}
         onSetUserSide={onSetUserSide}
+        sideVideoSrc={sideVideoSrc}
         controller={placement?.controller ?? null}
         onScore={onScore}
       />

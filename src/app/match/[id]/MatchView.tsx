@@ -2021,10 +2021,10 @@ export function MatchView({
   // the Player fetches. Loaded lazily the moment the picker could show (the
   // first-open banner while untagged, or the change sheet), so a tagged
   // match that never opens it pays nothing.
+  // Whenever the end is unknown: the first-open banner, the Tools sheet
+  // and the deck's next-step row all answer it from the same frame.
   const needSidePicker =
-    isOwner &&
-    hasCutOffsets &&
-    ((userSide === null && !firstOpenDismissed) || sideSheetOpen);
+    isOwner && hasCutOffsets && (userSide === null || sideSheetOpen);
   useEffect(() => {
     if (!needSidePicker || cutPreviewUrl) return;
     let cancelled = false;
@@ -4401,6 +4401,7 @@ export function MatchView({
                 ? (side) => void handleSetUserSide(side)
                 : undefined
             }
+            sideVideoSrc={cutPreviewUrl}
           />
         </div>
       )}

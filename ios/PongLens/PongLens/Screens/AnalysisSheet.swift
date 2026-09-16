@@ -39,6 +39,8 @@ struct VideoCardsInput {
     let placementTrusted: Bool
     let onScore: (() -> Void)?
     let onPlacementChanged: () -> Void
+    /// The cut video, for the still the side question is answered from.
+    var videoURL: URL? = nil
     /// Open one point from a heat-map zone's list. Nil leaves the zones
     /// as pictures.
     var onOpenPoint: ((MatchPoint) -> Void)? = nil
@@ -208,7 +210,8 @@ struct AnalysisCards: View {
                     scoredType: scoredType,
                     sideMissing: sideMissing,
                     onScore: video.onScore,
-                    onChanged: video.onPlacementChanged
+                    onChanged: video.onPlacementChanged,
+                    videoURL: video.videoURL
                 )
             )))
         }
