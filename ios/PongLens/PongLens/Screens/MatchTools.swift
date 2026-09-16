@@ -123,7 +123,7 @@ struct ToolsSection: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $sideOpen) {
-            YourSideSheet(match: match) {
+            YourSideSheet(match: match, videoURL: model.videoURL) {
                 onRowChanged()
             }
             .presentationDetents([.medium])
@@ -1290,11 +1290,17 @@ struct MatchDetailsEditor: View {
 
 struct YourSideSheet: View {
     let match: MatchRow
+    /// The cut video, for the still the question is answered from. Nil
+    /// asks without a picture, which is the thing to avoid: near/far is a
+    /// guess without one, and a wrong answer mirrors every map.
+    var videoURL: URL? = nil
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
     @State private var saving = false
+    @State private var frame: UIImage?
+    @State private var frameFailed = false
     /// Which row is being written, so only that one shows the spinner.
     @State private var savingSide: String?
     @State private var errorMessage: String?
@@ -1302,11 +1308,18 @@ struct YourSideSheet: View {
     var body: some View {
         PLSheetScaffold(title: "Which player are you?") {
             Form {
+                if videoURL != nil, !frameFailed {
+                    Section {
+                        frameView
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                    }
+                }
                 Section {
                     sideRow("Bottom of video", side: "near")
                     sideRow("Top of video", side: "far")
                 } footer: {
-                    Text("So your labels and placement maps come out right.")
+                    Text("So your labels and serve maps come out right.")
                 }
                 if let errorMessage {
                     Section {
@@ -1317,6 +1330,44 @@ struct YourSideSheet: View {
                 }
             }
         }
+    }
+
+    /// A quarter of the way in, capped at two and a half minutes: the same
+    /// rule as the upload sheet's picker, where the first second is two
+    /// people walking to the table. Marked Top and Bottom so the rows
+    /// under it need no explaining.
+    private var frameView: some View {
+        ZStack {
+            if let frame {
+                Image(uiImage: frame)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Color.clear.frame(height: 200)
+                ProgressView().tint(PL.cyan)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: 360)
+        .overlay(alignment: .top) { edgeLabel("Top") }
+        .overlay(alignment: .bottom) { edgeLabel("Bottom") }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .task(id: videoURL) {
+            guard let videoURL else { return }
+            let seconds = min(150, (match.durationS ?? 0) * 0.25)
+            frame = await ClipFrameLoader.still(from: videoURL, at: max(1, seconds))
+            frameFailed = frame == nil
+        }
+    }
+
+    private func edgeLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(PL.text100)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(PL.ink.opacity(0.75), in: Capsule())
+            .padding(8)
     }
 
     /// The web's chooseSide, column for column (MatchView

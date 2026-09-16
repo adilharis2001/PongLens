@@ -108,7 +108,9 @@ final class ClipFrameLoader {
         return await task.value
     }
 
-    private static func still(from url: URL, at seconds: Double) async -> UIImage? {
+    /// One frame from a video URL, nearest keyframe. Shared with the
+    /// side sheet, which shows the match a quarter of the way in.
+    static func still(from url: URL, at seconds: Double) async -> UIImage? {
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
         // A tile is never wider than a phone, so a full 720p decode is

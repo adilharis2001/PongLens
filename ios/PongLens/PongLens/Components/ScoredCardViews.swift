@@ -319,6 +319,8 @@ struct NextStepCard: View {
     let onScore: (() -> Void)?
     /// Re-read the match once the side or the analysis request changed.
     let onChanged: () -> Void
+    /// The cut video, for the still the side question is answered from.
+    var videoURL: URL? = nil
 
     @State private var analysisSheetOpen = false
     @State private var sideSheetOpen = false
@@ -422,7 +424,7 @@ struct NextStepCard: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $sideSheetOpen) {
-            YourSideSheet(match: match, onSaved: onChanged)
+            YourSideSheet(match: match, videoURL: videoURL, onSaved: onChanged)
         }
     }
 

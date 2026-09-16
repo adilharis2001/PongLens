@@ -1846,6 +1846,7 @@ struct MatchDetailScreen: View {
                     onPlacementChanged: {
                         Task { await refreshMatch(refreshLibrary: true) }
                     },
+                    videoURL: model.videoURL,
                     onOpenPoint: { point in
                         guard let i = model.visible.firstIndex(where: { $0.id == point.id }) else { return }
                         pointSheetIndex = i
