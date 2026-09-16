@@ -127,6 +127,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--job-id', required=True)
     parser.add_argument('--label', default=None, help='parity label; default: the newest one under the job')
+    parser.add_argument('--against', default=None,
+                        help='compare with this replay label instead of the published match.json')
     parser.add_argument('--json', default=None, help='write the full report here')
     args = parser.parse_args()
 
@@ -150,7 +152,10 @@ def main() -> None:
             raise SystemExit('no cloud replay found for that job')
         label = sorted(prefixes)[-1]
     with tempfile.TemporaryDirectory() as directory:
-        mac = fetch_json(client, row['match_json_path'], directory)
+        if args.against:
+            mac = fetch_json(client, f'r2://ponglens-media/parity/{args.job_id}/{args.against}/match.json', directory)
+        else:
+            mac = fetch_json(client, row['match_json_path'], directory)
         cloud = fetch_json(client, f'r2://ponglens-media/parity/{args.job_id}/{label}/match.json', directory)
         try:
             summary = fetch_json(client, f'r2://ponglens-media/parity/{args.job_id}/{label}/summary.json', directory)
@@ -164,7 +169,7 @@ def main() -> None:
     report['cloud_total_s'] = summary.get('total_s')
     report['source_duration_s'] = row['source_duration_s']
 
-    print(f"job {args.job_id}  match {row['match_id']}  replay {label}")
+    print(f"job {args.job_id}  match {row['match_id']}  {args.against or 'published (Mac)'} vs replay {label}")
     print(f"  points        mac {report['points']['mac']:>4}   cloud {report['points']['cloud']:>4}   "
           f"matched {report['matched']}  only-mac {report['only_mac']}  only-cloud {report['only_cloud']}")
     b = report['boundaries_within_tolerance']
