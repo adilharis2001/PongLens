@@ -210,7 +210,8 @@ extension MatchDetailModel {
     /// score one of them or reverse the cut. Empty means nothing was split.
     @discardableResult
     func runSplit(
-        _ point: MatchPoint, pad: ClipPad, cutTimes: [Double]
+        _ point: MatchPoint, pad: ClipPad, cutTimes: [Double],
+        outcomes: [WinnerOrSkip]? = nil
     ) async -> [SplitChild] {
         guard let cutT0 = point.cutT0, let t0 = point.t0, let t1 = point.t1 else {
             return []
@@ -229,46 +230,93 @@ extension MatchDetailModel {
         }
         guard !ats.isEmpty else { return [] }
 
-        var created: [SplitChild] = []
-        var parentId = point.id
-        // Every child is born with the ORIGINAL parent's end, so reversing a
-        // cut restores the exact row split_point changed.
-        var prevTightEnd = point.tightEnd
-        var prevEdited = point.edited
-        for at in ats {
-            let childCutT0 = ((cutT0 + (at - min(pad.pre, TIGHT_PAD)) - anchor) * 100).rounded() / 100
-            struct Params: Encodable {
-                let p_id: String
-                let at_t: Double
-                let child_cut_t0: Double
-            }
-            do {
-                let child: MatchPoint = try await supa
-                    .rpc("split_point", params: Params(
-                        p_id: parentId.uuidString.lowercased(),
-                        at_t: at, child_cut_t0: childCutT0
-                    ))
-                    .execute()
-                    .value
-                if let i = points.firstIndex(where: { $0.id == parentId }) {
-                    points[i].t1 = at
-                    points[i].edited = true
-                    points[i].tightEnd = true
-                }
-                points.append(child)
-                created.append(SplitChild(
-                    parentId: parentId, child: child, prevT1: t1,
-                    prevTightEnd: prevTightEnd, prevEdited: prevEdited
-                ))
-                parentId = child.id
-                prevTightEnd = point.tightEnd
-                prevEdited = true
-            } catch {
-                return created
-            }
+        let childCutT0s = ats.map {
+            ((cutT0 + ($0 - min(pad.pre, TIGHT_PAD)) - anchor) * 100).rounded() / 100
         }
-        Task { await recutOnDevice(matchId: point.matchId, pad: pad) }
-        return created
+        let canonicalOutcomes: [String]
+        if let outcomes {
+            canonicalOutcomes = outcomes.map { value in
+                switch value {
+                case .user: return "user"
+                case .opponent: return "opponent"
+                case .skip: return "other"
+                }
+            }
+        } else {
+            let first = point.confirmedWinner?.rawValue ?? (point.isLet ? "other" : "clear")
+            canonicalOutcomes = [first] + Array(repeating: "clear", count: ats.count)
+        }
+
+        let result = await canonicalCommand(
+            "split_point_v2",
+            args: [
+                "p_parent_id": .uuid(point.id),
+                "p_split_times": .array(ats.map(CanonicalJSON.number)),
+                "p_child_cut_t0s": .array(childCutT0s.map(CanonicalJSON.number)),
+                "p_outcomes": .array(canonicalOutcomes.map(CanonicalJSON.string)),
+            ]
+        ) {
+            var created: [SplitChild] = []
+            var parentId = point.id
+            var prevTightEnd = point.tightEnd
+            var prevEdited = point.edited
+            for (offset, at) in ats.enumerated() {
+                struct Params: Encodable {
+                    let p_id: String
+                    let at_t: Double
+                    let child_cut_t0: Double
+                }
+                do {
+                    let child: MatchPoint = try await supa.rpc(
+                        "split_point",
+                        params: Params(
+                            p_id: parentId.uuidString.lowercased(),
+                            at_t: at,
+                            child_cut_t0: childCutT0s[offset])).execute().value
+                    if let i = points.firstIndex(where: { $0.id == parentId }) {
+                        points[i].t1 = at
+                        points[i].edited = true
+                        points[i].tightEnd = true
+                    }
+                    points.append(child)
+                    created.append(SplitChild(
+                        parentId: parentId, child: child, prevT1: t1,
+                        prevTightEnd: prevTightEnd, prevEdited: prevEdited))
+                    parentId = child.id
+                    prevTightEnd = point.tightEnd
+                    prevEdited = true
+                } catch { return created }
+            }
+            return created
+        }
+        switch result {
+        case .legacy(let created):
+            if !created.isEmpty { Task { await recutOnDevice(matchId: point.matchId, pad: pad) } }
+            return created
+        case .canonical(let response):
+            guard let rows: [MatchPoint] = decodeCanonicalPayload(response, key: "points"),
+                  rows.count == ats.count + 1
+            else { return [] }
+            let ordered = rows.sorted { ($0.t0 ?? 0) < ($1.t0 ?? 0) }
+            let children = Array(ordered.dropFirst())
+            points.removeAll { row in ordered.contains(where: { $0.id == row.id }) }
+            points.append(contentsOf: ordered)
+            if let requestId = response.requestId {
+                for child in children { canonicalSplitRequestByChild[child.id] = requestId }
+            }
+            Task { await recutOnDevice(matchId: point.matchId, pad: pad) }
+            return children.enumerated().map { offset, child in
+                SplitChild(
+                    parentId: ordered[offset].id, child: child, prevT1: t1,
+                    prevTightEnd: point.tightEnd,
+                    prevEdited: offset == 0 ? point.edited : true)
+            }
+        case .conflict(let snapshot):
+            reconcileCanonical(snapshot)
+            return []
+        case .rejected, .transportError:
+            return []
+        }
     }
 
     /// Reverse one split_point call: hard-delete the child and put the
@@ -284,27 +332,52 @@ extension MatchDetailModel {
             let parent_tight_end: Bool
             let parent_edited: Bool
         }
-        do {
-            try await supa
-                .rpc("unsplit_point", params: Params(
+        let splitRequest = canonicalSplitRequestByChild[childId]
+        let legacyUnsplit: () async -> Bool = {
+            do {
+                try await supa.rpc("unsplit_point", params: Params(
                     p_parent: parentId.uuidString.lowercased(),
                     p_child: childId.uuidString.lowercased(),
                     parent_t1: prevT1,
                     parent_tight_end: prevTightEnd,
-                    parent_edited: prevEdited
-                ))
-                .execute()
-        } catch {
+                    parent_edited: prevEdited)).execute()
+                return true
+            } catch { return false }
+        }
+        let result: CanonicalScoreExecution<Bool>
+        if let splitRequest {
+            result = await canonicalCommand(
+                "unsplit_point_v2",
+                args: ["p_split_request_id": .uuid(splitRequest)],
+                legacy: legacyUnsplit)
+        } else {
+            // A split made by an older build has no canonical request id;
+            // retain its exact established undo instead of fabricating one.
+            result = .legacy(await legacyUnsplit())
+        }
+        switch result {
+        case .legacy(false), .rejected, .transportError: return false
+        case .conflict(let snapshot):
+            reconcileCanonical(snapshot)
             return false
+        case .legacy(true):
+            if let i = points.firstIndex(where: { $0.id == parentId }) {
+                points[i].t1 = prevT1
+                points[i].tightEnd = prevTightEnd
+                points[i].edited = true
+            }
+            points.removeAll { $0.id == childId }
+        case .canonical(let response):
+            guard let restored: MatchPoint = decodeCanonicalPayload(response, key: "point"),
+                  let removed: [UUID] = decodeCanonicalPayload(response, key: "removedPointIds")
+            else { return false }
+            let removedIds = Set(removed)
+            points.removeAll { removedIds.contains($0.id) }
+            if let i = points.firstIndex(where: { $0.id == restored.id }) {
+                points[i] = restored
+            } else { points.append(restored) }
+            for id in removed { canonicalSplitRequestByChild[id] = nil }
         }
-        if let i = points.firstIndex(where: { $0.id == parentId }) {
-            points[i].t1 = prevT1
-            points[i].tightEnd = prevTightEnd
-            // Growing t1 back re-fires the edited trigger, and the reclip
-            // below regenerates the clip to the restored extent.
-            points[i].edited = true
-        }
-        points.removeAll { $0.id == childId }
         Task { await recutOnDevice(matchId: matchId, pad: pad) }
         return true
     }
@@ -329,7 +402,8 @@ extension MatchDetailModel {
     /// survivor — the earliest point of the run, which joining backwards
     /// makes one of the NEIGHBOURS, with this point among the rows that go.
     func runJoin(
-        _ point: MatchPoint, pad: ClipPad, count: Int, direction: JoinDirection
+        _ point: MatchPoint, pad: ClipPad, count: Int, direction: JoinDirection,
+        outcome: WinnerOrSkip? = nil
     ) async -> MatchPoint? {
         let neighbours = Array(joinNeighbours(point, direction: direction).prefix(count))
         guard neighbours.count == count else { return nil }
@@ -338,24 +412,54 @@ extension MatchDetailModel {
             ? [point] + neighbours
             : Array(neighbours.reversed()) + [point]
         let ids = run.map(\.id)
+        let requestedOutcome: String = {
+            if let outcome {
+                switch outcome {
+                case .user: return "user"
+                case .opponent: return "opponent"
+                case .skip: return "other"
+                }
+            }
+            return run[0].confirmedWinner?.rawValue ?? (run[0].isLet ? "other" : "clear")
+        }()
         struct Params: Encodable { let p_ids: [String] }
+        let legacyJoin: () async -> MatchPoint? = {
+            do {
+                let survivor: MatchPoint = try await supa.rpc(
+                    "merge_points",
+                    params: Params(p_ids: ids.map { $0.uuidString.lowercased() })).execute().value
+                return survivor
+            } catch { return nil }
+        }
+        let result = await canonicalCommand(
+            "merge_points_v2",
+            args: [
+                "p_point_ids": .array(ids.map(CanonicalJSON.uuid)),
+                "p_outcome": .string(requestedOutcome),
+            ],
+            legacy: legacyJoin)
+        let survivor: MatchPoint
+        switch result {
+        case .legacy(let row): guard let row else { return nil }; survivor = row
+        case .canonical(let response):
+            guard let rows: [MatchPoint] = decodeCanonicalPayload(response, key: "points"),
+                  let row = rows.first(where: { $0.id == ids[0] })
+            else { return nil }
+            survivor = row
+        case .conflict(let snapshot):
+            reconcileCanonical(snapshot)
+            return nil
+        case .rejected, .transportError: return nil
+        }
         do {
-            let survivor: MatchPoint = try await supa
-                .rpc("merge_points", params: Params(p_ids: ids.map { $0.uuidString.lowercased() }))
-                .execute()
-                .value
             let survivorId = ids[0]
             if let j = points.firstIndex(where: { $0.id == survivorId }) {
-                points[j].t1 = survivor.t1 ?? points[j].t1
-                points[j].tightEnd = false
-                points[j].edited = true
+                points[j] = survivor
             }
             let mergedIds = Set(ids.dropFirst())
             points.removeAll { mergedIds.contains($0.id) }
             Task { await recutOnDevice(matchId: point.matchId, pad: pad) }
             return points.first(where: { $0.id == survivorId })
-        } catch {
-            return nil
         }
     }
 
@@ -383,15 +487,48 @@ extension MatchDetailModel {
             let p_t1: Double
             let p_cut_t0: Double
         }
+        let legacyInsert: () async -> MatchPoint? = {
+            do {
+                let created: MatchPoint = try await supa.rpc(
+                    "insert_point",
+                    params: Params(
+                        p_prev_id: prev?.id.uuidString.lowercased(),
+                        p_next_id: next?.id.uuidString.lowercased(),
+                        p_t0: t0, p_t1: t1, p_cut_t0: cutT0)).execute().value
+                return created
+            } catch { return nil }
+        }
+        let result = await canonicalCommand(
+            "insert_point_v2",
+            args: [
+                "p_previous_point_id": prev.map { .uuid($0.id) } ?? .null,
+                "p_next_point_id": next.map { .uuid($0.id) } ?? .null,
+                "p_t0": .number(t0),
+                "p_t1": .number(t1),
+                "p_cut_t0": .number(cutT0),
+                "p_outcome": .string(winner?.rawValue ?? "clear"),
+            ],
+            legacy: legacyInsert)
+        let created: MatchPoint
+        let outcomeApplied: Bool
+        switch result {
+        case .legacy(let row):
+            guard let row else { return false }
+            created = row
+            outcomeApplied = false
+        case .canonical(let response):
+            guard let createdId: UUID = decodeCanonicalPayload(response, key: "pointId"),
+                  let rows: [MatchPoint] = decodeCanonicalPayload(response, key: "points"),
+                  let row = rows.first(where: { $0.id == createdId })
+            else { return false }
+            created = row
+            outcomeApplied = true
+        case .conflict(let snapshot):
+            reconcileCanonical(snapshot)
+            return false
+        case .rejected, .transportError: return false
+        }
         do {
-            let created: MatchPoint = try await supa
-                .rpc("insert_point", params: Params(
-                    p_prev_id: prev?.id.uuidString.lowercased(),
-                    p_next_id: next?.id.uuidString.lowercased(),
-                    p_t0: t0, p_t1: t1, p_cut_t0: cutT0
-                ))
-                .execute()
-                .value
             points.append(created)
             // Mirror what the RPC did to the neighbours and to any stale
             // corrections, so the strip is truthful before any refetch.
@@ -419,7 +556,7 @@ extension MatchDetailModel {
                     points[j].serverOverride = nil
                 }
             }
-            if let winner {
+            if let winner, !outcomeApplied {
                 _ = await setOutcome(
                     created, winner == .user ? .user : .opponent)
             }
@@ -429,8 +566,6 @@ extension MatchDetailModel {
             // the original.
             Task { await recutOnDevice(matchId: matchId, pad: pad) }
             return true
-        } catch {
-            return false
         }
     }
 
@@ -463,13 +598,44 @@ extension MatchDetailModel {
             let p_t0: Double
             let p_t1: Double
         }
+        let legacyAdjust: () async -> MatchPoint? = {
+            do {
+                let row: MatchPoint = try await supa.rpc(
+                    "adjust_point",
+                    params: Params(
+                        p_id: point.id.uuidString.lowercased(),
+                        p_t0: t0New, p_t1: t1New)).execute().value
+                return row
+            } catch { return nil }
+        }
+        let result = await canonicalCommand(
+            "adjust_point_v2",
+            args: [
+                "p_point_id": .uuid(point.id),
+                "p_t0": .number(t0New),
+                "p_t1": .number(t1New),
+                "p_tight_start": .bool(tightStartNew),
+                "p_tight_end": .bool(tightEndNew),
+                "p_scored_at_cut_s": .null,
+                "p_rally_end_cut_s": .null,
+            ],
+            legacy: legacyAdjust)
+        let row: MatchPoint
+        switch result {
+        case .legacy(let value): guard let value else { points[i] = before; return false }; row = value
+        case .canonical(let response):
+            guard let value: MatchPoint = decodeCanonicalPayload(response, key: "point")
+            else { points[i] = before; return false }
+            row = value
+        case .conflict(let snapshot):
+            points[i] = before
+            reconcileCanonical(snapshot)
+            return false
+        case .rejected, .transportError:
+            points[i] = before
+            return false
+        }
         do {
-            let row: MatchPoint = try await supa
-                .rpc("adjust_point", params: Params(
-                    p_id: point.id.uuidString.lowercased(),
-                    p_t0: t0New, p_t1: t1New))
-                .execute()
-                .value
             if let j = points.firstIndex(where: { $0.id == point.id }) {
                 points[j].t0 = row.t0
                 points[j].t1 = row.t1
@@ -482,9 +648,6 @@ extension MatchDetailModel {
             }
             Task { await recutOnDevice(matchId: point.matchId, pad: pad) }
             return true
-        } catch {
-            points[i] = before
-            return false
         }
     }
 
@@ -502,6 +665,19 @@ extension MatchDetailModel {
             if let i = points.firstIndex(where: { $0.id == id }) {
                 points[i].deleted = true
             }
+        }
+        if canonicalCommandsEnabled {
+            for id in ids {
+                guard let current = points.first(where: { $0.id == id }) else { continue }
+                // The optimistic batch above already hid every row. The
+                // helper is still the one revisioned persistence path.
+                if !(await setPointVisibility(current, visible: false)) {
+                    if let i = points.firstIndex(where: { $0.id == id }) {
+                        points[i].deleted = false
+                    }
+                }
+            }
+            return
         }
         do {
             try await supa.from("points")

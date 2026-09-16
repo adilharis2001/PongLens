@@ -296,6 +296,9 @@ struct MatchRow: Codable, Identifiable, Hashable {
     /// detail select only; nil on library rows.
     var cutSource: String? = nil
     var activeProcessingVersionId: UUID? = nil
+    /// Revision clock for atomic owner score/structure commands. Optional so
+    /// old fixtures and old backends continue to decode with commands off.
+    var scoreRevision: Int? = nil
     /// The game-end detector's evidence (140/146). Optional and defaulted
     /// so every construction of MatchRow in tests and previews stands.
     var matchStructure: MatchStructure? = nil
@@ -325,6 +328,7 @@ struct MatchRow: Codable, Identifiable, Hashable {
         case placementStatus = "placement_status"
         case cutSource = "cut_source"
         case activeProcessingVersionId = "active_processing_version_id"
+        case scoreRevision = "score_revision"
         case matchStructure = "match_structure"
         case spokenScores = "spoken_scores"
         case createdAt = "created_at"
@@ -336,7 +340,7 @@ struct MatchRow: Codable, Identifiable, Hashable {
     /// One match, opened. Adds the game-end detector's evidence, which the
     /// library list has no use for — it is a JSONB blob per row and the
     /// list fetches every match the player owns.
-    static let detailSelect = librarySelect + ",match_structure,cut_source"
+    static let detailSelect = librarySelect + ",match_structure,cut_source,score_revision"
 }
 
 

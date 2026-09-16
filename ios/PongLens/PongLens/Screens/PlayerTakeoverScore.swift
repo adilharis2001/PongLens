@@ -667,17 +667,9 @@ extension PlayerTakeover {
         firstServer = value
         dismissSetup()
         Task {
-            do {
-                try await supa
-                    .from("matches")
-                    .update([
-                        "first_server": AnyJSON.string(value.rawValue),
-                        "first_server_source": AnyJSON.string("user"),
-                    ])
-                    .eq("id", value: match.id.uuidString.lowercased())
-                    .execute()
+            if await model.setFirstServer(matchId: match.id, value: value) {
                 onFirstServer?(value)
-            } catch {
+            } else {
                 firstServer = previous
                 showToast("Couldn't save who served. Try again.")
             }

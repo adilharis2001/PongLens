@@ -294,7 +294,7 @@ match-structure suite passed 140/141; its only failure is the established
 unrelated Highlights source assertion for `min-h-11 w-full`, also recorded
 before this task.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add 'src/app/match/[id]' src/lib/scoring
@@ -318,21 +318,29 @@ git commit -m "Route web scoring through canonical commands"
 - Consumes: the same capability and JSON command contract as web.
 - Produces: `CanonicalScoreCommandTransport`, retry-stable request IDs, conflict reconciliation and capability-off legacy behavior.
 
-- [ ] **Step 1: Write RED Swift parity and transport cases**
+- [x] **Step 1: Write RED Swift parity and transport cases**
 
 Add decoder fixtures identical to TypeScript, then exercise score, Undo, first server, boundary, Split/Unsplit/Join/Adjust/Insert, deletion/restoration, retry and conflict behavior against the loopback transport.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `bash ios/Tests/run.sh`
 
-- [ ] **Step 3: Implement transport and route score-affecting writes**
+- [x] **Step 3: Implement transport and route score-affecting writes**
 
 Keep the established optimistic UI and restore it on command failure. Metadata-only patches remain direct. Capability is loaded once with the match and safely defaults off for an older backend.
 
-- [ ] **Step 4: Run GREEN and simulator acceptance**
+- [x] **Step 4: Run GREEN and simulator acceptance**
 
 Run `bash ios/Tests/run.sh`, then verify native score, Undo, first server, boundary, Split/Join/Adjust/Insert and coach read-only state in the simulator. No visual change is intended; screenshots document unchanged states rather than request a redesign.
+
+Verification on 2026-09-16: the Swift parity and transport suite passed
+1200/1200 checks, including stable retry IDs, no fallback after ambiguous
+network or authorization failures, conflict revision reconciliation and every
+native score/structure command sharing one serialized revision clock. The
+full PongLens iOS simulator-target build completed with code signing disabled.
+No visual state changed; interactive production-account acceptance remains
+part of the capability-scoped canary in Task 10.
 
 - [ ] **Step 5: Commit**
 

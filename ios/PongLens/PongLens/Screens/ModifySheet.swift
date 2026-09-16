@@ -1117,7 +1117,8 @@ struct ModifySheet: View {
         failed = false
         let plan = segments
         let landing = landingAfter(point)
-        let ok = !(await model.runSplit(point, pad: pad, cutTimes: markers)).isEmpty
+        let ok = !(await model.runSplit(
+            point, pad: pad, cutTimes: markers, outcomes: plan)).isEmpty
         if ok {
             // The root plus its children, in timeline order, are exactly the
             // visible points inside the old span.
@@ -1131,6 +1132,9 @@ struct ModifySheet: View {
             // landed. setOutcome applies locally first, so the pad is right
             // the moment it resumes and the rows catch up behind it — the
             // web's own order.
+            // The canonical command stores these outcomes in the same
+            // transaction as the split. With rollout off, setOutcome is an
+            // idempotent no-op when the row already carries this answer.
             for (i, disposition) in plan.enumerated() where i < segPoints.count {
                 let p = segPoints[i]
                 Task { await model.setOutcome(p, disposition) }
@@ -1162,7 +1166,9 @@ struct ModifySheet: View {
         let pool = joinPool
         guard pool.count >= joinCount else { busy = false; return }
         let landing = landingAfter(dir == .next ? pool[joinCount - 1] : point)
-        if let survivor = await model.runJoin(point, pad: pad, count: joinCount, direction: dir) {
+        if let survivor = await model.runJoin(
+            point, pad: pad, count: joinCount, direction: dir,
+            outcome: joinWinner) {
             // Written without waiting, as the split's outcomes are.
             let winner = joinWinner
             Task { await model.setOutcome(survivor, winner) }
