@@ -538,8 +538,9 @@ On Adil’s account verify web desktop/mobile and native iOS: score, Undo, first
 
 Production checkpoint on 2026-09-16: the owner web page rendered and all 12
 command families returned matching snapshots in an authenticated transaction
-that was rolled back without changing the match. The final native build passed
-1,200 tests, built, installed and launched, but installation cleared the saved
+that was rolled back without changing the match. The reconciled native tree
+passed 1,215 tests and built; the canonical build installed and launched, but
+installation cleared the saved
 simulator login. Authenticated native interaction and a real manual-cutter job
 remain explicit human acceptance checks, so this step is intentionally open.
 

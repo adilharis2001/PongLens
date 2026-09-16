@@ -62,7 +62,7 @@ release. Do not run an older package that fails the active database contract.
 | Web | Vercel production deployment `Ec35wbhsq8mmJzAA9NG3rFqejT48` succeeded for commit `41322bc4`; production Upload Detail and an owner match rendered successfully. |
 | Command canary | All 12 command families succeeded against an Adil-owned production match inside one authenticated transaction. The transaction was rolled back; revision `0` and 116 point rows were unchanged afterward. |
 | Worker | Active release `9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce` on both `main` and `fast`. The previous release `62295e48b91091b93ef796d2cf8688482d524af3df863f757b170f437d00fea1` was actually booted on both lanes, observed healthy and idle, drained, and replaced by the active release. Zero jobs were open throughout. |
-| Native | 1,200 unit/parity checks passed and the complete simulator build succeeded. The final build installs and launches. Installing it cleared the simulator login, so authenticated production UI interaction remains a human acceptance check. |
+| Native | 1,215 unit/parity checks passed and the complete reconciled simulator build succeeded. The canonical build installs and launches. Installing it cleared the simulator login, so authenticated production UI interaction remains a human acceptance check. |
 
 Additional automated evidence:
 
