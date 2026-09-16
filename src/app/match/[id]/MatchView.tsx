@@ -1234,7 +1234,15 @@ export function MatchView({
         : `${cardsGate.scored} of ${cardsGate.eligible} scored`
       : !handCut && placement.view.poll
         ? placement.view.toolStatus
-        : statsRowSummary(stats);
+        : !handCut && placement.view.actionKind === "generate"
+          ? "Generate detailed analysis"
+          : !handCut && placement.view.actionKind === "retry"
+            ? "Try again"
+            : statsRowSummary(stats);
+  // Past the bar the row is the trigger: a tap starts the analysis and
+  // lands on the deck, where the card shows it generating.
+  const analysisRowAction =
+    scored && cardsGate.open && !handCut && placement.view.actionKind !== null;
   const analysis = useMemo(
     () =>
       computeMatchAnalysis(
@@ -2397,10 +2405,10 @@ export function MatchView({
   // the Player fetches. Loaded lazily the moment the picker could show (the
   // first-open banner while untagged, or the change sheet), so a tagged
   // match that never opens it pays nothing.
+  // Whenever the end is unknown: the first-open banner, the Tools sheet
+  // and the deck's next-step row all answer it from the same frame.
   const needSidePicker =
-    isOwner &&
-    hasCutOffsets &&
-    ((userSide === null && !firstOpenDismissed) || sideSheetOpen);
+    isOwner && hasCutOffsets && (userSide === null || sideSheetOpen);
   useEffect(() => {
     if (!needSidePicker || cutPreviewUrl) return;
     let cancelled = false;
@@ -3639,7 +3647,10 @@ export function MatchView({
             {(scored || (!handCut && placementMappedPoints > 0)) && (
               <button
                 type="button"
-                onClick={() => scrollToSection(matchStatsRef)}
+                onClick={() => {
+                  if (analysisRowAction) void placement.requestAction();
+                  scrollToSection(matchStatsRef);
+                }}
                 className={TOOL_ROW_CLASS}
               >
                 <span className="text-sm font-semibold">Match analysis</span>
@@ -4848,6 +4859,7 @@ export function MatchView({
                 ? (side) => void handleSetUserSide(side)
                 : undefined
             }
+            sideVideoSrc={cutPreviewUrl}
           />
         </div>
       )}

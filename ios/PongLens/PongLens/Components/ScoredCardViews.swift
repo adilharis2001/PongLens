@@ -315,11 +315,12 @@ struct NextStepCard: View {
     let match: MatchRow
     let gate: ScoredCardsGate
     let scoredType: Bool
-    let fullyScored: Bool
     let sideMissing: Bool
     let onScore: (() -> Void)?
     /// Re-read the match once the side or the analysis request changed.
     let onChanged: () -> Void
+    /// The cut video, for the still the side question is answered from.
+    var videoURL: URL? = nil
 
     @State private var analysisSheetOpen = false
     @State private var sideSheetOpen = false
@@ -330,18 +331,20 @@ struct NextStepCard: View {
     /// Generate (or try again) comes after scoring; a practice match has
     /// nothing to score and gets it straight away.
     private var offerAnalysis: Bool { !scoredType || gate.open }
+    /// Once the bar is met the scoring row steps aside: the one thing left
+    /// to do is the analysis.
+    private var showScoring: Bool { scoredType && !gate.open }
     private var showAnalysis: Bool {
-        !handCut && (generating || status == "ready" || offerAnalysis)
+        !handCut && status != "ready" && (generating || offerAnalysis)
     }
-
-    /// One short line only where the state needs explaining.
-    private var analysisBody: String? {
+    private var analysisReason: String? {
         switch status {
+        case "processing", "retrying", "final_failed": nil
         case "retry_available": "The table was hard to detect."
-        case "final_failed": "Not available for this video."
-        default: nil
+        default: "Unlocks the serve maps, point length, serve speed and where points ended."
         }
     }
+
 
     private var analysisAction: String? {
         switch status {
@@ -359,8 +362,14 @@ struct NextStepCard: View {
                         secondaryButton("Choose your end") { sideSheetOpen = true }
                     }
                 }
-                if scoredType {
-                    row("Score the match", done: fullyScored) {
+                if showScoring {
+                    row("Score the match", done: false) {
+                        Text(status == "ready"
+                            ? "Unlocks the overview, point length, serve speed and where points ended."
+                            : "Unlocks the overview and the detailed analysis.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text400)
+                            .fixedSize(horizontal: false, vertical: true)
                         GeometryReader { geo in
                             Rectangle().fill(PL.cyan)
                                 .frame(width: geo.size.width * min(1, gate.share))
@@ -375,15 +384,20 @@ struct NextStepCard: View {
                             .font(.plCaption)
                             .monospacedDigit()
                             .padding(.top, 8)
-                        if let onScore, !fullyScored {
+                        if let onScore {
                             primaryButton(gate.scored == 0 ? "Score the match" : "Keep scoring", action: onScore)
                         }
                     }
                 }
                 if showAnalysis {
-                    row("Detailed analysis", done: status == "ready") {
-                        if let analysisBody {
-                            Text(analysisBody)
+                    row("Detailed analysis", done: false) {
+                        if status == "final_failed" {
+                            Text("Not available for this video.")
+                                .font(.plCaption)
+                                .foregroundStyle(PL.text400)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else if let analysisReason {
+                            Text(analysisReason)
                                 .font(.plCaption)
                                 .foregroundStyle(PL.text400)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -410,7 +424,7 @@ struct NextStepCard: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $sideSheetOpen) {
-            YourSideSheet(match: match, onSaved: onChanged)
+            YourSideSheet(match: match, videoURL: videoURL, onSaved: onChanged)
         }
     }
 
