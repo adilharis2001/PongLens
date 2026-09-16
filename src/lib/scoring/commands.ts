@@ -10,6 +10,12 @@ export const canonicalScoreCommandRpcs = {
   firstServer: "set_first_server_v2",
   serverOverride: "set_server_override_v2",
   gameBoundary: "set_game_boundary_v2",
+  pointVisibility: "set_point_visibility_v2",
+  splitPoint: "split_point_v2",
+  unsplitPoint: "unsplit_point_v2",
+  mergePoints: "merge_points_v2",
+  adjustPoint: "adjust_point_v2",
+  insertPoint: "insert_point_v2",
 } as const;
 
 export type CanonicalPointOutcome =
@@ -59,6 +65,46 @@ export interface SetGameBoundaryCommand extends CanonicalCommandIdentity {
   boundary: "end" | "continue" | null;
   gameWinner: CanonicalPlayer | null;
   previousPointId?: string | null;
+}
+
+export interface SetPointVisibilityCommand extends CanonicalCommandIdentity {
+  pointId: string;
+  visible: boolean;
+}
+
+export interface SplitPointCommand extends CanonicalCommandIdentity {
+  parentPointId: string;
+  splitTimes: number[];
+  childCutT0s: Array<number | null>;
+  outcomes: CanonicalPointOutcome[];
+}
+
+export interface UnsplitPointCommand extends CanonicalCommandIdentity {
+  splitRequestId: string;
+}
+
+export interface MergePointsCommand extends CanonicalCommandIdentity {
+  pointIds: string[];
+  outcome: CanonicalPointOutcome;
+}
+
+export interface AdjustPointCommand extends CanonicalCommandIdentity {
+  pointId: string;
+  t0: number;
+  t1: number;
+  tightStart: boolean;
+  tightEnd: boolean;
+  scoredAtCutS: number | null;
+  rallyEndCutS: number | null;
+}
+
+export interface InsertPointCommand extends CanonicalCommandIdentity {
+  previousPointId: string | null;
+  nextPointId: string | null;
+  t0: number;
+  t1: number;
+  cutT0: number | null;
+  outcome: CanonicalPointOutcome;
 }
 
 export interface CanonicalSnapshotPoint extends CanonicalPointState {

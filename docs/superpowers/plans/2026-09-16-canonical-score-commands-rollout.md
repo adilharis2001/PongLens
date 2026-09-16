@@ -158,7 +158,7 @@ git commit -m "Add atomic score and serve commands"
 - Consumes: Task 1 context; established `split_point`, `unsplit_point`, `merge_points`, `adjust_point`, `insert_point`, active-version guards and reclip triggers.
 - Produces: `set_point_visibility_v2`, `split_point_v2`, `unsplit_point_v2`, `merge_points_v2`, `adjust_point_v2`, `insert_point_v2`.
 
-- [ ] **Step 1: Write RED structural cases**
+- [x] **Step 1: Write RED structural cases**
 
 Assert exact rows and projection after:
 
@@ -171,17 +171,17 @@ insert before first, between, after last and overlapping neighbours
 stale/duplicate/unauthorized calls for every public command
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `SCORING_STATE_LOCAL_DB_TEST=1 npm run test:scoring-state`
 
 Expected: FAIL on missing v2 structural functions.
 
-- [ ] **Step 3: Implement transaction-scoped wrappers**
+- [x] **Step 3: Implement transaction-scoped wrappers**
 
 The v2 functions acquire the match lock before invoking the established structural function, collect affected rows, refresh once at the final revision, and write one mutation ledger entry. A mid-plan split failure raises and rolls back all splits in that command. `set_point_visibility_v2` preserves high-authority observations and invalidates only observations whose timing revision no longer matches.
 
-- [ ] **Step 4: Run GREEN plus established structural suites**
+- [x] **Step 4: Run GREEN plus established structural suites**
 
 Run:
 
@@ -192,7 +192,13 @@ npm run test:match-structure
 
 Record the existing unrelated Highlights source-inspection assertion separately if it remains the only failure.
 
-- [ ] **Step 5: Commit**
+Verification on 2026-09-16: the real PostgreSQL scoring suite passed 55/55
+twice. `test:match-structure` passed all score, serve, game, split, insert,
+playhead, side-change and clip-edit cases; its sole failure remained the
+pre-existing Highlights source assertion for `min-h-11 w-full`, also present
+on the baseline branch.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/20260916120000_canonical_score_commands.sql src/lib/scoring

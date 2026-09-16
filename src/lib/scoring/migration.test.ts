@@ -239,3 +239,19 @@ test("typed score commands share one atomic finalizer and narrow client grants",
   assert.match(commandMigration, /create\s+or\s+replace\s+function\s+public\._canonical_score_finish_command\b/i);
   assert.match(commandMigration, /insert\s+into\s+public\.match_score_mutations/i);
 });
+
+test("typed structural commands are present and authenticated-only", () => {
+  const commandMigration = commandsMigrationSql();
+  for (const name of [
+    "set_point_visibility_v2",
+    "split_point_v2",
+    "unsplit_point_v2",
+    "merge_points_v2",
+    "adjust_point_v2",
+    "insert_point_v2",
+  ]) {
+    assert.match(commandMigration, new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${name}\\b`, "i"));
+    assert.match(commandMigration, new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${name}[^;]+to\\s+authenticated`, "is"));
+    assert.match(commandMigration, new RegExp(`revoke\\s+all\\s+on\\s+function\\s+public\\.${name}[^;]+from\\s+public\\s*,\\s*anon`, "is"));
+  }
+});

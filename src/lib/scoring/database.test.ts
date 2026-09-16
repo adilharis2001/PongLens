@@ -607,3 +607,296 @@ databaseTest("every score command fails closed when canonical projection fails",
          drop constraint point_score_state_command_failure;`);
   }
 });
+
+databaseTest("visibility command removes and restores a point without discarding its truth", () => {
+  resetFixture();
+  enableCommands();
+  const point = "30000000-0000-0000-0000-000000000001";
+  sql(`insert into public.points(
+         id,match_id,processing_version_id,idx,t0,t1,confirmed_winner,
+         server_override,game_end_override,game_winner_override
+       ) values (
+         '${point}','${MATCH}','${VERSION}',1,1,2,'user','opponent','end','user'
+       );
+       insert into public.point_timing_observations(
+         match_id,point_id,kind,source_s,origin,authority_scope,timing_revision,
+         media_kind,eligible_for_training
+       ) values (
+         '${MATCH}','${point}','point_end',2,'manual_cutter',
+         'owner_manual_boundary',0,'source',true
+       );`);
+  let revision = scoreRevision();
+  const hideRequest = "40000000-0000-0000-0000-000000000300";
+  let result = command(OWNER, `public.set_point_visibility_v2(
+    '${MATCH}','${point}',false,'${hideRequest}',${revision}
+  )`);
+  assert.equal(result.ok, true);
+  const hiddenResult = result;
+  assert.deepEqual(command(OWNER, `public.set_point_visibility_v2(
+    '${MATCH}','${point}',false,'${hideRequest}',${revision}
+  )`), hiddenResult);
+  revision = Number(result.revision);
+  assert.equal(
+    sql(`select deleted || '|' || confirmed_winner || '|' || server_override || '|' ||
+                game_end_override || '|' || game_winner_override
+           from public.points where id='${point}';`),
+    "true|user|opponent|end|user"
+  );
+  assert.equal(sql(`select visible_point_count from public.match_score_state where match_id='${MATCH}';`), "0");
+  assert.equal(sql(`select invalidated_at is null from public.point_timing_observations where point_id='${point}';`), "t");
+
+  result = command(OWNER, `public.set_point_visibility_v2(
+    '${MATCH}','${point}',true,gen_random_uuid(),${revision}
+  )`);
+  assert.equal(result.ok, true);
+  assert.equal(sql(`select not deleted from public.points where id='${point}';`), "t");
+  assert.equal(sql(`select visible_point_count from public.match_score_state where match_id='${MATCH}';`), "1");
+});
+
+databaseTest("multi-marker split and unsplit are atomic and restore the exact parent", () => {
+  resetFixture();
+  enableCommands();
+  const parent = "30000000-0000-0000-0000-000000000001";
+  const later = "30000000-0000-0000-0000-000000000002";
+  sql(`insert into public.points(
+         id,match_id,processing_version_id,idx,t0,t1,cut_t0,confirmed_winner,
+         edited,tight_start,tight_end
+       ) values
+       ('${parent}','${MATCH}','${VERSION}',1,0,9,10,'user',false,false,false),
+       ('${later}','${MATCH}','${VERSION}',2,10,12,20,null,false,false,false);
+       update public.points set server_override='user' where id='${later}';
+       update public.points set game_end_override='end',game_winner_override='user',
+         scored_at_cut_s=18,rally_end_cut_s=17.5 where id='${parent}';`);
+  const original = sql(`select (to_jsonb(p)-'timing_revision')::text
+                          from public.points p where id='${parent}';`);
+  const splitRequest = "40000000-0000-0000-0000-000000000301";
+  const base = scoreRevision();
+  const split = command(OWNER, `public.split_point_v2(
+    '${MATCH}','${parent}',array[3,6]::numeric[],array[13,16]::numeric[],
+    array['user','opponent','let']::text[],'${splitRequest}',${base}
+  )`);
+  assert.equal(split.ok, true);
+  assert.deepEqual(command(OWNER, `public.split_point_v2(
+    '${MATCH}','${parent}',array[3,6]::numeric[],array[13,16]::numeric[],
+    array['user','opponent','let']::text[],'${splitRequest}',${base}
+  )`), split);
+  assert.equal(
+    sql(`select string_agg(t0 || '-' || t1 || ':' || coalesce(confirmed_winner,
+                case when is_let then 'skip' else 'clear' end),',' order by t0)
+           from public.points where match_id='${MATCH}' and not deleted and t0<9;`),
+    "0-3:user,3-6:opponent,6-9:skip"
+  );
+  assert.equal(
+    sql(`select coalesce(game_end_override,'null') || ':' ||
+                coalesce(game_winner_override,'null') || ':' ||
+                coalesce(scored_at_cut_s::text,'null')
+           from public.points where match_id='${MATCH}' and not deleted and t0<9
+          order by t0;`),
+    "null:null:null\nnull:null:null\nend:user:null"
+  );
+  assert.equal(sql(`select server_override is null from public.points where id='${later}';`), "t");
+
+  const unsplitRequest = "40000000-0000-0000-0000-000000000302";
+  const unsplit = command(OWNER, `public.unsplit_point_v2(
+    '${MATCH}','${splitRequest}','${unsplitRequest}',${split.revision}
+  )`);
+  assert.equal(unsplit.ok, true);
+  assert.deepEqual(command(OWNER, `public.unsplit_point_v2(
+    '${MATCH}','${splitRequest}','${unsplitRequest}',${split.revision}
+  )`), unsplit);
+  assert.equal(sql(`select count(*) from public.points where match_id='${MATCH}';`), "2");
+  assert.equal(sql(`select (to_jsonb(p)-'timing_revision')::text
+                     from public.points p where id='${parent}';`), original);
+  assert.equal(sql(`select server_override from public.points where id='${later}';`), "user");
+
+  const invalidBase = scoreRevision();
+  const invalid = command(OWNER, `public.split_point_v2(
+    '${MATCH}','${parent}',array[3,8.9]::numeric[],array[13,18.9]::numeric[],
+    array['clear','clear','clear']::text[],gen_random_uuid(),${invalidBase}
+  )`);
+  assert.equal(invalid.code, "invalid_input");
+  assert.equal(sql(`select count(*) from public.points where match_id='${MATCH}';`), "2");
+  assert.equal(sql(`select (to_jsonb(p)-'timing_revision')::text
+                     from public.points p where id='${parent}';`), original);
+  const nullOutcome = command(OWNER, `public.split_point_v2(
+    '${MATCH}','${parent}',array[3]::numeric[],array[13]::numeric[],
+    array['user',null]::text[],gen_random_uuid(),${invalidBase}
+  )`);
+  assert.equal(nullOutcome.code, "invalid_input");
+});
+
+databaseTest("merge archives joined rows and timing evidence while preserving one explicit outcome", () => {
+  resetFixture();
+  enableCommands();
+  const ids = [1, 2, 3, 4].map((n) => `30000000-0000-0000-0000-${String(n).padStart(12, "0")}`);
+  sql(`insert into public.points(id,match_id,processing_version_id,idx,t0,t1,confirmed_winner)
+       values
+       ('${ids[0]}','${MATCH}','${VERSION}',1,0,3,'user'),
+       ('${ids[1]}','${MATCH}','${VERSION}',2,3,6,'opponent'),
+       ('${ids[2]}','${MATCH}','${VERSION}',3,6,9,'user'),
+       ('${ids[3]}','${MATCH}','${VERSION}',4,10,12,null);
+       update public.points set server_override='opponent' where id='${ids[3]}';
+       update public.points set game_end_override='end',game_winner_override='user',
+         scored_at_cut_s=8.8,rally_end_cut_s=8.5 where id='${ids[2]}';
+       insert into public.point_timing_observations(
+         match_id,point_id,kind,source_s,origin,authority_scope,timing_revision,media_kind
+       ) values
+       ('${MATCH}','${ids[0]}','point_end',3,'manual_cutter','owner_manual_boundary',0,'source'),
+       ('${MATCH}','${ids[1]}','serve_start',3,'manual_cutter','owner_manual_boundary',0,'source');`);
+  const mergeRequest = "40000000-0000-0000-0000-000000000303";
+  const mergeBase = scoreRevision();
+  const result = command(OWNER, `public.merge_points_v2(
+    '${MATCH}',array['${ids[0]}'::uuid,'${ids[1]}'::uuid,'${ids[2]}'::uuid],
+    'opponent','${mergeRequest}',${mergeBase}
+  )`);
+  assert.equal(result.ok, true);
+  assert.deepEqual(command(OWNER, `public.merge_points_v2(
+    '${MATCH}',array['${ids[0]}'::uuid,'${ids[1]}'::uuid,'${ids[2]}'::uuid],
+    'opponent','${mergeRequest}',${mergeBase}
+  )`), result);
+  assert.equal(
+    sql(`select t0 || '-' || t1 || '|' || confirmed_winner || '|' ||
+                (not tight_end) || '|' || edited || '|' || end_authority
+           from public.points where id='${ids[0]}';`),
+    "0-9|opponent|true|true|manual"
+  );
+  assert.equal(
+    sql(`select game_end_override || '|' || game_winner_override || '|' ||
+                scored_at_cut_s || '|' || rally_end_cut_s
+           from public.points where id='${ids[0]}';`),
+    "end|user|8.8|8.5"
+  );
+  assert.equal(
+    sql(`select string_agg(id::text || ':' || deleted,',' order by id)
+           from public.points where id in ('${ids[1]}','${ids[2]}');`),
+    `${ids[1]}:true,${ids[2]}:true`
+  );
+  assert.equal(sql(`select bool_and(invalidated_at is not null) from public.point_timing_observations;`), "t");
+  assert.equal(sql(`select server_override is null from public.points where id='${ids[3]}';`), "t");
+});
+
+databaseTest("adjust invalidates only observations for edges that actually moved", () => {
+  resetFixture();
+  enableCommands();
+  const point = "30000000-0000-0000-0000-000000000001";
+  sql(`insert into public.points(id,match_id,processing_version_id,idx,t0,t1,cut_t0)
+       values ('${point}','${MATCH}','${VERSION}',1,10,20,9);
+       insert into public.point_timing_observations(
+         match_id,point_id,kind,source_s,origin,authority_scope,timing_revision,media_kind
+       ) values
+       ('${MATCH}','${point}','serve_start',10,'manual_cutter','owner_manual_boundary',0,'source'),
+       ('${MATCH}','${point}','point_end',20,'manual_cutter','owner_manual_boundary',0,'source');`);
+  const adjustRequest = "40000000-0000-0000-0000-000000000304";
+  const adjustBase = scoreRevision();
+  let result = command(OWNER, `public.adjust_point_v2(
+    '${MATCH}','${point}',11,20,true,false,null,null,'${adjustRequest}',${adjustBase}
+  )`);
+  assert.equal(result.ok, true);
+  assert.deepEqual(command(OWNER, `public.adjust_point_v2(
+    '${MATCH}','${point}',11,20,true,false,null,null,'${adjustRequest}',${adjustBase}
+  )`), result);
+  assert.equal(
+    sql(`select string_agg(kind || ':' || (invalidated_at is not null),',' order by kind)
+           from public.point_timing_observations where point_id='${point}';`),
+    "point_end:false,serve_start:true"
+  );
+  result = command(OWNER, `public.adjust_point_v2(
+    '${MATCH}','${point}',11,21,true,true,null,null,gen_random_uuid(),${result.revision}
+  )`);
+  assert.equal(result.ok, true);
+  assert.equal(
+    sql(`select bool_and(invalidated_at is not null) from public.point_timing_observations where point_id='${point}';`),
+    "t"
+  );
+});
+
+databaseTest("insert trims overlapping neighbours, invalidates moved-edge evidence, and clears later anchors", () => {
+  resetFixture();
+  enableCommands();
+  const prev = "30000000-0000-0000-0000-000000000001";
+  const next = "30000000-0000-0000-0000-000000000002";
+  sql(`insert into public.points(id,match_id,processing_version_id,idx,t0,t1,cut_t0)
+       values
+       ('${prev}','${MATCH}','${VERSION}',1,0,5,0),
+       ('${next}','${MATCH}','${VERSION}',2,7,12,7);
+       update public.points set server_override='user' where id='${next}';
+       insert into public.point_timing_observations(
+         match_id,point_id,kind,source_s,origin,authority_scope,timing_revision,media_kind
+       ) values
+       ('${MATCH}','${prev}','point_end',5,'manual_cutter','owner_manual_boundary',0,'source'),
+       ('${MATCH}','${next}','serve_start',7,'manual_cutter','owner_manual_boundary',0,'source');`);
+  const insertRequest = "40000000-0000-0000-0000-000000000305";
+  const insertBase = scoreRevision();
+  const result = command(OWNER, `public.insert_point_v2(
+    '${MATCH}','${prev}','${next}',4,8,4,'user','${insertRequest}',${insertBase}
+  )`);
+  assert.equal(result.ok, true);
+  assert.deepEqual(command(OWNER, `public.insert_point_v2(
+    '${MATCH}','${prev}','${next}',4,8,4,'user','${insertRequest}',${insertBase}
+  )`), result);
+  assert.equal(sql(`select t1 || '|' || tight_end from public.points where id='${prev}';`), "4|true");
+  assert.equal(sql(`select t0 || '|' || tight_start from public.points where id='${next}';`), "8|true");
+  assert.equal(sql(`select bool_and(invalidated_at is not null) from public.point_timing_observations;`), "t");
+  assert.equal(sql(`select server_override is null from public.points where id='${next}';`), "t");
+  assert.equal(
+    sql(`select confirmed_winner || '|' || end_authority from public.points
+          where match_id='${MATCH}' and id not in ('${prev}','${next}');`),
+    "user|manual"
+  );
+});
+
+databaseTest("all structural commands reject non-owners and stale revisions without writes", () => {
+  resetFixture();
+  enableCommands();
+  insertScorePoints();
+  const p1 = "30000000-0000-0000-0000-000000000001";
+  const p2 = "30000000-0000-0000-0000-000000000002";
+  const revision = scoreRevision();
+  const calls = [
+    `public.set_point_visibility_v2('${MATCH}','${p1}',false,gen_random_uuid(),${revision})`,
+    `public.split_point_v2('${MATCH}','${p1}',array[1.3]::numeric[],array[1.3]::numeric[],array['clear']::text[],gen_random_uuid(),${revision})`,
+    `public.unsplit_point_v2('${MATCH}',gen_random_uuid(),gen_random_uuid(),${revision})`,
+    `public.merge_points_v2('${MATCH}',array['${p1}'::uuid,'${p2}'::uuid],'clear',gen_random_uuid(),${revision})`,
+    `public.adjust_point_v2('${MATCH}','${p1}',1,2,false,false,null,null,gen_random_uuid(),${revision})`,
+    `public.insert_point_v2('${MATCH}','${p1}','${p2}',1.5,3.5,1.5,'clear',gen_random_uuid(),${revision})`,
+  ];
+  for (const call of calls) assert.equal(command(STRANGER, call).code, "not_owner");
+  for (const call of calls) {
+    const staleCall = call.replace(`,${revision})`, `,${revision - 1})`);
+    assert.equal(command(OWNER, staleCall).code, "score_conflict");
+  }
+  assert.equal(sql(`select count(*) from public.match_score_mutations;`), "0");
+});
+
+databaseTest("a multi-write split rolls back completely when canonical projection fails", () => {
+  resetFixture();
+  enableCommands();
+  const parent = "30000000-0000-0000-0000-000000000001";
+  sql(`insert into public.points(
+         id,match_id,processing_version_id,idx,t0,t1,cut_t0,confirmed_winner
+       ) values ('${parent}','${MATCH}','${VERSION}',1,0,9,10,'user');`);
+  const revision = scoreRevision();
+  const before = sql(`select to_jsonb(p)::text from public.points p where id='${parent}';`);
+  sql(`alter table public.point_score_state
+       add constraint point_score_state_structural_failure check (false) not valid;`);
+  const failed = spawnSync(
+    "docker",
+    ["exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-At",
+     "-U", "postgres", "-d", DATABASE],
+    {
+      input: `begin; set local role authenticated;
+        select set_config('request.jwt.claim.sub','${OWNER}',true);
+        select public.split_point_v2(
+          '${MATCH}','${parent}',array[3,6]::numeric[],array[13,16]::numeric[],
+          array['user','opponent','let']::text[],gen_random_uuid(),${revision}
+        ); commit;`,
+      encoding: "utf8",
+    }
+  );
+  assert.notEqual(failed.status, 0);
+  assert.equal(sql(`select count(*) from public.points where match_id='${MATCH}';`), "1");
+  assert.equal(sql(`select to_jsonb(p)::text from public.points p where id='${parent}';`), before);
+  assert.equal(sql(`select count(*) from public.match_score_mutations;`), "0");
+  sql(`alter table public.point_score_state
+       drop constraint point_score_state_structural_failure;`);
+});

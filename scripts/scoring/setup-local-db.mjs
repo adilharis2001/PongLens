@@ -87,7 +87,7 @@ create table public.matches (
   created_at timestamptz not null default now()
 );
 create table public.points (
-  id uuid primary key,
+  id uuid primary key default gen_random_uuid(),
   match_id uuid not null references public.matches(id) on delete cascade,
   processing_version_id uuid not null,
   idx integer not null,
@@ -100,10 +100,13 @@ create table public.points (
   confirmed_winner text check (confirmed_winner in ('user', 'opponent')),
   confirmed_how text,
   is_let boolean not null default false,
+  server text check (server in ('user', 'opponent')),
   server_override text check (server_override in ('user', 'opponent')),
   game_end_override text check (game_end_override in ('end', 'continue')),
   game_winner_override text check (game_winner_override in ('user', 'opponent')),
   scored_at_cut_s numeric check (scored_at_cut_s is null or scored_at_cut_s >= 0),
+  rally_end_cut_s numeric check (rally_end_cut_s is null or rally_end_cut_s >= 0),
+  edited boolean not null default false,
   check (not (is_let and confirmed_winner is not null))
 );
 create table public.coach_links (
@@ -148,6 +151,90 @@ language sql stable security definer set search_path = public as $$
      )
   )
 $$;
+
+-- Production already has these established structural RPCs. The isolated
+-- schema supplies their minimum behavior so the v2 transaction wrappers are
+-- exercised against the same call boundary without loading unrelated media,
+-- commerce and notification migrations.
+create or replace function public.split_point(
+  p_id uuid, at_t numeric, child_cut_t0 numeric default null
+) returns public.points language plpgsql security definer set search_path=public as $$
+declare orig public.points; child public.points;
+begin
+  select * into orig from public.points where id=p_id for update;
+  if orig.id is null or orig.deleted or at_t < orig.t0 + 0.2 or at_t > orig.t1 - 0.2 then
+    raise exception 'invalid split';
+  end if;
+  update public.points set t1=at_t,edited=true,tight_end=true where id=orig.id;
+  insert into public.points(
+    match_id,processing_version_id,idx,t0,t1,cut_t0,server,edited,tight_start,tight_end
+  ) values (
+    orig.match_id,orig.processing_version_id,
+    (select coalesce(max(idx),0)+1 from public.points where match_id=orig.match_id),
+    at_t,orig.t1,child_cut_t0,orig.server,true,true,orig.tight_end
+  ) returning * into child;
+  return child;
+end $$;
+
+create or replace function public.adjust_point(
+  p_id uuid, p_t0 numeric, p_t1 numeric,
+  p_tight_start boolean default null, p_tight_end boolean default null,
+  p_scored_at_cut_s numeric default null, p_rally_end_cut_s numeric default null
+) returns public.points language plpgsql security definer set search_path=public as $$
+declare orig public.points; changed public.points;
+begin
+  select * into orig from public.points where id=p_id for update;
+  if orig.id is null or orig.deleted or p_t0 < 0 or p_t1-p_t0 < 0.5 then
+    raise exception 'invalid adjustment';
+  end if;
+  update public.points set
+    t0=p_t0,t1=p_t1,
+    tight_start=coalesce(p_tight_start,tight_start),
+    tight_end=coalesce(p_tight_end,tight_end),edited=true,
+    cut_t0=case when cut_t0 is null then null else greatest(0,cut_t0+(p_t0-orig.t0)) end,
+    scored_at_cut_s=case when p_t1<>orig.t1 then p_scored_at_cut_s else scored_at_cut_s end,
+    rally_end_cut_s=case when p_t1<>orig.t1 then p_rally_end_cut_s else rally_end_cut_s end
+  where id=p_id returning * into changed;
+  return changed;
+end $$;
+
+create or replace function public.insert_point(
+  p_prev_id uuid, p_next_id uuid, p_t0 numeric, p_t1 numeric,
+  p_cut_t0 numeric default null
+) returns public.points language plpgsql security definer set search_path=public as $$
+declare prev public.points; nxt public.points; v_match uuid; v_version uuid; created public.points;
+begin
+  if p_prev_id is null and p_next_id is null then raise exception 'neighbour required'; end if;
+  if p_prev_id is not null then
+    select * into prev from public.points where id=p_prev_id for update;
+    v_match:=prev.match_id; v_version:=prev.processing_version_id;
+  end if;
+  if p_next_id is not null then
+    select * into nxt from public.points where id=p_next_id for update;
+    if v_match is not null and nxt.match_id<>v_match then raise exception 'different matches'; end if;
+    v_match:=nxt.match_id; v_version:=nxt.processing_version_id;
+  end if;
+  if p_t0 is null or p_t1-p_t0<0.5 then raise exception 'invalid insert'; end if;
+  insert into public.points(match_id,processing_version_id,idx,t0,t1,cut_t0,edited,tight_start,tight_end)
+  values(v_match,v_version,(select coalesce(max(idx),0)+1 from public.points where match_id=v_match),
+         p_t0,p_t1,greatest(coalesce(p_cut_t0,0),0),true,prev.id is not null,nxt.id is not null)
+  returning * into created;
+  if prev.id is not null and prev.t1>p_t0 then
+    update public.points set t1=p_t0,edited=true,tight_end=true where id=prev.id;
+  end if;
+  if nxt.id is not null and nxt.t0<p_t1 then
+    update public.points set t0=p_t1,edited=true,tight_start=true,
+      cut_t0=case when cut_t0 is null then null else greatest(0,cut_t0+(p_t1-nxt.t0)) end
+    where id=nxt.id;
+  end if;
+  update public.points set server_override=null
+   where match_id=v_match and processing_version_id=v_version and not deleted
+     and server_override is not null and (coalesce(t0,9999999),idx)>(p_t0,created.idx);
+  return created;
+end $$;
+
+create or replace function public.request_reclip(p_match_id uuid)
+returns void language plpgsql security definer set search_path=public as $$ begin return; end $$;
 
 alter table public.matches enable row level security;
 alter table public.points enable row level security;

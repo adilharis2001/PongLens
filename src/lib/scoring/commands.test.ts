@@ -120,6 +120,12 @@ test("exports the exact v2 RPC vocabulary used by command clients", () => {
     firstServer: "set_first_server_v2",
     serverOverride: "set_server_override_v2",
     gameBoundary: "set_game_boundary_v2",
+    pointVisibility: "set_point_visibility_v2",
+    splitPoint: "split_point_v2",
+    unsplitPoint: "unsplit_point_v2",
+    mergePoints: "merge_points_v2",
+    adjustPoint: "adjust_point_v2",
+    insertPoint: "insert_point_v2",
   });
   for (const value of [
     "user",
