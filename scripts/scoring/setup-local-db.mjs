@@ -276,6 +276,7 @@ const migrations = [
   "20260916120000_canonical_score_commands.sql",
   "20260916133000_canonical_score_capability_rollback.sql",
   "20260916143000_canonical_score_readers.sql",
+  "20260916150000_stats_game_winner_fingerprint.sql",
 ].map((name) =>
   readFileSync(new URL(`../../supabase/migrations/${name}`, import.meta.url), "utf8")
 );

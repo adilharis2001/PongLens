@@ -36,25 +36,31 @@ bounded `canonical_score_summaries_v1` batch instead of one RPC per card; the
 batch omits inaccessible, missing and stale rows together, never repairs state,
 and emits no match identifiers. The same shared chunked diagnostic now covers
 accepted-coach student match cards, preserving their existing score display and
-access rules while measuring parity through the coach's own session.
+access rules while measuring parity through the coach's own session. Aggregate
+stats now shadows the same per-match games and completion facts for non-neutral
+matches. Migration `20260916150000_stats_game_winner_fingerprint.sql` also
+closes a legacy drift hole: manually named game winners are downloaded and
+hashed, and a partial network fetch is neither displayed as fresh stats nor
+cached under a current fingerprint.
 
 Verified on September 16, 2026:
 
-- Full isolated PostgreSQL scoring suite: 93/93, including owner,
+- Full isolated PostgreSQL scoring suite: 94/94, including owner,
   accepted-coach, admin, stranger and anonymous reader boundaries, plus proof
   that stale reads do not repair or mutate projection state. The batch reader
   also rejects requests above 250 ids and denies anonymous execution.
 - Production-sized rehearsal: 220 matches and 19,800 points; migrations in
-  2.81 seconds; existing commands at 19.755 ms p50 and 25.402 ms p95. The
-  owner, coach, stranger, stale-state and oversized batch cases all passed.
+  2.31 seconds; existing commands at 16.156 ms p50 and 19.084 ms p95. The
+  owner, coach, stranger, stale-state, oversized batch and stats-fingerprint
+  invalidation cases all passed.
 - Complete native behavior suite: 1,230/1,230.
 - Full iPhone 18 Pro simulator target build: succeeded.
 - Full production Next.js build: succeeded. Existing unrelated lint warnings
   remain; this reader change adds none.
 
-This checkpoint does not satisfy the entry gate above. Do not apply migration
-`20260916143000`, deploy these readers, or enable the reader canary merely
-because the automated foundation is green.
+This checkpoint does not satisfy the entry gate above. Do not apply migrations
+`20260916143000` or `20260916150000`, deploy these readers, or enable the reader
+canary merely because the automated foundation is green.
 
 ## Migration order
 

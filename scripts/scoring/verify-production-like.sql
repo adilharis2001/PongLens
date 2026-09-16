@@ -98,6 +98,28 @@ begin
 end;
 $$;
 
+-- A manually named winner is a real stats input. Changing it must invalidate
+-- the owner's cached point fold even when every other point field is stable.
+create temporary table stats_fingerprint_before(value text);
+insert into stats_fingerprint_before
+select fingerprint from public.my_match_point_fingerprints()
+ where match_id=md5('match-218')::uuid;
+update public.points
+   set game_winner_override='user'
+ where match_id=md5('match-218')::uuid and idx=1;
+do $$
+begin
+  if (select fingerprint from public.my_match_point_fingerprints()
+       where match_id=md5('match-218')::uuid)
+     = (select value from stats_fingerprint_before) then
+    raise exception 'game winner override did not invalidate stats fingerprint';
+  end if;
+end;
+$$;
+update public.points
+   set game_winner_override=null
+ where match_id=md5('match-218')::uuid and idx=1;
+
 select set_config(
   'request.jwt.claim.sub','33333333-3333-4333-8333-333333333333',false
 );

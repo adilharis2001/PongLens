@@ -39,6 +39,7 @@ import { userConfirmedFirstServer } from "@/app/match/[id]/matchStructure";
 export type MatchLite = Pick<
   Match,
   | "id"
+  | "score_revision"
   | "opponent_name"
   | "match_type"
   | "played_at"
@@ -91,7 +92,7 @@ export interface AggregateStats {
 
 /** Same judgement as the library cards (dashboard/shared.tsx): the owner
  *  named their OWN side as someone who isn't the account holder. */
-function isNeutral(m: MatchLite, accountName: string | null): boolean {
+export function isNeutral(m: MatchLite, accountName: string | null): boolean {
   const ownSide = (
     (m.user_side === "far" ? m.player_far_name : m.player_near_name) ?? ""
   ).trim();
