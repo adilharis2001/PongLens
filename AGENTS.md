@@ -40,6 +40,10 @@ Two things that catch every new session, both covered in full there:
 - **Manual-cutter `t0`/`t1` are source-clock human ground truth.** Preserve
   their `manual_cutter` provenance and reaction metadata; read the canonical
   scored-match section in `CLAUDE.md` before changing them.
+- **Canonical commands default off and are account-scoped.** Web and iOS may
+  fall back only on `not_enabled`; workers must satisfy the sealed database
+  contract before claiming work. Read the canonical section and the current
+  release note before touching scoring or worker publication.
 
 ## Required design and copy checkpoint
 

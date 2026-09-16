@@ -1509,6 +1509,66 @@ begin
   end if;
 end $$;
 
+-- Admin rollout health deliberately excludes command payloads and timing
+-- evidence. It answers whether the projection is caught up and how much of
+-- the match it represents without exposing before/after state or reaction
+-- metadata through an elevated RPC.
+create or replace function public.admin_canonical_score_diagnostic(p_match_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_match record;
+  v_score public.match_score_state%rowtype;
+  v_last record;
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized' using errcode = '42501';
+  end if;
+
+  select score_revision, score_projection_revision, score_projection_status,
+         score_projection_error
+    into v_match
+    from public.matches
+   where id = p_match_id;
+  if not found then
+    return null;
+  end if;
+
+  select * into v_score
+    from public.match_score_state
+   where match_id = p_match_id;
+  select action, result_revision into v_last
+    from public.match_score_mutations
+   where match_id = p_match_id
+   order by result_revision desc, created_at desc
+   limit 1;
+
+  return jsonb_build_object(
+    'score_revision', v_match.score_revision,
+    'projection_revision', v_match.score_projection_revision,
+    'status', v_match.score_projection_status,
+    'visible_points', coalesce(v_score.visible_point_count, 0),
+    'answered_points', coalesce(v_score.answered_point_count, 0),
+    'skipped_points', coalesce(v_score.skipped_point_count, 0),
+    'last_action', v_last.action,
+    'last_result_revision', v_last.result_revision,
+    'projection_error_code', case
+      when v_match.score_projection_error is null then null
+      else 'projection_failed'
+    end
+  );
+end;
+$$;
+
+revoke all on function public.admin_canonical_score_diagnostic(uuid)
+  from public, anon, authenticated;
+grant execute on function public.admin_canonical_score_diagnostic(uuid)
+  to authenticated;
+
 -- Automatic match publication has no owner score authority. It seals the
 -- already-created rows for exactly the active processing version, proves the
 -- private projection represents them, and returns a durable receipt. It does

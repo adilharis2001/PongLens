@@ -665,6 +665,16 @@ coach, statistics and export paths still behave as before during that shadow
 period. The full contract and rollout are in
 `docs/superpowers/specs/2026-09-15-canonical-scored-match-state-design.md`.
 
+**Phase two is implemented behind a private capability and defaults off.**
+Migration `20260916120000_canonical_score_commands.sql` defines the typed,
+revisioned score and structural commands. Web and native iOS use those
+commands only when `app_config.canonical_score_commands` enables that account;
+`not_enabled` is the only response that may fall back to the legacy write.
+Conflicts reconcile from the returned complete snapshot and never perform a
+second write. Keep the capability `off` for an ordinary deploy, canary with
+`user:<uuid>`, and disable it without deleting projection data if anything is
+unclear.
+
 - **Authority stays separated.** Owner outcomes, skips, first-server choices,
   serve overrides and game-boundary overrides are canonical inputs. Worker
   `points.server`, suggestions, detected side changes and rally evidence are
@@ -705,12 +715,30 @@ period. The full contract and rollout are in
   examples for the automatic worker; do not present them as independent
   evaluation of the manual cutter itself. Playback adds structural/manual
   padding and never trims these ends with a score tap.
+- **Worker publication is atomic.** Manual cuts call private
+  `publish_hand_cut_v2`; automatic processing calls private
+  `finalize_worker_points_v2`. The receipt, complete point batch, projection
+  and ready status commit together. The sealed worker manifest declares
+  minimum migration `20260916120000` and canonical publication contract `1`,
+  then checks private `canonical_worker_contract_v1()` before its first queue
+  read and after reconnecting. A mismatch blocks new work; do not bypass it or
+  publish rows piecemeal.
+- **Admin diagnostics are deliberately narrow.** Upload Detail reads
+  `admin_canonical_score_diagnostic`, which returns only revision/status,
+  point counts, last action/revision and a sanitized error code. The RPC is
+  admin-only. Never add timing reaction metadata or mutation before/after
+  payloads to this elevated response.
 - **Fixture first, on every implementation.** The literal cases live in
   `src/lib/scoring/fixtures/canonical-score-cases.json`; TypeScript, SQL, Swift
   and Python must agree with them. Change the fixture deliberately before
   changing semantics. Run `npm run test:scoring-state` and the real isolated
-  PostgreSQL checks documented beside the fixture; a source-string test is not
-  database proof.
+PostgreSQL checks documented beside the fixture; a source-string test is not
+database proof.
+
+Rollback for phase two is exact and non-destructive:
+`update public.app_config set value='off' where key='canonical_score_commands';`
+This returns web and iOS to their established legacy writes while additive
+projection rows and worker publication receipts remain available for diagnosis.
 
 When reconstructing an already scored production match for research, start
 from the active processing version and active points, apply the total ordering

@@ -14,6 +14,7 @@ import {
   readTable,
   retentionPct,
   routeExplanation,
+  scoreProjectionReading,
   timelineSegments,
   timelineSummary,
   troubleLines,
@@ -80,6 +81,44 @@ test("gbLabel drops to MB below a gigabyte", () => {
   assert.equal(gbLabel(2 * 1024 ** 3), "2 GB");
   assert.equal(gbLabel(1.55 * 1024 ** 3), "1.6 GB");
   assert.equal(gbLabel(400 * 1024 ** 2), "400 MB");
+});
+
+test("score projection diagnostic stays compact across healthy and failed states", () => {
+  assert.deepEqual(
+    scoreProjectionReading({
+      score_revision: 12,
+      projection_revision: 12,
+      status: "current",
+      visible_points: 92,
+      answered_points: 90,
+      skipped_points: 2,
+      last_action: "set_point_outcome",
+      last_result_revision: 12,
+      projection_error_code: null,
+    }),
+    {
+      value: "Current · revision 12",
+      detail: "92 visible · 90 answered · last set point outcome",
+    }
+  );
+  assert.deepEqual(
+    scoreProjectionReading({
+      score_revision: 12,
+      projection_revision: 10,
+      status: "error",
+      visible_points: 92,
+      answered_points: 90,
+      skipped_points: 2,
+      last_action: null,
+      last_result_revision: null,
+      projection_error_code: "projection_failed",
+    }),
+    {
+      value: "Error · revision 10 of 12",
+      detail: "projection failed",
+    }
+  );
+  assert.equal(scoreProjectionReading(null), null);
 });
 
 /* ----------------------------------------------------------------- cards */

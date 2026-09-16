@@ -433,7 +433,7 @@ broader regression tests. The release manifest now seals migration
 checks the private database contract before its first queue read and every
 reconnect.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/migrations/20260916120000_canonical_score_commands.sql src/lib/scoring worker
@@ -456,23 +456,31 @@ git commit -m "Finalize worker points into canonical score state"
 - Consumes: projection health, command mutation ledger and sanitized parity counts.
 - Produces: an admin-only compact diagnostic line, rollout instructions, exact disable command and release handoff.
 
-- [ ] **Step 1: Name and inspect the shipped Upload Detail diagnostics card**
+- [x] **Step 1: Name and inspect the shipped Upload Detail diagnostics card**
 
 Use its existing diagnostics row as the visual reference; do not add a new nested panel. Read its rendered desktop/mobile state before editing.
 
-- [ ] **Step 2: Write RED admin/RLS tests**
+- [x] **Step 2: Write RED admin/RLS tests**
 
 Assert the admin RPC exposes only revision/status/counts/last sanitized code, owner/coach/anon cannot call it, and no timing reaction metadata or mutation before/after payload is returned.
 
-- [ ] **Step 3: Implement the compact diagnostic**
+- [x] **Step 3: Implement the compact diagnostic**
 
 Show `Score projection: current revision N`, or a calm stale/error equivalent, inside the existing diagnostics card. This is admin-only and has no customer copy.
 
-- [ ] **Step 4: Render and verify UI**
+- [x] **Step 4: Render and verify UI**
 
 Verify desktop and 393×660 mobile screenshots. Show screenshots to Adil before publishing this UI. Run admin tests and `npm run build`.
 
-- [ ] **Step 5: Document rollback**
+Verification on 2026-09-16: the established Upload Detail “How this was
+processed” facts grid was inspected in production and used without a new
+container. The local candidate was rendered at desktop and 393×660; it
+remained three columns and two columns respectively, with no horizontal
+overflow. The admin wording/unit suite and production Next build passed.
+The isolated database suite passed 78/78, including admin-only access and
+the exact nine-key sanitized response shape.
+
+- [x] **Step 5: Document rollback**
 
 The release note must include:
 

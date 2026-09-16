@@ -1242,3 +1242,46 @@ databaseTest("only the worker can read the sealed canonical publication contract
   assert.notEqual(denied.status, 0);
   assert.match(denied.stderr, /permission denied for function canonical_worker_contract_v1/i);
 });
+
+databaseTest("admin score diagnostic exposes sanitized health and denies every non-admin", () => {
+  resetFixture();
+  insertScorePoints();
+  const result = JSON.parse(
+    authenticated(ADMIN, `select public.admin_canonical_score_diagnostic('${MATCH}')::text;`)
+      .split("\n")
+      .find((line) => line.startsWith("{")) ?? "null"
+  );
+  assert.deepEqual(Object.keys(result).sort(), [
+    "answered_points", "last_action", "last_result_revision",
+    "projection_error_code", "projection_revision", "score_revision",
+    "skipped_points", "status", "visible_points",
+  ]);
+  assert.equal(result.status, "current");
+  assert.equal(result.score_revision, result.projection_revision);
+  assert.equal(result.visible_points, 3);
+
+  for (const actor of [OWNER, COACH, STRANGER]) {
+    const denied = spawnSync(
+      "docker",
+      ["exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-At",
+       "-U", "postgres", "-d", DATABASE],
+      {
+        input: `begin; set local role authenticated;
+          select set_config('request.jwt.claim.sub','${actor}',true);
+          select public.admin_canonical_score_diagnostic('${MATCH}'); commit;`,
+        encoding: "utf8",
+      }
+    );
+    assert.notEqual(denied.status, 0);
+    assert.match(denied.stderr, /not authorized/i);
+  }
+
+  const anonDenied = spawnSync(
+    "docker",
+    ["exec", "-i", CONTAINER, "psql", "-v", "ON_ERROR_STOP=1", "-At",
+     "-U", "postgres", "-d", DATABASE],
+    { input: `set role anon; select public.admin_canonical_score_diagnostic('${MATCH}');`, encoding: "utf8" }
+  );
+  assert.notEqual(anonDenied.status, 0);
+  assert.match(anonDenied.stderr, /permission denied for function admin_canonical_score_diagnostic/i);
+});

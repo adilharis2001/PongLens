@@ -33,11 +33,13 @@ import {
   readAssembly,
   readTable,
   routeExplanation,
+  scoreProjectionReading,
   timelineSegments,
   timelineSummary,
   troubleLines,
   whenLabel,
   type MatchJson,
+  type ScoreProjectionDiagnostic,
   type UploadDetail,
   type UploadPointRow,
 } from "../uploadView";
@@ -116,6 +118,7 @@ export function UploadView({
   serveMisses,
   readings,
   readingSummary,
+  scoreProjection,
   themes: initialThemes,
   eventLabels: initialEventLabels,
   cardLabels: initialCardLabels,
@@ -126,6 +129,7 @@ export function UploadView({
   serveMisses: ServeMissData | null;
   readings: CardReading[];
   readingSummary: ReadingSummary | null;
+  scoreProjection: ScoreProjectionDiagnostic | null;
   themes: Theme[];
   /** The admin's stored event corrections for this match (154). */
   eventLabels: { t: number; label: BounceLabel }[];
@@ -582,6 +586,7 @@ export function UploadView({
 
   const src = matchJson?.source;
   const fps = fpsLabel(src?.fps);
+  const projection = scoreProjectionReading(scoreProjection);
   const playable = rows.filter((r) => r.cut_t0 !== null);
 
   return (
@@ -725,6 +730,13 @@ export function UploadView({
                 : null
             }
           />
+          {projection && (
+            <Fact
+              label="Score projection"
+              value={projection.value}
+              detail={projection.detail}
+            />
+          )}
         </dl>
 
         <DetectorCounts

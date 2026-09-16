@@ -319,3 +319,26 @@ test("worker release contract exposes the exact canonical database floor private
     /grant execute on function public\.canonical_worker_contract_v1\(\) to ponglens_worker/i,
   );
 });
+
+test("admin score diagnostic is narrow, sanitized, and admin-only", () => {
+  const sql = commandsMigrationSql();
+  const diagnostic = sql.match(
+    /create or replace function public\.admin_canonical_score_diagnostic\(p_match_id uuid\)[\s\S]*?\n\$\$;/i,
+  )?.[0] ?? "";
+  assert.match(diagnostic, /if not public\.is_admin\(\)/i);
+  assert.match(diagnostic, /score_revision/i);
+  assert.match(diagnostic, /projection_revision/i);
+  assert.match(diagnostic, /visible_points/i);
+  assert.match(diagnostic, /last_action/i);
+  assert.doesNotMatch(diagnostic, /reaction_meta/i);
+  assert.doesNotMatch(diagnostic, /before_state/i);
+  assert.doesNotMatch(diagnostic, /after_state/i);
+  assert.match(
+    sql,
+    /revoke all on function public\.admin_canonical_score_diagnostic\(uuid\)\s+from public, anon, authenticated/i,
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.admin_canonical_score_diagnostic\(uuid\)\s+to authenticated/i,
+  );
+});
