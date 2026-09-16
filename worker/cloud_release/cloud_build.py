@@ -237,21 +237,27 @@ def build_linux(source_release, output, runtime: dict | None = None) -> Path:
             text = text.replace(old, new)
         wrapper.write_text(text)
         anchored = _anchor_runtime(runtime)
+        # Everything the Mac manifest says that is not about the Mac's own
+        # files or runtime carries over unchanged (behavior settings, body
+        # model, and any section a newer packager adds, such as the
+        # database contract of 2026-09-16). Only the platform-bound parts
+        # are replaced.
         linux = {
+            key: value for key, value in manifest.items()
+            if key not in ('release_id', 'pipeline_id', 'files', 'runtime', 'adapters', 'platform', 'mac_release_id')
+        }
+        linux.update({
             'schema': 1,
             'platform': 'linux',
-            'source_commit': manifest['source_commit'],
             'mac_release_id': manifest['release_id'],
             'files': _payload_inventory(payload),
             'runtime': anchored,
-            'behavior_env': manifest['behavior_env'],
-            'body_model': manifest['body_model'],
             'adapters': dict(
                 manifest['adapters'],
                 blurball_device='cuda-first',
                 blurball_mac_sha256=mac_wrapper_sha256,
             ),
-        }
+        })
         # pipeline_id is derived from the fields above and written into the
         # manifest for readers; the release_id hash then covers it too, so
         # the Mac verifier's identity check (everything but release_id) holds.
