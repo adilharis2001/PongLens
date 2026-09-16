@@ -1,4 +1,4 @@
-import type { ProcessingOverview, WorkerPulse } from "../processingView";
+import type { ProcessingOverview, WorkerPulse } from "@/app/admin/processing/processingView";
 
 /**
  * Fixture documents for the dev-only preview route. Every number here is

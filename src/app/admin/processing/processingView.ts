@@ -545,7 +545,6 @@ export function buildWorkerRows(
   now: Date = new Date(),
 ): WorkerRow[] {
   const pulses = new Map(doc.workers.map((w) => [w.worker_id, w]));
-  const jobInFlight = doc.running.length > 0;
   // Has anything on the Mac ever reported? This is what tells "the page
   // cannot see this machine" apart from "this lane is not up", and it
   // corrects itself: the moment the worker is restarted onto code that
@@ -623,15 +622,33 @@ export function buildWorkerRows(
     };
   };
 
+  // A job a cloud lane is reporting on is the cloud's, not the Mac's. The
+  // cloud twin drains the same queues, so a moving job proves a worker is
+  // running but no longer says WHICH; the pulse that names the job does.
+  const cloudHeld = new Set(
+    doc.workers
+      .filter(
+        (w) =>
+          w.host === "modal" &&
+          w.job_id &&
+          (secondsBetween(w.beat_at, now) ?? Infinity) <= BEAT_STALE_S,
+      )
+      .map((w) => w.job_id as string),
+  );
+  const macView: ProcessingOverview = cloudHeld.size
+    ? { ...doc, running: doc.running.filter((j) => !cloudHeld.has(j.id)) }
+    : doc;
+
   // The main lane is the process that has always run. It is never "off":
   // if it is not there, that is an outage.
   rows.push(
     fromPulse("mac:main", "Mac Studio · main", {
-      jobInFlight,
-      // The main lane is the only process that drains the 'jobs' queue, so
-      // a job moving in that queue can only be this one. If a second lane
-      // ever drains it too, this has to key on the job rather than assume.
-      moving: movingJob(doc, now),
+      jobInFlight: macView.running.length > 0,
+      // Of the processes that drain the 'jobs' queue, the Mac's main lane
+      // is the one that does not name its job in a pulse until restarted
+      // onto code that does, so a moving job nobody in the cloud claims is
+      // read as this one.
+      moving: movingJob(macView, now),
       finishedS: lastFinishedS(doc, now),
     }),
   );

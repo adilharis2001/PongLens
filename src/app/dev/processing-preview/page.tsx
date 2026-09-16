@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { AdminHeader } from "../../AdminHeader";
-import { ProcessingSection } from "../ProcessingSection";
+import { AdminHeader } from "@/app/admin/AdminHeader";
+import { ProcessingSection } from "@/app/admin/processing/ProcessingSection";
 import { previewOverview } from "./fixtures";
 
 export const dynamic = "force-dynamic";

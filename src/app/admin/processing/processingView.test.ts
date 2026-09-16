@@ -760,3 +760,26 @@ test("cloudSummary says in words why the cloud is or is not running", () => {
     /^Running:/,
   );
 });
+
+test("a job the cloud is reporting on is never read as the Mac working", () => {
+  const rows = buildWorkerRows(
+    overview({
+      workers: [
+        pulse({ beat_at: ago(1300) }),
+        pulse({
+          worker_id: "modal:main",
+          host: "modal",
+          job_id: "j",
+          job_kind: "deadspace_cut",
+          stage: "ball",
+        }),
+      ],
+      running: [job({ id: "j" })],
+      cloud: cloud({ cloud_session_started_at: ago(600) }),
+    }),
+    NOW,
+  );
+  // The Mac went quiet 22 minutes ago and holds nothing: not running.
+  assert.equal(rows.find((r) => r.key === "mac:main")?.state, "not-running");
+  assert.equal(rows.find((r) => r.key === "modal:main")?.state, "working");
+});
