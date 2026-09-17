@@ -8,10 +8,6 @@ import { IosBetaSignup } from "@/components/marketing/IosBetaSignup";
 import { LandingVideo } from "@/components/marketing/LandingVideo";
 import { PhoneFrame } from "@/components/marketing/PhoneFrame";
 import { TrackedLink } from "@/components/marketing/TrackedLink";
-import {
-  WalkthroughBand,
-  type Chapter,
-} from "@/components/marketing/WalkthroughBand";
 import { getSupportEmail } from "@/lib/config";
 import { WALKTHROUGH_CHAPTERS } from "@/lib/videoCuts";
 import { WALKTHROUGH, WALKTHROUGH_TRANSCRIPT } from "@/lib/walkthrough";
@@ -34,48 +30,9 @@ import { WALKTHROUGH, WALKTHROUGH_TRANSCRIPT } from "@/lib/walkthrough";
  * visitor who only wants to see one thing can jump straight to it.
  */
 
-const glow = (text: string) => (
-  <span className="text-cyan-glow" key={text}>
-    {text}
-  </span>
-);
-
 // Real match, real numbers: 28a0bc1e, Adil v Anton at Pingpod, 7 Sep 2026.
 // 10.2 minutes of recording, 52 points, 6.8 minutes of point clips.
 const EXAMPLE = { recordingMinutes: 10, points: 52, playMinutes: 7 };
-
-const steps: Chapter[] = [
-  {
-    shots: ["record"],
-    title: "Record the match",
-    caption: (
-      <>
-        Phone diagonally behind you and raised a little, with{" "}
-        {glow("the whole table in frame")}. The app shows you where.
-      </>
-    ),
-  },
-  {
-    shots: ["upload"],
-    title: "Upload it",
-    caption: (
-      <>
-        From your phone or computer.{" "}
-        {glow("You get an email when it is ready")}.
-      </>
-    ),
-  },
-  {
-    shots: ["score"],
-    title: "Score the points",
-    caption: (
-      <>
-        Tap who won each one. {glow("About ten minutes for a match")}, and
-        everything else is built from it.
-      </>
-    ),
-  },
-];
 
 const cards = [
   { src: "/showcase/card-overview.jpg", alt: "Overview card: point differential over the match, best run, serve and receive win rates, results at 9 or more, and games won" },
@@ -97,7 +54,7 @@ const faqs = [
   },
   {
     q: "What do I get for free?",
-    a: "During beta every account gets 250 processing minutes and 25 GB of storage. A match uses its recording length in minutes, so a 20-minute match uses 20 minutes. When you run out, you can request more for free.",
+    a: "Four matches, free. Every account gets 250 processing minutes and 25 GB of storage during beta, and a match uses its recording length in minutes. When you run out, you can request more for free.",
   },
   {
     q: "How long does processing take?",
@@ -298,9 +255,10 @@ export default async function Home() {
       />
       <SiteHeader />
       <main className="flex-1">
-        {/* HERO. The arena animation stays as the backdrop; the product sits
-            on top of it in real frames, the way /coaches does. */}
-        <section className="relative overflow-hidden">
+        {/* HERO: full-bleed animated arena with the copy floating over it,
+            as it was. Real screens belong in the sections below, where they
+            sit on flat ink; over the arena they read as pasted on. */}
+        <section className="relative flex min-h-[calc(100vh-4rem)] items-center overflow-hidden">
           <div className="absolute inset-0 opacity-50 lg:opacity-100">
             <NeonBallHero background />
           </div>
@@ -309,7 +267,7 @@ export default async function Home() {
             aria-hidden
             style={{
               background:
-                "linear-gradient(to right, rgba(10,10,18,.92) 0%, rgba(10,10,18,.6) 45%, rgba(10,10,18,.25) 75%, rgba(10,10,18,.1) 100%)",
+                "linear-gradient(to right, rgba(10,10,18,.92) 0%, rgba(10,10,18,.55) 45%, rgba(10,10,18,.15) 75%, rgba(10,10,18,0) 100%)",
             }}
           />
           <div
@@ -317,7 +275,7 @@ export default async function Home() {
             aria-hidden
             style={{
               background:
-                "linear-gradient(to top, rgba(10,10,18,.9) 0%, rgba(10,10,18,.3) 35%, rgba(10,10,18,0) 60%)",
+                "linear-gradient(to top, rgba(10,10,18,.85) 0%, rgba(10,10,18,.25) 35%, rgba(10,10,18,0) 60%)",
             }}
           />
           <div
@@ -325,78 +283,36 @@ export default async function Home() {
             aria-hidden
             style={{
               background:
-                "linear-gradient(to top, rgba(10,10,18,.6) 0%, rgba(10,10,18,.15) 30%, rgba(10,10,18,0) 55%)",
+                "linear-gradient(to top, rgba(10,10,18,.5) 0%, rgba(10,10,18,.1) 30%, rgba(10,10,18,0) 55%)",
             }}
           />
-          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-20 pt-16 text-center sm:pt-24 lg:pb-28 lg:text-left">
-            <div className="xl:flex xl:items-center xl:gap-12">
-              <div className="mx-auto max-w-3xl lg:mx-0 xl:flex-1">
-                {/* One size step down at xl, where the device frames take
-                    the right half: at 7xl the headline broke five ways with
-                    "A" alone on the first line. */}
-                <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl xl:text-6xl">
-                  A performance hub for{" "}
-                  <span className="text-cyan-glow text-glow">
-                    competitive table tennis.
-                  </span>
-                </h1>
-                <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                  Film a match on your phone. PongLens cuts it into points
-                  you can score, study and share with your coach.
-                </p>
-                <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap sm:gap-4 lg:justify-start">
-                  <TrackedLink
-                    href="/login"
-                    event="cta_upload"
-                    section="hero"
-                    className={`${CTA_CLASS} h-14 whitespace-nowrap sm:text-lg`}
-                  >
-                    Upload your first match
-                  </TrackedLink>
-                  <IosBetaSignup placement="hero" />
-                </div>
-                <p className="mt-6 text-sm text-zinc-400">
-                  Free during beta: 250 processing minutes and 25 GB of
-                  storage.
-                </p>
-              </div>
-              {/* The product, at rest, in the hero: a laptop with a match
-                  open and a phone with one point open. Only at xl, where
-                  there is room beside the headline; narrower screens meet
-                  the same screens in the sections below. */}
-              <div
-                className="relative hidden shrink-0 xl:block"
-                style={{ width: 560, height: 540 }}
-                aria-hidden
-              >
-                <div className="absolute left-0 top-6" style={{ width: 520 }}>
-                  <BrowserFrame>
-                    <Image
-                      src="/showcase/anton-points-d.jpg"
-                      alt=""
-                      width={1440}
-                      height={850}
-                      sizes="560px"
-                      className="block w-full"
-                    />
-                  </BrowserFrame>
-                </div>
-                <div
-                  className="absolute z-10"
-                  style={{ width: 200, right: 0, top: 150 }}
+          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-44 pt-16 text-center sm:pb-24 sm:pt-24 lg:text-left">
+            <div className="mx-auto max-w-3xl lg:mx-0">
+              <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
+                A performance hub for{" "}
+                <span className="text-cyan-glow text-glow">
+                  competitive table tennis.
+                </span>
+              </h1>
+              <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
+                Upload a match video. PongLens removes the time between
+                points, then gives you every point as a clip to score, review
+                and share with your coach.
+              </p>
+              <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 lg:justify-start">
+                <TrackedLink
+                  href="/login"
+                  event="cta_upload"
+                  section="hero"
+                  className={`${CTA_CLASS} h-14 sm:text-lg`}
                 >
-                  <PhoneFrame glow={false}>
-                    <Image
-                      src="/showcase/anton-point-m.jpg"
-                      alt=""
-                      width={390}
-                      height={844}
-                      sizes="200px"
-                      className="block w-full"
-                    />
-                  </PhoneFrame>
-                </div>
+                  Upload your first match
+                </TrackedLink>
+                <IosBetaSignup placement="hero" />
               </div>
+              <p className="mt-5 text-sm text-zinc-400">
+                Analyze four matches for free during beta.
+              </p>
             </div>
           </div>
         </section>
@@ -443,7 +359,7 @@ export default async function Home() {
                   src="/showcase/anton-points-d.jpg"
                   alt="A processed match in PongLens: the cut video with the running score, and the list of points under it"
                   width={1440}
-                  height={850}
+                  height={876}
                   sizes="(min-width: 1024px) 560px, 100vw"
                   className="block w-full"
                 />
@@ -610,50 +526,6 @@ export default async function Home() {
           </Feature>
         </div>
 
-        {/* WHAT YOU DO. Three things, and the third says there is no
-            fourth. */}
-        <section id="how-it-works" className="scroll-mt-20 py-16 sm:py-24">
-          <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              What you do
-            </h2>
-            <div className="mt-12">
-              <WalkthroughBand chapters={steps} subMs={5000} />
-            </div>
-          </div>
-        </section>
-
-        {/* FREE DURING BETA. The offer in numbers, once. */}
-        <section id="free" className="scroll-mt-20 border-y border-edge bg-band py-16 sm:py-20">
-          <div className="mx-auto max-w-6xl px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              Free during beta
-            </h2>
-            <dl className="mx-auto mt-10 grid max-w-4xl gap-4 sm:grid-cols-3">
-              {[
-                ["250", "processing minutes", "A match uses its recording length. A 20-minute match uses 20 minutes."],
-                ["25 GB", "of storage", "Originals, cut videos and clips stay for the life of the match."],
-                ["$0", "and no card", "When you run out of minutes or space, request more for free."],
-              ].map(([n, unit, note]) => (
-                <div
-                  key={unit}
-                  className="rounded-2xl border border-edge bg-surface p-6"
-                >
-                  <dt className="text-sm text-zinc-400">
-                    <span className="block text-3xl font-bold tabular-nums text-cyan-glow sm:text-4xl">
-                      {n}
-                    </span>
-                    {unit}
-                  </dt>
-                  <dd className="mt-3 text-sm leading-relaxed text-zinc-400">
-                    {note}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </section>
-
         {/* FAQ */}
         <section id="faq" className="scroll-mt-20 py-16 sm:py-24">
           <div className="mx-auto max-w-3xl px-6">
@@ -689,7 +561,7 @@ export default async function Home() {
               <span className="text-magenta-soft">next match</span>.
             </h2>
             <p className="max-w-xl text-zinc-400">
-              Upload one video and see what comes back.
+              Analyze four matches for free during beta.
             </p>
             <TrackedLink
               href="/login"

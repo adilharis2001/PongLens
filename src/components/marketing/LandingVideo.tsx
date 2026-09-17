@@ -165,7 +165,17 @@ export function LandingVideo({
           <div aria-hidden className="absolute inset-0 bg-ink" />
         )}
         {presentation.showIdleScrim && (
-          <div aria-hidden className="absolute inset-0 bg-ink/35" />
+          // A vignette rather than a flat tint: the frame stays readable
+          // in the middle, the edges fall to ink, and the play control sits
+          // on a dark field the way it does on a paused video.
+          <div
+            aria-hidden
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(ellipse at center, rgba(10,10,15,.45) 0%, rgba(10,10,15,.7) 55%, rgba(10,10,15,.92) 100%)",
+            }}
+          />
         )}
         {/* The whole poster is a tap target too. Reaching for the picture is
             what people do, and a poster that ignores the tap is a poster
