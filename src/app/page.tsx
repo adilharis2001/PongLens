@@ -300,10 +300,10 @@ export default async function Home() {
               </BrowserFrame>
             }
           >
-            In this match, PongLens turned a {EXAMPLE.recordingMinutes}-minute
-            recording into {EXAMPLE.points} point clips and about{" "}
-            {EXAMPLE.playMinutesWord} minutes of play, with the breaks between
-            points removed. Once you add the score, each clip also shows who
+            Every point becomes its own clip, in order, with the breaks
+            between them removed. A {EXAMPLE.recordingMinutes}-minute recording
+            turns into about {EXAMPLE.playMinutesWord} minutes of play, cut
+            into {EXAMPLE.points} clips. Add the score and each clip shows who
             served and who won.
           </Feature>
 
