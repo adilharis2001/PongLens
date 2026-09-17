@@ -550,6 +550,16 @@ export default async function Home() {
                 </details>
               ))}
             </div>
+            {/* The one place a curious visitor is already reading for
+                detail, so the one place the guides get a link on the page. */}
+            <p className="mt-8 text-center text-sm text-zinc-400">
+              <Link
+                href="/learn"
+                className="text-zinc-300 underline decoration-zinc-600 underline-offset-4 transition-colors hover:text-white"
+              >
+                More in the guides
+              </Link>
+            </p>
           </div>
         </section>
 
