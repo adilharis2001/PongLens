@@ -429,12 +429,6 @@ export default async function Home() {
                 alt="A highlights video playing on a phone, with the score in the corner"
               />
             }
-            after={
-              <span className="inline-flex items-center gap-2 rounded-full border border-edge px-3.5 py-1.5 text-sm text-zinc-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-cyan-glow" aria-hidden />
-                Highlights are rolling out to beta accounts
-              </span>
-            }
           >
             The best rallies come back as one highlights video. Star a point
             and post it to Instagram with the score on it, or export the
