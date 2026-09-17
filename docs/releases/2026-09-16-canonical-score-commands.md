@@ -3,9 +3,10 @@
 PongLens now has one revisioned database interpretation of a scored match and
 one typed mutation boundary shared by web and native iOS. Manual-cutter and
 automatic worker publication finish their point batch, canonical projection
-and ready state atomically. The release remains inert until an account-scoped
-capability is enabled, so database, web, iOS and worker changes can land without
-switching ordinary player traffic.
+and ready state atomically. The release landed inert behind account-scoped
+capabilities so database, web, iOS and worker changes could be validated
+without switching ordinary player traffic; both capabilities are now globally
+enabled after production acceptance.
 
 ## Included
 
@@ -59,10 +60,10 @@ release. Do not run an older package that fails the active database contract.
 | --- | --- |
 | Source | Phase-two source commit `41322bc44cb1da907b3cde5f5872fe45d53c6656`; rollback and corpus-audit hardening commit `3b113bff727dabde41515b457cc9b3f8a292aeb7`. |
 | Database | Migrations `20260915190000`, `20260916120000` and `20260916133000` applied. All 216 matches have projections: 193 current matches and 23 intentional empty matches with zero visible points. Every source/projection revision agrees. |
-| Capability | `canonical_score_commands=user:a2e61027-2ee9-4026-a058-dc07441ee633`. Ordinary accounts remain on legacy writes. In one rolled-back authenticated production transaction the allowlisted admin returned `true`, the temporary `off` value returned `false`, and the restored account value returned `true`; no live configuration or match rows changed. |
+| Capability | The account canary began as `user:a2e61027-2ee9-4026-a058-dc07441ee633`. After the complete production acceptance below, `canonical_score_commands` and `canonical_score_readers` were both set to `on`. A synthetic ordinary authenticated account returned `true` for both capability functions. |
 | Web | Vercel production deployment `dpl_Bt1zFgbiVBCSnryTp2vxCnaJ2yrq` reached READY for commit `3b113bff` and received the `www.ponglens.com`, `ponglens.com` and `ponglens.vercel.app` aliases. |
 | Command canary | All 12 command families succeeded against an Adil-owned production match inside one authenticated transaction. The transaction was rolled back; revision `0` and 116 point rows were unchanged afterward. |
-| Worker | Active release `9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce` on both `main` and `fast`. The previous release `62295e48b91091b93ef796d2cf8688482d524af3df863f757b170f437d00fea1` was actually booted on both lanes, observed healthy and idle, drained, and replaced by the active release. Zero jobs were open throughout. |
+| Worker | Active release `9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce` on `main`, `fast` and `hand`. Main and fast exercised the sealed rollback before activation; the hand lane later moved from legacy checkout `c306f103` after an idle preflight. |
 | Native | 1,215 unit/parity checks passed and the complete reconciled simulator build succeeded. The canonical build installs and launches. Installing it cleared the simulator login, so authenticated production UI interaction remains a human acceptance check. |
 
 Additional automated evidence:
@@ -102,17 +103,14 @@ worker publications have completed through `replace_worker_points`; all 156
 pre-correction timing observations remain valid, and the Julian correction adds
 48 exact manual-cutter observations. All three Mac lanes and both Modal lanes
 reported the intended `9e53da33...` Mac release, and the cloud twin reported its
-matching `33ab83f0...` release. The latest web deployment built from `main` at
-`1239953a`, completed successfully and holds all production aliases.
+matching `33ab83f0...` release. The production web deployment carrying the
+canonical scoring implementation completed successfully; later documentation
+deployments do not change its runtime behavior.
 
 No further player-facing web, native or admin test is required for this
-account-scoped rollout. The first naturally-created manual-cut publication is
-still worth checking because no post-rollout live manual cut exists yet; do not
-create or alter a production match solely to manufacture that evidence.
-
-The capability remains `user:a2e61027-2ee9-4026-a058-dc07441ee633`. Widening it
-to every account and migrating owner readers are separate product rollout
-decisions, not unfinished implementation.
+rollout. The post-correction Julian manual cut supplied the final live worker
+acceptance described below. Both scoring rollout settings are globally on;
+there is no remaining account canary to widen.
 
 ## Manual-cutter production correction
 
@@ -136,8 +134,27 @@ preconditions were rechecked inside one transaction and
 `normalize_manual_cut_observations` wrote 24 serve starts and 24 point ends.
 Points, score, clips, playback and revision did not change. A historical
 `publish_hand_cut` receipt was deliberately not invented because the original
-job was already done; the next natural Julian manual cut should produce that
-receipt atomically before becoming ready.
+job was already done. The next real Julian manual cut then produced nine
+points from nine marks, zero timing drift, zero missing clips, nine serve-start
+and nine point-end observations, and exactly one atomic publication receipt
+whose request id matched the job. Its projection was current at revision 18.
+
+## Global activation
+
+After the manual-cut gate passed, both account canaries moved from Adil's UUID
+to `on`, in order: commands first, readers second. Each transaction required
+all production projections to be current before and after the change, and
+proved the corresponding capability returned `true` for an ordinary
+authenticated UUID. The final audit found exactly these two canonical-score
+settings, both `on`, with all 222 matches at matching source/projection
+revisions and zero projection errors.
+
+This applies the canonical storage and command path to future scoring on the
+current web and native clients. Older installed native clients remain
+compatible: their established writes refresh the same canonical projection at
+the database boundary. The current UI continues to render its established
+fold while globally comparing it with the canonical snapshot. The two settings
+remain solely as immediate, non-destructive rollback controls.
 
 ## Deferred native cleanup
 

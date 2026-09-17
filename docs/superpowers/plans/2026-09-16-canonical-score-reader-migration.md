@@ -13,20 +13,21 @@ unexplained differences.
 - Observe one real automatic publication and one real manual-cut publication on
   release `9e53da3318b…`; require current projection health and one publication
   receipt for each.
-- Keep `canonical_score_commands` account-scoped. Do not enable ordinary users
-  while validating readers.
+- Completed: `canonical_score_commands` remained account-scoped while readers
+  were validated, then moved to global `on` only after every entry gate passed.
 
-Current status: the production corpus gate is complete. On September 16, 2026,
-all 216 matches and all 12,827 nonempty point rows matched the legacy fold with
-zero invalid rows and zero field differences. Reader activation remains blocked
-on the native authenticated check and one observed automatic plus manual-cut
-publication; corpus parity alone does not authorize a display switch.
+Current status: the production entry gate is complete. On September 16, 2026,
+the full corpus matched the legacy fold with zero invalid rows and zero field
+differences; native authenticated commands were exercised, automatic worker
+publications were observed, and the corrected hand worker produced one real
+atomic manual-cut publication. The reader comparison is globally enabled. The
+UI intentionally continues to render the established fold; that is the
+accepted compatibility behavior, not a pending account canary.
 
 ## Foundation checkpoint
 
-The phase-three foundation is implemented on branch
-`codex/canonical-score-state` but is not deployed or activated. It adds the
-default-off `canonical_score_readers` canary and the narrow
+The phase-three foundation is deployed from `main` and globally activated. It
+retains the emergency `canonical_score_readers` switch and the narrow
 `canonical_score_snapshot_v1` RPC, plus typed web and native loaders that pin
 the expected match revision, fail back to the established fold, and emit only
 aggregate parity counts or stable fallback reasons. Web and native displays do
@@ -69,9 +70,10 @@ Verified on September 16, 2026:
   cases pass in isolated PostgreSQL. The production-sized rehearsal also
   exercises one 89-visible-point live-token shadow through the service role.
 
-This checkpoint does not satisfy the entry gate above. Do not apply migrations
-`20260916143000`, `20260916151000` or `20260916153000`, deploy these readers,
-or enable the reader canary merely because the automated foundation is green.
+Migrations `20260916143000`, `20260916151000` and `20260916153000` are live.
+The automated foundation alone did not authorize activation; the production
+corpus, native command, automatic publication and corrected manual-publication
+gates were all completed before `canonical_score_readers` moved to `on`.
 
 ## Migration order
 
