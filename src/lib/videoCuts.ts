@@ -71,7 +71,7 @@ export const WALKTHROUGH_CHAPTERS: readonly { label: string; at: number }[] = [
   { label: "Playback", at: 42 },
   { label: "Score the match", at: 66 },
   { label: "Match analysis", at: 84 },
-  { label: "Share and export", at: 108 },
+  { label: "Highlights and export", at: 108 },
   { label: "Your coach", at: 126 },
   { label: "The journal", at: 144 },
 ];

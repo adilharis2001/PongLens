@@ -32,7 +32,7 @@ import { WALKTHROUGH, WALKTHROUGH_TRANSCRIPT } from "@/lib/walkthrough";
 
 // Real match, real numbers: 28a0bc1e, Adil v Anton at Pingpod, 7 Sep 2026.
 // 10.2 minutes of recording, 52 points, 6.8 minutes of point clips.
-const EXAMPLE = { recordingMinutes: 10, points: 52, playMinutes: 7 };
+const EXAMPLE = { recordingMinutes: 10, points: 52, playMinutesWord: "seven" };
 
 const cards = [
   { src: "/showcase/card-overview.jpg", alt: "Overview card: point differential over the match, best run, serve and receive win rates, results at 9 or more, and games won" },
@@ -54,7 +54,7 @@ const faqs = [
   },
   {
     q: "What do I get for free?",
-    a: "Four matches, free. Every account gets 250 processing minutes and 25 GB of storage during beta, and a match uses its recording length in minutes. When you run out, you can request more for free.",
+    a: "Enough for four matches. Every account gets 250 processing minutes and 25 GB of storage during beta, and a match uses its recording length in minutes. When you run out, you can request more for free.",
   },
   {
     q: "How long does processing take?",
@@ -294,7 +294,7 @@ export default async function Home() {
                   competitive table tennis.
                 </span>
               </h1>
-              <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
+              <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
                 Upload a match video. PongLens removes the time between
                 points, then gives you every point as a clip to score, review
                 and share with your coach.
@@ -366,10 +366,10 @@ export default async function Home() {
               </BrowserFrame>
             }
           >
-            Upload a match and it comes back as points. A {EXAMPLE.recordingMinutes}
-            -minute recording became {EXAMPLE.points} points and about{" "}
-            {EXAMPLE.playMinutes} minutes of play. Every point is its own
-            clip, with who served and who won.
+            A {EXAMPLE.recordingMinutes}-minute recording became {EXAMPLE.points}{" "}
+            points and about {EXAMPLE.playMinutesWord} minutes of play. Every
+            point is its own clip, with who served and who won, and the dead
+            time between them is gone.
           </Feature>
 
           <Feature
@@ -393,7 +393,7 @@ export default async function Home() {
           <section id="analysis" className="scroll-mt-20 py-14 sm:py-20">
             <div className="mx-auto max-w-6xl px-6">
               <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-                Read the match
+                Match analysis
               </h2>
               <p className="mt-4 max-w-2xl text-lg leading-relaxed text-zinc-400">
                 Momentum, serve and receive win rates, what happened at 9-all,
@@ -422,7 +422,7 @@ export default async function Home() {
 
           <Feature
             id="highlights"
-            title="Highlights and clips to post"
+            title="Highlights and export"
             media={
               <Phone
                 src="/showcase/anton-highlights-m.jpg"
@@ -430,9 +430,9 @@ export default async function Home() {
               />
             }
           >
-            The best rallies come back as one highlights video. Star a point
-            and post it to Instagram with the score on it, or export the
-            whole match with the running score on the picture.
+            The best rallies are cut into one highlights video. Star a point
+            and post it to Instagram, or export the whole match, with the
+            running score on the picture.
           </Feature>
 
           <Feature

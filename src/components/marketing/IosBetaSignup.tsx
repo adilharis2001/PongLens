@@ -221,9 +221,9 @@ export function IosBetaSignup({
           className="group flex items-center gap-2 rounded-full border border-cyan-glow/30 bg-cyan-glow/[0.06] px-4 py-2 text-left transition-colors hover:border-cyan-glow/60 hover:bg-cyan-glow/[0.1]"
         >
           <AppleMark className="h-4 w-4 text-cyan-glow" />
-          <span className="text-sm font-medium text-zinc-100">iOS</span>
+          <span className="text-sm font-medium text-zinc-100">iPhone</span>
           <span className="text-xs text-zinc-400">beta available</span>
-          <span className="text-xs font-semibold text-cyan-glow transition-transform group-hover:translate-x-0.5">
+          <span className="text-sm font-semibold text-cyan-glow transition-transform group-hover:translate-x-0.5">
             Get access →
           </span>
         </button>
