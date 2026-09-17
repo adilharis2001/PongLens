@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { track } from "@vercel/analytics";
 import { type FormEvent, type RefObject, useEffect, useId, useRef, useState } from "react";
 
 import {
@@ -186,6 +187,15 @@ export function IosBetaSignup({
     const result = await submitBetaSignup(email, company, fetch, answers);
     if (submissionRef.current !== submission || !dialogRef.current?.open) return;
     setStatus(result);
+    if (result === "success") {
+      // Cookieless, and only the fact that a request was made and from
+      // which button: the email never leaves the form.
+      try {
+        track("beta_request", { placement });
+      } catch {
+        // Analytics never stands between a person and the confirmation.
+      }
+    }
   }
 
   const visibleOptions = role ? optionsForRole(role) : [];

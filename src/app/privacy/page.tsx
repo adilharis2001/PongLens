@@ -116,7 +116,9 @@ export default async function PrivacyPage() {
         <p>
           We run no third-party advertising trackers. The only cookies PongLens
           sets are the essential first-party cookies your sign-in session
-          needs to keep you logged in.
+          needs to keep you logged in, plus a one-hour cookie that remembers
+          an invite link you opened before signing in so you land back on it
+          afterwards.
         </p>
       </section>
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -124,14 +125,14 @@ export function WalkthroughBand({
     eager: boolean,
     peek: boolean
   ) => (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
+    <Image
       key={shot}
       src={`/showcase/${shot}-m.jpg`}
       alt={chapter.title}
+      fill
+      sizes="(min-width: 1024px) 300px, (min-width: 768px) 272px, 208px"
       loading={eager ? "eager" : "lazy"}
-      decoding="async"
-      className={`absolute inset-0 h-full w-full rounded-2xl border border-edge object-cover shadow-2xl shadow-black/50 transition-opacity duration-300 ${
+      className={`rounded-2xl border border-edge object-cover shadow-2xl shadow-black/50 transition-opacity duration-300 ${
         (i === pos.a ? j === pos.s : peek && j === 0)
           ? "opacity-100"
           : "opacity-0"
@@ -188,7 +189,7 @@ export function WalkthroughBand({
               key={c.title}
               type="button"
               onClick={() => goTo(i)}
-              aria-label={c.title}
+              aria-label={`${i + 1}: ${c.title}`}
               aria-current={i === pos.a ? "step" : undefined}
               className={`h-8 w-8 rounded-full border text-xs font-semibold tabular-nums transition-colors ${
                 i === pos.a

@@ -6,6 +6,7 @@ import { landingVideoPresentation } from "./landingVideoState.ts";
 test("an idle landing video is a black play surface, not its branded poster", () => {
   assert.deepEqual(landingVideoPresentation(false), {
     showIdleCover: true,
+    showIdleScrim: false,
     showPlayControl: true,
     showNativeControls: false,
     videoOpacity: 0,
@@ -13,12 +14,26 @@ test("an idle landing video is a black play surface, not its branded poster", ()
   });
 });
 
-test("starting playback reveals the video and removes the idle controls", () => {
-  assert.deepEqual(landingVideoPresentation(true), {
+test("a product-frame poster shows while idle, under a scrim, with the play control", () => {
+  assert.deepEqual(landingVideoPresentation(false, { posterIdle: true }), {
     showIdleCover: false,
-    showPlayControl: false,
-    showNativeControls: true,
+    showIdleScrim: true,
+    showPlayControl: true,
+    showNativeControls: false,
     videoOpacity: 1,
     playTop: "50%",
   });
+});
+
+test("starting playback reveals the video and removes the idle controls", () => {
+  for (const posterIdle of [false, true]) {
+    assert.deepEqual(landingVideoPresentation(true, { posterIdle }), {
+      showIdleCover: false,
+      showIdleScrim: false,
+      showPlayControl: false,
+      showNativeControls: true,
+      videoOpacity: 1,
+      playTop: "50%",
+    });
+  }
 });

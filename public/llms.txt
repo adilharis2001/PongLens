@@ -1,25 +1,41 @@
 # PongLens
 
-> PongLens turns table tennis match videos into something you can study. Point your phone at the table, play your match, and upload the recording. PongLens cuts it down to just the rallies, splits the match into individual points, and maps where the ball lands.
+> PongLens is a performance hub for competitive table tennis. You film a match on your phone and upload it. PongLens removes the time between points, cuts the match into one clip per point, and once you have scored the points it builds your match analysis, serve maps and highlights. Your coach can watch the match and leave notes on any point, and coaches get their own workspace for students and lessons.
 
-PongLens is a match-analysis tool for table tennis players. You record a match, upload the video (or paste a YouTube link), and PongLens returns a cut containing only live play, one clip per point, placement maps, and a scorecard you can share. You can add notes to any point and share your matches with a coach, who can leave notes of their own.
+PongLens is made by AH Labs LLC and runs in the browser at https://www.ponglens.com on any phone or computer. An iPhone app is in beta on TestFlight. Android is on the roadmap. It is free during beta: every account gets 250 processing minutes and 25 GB of storage, a match uses its recording length in minutes, and more can be requested for free.
 
-## What it does today
-- Removes dead time between points, turning a long recording into just the rallies.
-- Cuts the match into individual point clips, with serve and winner detected.
-- Placement maps: where serves, receives, and rally balls land on the table.
-- Live scorecard you can share, plus exportable score reels.
-- Notes on any point, including voice notes with transcripts.
-- Coach sharing: a coach can view shared matches and leave notes.
+## What it does
 
-## In development
-- Progress tracking: notes across matches and lessons organized into what to work on next.
+- Removes the dead time between points from an uploaded match recording (MP4 or MOV, up to 45 minutes).
+- Cuts the match into individual point clips, in order, with who served and who won. Points can be adjusted, split, joined, inserted or removed.
+- Score the match: the points play one after another and you tap who won each one. About ten minutes for a full match. On iPhone the app can also listen for the score being called out while recording.
+- Match analysis, built from the scoring: momentum, best run, serve and receive win rates, results at 9 or more in a game, results after losing a point, rally length by whose serve, serve speed, where serves landed, a heat map of the table, and where points ended.
+- Stats across every scored match: serve and receive win rates, pressure points, results and opponents.
+- Highlights: the best rallies are cut into one highlights video, which can be posted to Instagram from the iPhone app or shared as a link.
+- Export a point, the starred points or the whole match as a video with the running score on the picture.
+- Share a match, a point or the starred points with a link. A link can include the score and the analysis.
+- Invite a coach with a link or a QR code. The coach watches the points and leaves written, spoken or drawn notes, and the player is notified.
+- Journal: match notes, lesson notes and practice notes in one place. Notes can be typed or dictated, handwritten pages can be photographed into text, and the journal can be asked questions and answers only from what you wrote.
+- Coach workspace: a roster of students, lesson notes per student, a lesson recorder on iPhone that turns an audio recording into takeaways, lesson video recaps, feedback on a student's shared matches, and paid match reviews.
+
+## How to record
+
+Put the phone on a tripod diagonally behind you and raised a little, in landscape, with the whole table in frame and neither player blocking it. The app shows where to put the camera before the first recording. Processing takes about 45 minutes on average and the player gets an email when the match is ready.
+
+## Privacy
+
+Videos are private to the account and to the people the player shares them with. The original upload and the cut video stay in the library until the match is deleted; point clips stay while the account is active. Website analytics are cookieless and no cookies are set for a visitor who is not signed in. Nothing is sold or shared with advertisers.
 
 ## Pages
-- [Home](https://www.ponglens.com/): Product overview and what PongLens does.
-- [Sign in](https://www.ponglens.com/login): Sign in to upload and analyze a match.
-- [Terms of Service](https://www.ponglens.com/terms): Terms that govern use of PongLens.
-- [Privacy Policy](https://www.ponglens.com/privacy): How PongLens handles your videos and data.
+
+- [Home](https://www.ponglens.com/): what PongLens does, with a walkthrough video and the free allowance.
+- [For coaches](https://www.ponglens.com/coaches): the coaching workspace, students, lesson notes and video recaps.
+- [Learn](https://www.ponglens.com/learn): written guides to every part of the product, for players and for coaches.
+- [Roadmap](https://www.ponglens.com/roadmap): what is being built, what comes next and what has shipped.
+- [Sign in](https://www.ponglens.com/login): sign in with an emailed link or Google.
+- [Terms of Service](https://www.ponglens.com/terms)
+- [Privacy Policy](https://www.ponglens.com/privacy)
 
 ## Contact
+
 - Email: support@ponglens.com

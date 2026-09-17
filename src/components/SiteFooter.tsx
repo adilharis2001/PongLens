@@ -18,12 +18,15 @@ export async function SiteFooter({
           </p>
         </div>
         <div className="flex flex-col items-center gap-3 sm:items-end">
-          <nav className="flex items-center gap-6 text-sm text-zinc-400">
+          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-zinc-400 sm:justify-end">
             <Link
               href={audience === "coaches" ? "/" : "/coaches"}
               className="transition-colors hover:text-white"
             >
               {audience === "coaches" ? "For players" : "For coaches"}
+            </Link>
+            <Link href="/learn" className="transition-colors hover:text-white">
+              Learn
             </Link>
             <Link href="/roadmap" className="transition-colors hover:text-white">
               Roadmap

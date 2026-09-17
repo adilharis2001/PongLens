@@ -38,6 +38,12 @@ export function SiteHeader({
                 Features
               </Link>
               <Link
+                href="/learn"
+                className="hidden text-sm text-zinc-400 transition-colors hover:text-white sm:block"
+              >
+                Learn
+              </Link>
+              <Link
                 href="/coaches"
                 className="whitespace-nowrap text-sm text-zinc-400 transition-colors hover:text-white"
               >

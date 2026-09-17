@@ -59,6 +59,24 @@ export const CUTS: Record<"desktop" | "mobile", Cut> = {
 };
 
 /**
+ * Where each chapter of the walkthrough begins, in seconds, on either cut
+ * (one script, one set of timings). Read off public/demo/walkthrough.vtt:
+ * each is the first cue of its beat, less a second so the picture has
+ * already changed when the narration starts. Under the player these are
+ * buttons; in the page's VideoObject markup they are Clip entries, which is
+ * what lets a search result jump to "Match analysis" rather than 0:00.
+ */
+export const WALKTHROUGH_CHAPTERS: readonly { label: string; at: number }[] = [
+  { label: "Record or upload", at: 14 },
+  { label: "Playback", at: 42 },
+  { label: "Score the match", at: 66 },
+  { label: "Match analysis", at: 84 },
+  { label: "Share and export", at: 108 },
+  { label: "Your coach", at: 126 },
+  { label: "The journal", at: 144 },
+];
+
+/**
  * "Introduction to PongLens" — the whole product, both halves, for someone
  * who has never heard of it. It is the only cut that is not aimed at a
  * buyer: the player video sells the player side and the coach video sells

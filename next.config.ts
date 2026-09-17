@@ -17,10 +17,28 @@ const securityHeaders = [
   },
 ];
 
+// Marketing media: the walkthrough videos and every product screenshot. A
+// day in the browser cache, then a week of serving the stale copy while a
+// fresh one is fetched. Not "immutable": these files are re-captured under
+// the same names after UI changes, and a year-long cache would show the
+// old screen to anyone who had visited before.
+const mediaCache = [
+  {
+    key: "Cache-Control",
+    value: "public, max-age=86400, stale-while-revalidate=604800",
+  },
+];
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/demo/:path*", headers: mediaCache },
+      { source: "/showcase/:path*", headers: mediaCache },
+      { source: "/learn/:path*.jpg", headers: mediaCache },
+      { source: "/img/:path*", headers: mediaCache },
+    ];
   },
 };
 
