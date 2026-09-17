@@ -63,9 +63,9 @@ python3 -m worker.match_release run \
 | Actual pose | Use `prepare_run` environment and its `PONGLENS_RTMPOSE_PY` to run sealed `worker/extract_players_rtmpose.py` against a known short clip with sealed pose and detector models. Confirm actual provider and output. |
 | Offline model coverage | Run `worker/tests/smoke_match_release.py` modes `pose`, `table`, `side-changes`, and `ball` against actual video and fresh external test state. These deny network connections and recheck release integrity after inference. Side-change smoke deliberately omits the detector override, matching production; table smoke must report success and sixteen sampled frames. Repeat side-change smoke against the same state. |
 | Point parity | Run packaged points assembly on representative frozen input; compare card decisions with captured baseline. |
-| Both lanes | `run ... --lane main --check-only` and `--lane fast --check-only`; confirm separate drain files and appropriate logs. |
+| All lanes | `run ... --lane main --check-only`, `--lane fast --check-only` and `--lane hand --check-only`; confirm separate drain files and appropriate logs. The hand lane must use the same sealed release so manual cuts publish through the canonical boundary too. |
 | Rollback | Record and verify an explicit previous release directory and its runtime anchors before changing either launcher. This package does not select a rollback for you. |
-| Activation | Owner drains current work and switches both approved launchers to the exact verified directory. `run` without `--check-only` executes the worker and may claim real work. |
+| Activation | Owner drains current work and switches every approved launcher to the exact verified directory. `run` without `--check-only` executes the worker and may claim real work. |
 | Post-switch | Confirm release/model IDs in actual attempt records and health reporting; preserve the previous verified directory. |
 
 ## Runtime adapter map
@@ -82,7 +82,7 @@ python3 -m worker.match_release run \
 | `TORCH_HOME` | Writable `<state>/cache/torch`, outside the sealed release. Never point a general library cache at packaged source. |
 | `PONGLENS_FFMPEG`, `PONGLENS_FFPROBE`, `PONGLENS_YTDLP` | Exact checked media executables. PATH contains sealed wrappers ahead of system tools. |
 | `PONGLENS_STATE_DIR`, `PONGLENS_WORK_DIR`, `PONGLENS_LOG_DIR`, `PONGLENS_COREML_CACHE` | Writable state outside payload; worker adapters must honor these. |
-| `PONGLENS_DRAIN_FILE` | `<state>/drain-main` or `<state>/drain-fast`; checked before a new claim by worker integration. |
+| `PONGLENS_DRAIN_FILE` | `<state>/drain-main`, `<state>/drain-fast` or `<state>/drain-hand`; checked before a new claim by worker integration. |
 
 | Sealed behavior setting | Baseline | Runtime distinction |
 | --- | --- | --- |

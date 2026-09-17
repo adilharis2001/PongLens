@@ -24,8 +24,13 @@ export function PhoneFrame({
       {glow && (
         <div
           aria-hidden
+          // Tighter on a phone: a frame that fills the column there has
+          // only the page gutter to spread into, and an 8-unit glow past
+          // it was 9px of sideways scroll on the landing page.
           className={`absolute bg-gradient-to-br from-cyan-glow/25 via-transparent to-magenta-glow/20 blur-2xl ${
-            tablet ? "-inset-6 rounded-[2rem]" : "-inset-8 rounded-[3rem]"
+            tablet
+              ? "-inset-4 rounded-[1.6rem] sm:-inset-6 sm:rounded-[2rem]"
+              : "-inset-4 rounded-[2.6rem] sm:-inset-8 sm:rounded-[3rem]"
           }`}
         />
       )}

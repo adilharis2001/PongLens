@@ -701,7 +701,7 @@ export function AnalysisCards({
     scoredType && complete && viewer !== "public" ? (
       <div
         key="teaser"
-        className="flex w-[86%] shrink-0 snap-center flex-col items-center justify-center rounded-2xl border border-dashed border-edge bg-surface/60 p-6 text-center sm:h-[30rem] sm:w-[calc(50%-0.5rem)] sm:snap-start"
+        className="flex w-[86%] shrink-0 snap-center flex-col items-center justify-center rounded-2xl border border-dashed border-edge bg-surface/60 p-6 text-center sm:h-[30rem] sm:w-[calc(46%-0.5rem)] sm:snap-start"
       >
         <div className="flex items-end gap-1.5" aria-hidden="true">
           {[18, 30, 12, 24, 20].map((height, i) => (

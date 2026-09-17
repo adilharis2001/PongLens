@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { loginPathForDestination } from "@/lib/auth/paths";
 import { AppNav } from "@/components/AppNav";
 import { LearnAudienceSwitch } from "../LearnAudienceSwitch";
 import { loadLearnServerContext } from "../serverContext";
@@ -28,6 +30,9 @@ export default async function TutorialVideosPage({
 }) {
   const { audience: requested } = await searchParams;
   const context = await loadLearnServerContext(requested);
+  // The written guides are public; the course is served from private
+  // storage per session, so this page still needs a person to be signed in.
+  if (!context.user) redirect(loginPathForDestination("/learn/videos"));
   const learnHref =
     context.audience === context.activeWorkspace
       ? "/learn"

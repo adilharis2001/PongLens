@@ -363,6 +363,8 @@ def resolve_model_asset(model, asset, *, default_url=None):
 
 
 def prepare_run(path, state, lane='main'):
+    if lane not in ('main', 'fast', 'hand'):
+        raise ReleaseError('Runner lane must be main, fast, or hand')
     root = Path(path).resolve(strict=True)
     manifest = verify(root)
     if root.name != manifest['release_id']:

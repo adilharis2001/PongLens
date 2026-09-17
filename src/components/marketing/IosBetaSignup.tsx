@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { track } from "@vercel/analytics";
 import { type FormEvent, type RefObject, useEffect, useId, useRef, useState } from "react";
 
 import {
@@ -186,6 +187,15 @@ export function IosBetaSignup({
     const result = await submitBetaSignup(email, company, fetch, answers);
     if (submissionRef.current !== submission || !dialogRef.current?.open) return;
     setStatus(result);
+    if (result === "success") {
+      // Cookieless, and only the fact that a request was made and from
+      // which button: the email never leaves the form.
+      try {
+        track("beta_request", { placement });
+      } catch {
+        // Analytics never stands between a person and the confirmation.
+      }
+    }
   }
 
   const visibleOptions = role ? optionsForRole(role) : [];
@@ -211,9 +221,9 @@ export function IosBetaSignup({
           className="group flex items-center gap-2 rounded-full border border-cyan-glow/30 bg-cyan-glow/[0.06] px-4 py-2 text-left transition-colors hover:border-cyan-glow/60 hover:bg-cyan-glow/[0.1]"
         >
           <AppleMark className="h-4 w-4 text-cyan-glow" />
-          <span className="text-sm font-medium text-zinc-100">iOS</span>
+          <span className="text-sm font-medium text-zinc-100">iPhone</span>
           <span className="text-xs text-zinc-400">beta available</span>
-          <span className="text-xs font-semibold text-cyan-glow transition-transform group-hover:translate-x-0.5">
+          <span className="text-sm font-semibold text-cyan-glow transition-transform group-hover:translate-x-0.5">
             Get access →
           </span>
         </button>

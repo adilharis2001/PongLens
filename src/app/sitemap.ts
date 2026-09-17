@@ -1,11 +1,25 @@
 import type { MetadataRoute } from "next";
 
+import { visibleGuides } from "./learn/catalog";
+import { COACH_WALKTHROUGH } from "@/lib/coachWalkthrough";
 import { WALKTHROUGH } from "@/lib/walkthrough";
 
 const BASE = "https://www.ponglens.com";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const lastModified = new Date();
+
+  // Every public guide, player and coach. The guides are the only long-form
+  // writing on the site, so they are most of what search has to work with.
+  const guides = (["player", "coach"] as const).flatMap((audience) =>
+    visibleGuides(audience, "web").map((guide) => ({
+      url: `${BASE}/learn/${guide.slug}`,
+      lastModified,
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    })),
+  );
+
   return [
     {
       url: `${BASE}/`,
@@ -29,6 +43,38 @@ export default function sitemap(): MetadataRoute.Sitemap {
           live: "no",
         },
       ],
+    },
+    {
+      url: `${BASE}/coaches`,
+      lastModified,
+      changeFrequency: "monthly",
+      priority: 0.8,
+      videos: [
+        {
+          title: "How coaching works on PongLens",
+          thumbnail_loc: `${BASE}/demo/coach-desktop.jpg`,
+          description:
+            "A walkthrough of the PongLens coaching workspace: a coach profile, a page per student, lesson recording, shared journals, review orders, delivery and payouts.",
+          content_loc: `${BASE}/demo/coach-desktop.mp4`,
+          duration: COACH_WALKTHROUGH.durationSeconds,
+          publication_date: COACH_WALKTHROUGH.uploaded,
+          family_friendly: "yes",
+          live: "no",
+        },
+      ],
+    },
+    {
+      url: `${BASE}/learn`,
+      lastModified,
+      changeFrequency: "monthly",
+      priority: 0.7,
+    },
+    ...guides,
+    {
+      url: `${BASE}/roadmap`,
+      lastModified,
+      changeFrequency: "weekly",
+      priority: 0.5,
     },
     {
       url: `${BASE}/terms`,

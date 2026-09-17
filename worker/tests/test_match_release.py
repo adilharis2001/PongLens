@@ -134,6 +134,20 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(Path(cwd).is_relative_to(release))
         self.assertFalse(Path(env['PONGLENS_COREML_CACHE']).is_relative_to(release))
 
+    def test_hand_lane_uses_the_sealed_release_and_its_own_drain(self):
+        release = self.built()
+        command, env, _ = prepare_run(release, self.root / 'state', 'hand')
+        self.assertEqual(command[-2:], ['--lane', 'hand'])
+        self.assertEqual(env['WORKER_LANE'], 'hand')
+        self.assertEqual(
+            Path(env['PONGLENS_DRAIN_FILE']),
+            (self.root / 'state/drain-hand').resolve(),
+        )
+
+    def test_unknown_lane_is_rejected(self):
+        with self.assertRaisesRegex(ReleaseError, 'main, fast, or hand'):
+            prepare_run(self.root / 'missing-release', self.root / 'state', 'other')
+
     def test_stage_does_not_activate_or_overwrite(self):
         release = self.built()
         destination = stage(release, self.root / 'installed')

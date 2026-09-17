@@ -1,6 +1,18 @@
 # Worker release and body-processing health
 
-This work isolates the Mac main/fast worker from the editable checkout and records body-processing health separately from delivery of usable video. The first release blocked after a post-processing detector download; the corrected release below is now active with monitoring restored. Read this record before changing launchers, runtime dependencies or body fallback reporting.
+This work isolates the Mac processing workers from the editable checkout and records body-processing health separately from delivery of usable video. The first release blocked after a post-processing detector download; the corrected release below is now active with monitoring restored. Read this record before changing launchers, runtime dependencies or body fallback reporting.
+
+**Hand-lane correction, 2026-09-16:** the separate hand worker was the final
+launcher still pointed at an editable checkout. After confirming a fresh idle
+pulse and zero open hand-cut jobs, it moved from `c306f103` to sealed release
+`9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce`.
+Its original plist is preserved as
+`~/Library/LaunchAgents/com.adil.ponglens-worker-hand.plist.pre-canonical-c306f103`.
+The live launcher uses the release's own `prepare_run(..., 'hand')`, external
+state and `drain-hand`; its pulse reported the exact release and no job. Future
+release checks and switches cover main, fast **and hand**. The historical
+statements below that the hand lane was unchanged describe the September 11
+rollout only; they are not the current configuration.
 
 ## Current correction, 2026-09-11
 

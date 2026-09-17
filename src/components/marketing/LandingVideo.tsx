@@ -28,20 +28,58 @@ const LENGTH = WALKTHROUGH.length;
 export function LandingVideo({
   cuts = CUTS,
   length = LENGTH,
+  chapters,
+  posterIdle = false,
 }: {
   cuts?: Record<"desktop" | "mobile", Cut>;
   length?: string;
+  /**
+   * Where each part of the video starts. Rendered as a row of buttons under
+   * the player: pressing one seeks there and starts playback, so someone
+   * who only wants to see the analysis gets it in one tap instead of
+   * scrubbing a three-minute file for it. The lit button follows playback.
+   */
+  chapters?: readonly { label: string; at: number }[];
+  /** Show the poster while idle. On by default only where the poster is a
+   *  frame of the product rather than a title card. */
+  posterIdle?: boolean;
 } = {}) {
   // Desktop until proven otherwise: the server cannot know the viewport, and
   // preload="none" means guessing wrong costs a poster, not a download.
   const [cut, setCut] = useState<keyof typeof CUTS>("desktop");
   const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  // The poster is attached only once the cut is settled. Attached at
+  // render, a phone downloaded the desktop poster, switched cut, then
+  // downloaded its own: the single largest wasted request on the page.
+  const [settled, setSettled] = useState(false);
   const ref = useRef<HTMLVideoElement | null>(null);
+
+  const jump = useCallback((at: number) => {
+    const el = ref.current;
+    if (!el) return;
+    setPlaying(true);
+    const seek = () => {
+      el.currentTime = at;
+      void el.play().catch(() => setPlaying(false));
+    };
+    // With preload="none" the first press has no metadata to seek in yet.
+    if (el.readyState >= 1) seek();
+    else {
+      el.addEventListener("loadedmetadata", seek, { once: true });
+      el.load();
+    }
+  }, []);
+
+  const active = chapters
+    ? chapters.reduce((best, c, i) => (time >= c.at ? i : best), -1)
+    : -1;
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const pick = () => setCut(mq.matches ? "mobile" : "desktop");
     pick();
+    setSettled(true);
     mq.addEventListener("change", pick);
     return () => mq.removeEventListener("change", pick);
   }, []);
@@ -77,7 +115,7 @@ export function LandingVideo({
 
   const c = cuts[cut];
   const play = c.play ?? PLAY_DEFAULT;
-  const presentation = landingVideoPresentation(playing);
+  const presentation = landingVideoPresentation(playing, { posterIdle });
 
   return (
     <div className="mx-auto" style={{ width: c.width }}>
@@ -99,7 +137,7 @@ export function LandingVideo({
           key={cut}
           ref={ref}
           src={c.src}
-          poster={c.poster}
+          poster={settled ? c.poster : undefined}
           preload="none"
           playsInline
           // Native controls only once it is running. Idle, the browser paints
@@ -108,6 +146,9 @@ export function LandingVideo({
           controls={presentation.showNativeControls}
           onPlay={() => setPlaying(true)}
           onEnded={() => setPlaying(false)}
+          onTimeUpdate={(e) => {
+            if (chapters) setTime(e.currentTarget.currentTime);
+          }}
           className="absolute inset-0 h-full w-full"
           style={{ opacity: presentation.videoOpacity }}
         >
@@ -122,6 +163,19 @@ export function LandingVideo({
         </video>
         {presentation.showIdleCover && (
           <div aria-hidden className="absolute inset-0 bg-ink" />
+        )}
+        {presentation.showIdleScrim && (
+          // A vignette rather than a flat tint: the frame stays readable
+          // in the middle, the edges fall to ink, and the play control sits
+          // on a dark field the way it does on a paused video.
+          <div
+            aria-hidden
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(ellipse at center, rgba(10,10,15,.45) 0%, rgba(10,10,15,.7) 55%, rgba(10,10,15,.92) 100%)",
+            }}
+          />
         )}
         {/* The whole poster is a tap target too. Reaching for the picture is
             what people do, and a poster that ignores the tap is a poster
@@ -169,6 +223,32 @@ export function LandingVideo({
         )}
       </div>
 
+      {chapters && chapters.length > 0 && (
+        // A scrolling row on a phone rather than a wrapped block: seven
+        // pills wrapped under a phone-shaped video is a second screen of
+        // buttons before the page continues.
+        <div
+          role="group"
+          aria-label="Jump to a part of the walkthrough"
+          className="-mx-4 mt-5 flex snap-x gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:justify-center sm:px-0"
+        >
+          {chapters.map((c, i) => (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() => jump(c.at)}
+              aria-current={i === active ? "true" : undefined}
+              className={`shrink-0 snap-start whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
+                i === active
+                  ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
+                  : "border-edge text-zinc-300 hover:border-cyan-glow/50 hover:text-white"
+              }`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -7,11 +7,11 @@ import { RoadmapSections } from "@/components/Roadmap";
 import type { RoadmapItem } from "@/lib/roadmap";
 
 export const metadata: Metadata = {
-  title: "Roadmap · PongLens",
+  title: "Roadmap",
   description: "What PongLens is building, what comes next, and what has shipped.",
   alternates: { canonical: "/roadmap" },
   openGraph: {
-    title: "Roadmap · PongLens",
+    title: "Roadmap",
     description: "What PongLens is building, what comes next, and what has shipped.",
     url: "/roadmap",
     siteName: "PongLens",

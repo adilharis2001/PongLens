@@ -3,22 +3,31 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { createClient } from "@/lib/supabase/client";
-
 /**
  * The public header's account button. Public pages render statically, so
  * the server can't know who's looking; this starts as "Sign in" and the
- * browser swaps it once the local session proves otherwise (the same
- * hydrate-then-check pattern as useIsCoach).
+ * browser swaps it once a local session proves otherwise.
+ *
+ * The proof is the presence of the Supabase auth cookie, read straight off
+ * document.cookie. It used to ask the Supabase client for the session,
+ * which meant every visitor to the landing page downloaded the whole auth
+ * library to relabel one link. The cookie is set by the same library on
+ * sign-in and cleared on sign-out, so its presence is the same answer at a
+ * fraction of the cost. If it ever misreads, the only consequence is the
+ * label: /login sends a signed-in person on to the app anyway.
  */
+function hasSessionCookie(): boolean {
+  try {
+    return /(?:^|;\s*)sb-[a-z0-9]+-auth-token(?:\.\d+)?=/.test(document.cookie);
+  } catch {
+    return false;
+  }
+}
+
 export function AuthButton() {
   const [signedIn, setSignedIn] = useState(false);
   useEffect(() => {
-    void createClient()
-      .auth.getSession()
-      .then(({ data }) => {
-        if (data.session) setSignedIn(true);
-      });
+    if (hasSessionCookie()) setSignedIn(true);
   }, []);
 
   return (

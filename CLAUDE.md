@@ -89,23 +89,36 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ---
 
-## Canonical scored-match commands are live for Adil
+## Canonical scored-match commands are live for everyone
 
-**Verified in production on 2026-09-16:** The database, web app, automatic
-worker and native iOS build 220 carry the revisioned scored-match command
-system described in `docs/releases/2026-09-16-canonical-score-commands.md`.
-The source is on `main`; the capability remains deliberately scoped to Adil's
-account rather than all players. Do not widen it or migrate old owner readers
-without a separate rollout decision.
+**Globally enabled in production on 2026-09-16:** The database, web app,
+automatic worker and native iOS build 220+ carry the revisioned scored-match
+command system described in
+`docs/releases/2026-09-16-canonical-score-commands.md`. The source is on
+`main`; both `canonical_score_commands` and `canonical_score_readers` are
+`on` for every authenticated account. They remain only as emergency rollback
+switches, not as pending rollout gates. Do not return either to an account
+allowlist unless investigating a real incident.
 
 The Nathan vs Brian production match exercised Score, Skip, Adjust, Split and
 Join from build 220. Its projection is current at revision 57 with no error;
 the join stored structure, outcome and final-point timing in one canonical
-mutation. Across production, all 218 matches have matching source/projection
-revisions and no projection errors. Two real automatic worker publications
-also completed through the canonical boundary. The next naturally-created
-manual cut should be checked after publication, but no synthetic production
-match is needed for acceptance.
+mutation. The real web-scored Julian test D match is current at revision 151
+after Score, Skip, Split, visibility and server-override commands. The real
+manual-cutter Julian match has exact 24-mark/24-point timing parity and is
+current at revision 49. Its first run exposed a rollout gap: the dedicated
+hand lane still used the older `c306f103` checkout even though main and fast
+used the canonical sealed release. On 2026-09-16 the idle hand lane was moved
+to sealed release `9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce`,
+which contains the atomic `publish_hand_cut_v2` path. The 24 already-proven
+manual boundaries were normalized into 48 source-clock observations without
+changing points, score or playback; no historical publication receipt was
+fabricated. The next real Julian manual cut then passed the live gate: nine
+marks became nine points with zero timing drift, zero missing clips, eighteen
+owner-manual observations and exactly one `publish_hand_cut` receipt tied to
+its job. After that acceptance, both score rollout switches were enabled
+globally. All 222 production matches still had matching source/projection
+revisions, healthy projection status and zero projection errors.
 
 One small native follow-up is intentionally deferred: the Scorekeeper shortcut
 that splits by immediately answering the second point saves the split and the
@@ -118,8 +131,9 @@ cleanup into the next normal iOS release rather than making a dedicated build.
 
 ## The processing page has to keep up with the worker
 
-**Worker release/health rollout, 2026-09-11:** main/fast now run the sealed
-release, with independent health monitoring. Read `docs/worker-release-health.md` before changing worker
+**Worker release/health rollout, updated 2026-09-16:** main, fast and hand now
+run the same sealed release, with independent health monitoring. Read
+`docs/worker-release-health.md` before changing worker
 launchers, runtime dependencies or body fallback reporting. The sealed runtime
 source remains on `codex/worker-release-health`; do not merge its captured
 baseline wholesale over newer main.
@@ -723,32 +737,34 @@ coach, statistics and export paths still behave as before during that shadow
 period. The full contract and rollout are in
 `docs/superpowers/specs/2026-09-15-canonical-scored-match-state-design.md`.
 
-**Phase two is implemented behind a private capability and defaults off.**
+**Phase two is globally active behind an emergency rollback capability.**
 Migration `20260916120000_canonical_score_commands.sql` defines the typed,
 revisioned score and structural commands. Web and native iOS use those
-commands only when `app_config.canonical_score_commands` enables that account;
+commands when `app_config.canonical_score_commands` is `on`;
 `not_enabled` is the only response that may fall back to the legacy write.
 Conflicts reconcile from the returned complete snapshot and never perform a
-second write. Keep the capability `off` for an ordinary deploy, canary with
-`user:<uuid>`, and disable it without deleting projection data if anything is
-unclear.
+second write. Older installed clients retain their established writes; the
+database triggers still refresh the same canonical projection, so compatibility
+does not create a second stored interpretation. Set the capability to `off`
+only for an incident rollback; doing so does not delete projection data.
 
-**The phase-three reader foundation is separate and also defaults off.**
+**The phase-three reader comparison is separate and globally active.**
 Migration `20260916143000_canonical_score_readers.sql` adds the authenticated
-`canonical_score_snapshot_v1` boundary and the independent
-`canonical_score_readers` account canary. Owner, accepted-coach and admin
-access still goes through the existing match boundary; admin status never
-enables the canary. Web match detail and native iOS may shadow-compare one
-revision-pinned snapshot when that account is allowlisted, but displays still
-use the established folds. Admin Upload Detail shares the same legacy adapter,
+`canonical_score_snapshot_v1` boundary and the independent emergency rollback
+switch `canonical_score_readers`, now `on`. Owner, accepted-coach and admin
+access still goes through the existing match boundary. Web match detail and
+native iOS shadow-compare one revision-pinned snapshot, while displays retain
+the established folds. This preserves current UI behavior while every future
+score is stored and checked through the canonical model. Admin Upload Detail
+shares the same legacy adapter,
 the owner match library and accepted-coach student cards can shadow-read up to
 250 revision-current summaries in one `canonical_score_summaries_v1` call.
 Missing, inaccessible and stale rows are deliberately omitted together;
 readers must not repair them or turn the batch into an existence oracle.
 Shadow diagnostics contain only aggregate mismatch counts or stable fallback
-codes, never match ids. Do not activate or widen this reader flag until the
-entry gates in
-`docs/superpowers/plans/2026-09-16-canonical-score-reader-migration.md` pass.
+codes, never match ids. The production entry gates in
+`docs/superpowers/plans/2026-09-16-canonical-score-reader-migration.md` passed
+before the global switch.
 Aggregate stats also use the summary shadow for non-neutral match games. Their
 legacy point cache must download and fingerprint `game_winner_override` via
 `20260916151000_stats_game_winner_fingerprint.sql`; never cache or publish a
