@@ -30,7 +30,7 @@ Videos are private to the account and to the people the player shares them with.
 
 - [Home](https://www.ponglens.com/): what PongLens does, with a walkthrough video and the free allowance.
 - [For coaches](https://www.ponglens.com/coaches): the coaching workspace, students, lesson notes and video recaps.
-- [Learn](https://www.ponglens.com/learn): written guides to every part of the product, for players and for coaches.
+- [Learn](https://www.ponglens.com/learn): written guides to every part of the product, for players and for coaches. The full text of every guide is at https://www.ponglens.com/llms-full.txt
 - [Roadmap](https://www.ponglens.com/roadmap): what is being built, what comes next and what has shipped.
 - [Sign in](https://www.ponglens.com/login): sign in with an emailed link or Google.
 - [Terms of Service](https://www.ponglens.com/terms)

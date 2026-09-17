@@ -11,7 +11,16 @@ import path from "node:path";
 
 export const PREVIEW_SIZE = { width: 1200, height: 630 };
 
-async function loadFont(): Promise<ArrayBuffer | null> {
+let fontPromise: Promise<ArrayBuffer | null> | null = null;
+
+function loadFont(): Promise<ArrayBuffer | null> {
+  // Fetched once per process: the guide cards render on demand, and a
+  // font round trip on every share preview would be the slow part.
+  fontPromise ??= fetchFont();
+  return fontPromise;
+}
+
+async function fetchFont(): Promise<ArrayBuffer | null> {
   // Geist from Google Fonts, as TrueType: the rasteriser cannot read
   // woff2, and an old-browser user agent is how Google serves TTF. If the
   // fetch fails at build time the card renders in the rasteriser's own
