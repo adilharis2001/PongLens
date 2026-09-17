@@ -52,8 +52,14 @@ export function CardBody({ children }: { children: React.ReactNode }) {
  * surface (Adil, 2026-09-15) rather than a grid on one and a carousel on
  * the other.
  */
+/**
+ * Desktop shows two cards and a sliver of the third, so the deck reads as
+ * a deck: at exactly half the width the two filled the row edge to edge
+ * and nothing said there was more to the right (Adil, 2026-09-16). The
+ * phone's 86% card had the peek already.
+ */
 export const CARD_CLASS =
-  "flex w-[86%] shrink-0 snap-center flex-col rounded-2xl border border-edge bg-surface p-4 sm:h-[30rem] sm:w-[calc(50%-0.5rem)] sm:snap-start";
+  "flex w-[86%] shrink-0 snap-center flex-col rounded-2xl border border-edge bg-surface p-4 sm:h-[30rem] sm:w-[calc(46%-0.5rem)] sm:snap-start";
 
 export function Card({
   title,
