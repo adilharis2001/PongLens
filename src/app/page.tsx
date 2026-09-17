@@ -3,7 +3,6 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { NeonBallHero } from "@/components/anim/NeonBallHero";
-import { BetaAllowance } from "@/components/marketing/BetaAllowance";
 import { BrowserFrame } from "@/components/marketing/BrowserFrame";
 import { CTA_CLASS, Feature, Phone } from "@/components/marketing/Feature";
 import { IosBetaSignup } from "@/components/marketing/IosBetaSignup";
@@ -452,9 +451,6 @@ export default async function Home() {
           </Feature>
         </div>
 
-        {/* WHAT IT COSTS: the numbers behind the hero's one line. */}
-        <BetaAllowance audience="players" />
-
         {/* FAQ */}
         <section id="faq" className="scroll-mt-20 py-16 sm:py-24">
           <div className="mx-auto max-w-3xl px-6">
@@ -499,8 +495,12 @@ export default async function Home() {
               Try it on your{" "}
               <span className="text-magenta-soft">next match</span>.
             </h2>
+            {/* The one place the numbers appear on the page. The hero keeps
+                its single sentence; the FAQ has the rest. */}
             <p className="max-w-xl text-zinc-400">
-              Analyze four matches for free during beta.
+              Free during beta: {BETA_ALLOWANCE.processingMinutes} processing
+              minutes and {BETA_ALLOWANCE.storageGb} GB of storage, enough for{" "}
+              {BETA_ALLOWANCE.matchesWord} matches.
             </p>
             <TrackedLink
               href="/login"

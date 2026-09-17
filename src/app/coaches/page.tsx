@@ -5,7 +5,6 @@ import Link from "next/link";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { NeonBallHero } from "@/components/anim/NeonBallHero";
-import { BetaAllowance } from "@/components/marketing/BetaAllowance";
 import { BrowserFrame } from "@/components/marketing/BrowserFrame";
 import { CTA_CLASS, Feature, Phone } from "@/components/marketing/Feature";
 import { IosBetaSignup } from "@/components/marketing/IosBetaSignup";
@@ -387,9 +386,6 @@ export default function CoachesPage() {
             PongLens. Payment and payouts are handled for you.
           </Feature>
         </div>
-
-        {/* WHAT IT COSTS */}
-        <BetaAllowance audience="coaches" />
 
         {/* FAQ */}
         <section id="faq" className="scroll-mt-20 py-16 sm:py-24">
