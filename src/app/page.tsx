@@ -95,6 +95,7 @@ const features = [
   "Invite a coach to leave written, spoken or drawn notes on any point",
   "Coach workspace with students, lesson notes and video recaps",
   "Record lesson audio on iPhone and get a summary of the coaching advice",
+  "Upload a lesson video and get a recap under fifteen minutes long, split into chapters",
   "A journal you can dictate to, photograph pages into and ask questions of",
   "Stats across every scored match",
 ];
@@ -399,27 +400,66 @@ export default async function Home() {
           </Feature>
 
           <Feature
-            id="journal"
-            title="Lessons you can go back to"
+            id="record"
+            title="Record a lesson"
             media={
               <div className="flex items-start justify-center gap-4 sm:gap-6">
                 <Phone
-                  src="/showcase/journal-feed-m.jpg"
-                  alt="The journal on a phone: a lesson broken into takeaways beside match notes"
+                  src="/showcase/coach-record-m.jpg"
+                  alt="Recording a lesson in the PongLens iPhone app"
                   className="w-[46%] max-w-[240px]"
                 />
                 <Phone
-                  src="/learn/journal-ask-m.jpg"
-                  alt="Asking the journal a question and getting an answer drawn from your own entries"
+                  src="/showcase/player-lesson-m.jpg"
+                  alt="The lesson in the journal afterwards: a summary of the coaching advice, grouped by theme"
                   className="mt-10 w-[46%] max-w-[240px]"
                 />
               </div>
             }
           >
-            Record lesson audio on your iPhone and get a summary of the key
-            coaching advice. Dictate a note or photograph a page of your
-            notebook, then ask your journal questions like “What did my coach
-            say about my backhand?”
+            Record the lesson audio in the iPhone app. PongLens creates a
+            transcript and a summary of the key coaching advice, and saves
+            both to your journal.
+          </Feature>
+
+          <Feature
+            id="recaps"
+            title="Video lesson recaps"
+            flip
+            media={
+              <Phone
+                src="/showcase/coach-recap-current-m.jpg"
+                alt="A lesson video recap on a phone, split into chapters"
+              />
+            }
+          >
+            Upload a recording of your lesson, even a 90-minute one, and
+            PongLens cuts it down to a recap of under fifteen minutes, split
+            into chapters. Go back to the explanation or the demonstration
+            you want to see again.
+          </Feature>
+
+          <Feature
+            id="journal"
+            title="Ask your journal"
+            media={
+              <div className="flex items-start justify-center gap-4 sm:gap-6">
+                <Phone
+                  src="/showcase/journal-feed-m.jpg"
+                  alt="The journal on a phone: a lesson summary beside practice and match notes"
+                  className="w-[46%] max-w-[240px]"
+                />
+                <Phone
+                  src="/showcase/player-ask-m.jpg"
+                  alt="Asking the journal what the coach said to work on, and the answer drawn from the player's own entries"
+                  className="mt-10 w-[46%] max-w-[240px]"
+                />
+              </div>
+            }
+          >
+            Lesson summaries, match notes and dictated notes live in one
+            journal. Photograph a page of your notebook to add it, then ask
+            questions like “What did my coach say about my backhand?”
           </Feature>
 
           <Feature
