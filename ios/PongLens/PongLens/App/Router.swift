@@ -25,6 +25,11 @@ final class Router {
     /// The chooser in front of both of those. Nothing opens the camera or
     /// the library directly any more except the chooser itself.
     var newMatchOpen = false
+    /// A lesson door the Coaching tab should open when it next appears:
+    /// the recorder or the video import. Set beside `tab = .coaching` by
+    /// Home's First steps, whose rows cannot present those sheets
+    /// themselves. Cleared by CoachingScreen once it has opened it.
+    var pendingLessonChoice: NewLessonChoice?
 
     #if DEBUG
     /// Headless-verification hooks: open a match (and optionally the player)

@@ -39,6 +39,8 @@ final class HomeStore {
     var shareLinksCount = 0
     var coachLinksCount = 0
     var reels: [ReelFeedRow] = []
+    /// Lesson videos this account has imported, for the First steps row.
+    var lessonVideosCount = 0
     /// The three board posts being talked about most recently, for Home's
     /// last section. Open posts only: a finished one is not an invitation.
     var boardItems: [FeedbackItem] = []
@@ -60,6 +62,13 @@ final class HomeStore {
             .neq("status", value: "revoked")
             .execute()
         coachLinksCount = coaches?.count ?? 0
+
+        let videos = try? await supa
+            .from("lesson_videos")
+            .select("id", head: true, count: .exact)
+            .eq("owner_id", value: userId.uuidString.lowercased())
+            .execute()
+        lessonVideosCount = videos?.count ?? 0
 
         let reelRows: [ReelFeedRow]? = try? await supa
             .from("match_reels")

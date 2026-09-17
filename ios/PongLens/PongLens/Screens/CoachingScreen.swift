@@ -232,9 +232,18 @@ struct CoachingScreen: View {
             }
             .padding(20)
         }
-        .task { await loadRecaps() }
+        .task {
+            await loadRecaps()
+            openPendingLessonDoor()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await loadRecaps() } }
+        }
+        // Home's First steps asked for a lesson door. Opened a beat after
+        // the tab switch, so the sheet is not raised while the page is
+        // still sliding in.
+        .onChange(of: router.pendingLessonChoice) { _, _ in
+            openPendingLessonDoor()
         }
         .sheet(item: $coachEntryOpen) { entry in
             CoachSharedEntrySheet(entry: entry)
@@ -276,11 +285,31 @@ struct CoachingScreen: View {
         }
         .fullScreenCover(isPresented: $recordOpen) {
             LessonRecordScreen {
-                Task { await journal.load(userId: app.userId) }
+                Task {
+                    await journal.load(userId: app.userId)
+                    // The one First steps row the data cannot answer: a
+                    // recorded lesson and a typed one land in the same
+                    // table. Written the way the tutorial flag is.
+                    await app.setMetadataFlag("lesson_recorded", true)
+                }
             }
         }
         .sheet(isPresented: $importOpen, onDismiss: { Task { await loadRecaps() } }) {
             LessonVideoScreen(coaches: coaching.playerCoaches)
+        }
+    }
+
+    /// Consume the door Home asked for, if any, and clear it so a later
+    /// visit to the tab does not open it again.
+    private func openPendingLessonDoor() {
+        guard let pending = router.pendingLessonChoice else { return }
+        router.pendingLessonChoice = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            switch pending {
+            case .write: composerOpen = true
+            case .record: recordOpen = true
+            case .importVideo: importOpen = true
+            }
         }
     }
 

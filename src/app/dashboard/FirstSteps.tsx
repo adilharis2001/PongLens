@@ -33,6 +33,15 @@ interface Steps {
    * time a chapter actually plays — opening the page is not watching it).
    */
   watched: boolean;
+  /**
+   * Recording a lesson is the other one: a recorded lesson and a typed one
+   * land in the same table, so the iPhone recorder sets
+   * user_metadata.lesson_recorded on its first save. Only the phone can
+   * record, so only the phone ever sets it.
+   */
+  lessonRecorded: boolean;
+  /** An imported lesson video: its own row, so the data answers this one. */
+  lessonVideo: boolean;
 }
 
 export function FirstSteps({
@@ -60,7 +69,7 @@ export function FirstSteps({
     let cancelled = false;
     (async () => {
       const supabase = createClient();
-      const [pointRes, starRes, noteRes, focusRes, shareRes, coachRes, userRes] =
+      const [pointRes, starRes, noteRes, focusRes, shareRes, coachRes, videoRes, userRes] =
         await Promise.all([
           // A point the owner actually called: confirmed_winner is the
           // user's answer (plain `winner` is the vision guess).
@@ -92,9 +101,15 @@ export function FirstSteps({
             .select("id")
             .eq("player_id", userId)
             .limit(1),
+          supabase
+            .from("lesson_videos")
+            .select("id")
+            .eq("owner_id", userId)
+            .limit(1),
           supabase.auth.getUser(),
         ]);
       if (cancelled) return;
+      const meta = userRes.data.user?.user_metadata;
       setSteps({
         scored: (pointRes.data?.length ?? 0) > 0,
         starred: (starRes.data?.length ?? 0) > 0,
@@ -102,7 +117,9 @@ export function FirstSteps({
         focus: (focusRes.data?.length ?? 0) > 0,
         shared: (shareRes.data?.length ?? 0) > 0,
         coached: (coachRes.data?.length ?? 0) > 0,
-        watched: tutorialWasStarted(userRes.data.user?.user_metadata, "player"),
+        watched: tutorialWasStarted(meta, "player"),
+        lessonRecorded: meta?.lesson_recorded === true,
+        lessonVideo: (videoRes.data?.length ?? 0) > 0,
       });
     })();
     return () => {
@@ -141,6 +158,19 @@ export function FirstSteps({
       label: "Add what you're working on",
       done: steps.focus,
       href: "/journal",
+    },
+    // The two lesson doors (Adil, 2026-09-17). Recording happens on the
+    // iPhone; on the web this row opens the New lesson chooser, which says
+    // so and offers the other two ways in.
+    {
+      label: "Audio record a lesson",
+      done: steps.lessonRecorded,
+      href: "/coaching?new=1",
+    },
+    {
+      label: "Import a lesson video",
+      done: steps.lessonVideo,
+      href: "/coaching/import",
     },
     {
       label: "Share or export a match",

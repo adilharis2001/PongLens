@@ -338,6 +338,9 @@ struct HomeScreen: View {
         case route(String)
         case tutorial(LearnAudience)
         case match(MatchRow)
+        /// The Coaching tab with one of its lesson doors opened on
+        /// arrival: the recorder or the video import.
+        case lesson(NewLessonChoice)
     }
 
     private struct Step {
@@ -369,6 +372,13 @@ struct HomeScreen: View {
                  go: onMatch("score-points")),
             Step(label: "Add what you're working on", done: !journal.cues.isEmpty,
                  go: .tab(.journal)),
+            // The two lesson doors (Adil, 2026-09-17). Recording leaves no
+            // mark of its own in the data, so it is a flag the recorder
+            // sets; a lesson video is a row the import creates.
+            Step(label: "Audio record a lesson", done: app.metadataFlag("lesson_recorded"),
+                 go: .lesson(.record)),
+            Step(label: "Import a lesson video", done: homeStore.lessonVideosCount > 0,
+                 go: .lesson(.importVideo)),
             Step(label: "Share or export a match", done: homeStore.shareLinksCount > 0,
                  go: onMatch("share-a-link")),
             Step(label: "Share a match with your coach", done: homeStore.coachLinksCount > 0,
@@ -423,6 +433,12 @@ struct HomeScreen: View {
                     .buttonStyle(.plain)
             case .tab(let tab):
                 Button { router.tab = tab } label: { content }
+                    .buttonStyle(.plain)
+            case .lesson(let choice):
+                Button {
+                    router.pendingLessonChoice = choice
+                    router.tab = .coaching
+                } label: { content }
                     .buttonStyle(.plain)
             case nil:
                 content

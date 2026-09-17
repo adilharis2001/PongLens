@@ -133,7 +133,15 @@ export function PlayerCoaching({
   /* The bell's "your coach shared a lesson note" lands here carrying the
      entry it was about. Without this it would land on a feed with the
      entry somewhere in it, which is making the reader find it twice. */
-  const openEntryId = useSearchParams().get("entry");
+  const params = useSearchParams();
+  const openEntryId = params.get("entry");
+  /* Home's First steps "Audio record a lesson" row lands here with
+     ?new=1: the chooser opens at once, and says recording is on the
+     iPhone while offering the other two ways in. */
+  const openNew = params.get("new") === "1";
+  useEffect(() => {
+    if (openNew) setChooserOpen(true);
+  }, [openNew]);
 
   /** Find-or-create one of the player's own coaches by name (164). The
    *  same rule the Journal's composer uses: a name that already exists
