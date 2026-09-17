@@ -65,5 +65,20 @@ Verification:
 - `replay.py /private/tmp/adil-serve-eval` changed 25 selected physical-server
   hypotheses across all games; the product-level first-game aggregation added
   ten renderable placements and removed none.
-- The 103 placement aggregation/rendering tests passed.
+- The 120 placement aggregation/rendering tests passed.
 - The full `npm run build` passed with the repository's existing warnings.
+
+## Mac production release
+
+The sealed Mac release `07c5823c4d556742bb9da2da2ddf965582935233ab44e7144ffa8aa1da6a98e0`,
+built from source commit `762ea2c0651fc85bc73118c4b019388f971da642`, was activated on
+2026-09-17. The main, fast, and hand lanes each reported a fresh idle pulse
+from that exact release after their drain markers were removed. Release
+integrity was verified again after activation.
+
+The previous Mac release
+`9e53da3318b458ad0beb85fd9c953a7d21b8d885e0b7ab95d6a92dbdaa6da5ce`
+remains available and passed its rollback integrity check. The cloud worker
+remains disabled and intentionally references the previous Mac release. At the
+owner's direction, this incremental release did not run private cloud parity
+replays and was not deployed or registered as a cloud twin.
