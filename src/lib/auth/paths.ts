@@ -7,7 +7,11 @@ const PROTECTED_APP_PREFIXES = [
   "/account",
   "/admin",
   "/feedback",
-  "/learn",
+  // The written guides under /learn are public: they are the only long-form
+  // writing about the product, and search cannot see a page behind sign-in.
+  // The tutorial videos stay behind it, because they are served from
+  // private storage per session.
+  "/learn/videos",
   "/marketing",
   "/onboarding",
   "/research",

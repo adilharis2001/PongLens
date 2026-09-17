@@ -3,19 +3,25 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
+import { PublicShell } from "../PublicShell";
 import {
   guideBySlugForPlatform,
   legacyGuideRedirect,
   visibleGuides,
   visibleRelatedGuides,
 } from "../catalog";
-import type { GuideImage, GuideSection } from "../catalogTypes";
+import type { Guide, GuideImage, GuideSection } from "../catalogTypes";
 
 /**
  * One guide, rendered from its data in guides.ts. Screenshots follow the
  * showcase's viewport rule: a phone capture marked phoneTwin repeats what
  * the desktop capture shows, so it renders only where the desktop one is
  * hidden — each form factor sees its own screens.
+ *
+ * Public. A visitor gets the marketing chrome, a signed-in person the
+ * app's. The page is indexable and carries HowTo markup for the guides
+ * that open with steps, because "how do I record a table tennis match"
+ * is a question search engines get and this is the answer.
  */
 
 export function generateStaticParams() {
@@ -31,9 +37,57 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const guide = guideBySlugForPlatform(slug, "web");
+  if (!guide) return { title: "Learn", robots: { index: false, follow: false } };
   return {
-    title: guide ? guide.title : "Learn",
-    robots: { index: false, follow: false },
+    title: guide.title,
+    description: guide.summary,
+    alternates: { canonical: `/learn/${guide.slug}` },
+    robots: { index: true, follow: true },
+    openGraph: {
+      title: guide.title,
+      description: guide.summary,
+      url: `/learn/${guide.slug}`,
+      siteName: "PongLens",
+      type: "article",
+    },
+  };
+}
+
+function guideJsonLd(guide: Guide) {
+  const steps = guide.sections.find((s) => s.steps && s.steps.length > 0)?.steps;
+  const url = `https://www.ponglens.com/learn/${guide.slug}`;
+  const breadcrumb = {
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "PongLens", item: "https://www.ponglens.com/" },
+      { "@type": "ListItem", position: 2, name: "Learn", item: "https://www.ponglens.com/learn" },
+      { "@type": "ListItem", position: 3, name: guide.title, item: url },
+    ],
+  };
+  const article = steps
+    ? {
+        "@type": "HowTo",
+        name: guide.title,
+        description: guide.summary,
+        url,
+        step: steps.map((text, i) => ({
+          "@type": "HowToStep",
+          position: i + 1,
+          text,
+        })),
+      }
+    : {
+        "@type": "TechArticle",
+        headline: guide.title,
+        description: guide.summary,
+        url,
+      };
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      { ...article, publisher: { "@id": "https://www.ponglens.com/#organization" } },
+      breadcrumb,
+    ],
   };
 }
 
@@ -142,17 +196,20 @@ export default async function GuidePage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
   const avatarUrl =
-    (user.user_metadata?.avatar_url as string | undefined) ??
-    (user.user_metadata?.picture as string | undefined) ??
+    (user?.user_metadata?.avatar_url as string | undefined) ??
+    (user?.user_metadata?.picture as string | undefined) ??
     null;
 
   const related = visibleRelatedGuides(guide, audience, "web");
 
-  return (
-    <AppShell avatarUrl={avatarUrl}>
+  const body = (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(guideJsonLd(guide)) }}
+      />
       <Link
         href={`/learn?audience=${audience}`}
         className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 transition-colors hover:text-cyan-glow"
@@ -204,6 +261,28 @@ export default async function GuidePage({
           </div>
         </div>
       )}
-    </AppShell>
+
+      {!user && (
+        <div className="mt-14 rounded-2xl border border-edge bg-surface p-6 text-center sm:p-8">
+          <p className="text-lg font-semibold text-zinc-100">
+            Try it on your next match.
+          </p>
+          <p className="mt-2 text-sm text-zinc-400">
+            Free during beta: 250 processing minutes and 25 GB of storage.
+          </p>
+          <Link
+            href="/login"
+            className="glow-cta mt-5 inline-flex min-h-11 items-center justify-center rounded-full bg-cyan-glow px-6 text-base font-semibold text-ink"
+          >
+            Upload your first match
+          </Link>
+        </div>
+      )}
+    </>
   );
+
+  if (!user) {
+    return <PublicShell audience={audience}>{body}</PublicShell>;
+  }
+  return <AppShell avatarUrl={avatarUrl}>{body}</AppShell>;
 }

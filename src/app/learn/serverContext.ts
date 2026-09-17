@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { AuthUser as User } from "@supabase/supabase-js";
-import { redirect } from "next/navigation";
 import { dualRoleEligible } from "@/lib/dualRoleEligibility";
 import { createClient } from "@/lib/supabase/server";
 import { rememberedWorkspace } from "@/lib/workspaceServer";
@@ -9,7 +8,9 @@ import { resolveLearnAudience } from "./audience";
 import type { LearnAudience } from "./catalogTypes";
 
 export interface LearnServerContext {
-  user: User;
+  /** Null for a visitor who is not signed in. The guides are public; the
+   *  tutorial videos are not, and their page redirects on null. */
+  user: User | null;
   avatarUrl: string | null;
   activeWorkspace: LearnAudience;
   audience: LearnAudience;
@@ -23,7 +24,23 @@ export async function loadLearnServerContext(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+
+  if (!user) {
+    // A visitor: no workspace to remember, so the guides open on the
+    // player side and the switch is always offered, because a coach
+    // reading up before signing up is exactly who lands here from search.
+    return {
+      user: null,
+      avatarUrl: null,
+      activeWorkspace: "player",
+      audience: resolveLearnAudience({
+        active: "player",
+        requested,
+        canSwitch: true,
+      }),
+      canSwitch: true,
+    };
+  }
 
   const flagged = user.user_metadata?.is_coach === true;
   const [remembered, profile, asCoach, roster, player] = await Promise.all([
