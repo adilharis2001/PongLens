@@ -25,7 +25,7 @@ import { COACH_LENGTH } from "@/lib/videos";
  */
 
 const description =
-  "Manage your table tennis students, share match feedback and turn recorded lessons into coaching notes and video recaps with PongLens.";
+  "Keep your table tennis students’ lesson notes and shared matches in one place, leave feedback on their points, and turn lesson recordings into coaching notes and video recaps.";
 
 export const metadata: Metadata = {
   title: "PongLens for coaches",
@@ -51,23 +51,23 @@ export const metadata: Metadata = {
 const faqs = [
   {
     q: "What can I use PongLens for as a coach?",
-    a: "Keep your students, their lesson notes and the matches they share with you in one place. Leave feedback on the points of a match, record a lesson on iPhone and share the notes, prepare video recaps, and offer paid match reviews from your own page.",
+    a: "Keep each student’s lesson notes and shared matches in one place. Leave feedback on the points of a match, record lesson audio on iPhone and share the notes, make video recaps, and offer paid match reviews.",
   },
   {
     q: "Do my students need a PongLens account?",
-    a: "Not for you to add them and keep notes about their lessons. You can send any entry as a link. When a student connects their account, the entries you share appear in their journal and the matches they share appear on their student page.",
+    a: "Not for you to add them and keep notes about their lessons. You can send any entry as a link. When a student connects their account, the entries you share appear in their journal, and the entries and matches they choose to share appear on their student page.",
   },
   {
     q: "What can I see from a student’s account?",
-    a: "The matches and journal entries they choose to share with you. Their other entries and their account details stay private.",
+    a: "Only the matches and journal entries they choose to share with you. Their other entries and their account details stay private.",
   },
   {
     q: "How does lesson recording work?",
-    a: "Record the lesson’s audio in the iPhone app. PongLens turns it into a transcript and a set of coaching notes, which you check, edit and share with your student.",
+    a: "Record the lesson audio in the iPhone app. PongLens creates a transcript and draft coaching notes, which you review, edit and share with your student.",
   },
   {
     q: "Can I upload a lesson video?",
-    a: "Yes. Upload a recorded lesson and PongLens prepares a recap split into chapters. You review it before you share it.",
+    a: "Yes. Upload a lesson recording and PongLens makes a shorter video split into chapters. You review it before you share it.",
   },
   {
     q: "Can I edit an entry after sharing it?",
@@ -80,11 +80,11 @@ const faqs = [
   },
   {
     q: "What does it cost?",
-    a: "Nothing during beta. Students, lesson notes and match feedback are free, and lesson recordings and video recaps use the same free processing and storage allowance as every account. A platform fee applies to paid match reviews.",
+    a: "Managing students, sharing notes and giving match feedback are free during beta. Lesson recordings and video recaps use your included processing and storage allowances. A platform fee applies when you sell a match review.",
   },
   {
     q: "How do paid match reviews work?",
-    a: "You set the price, what the review covers and how many days you need. A player sends a match and their questions, and nothing starts until you accept. You deliver the review through PongLens and are paid through Stripe.",
+    a: "You set the price, what the review covers and how many days you need. A player sends a match and their questions, and nothing starts until you accept. You deliver the review through PongLens, and you are paid through Stripe.",
   },
   {
     q: "Can my students see each other?",
@@ -112,18 +112,18 @@ const jsonLd = {
       "@type": "Service",
       "@id": "https://www.ponglens.com/coaches#service",
       name: "PongLens for table tennis coaches",
-      serviceType: "Table tennis coaching workspace",
+      serviceType: "Table tennis coaching",
       provider: { "@id": "https://www.ponglens.com/#organization" },
       audience: { "@type": "Audience", audienceType: "Table tennis coaches" },
       areaServed: "Worldwide",
       description:
-        "A coaching workspace for table tennis: a page per student with lesson notes and shared matches, feedback on individual points, lesson recording on iPhone with notes prepared for the coach, lesson video recaps split into chapters, and paid match reviews with payment handled by PongLens.",
+        "For table tennis coaches: one page per student with lesson notes and shared matches, feedback on individual points, lesson audio recording on iPhone with a transcript and draft coaching notes, video lesson recaps split into chapters, and paid match reviews with payment handled by PongLens.",
       offers: {
         "@type": "Offer",
         price: "0",
         priceCurrency: "USD",
         description:
-          "Free for coaches during beta. A platform fee applies to paid match reviews.",
+          "Managing students, sharing notes and giving match feedback are free during beta. Lesson recordings and video recaps use the included processing and storage allowance. A platform fee applies to paid match reviews.",
       },
     },
     {
@@ -204,14 +204,13 @@ export default function CoachesPage() {
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-44 pt-16 text-center sm:pb-24 sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                PongLens for table tennis coaches, built around{" "}
-                <span className="text-cyan-glow text-glow">every student.</span>
+                PongLens for{" "}
+                <span className="text-cyan-glow text-glow">table tennis coaches.</span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                Keep each student&apos;s lessons, notes and matches in one
-                place. Leave feedback on the points that matter, share lesson
-                notes they can go back to, and offer paid match reviews from
-                your own page.
+                Keep each student&apos;s lesson notes and shared matches in one
+                place. Watch their points, leave feedback and share notes they
+                can read before the next lesson.
               </p>
               <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 lg:justify-start">
                 <TrackedLink
@@ -230,7 +229,7 @@ export default function CoachesPage() {
                 </Link>
               </div>
               <p className="mt-5 text-sm text-zinc-400">
-                Free for coaches during beta.
+                Students, notes and match feedback are free during beta.
               </p>
             </div>
           </div>
@@ -284,10 +283,9 @@ export default function CoachesPage() {
               </BrowserFrame>
             }
           >
-            Every student has a page with the notes you shared, the entries
-            they shared back, the matches they sent you and their lesson
-            videos. Open it before a session and you can see what you worked
-            on last time.
+            Each student has one page with your lesson notes, the entries and
+            matches they have shared with you, and their lesson videos. Before
+            the next session, look back at what you worked on last time.
           </Feature>
 
           <Feature
@@ -301,9 +299,9 @@ export default function CoachesPage() {
               />
             }
           >
-            A student shares a match and you watch it point by point. Write a
-            note, draw on the frame or leave a voice note on the exact point,
-            and it shows up in their match with a link back to the rally.
+            Watch a shared match point by point. Add a comment, a drawing or a
+            voice note to any point, so your student sees exactly which moment
+            you mean.
           </Feature>
 
           <Feature
@@ -325,14 +323,14 @@ export default function CoachesPage() {
             }
             after={<IosBetaSignup placement="hero" />}
           >
-            Put your iPhone near the table and record the lesson. It comes
-            back as a transcript and a set of notes, split into what you
-            worked on and what comes next, for you to check and share.
+            Record the lesson audio in the iPhone app. PongLens creates a
+            transcript and draft coaching notes for you to review, edit and
+            share with your student.
           </Feature>
 
           <Feature
             id="journal"
-            title="Notes they can go back to"
+            title="Shared lesson notes"
             flip
             media={
               <Phone
@@ -341,15 +339,14 @@ export default function CoachesPage() {
               />
             }
           >
-            Share an entry and it appears in your student&apos;s journal.
-            Edit it later and they see the new version. What they write about
-            the lesson comes back to you on their page, so both sides stay
-            together.
+            Share an entry and it appears in your student&apos;s journal. Edit
+            it later and they see the new version. You can also read the
+            entries they choose to share with you.
           </Feature>
 
           <Feature
             id="recaps"
-            title="Lesson recaps on video"
+            title="Video lesson recaps"
             media={
               <Phone
                 src="/showcase/coach-recap-current-m.jpg"
@@ -357,10 +354,9 @@ export default function CoachesPage() {
               />
             }
           >
-            Upload a recorded lesson and it comes back as a short recap split
-            into chapters. A student can go straight to the explanation or
-            the demonstration they need instead of scrubbing through the
-            whole recording.
+            Upload a lesson recording and PongLens makes a shorter video split
+            into chapters. Your student can jump to the explanation or the
+            demonstration they want to see again.
           </Feature>
 
           <Feature
@@ -380,10 +376,9 @@ export default function CoachesPage() {
               </BrowserFrame>
             }
           >
-            Set up a page with your experience and what a review covers, and
-            choose your price. A player sends a match and their questions,
-            you accept the order, review the points and deliver it through
-            PongLens. Payment and payouts are handled for you.
+            Set your price and describe what your review covers on your coach
+            page. Players send a match and their questions. You choose which
+            orders to accept, and PongLens handles payment and delivery.
           </Feature>
         </div>
 
@@ -434,11 +429,11 @@ export default function CoachesPage() {
         <section className="border-t border-edge bg-band">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-16 text-center">
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Bring your students and{" "}
-              <span className="text-magenta-soft">lessons together</span>.
+              Try it with your{" "}
+              <span className="text-magenta-soft">next lesson</span>.
             </h2>
             <p className="max-w-xl text-zinc-400">
-              Free for coaches during beta.
+              Students, notes and match feedback are free during beta.
             </p>
             <TrackedLink
               href="/coaching/start"
