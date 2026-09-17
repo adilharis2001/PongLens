@@ -5,6 +5,7 @@ import Link from "next/link";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { NeonBallHero } from "@/components/anim/NeonBallHero";
+import { BetaAllowance } from "@/components/marketing/BetaAllowance";
 import { BrowserFrame } from "@/components/marketing/BrowserFrame";
 import { CTA_CLASS, Feature, Phone } from "@/components/marketing/Feature";
 import { IosBetaSignup } from "@/components/marketing/IosBetaSignup";
@@ -204,9 +205,8 @@ export default function CoachesPage() {
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-44 pt-16 text-center sm:pb-24 sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                A coaching hub for{" "}
-                <span className="text-cyan-glow text-glow">table tennis</span>,
-                built around every student.
+                PongLens for coaches, built around{" "}
+                <span className="text-cyan-glow text-glow">every student.</span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
                 Keep each student&apos;s lessons, notes and matches in one
@@ -387,6 +387,9 @@ export default function CoachesPage() {
             PongLens. Payment and payouts are handled for you.
           </Feature>
         </div>
+
+        {/* WHAT IT COSTS */}
+        <BetaAllowance audience="coaches" />
 
         {/* FAQ */}
         <section id="faq" className="scroll-mt-20 py-16 sm:py-24">

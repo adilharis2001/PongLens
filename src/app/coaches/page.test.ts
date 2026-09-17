@@ -28,7 +28,7 @@ test("every picture on the coaches page is a published file", () => {
 });
 
 test("the coaches page is built from the same pieces as the player page", () => {
-  for (const name of ["Feature", "Phone", "CTA_CLASS", "BrowserFrame", "TrackedLink", "LandingVideo"]) {
+  for (const name of ["Feature", "Phone", "CTA_CLASS", "BrowserFrame", "TrackedLink", "LandingVideo", "BetaAllowance"]) {
     assert.match(page, new RegExp(`\\b${name}\\b`), `coaches page does not use ${name}`);
     assert.match(playerPage, new RegExp(`\\b${name}\\b`), `player page does not use ${name}`);
   }

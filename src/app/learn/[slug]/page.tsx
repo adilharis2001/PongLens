@@ -11,6 +11,7 @@ import {
   visibleRelatedGuides,
 } from "../catalog";
 import type { Guide, GuideImage, GuideSection } from "../catalogTypes";
+import { BETA_ALLOWANCE } from "@/lib/marketing/beta";
 
 /**
  * One guide, rendered from its data in guides.ts. Screenshots follow the
@@ -268,7 +269,8 @@ export default async function GuidePage({
             Try it on your next match.
           </p>
           <p className="mt-2 text-sm text-zinc-400">
-            Free during beta: 250 processing minutes and 25 GB of storage.
+            Free during beta: {BETA_ALLOWANCE.processingMinutes} processing
+            minutes and {BETA_ALLOWANCE.storageGb} GB of storage.
           </p>
           <Link
             href="/login"

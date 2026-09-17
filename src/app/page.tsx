@@ -3,6 +3,7 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { NeonBallHero } from "@/components/anim/NeonBallHero";
+import { BetaAllowance } from "@/components/marketing/BetaAllowance";
 import { BrowserFrame } from "@/components/marketing/BrowserFrame";
 import { CTA_CLASS, Feature, Phone } from "@/components/marketing/Feature";
 import { IosBetaSignup } from "@/components/marketing/IosBetaSignup";
@@ -10,6 +11,7 @@ import { LandingVideo } from "@/components/marketing/LandingVideo";
 import { PhoneFrame } from "@/components/marketing/PhoneFrame";
 import { TrackedLink } from "@/components/marketing/TrackedLink";
 import { getSupportEmail } from "@/lib/config";
+import { BETA_ALLOWANCE } from "@/lib/marketing/beta";
 import { WALKTHROUGH_CHAPTERS } from "@/lib/videoCuts";
 import { WALKTHROUGH, WALKTHROUGH_TRANSCRIPT } from "@/lib/walkthrough";
 
@@ -55,7 +57,7 @@ const faqs = [
   },
   {
     q: "What do I get for free?",
-    a: "Enough for four matches. Every account gets 250 processing minutes and 25 GB of storage during beta, and a match uses its recording length in minutes. When you run out, you can request more for free.",
+    a: `Enough for ${BETA_ALLOWANCE.matchesWord} matches. Every account gets ${BETA_ALLOWANCE.processingMinutes} processing minutes and ${BETA_ALLOWANCE.storageGb} GB of storage during beta, and a match uses its recording length in minutes. When you run out, you can request more for free.`,
   },
   {
     q: "How long does processing take?",
@@ -137,7 +139,7 @@ const jsonLd = (supportEmail: string) => ({
         price: "0",
         priceCurrency: "USD",
         description:
-          "Free during beta: 250 processing minutes and 25 GB of storage for every account.",
+          `Free during beta: ${BETA_ALLOWANCE.processingMinutes} processing minutes and ${BETA_ALLOWANCE.storageGb} GB of storage for every account.`,
       },
       publisher: { "@id": "https://www.ponglens.com/#organization" },
     },
@@ -449,6 +451,9 @@ export default async function Home() {
             app.
           </Feature>
         </div>
+
+        {/* WHAT IT COSTS: the numbers behind the hero's one line. */}
+        <BetaAllowance audience="players" />
 
         {/* FAQ */}
         <section id="faq" className="scroll-mt-20 py-16 sm:py-24">
