@@ -1,4 +1,5 @@
 import { COACH_CUTS, CUTS, INTRO_CUTS, type Cut } from "./videoCuts";
+import { COACH_WALKTHROUGH } from "./coachWalkthrough";
 import { WALKTHROUGH } from "./walkthrough";
 
 /**
@@ -21,19 +22,11 @@ import { WALKTHROUGH } from "./walkthrough";
  * arrangement that actually keeps it out.
  */
 /**
- * The coach walkthrough's runtime, in one place.
- *
- * It was written out twice — here and on /coaches — and the landing figure
- * has already been wrong on the page twice for exactly that reason, which
- * is why the player cut reads its length out of a generated module instead.
- * This one is still typed by hand because the coach cut has no transcript to
- * generate from, so the least it can do is be typed once. Check it against
- * the file rather than against memory:
- *
- *   ffprobe -v error -show_entries format=duration \
- *     -of default=nw=1:nk=1 public/demo/coach-desktop.mp4
+ * The coach walkthrough's runtime. It was written out twice — here and on
+ * /coaches — and the landing figure was wrong on the page twice for exactly
+ * that reason, so both now read it from one place.
  */
-export const COACH_LENGTH = "1:16";
+export const COACH_LENGTH = COACH_WALKTHROUGH.length;
 
 /**
  * The introduction's runtime. Same reasoning as COACH_LENGTH above: typed

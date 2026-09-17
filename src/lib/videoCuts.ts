@@ -77,6 +77,21 @@ export const WALKTHROUGH_CHAPTERS: readonly { label: string; at: number }[] = [
 ];
 
 /**
+ * The coach walkthrough's chapters, read off public/demo/coach.vtt the same
+ * way: the first cue of each beat, less a second. The labels are the
+ * script's own (scripts/demos/landing/chapters/coach.json), which is what
+ * the coach page's test checks them against.
+ */
+export const COACH_CHAPTERS: readonly { label: string; at: number }[] = [
+  { label: "Coach profile", at: 9 },
+  { label: "Your students", at: 17 },
+  { label: "Lesson recording", at: 28 },
+  { label: "Shared journals", at: 36 },
+  { label: "Review orders", at: 44 },
+  { label: "Delivery and payouts", at: 57 },
+];
+
+/**
  * "Introduction to PongLens" — the whole product, both halves, for someone
  * who has never heard of it. It is the only cut that is not aimed at a
  * buyer: the player video sells the player side and the coach video sells

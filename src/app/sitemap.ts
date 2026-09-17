@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { visibleGuides } from "./learn/catalog";
+import { COACH_WALKTHROUGH } from "@/lib/coachWalkthrough";
 import { WALKTHROUGH } from "@/lib/walkthrough";
 
 const BASE = "https://www.ponglens.com";
@@ -48,6 +49,19 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified,
       changeFrequency: "monthly",
       priority: 0.8,
+      videos: [
+        {
+          title: "How coaching works on PongLens",
+          thumbnail_loc: `${BASE}/demo/coach-desktop.jpg`,
+          description:
+            "A walkthrough of the PongLens coaching workspace: a coach profile, a page per student, lesson recording, shared journals, review orders, delivery and payouts.",
+          content_loc: `${BASE}/demo/coach-desktop.mp4`,
+          duration: COACH_WALKTHROUGH.durationSeconds,
+          publication_date: COACH_WALKTHROUGH.uploaded,
+          family_friendly: "yes",
+          live: "no",
+        },
+      ],
     },
     {
       url: `${BASE}/learn`,
