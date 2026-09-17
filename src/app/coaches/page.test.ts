@@ -38,6 +38,13 @@ test("the coaches page is built from the same pieces as the player page", () => 
   assert.match(playerPage, /<LandingVideo[\s\S]*?chapters=\{WALKTHROUGH_CHAPTERS\}[\s\S]*?posterIdle/);
 });
 
+test("the headline says which sport this is", () => {
+  // The one line a visitor and a search engine both read first. It lost
+  // the sport once, in a rename, and nobody noticed until Adil did.
+  const h1 = page.match(/<h1[\s\S]*?<\/h1>/)?.[0] ?? "";
+  assert.match(h1, /table tennis/);
+});
+
 test("the chapter buttons follow the video's own script", () => {
   const labels = [...new Set(videoScript.lines.map((line) => line.label).filter(Boolean))];
   assert.deepEqual(

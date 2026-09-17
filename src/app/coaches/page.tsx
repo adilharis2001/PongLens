@@ -205,7 +205,7 @@ export default function CoachesPage() {
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-44 pt-16 text-center sm:pb-24 sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                PongLens for coaches, built around{" "}
+                PongLens for table tennis coaches, built around{" "}
                 <span className="text-cyan-glow text-glow">every student.</span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
