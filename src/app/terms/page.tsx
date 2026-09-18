@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function TermsPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Terms of Service" updated="September 15, 2026">
+    <LegalPage title="Terms of Service" updated="September 17, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -34,10 +34,10 @@ export default async function TermsPage() {
           upload them, which includes a parent&apos;s consent for anyone under
           18 in the footage. A player under 13, or under 16 in Europe, uses
           PongLens through a parent&apos;s account. You control who you share
-          your matches with. You can buy more processing minutes and storage
-          when you need them, and coaches can sell match reviews. We can
-          change the service while it&apos;s in early access. Don&apos;t abuse
-          it.
+          your matches with. Coaches can sell match reviews. Buying extra
+          processing minutes or storage is not available yet; until it is,
+          you can request more for free. The service will keep changing as
+          we build it. Don&apos;t abuse it.
         </p>
       </section>
 
@@ -68,13 +68,19 @@ export default async function TermsPage() {
         </p>
         <p>
           Video processing happens on hardware we control in the United
-          States. Automated checks during processing confirm the footage is
-          table tennis we can work with. Voice notes are transcribed by
-          Deepgram, and some product features, including Recollect, lesson
-          summaries, and Ask, send the content needed for that feature to
-          OpenAI. We ask you in the app before the first time that happens,
-          and you can switch it off in Account. Neither company may use your
-          content to train or improve its own models. Section 11 lists the
+          States. Processing a match sends a small number of still frames
+          from the video to OpenAI, to confirm the footage is table tennis we
+          can work with and to find the table. That is part of how
+          processing works, so it happens for every match you process.
+        </p>
+        <p>
+          Some features are optional. Voice notes are transcribed by
+          Deepgram, and lesson summaries, Ask, photo reading, Improve with
+          AI, and Recollect send the content they need to OpenAI. We ask you
+          in the app before the first time an optional feature does that,
+          and you can switch these features off in Account. Switching them
+          off does not change the frame checks during processing. Neither
+          company may use your content to train or improve its own models. Section 11 lists the
           categories of provider we use, and our{" "}
           <Link href="/privacy">Privacy Policy</Link> explains where your data
           is held.
@@ -93,15 +99,20 @@ export default async function TermsPage() {
         </p>
         <ul>
           <li>
-            You can buy more minutes in packs. Purchased and free minutes do
-            not expire. If processing fails on our side, the minutes come
-            back automatically.
+            Free minutes do not expire. If processing fails on our side, the
+            minutes come back automatically.
           </li>
           <li>
-            You can buy more storage as a 12-month allowance. When it ends,
-            or when you reach your limit, nothing you uploaded is deleted.
-            Your library stays as it is; you just can&apos;t add more until
-            you delete something or add space.
+            When you reach your storage limit, nothing you uploaded is
+            deleted. Your library stays as it is; you just can&apos;t add
+            more until you delete something or get more space.
+          </li>
+          <li>
+            Buying extra minutes or storage is not available yet. Until it
+            is, you can request more from inside PongLens at no charge. When
+            purchases become available, minutes will be sold in packs that do
+            not expire, and storage as a 12-month allowance; when a storage
+            allowance ends, nothing you uploaded is deleted.
           </li>
           <li>
             Deleting a video frees its storage right away.
@@ -111,7 +122,7 @@ export default async function TermsPage() {
             minutes or storage you already have.
           </li>
         </ul>
-        <p>A few early-access things, honestly stated:</p>
+        <p>A few things we can&apos;t promise:</p>
         <ul>
           <li>
             We don&apos;t guarantee uptime, processing speed, or that results
@@ -129,8 +140,9 @@ export default async function TermsPage() {
       <section>
         <h2>3a. Payments</h2>
         <p>
-          Payments are processed by Stripe. Your card details go to Stripe
-          directly and never touch PongLens servers. We store the purchase
+          Payments, which today means paid coach reviews, are processed by
+          Stripe. Your card details go to Stripe directly and never touch
+          PongLens servers. We store the purchase
           itself: what was bought, its price, and its status. Unused minute
           packs can be refunded on request; minutes already spent on
           completed processing are not refundable. Storage purchases can be
@@ -416,8 +428,40 @@ export default async function TermsPage() {
         </p>
         <p>
           The same address is the route to use if you believe a video includes
-          you, or your child, without consent, or that it infringes your
-          rights.
+          you, or your child, without consent.
+        </p>
+        <p>
+          <strong>Child safety.</strong> If we find sexual or abusive imagery
+          of a child, we remove it, close the account that uploaded it, and
+          report it to the National Center for Missing &amp; Exploited
+          Children, as US law requires. We also share information with law
+          enforcement when the law requires it, as our{" "}
+          <Link href="/privacy">Privacy Policy</Link> explains.
+        </p>
+        <p>
+          <strong>Copyright.</strong> If you believe something on PongLens
+          infringes your copyright, send a notice to our designated
+          copyright agent:
+        </p>
+        <p>
+          Copyright Agent, AH Labs LLC
+          <br />
+          971 US Highway 202N, Ste N, Branchburg, NJ 08876, United States
+          <br />
+          Email:{" "}
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
+        </p>
+        <p>
+          Your notice should identify the copyrighted work, identify the
+          material on PongLens and where it is, give your name and contact
+          details, and include a statement that you believe in good faith
+          the use is not authorized, a statement under penalty of perjury
+          that your notice is accurate and that you are the owner or are
+          authorized to act for the owner, and your physical or electronic
+          signature. If we remove your content after a notice and you
+          believe that was a mistake, you can send us a counter-notice to
+          the same address. We close the accounts of people who repeatedly
+          infringe copyright.
         </p>
       </section>
 
