@@ -39,15 +39,18 @@ export function CameraGuide({
 }: {
   className?: string;
   /**
-   * "link" — the quiet inline hint, for a page header.
-   * "row"  — a full-width labelled row that cannot be missed.
+   * "link"   — the quiet inline hint, for a page header.
+   * "row"    — a full-width labelled row that cannot be missed.
+   * "button" — a pill the size of the buttons beside it, for a card whose
+   *            actions are already pills (Home's first-run hero). A row
+   *            there put three different button shapes in one box.
    *
    * Where the camera goes is the single biggest thing deciding whether the
    * pipeline finds any points at all, and as a 97x16px grey link in a
    * corner it was reliably never opened. The row exists so a first upload
    * meets it on the way past.
    */
-  variant?: "link" | "row";
+  variant?: "link" | "row" | "button";
 }) {
   const [open, setOpen] = useState(false);
   const titleId = useId();
@@ -86,7 +89,18 @@ export function CameraGuide({
 
   return (
     <div className={className}>
-      {variant === "row" ? (
+      {variant === "button" ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen(true)}
+          className="w-full max-w-[13rem] rounded-full border border-edge px-6 py-2.5 text-center text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+        >
+          {/* Shorter than the sheet's own title, which has to fit beside
+              two other pills, and the words the iPhone already uses. */}
+          How to record
+        </button>
+      ) : variant === "row" ? (
         <button
           ref={triggerRef}
           type="button"

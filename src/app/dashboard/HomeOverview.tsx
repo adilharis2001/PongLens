@@ -471,37 +471,27 @@ export function HomeOverview({
             match into points, so you can review it point by point and add
             notes for yourself or a coach.
           </p>
-          <Link
-            href="/upload"
-            className="glow-cta mt-6 inline-block rounded-full bg-cyan-glow px-7 py-3 text-sm font-semibold text-ink"
-          >
-            Upload a match
-          </Link>
-          {/* This is the screen someone sees BEFORE they go to the club,
-              which is the only moment camera advice can still change the
-              recording. On /upload it is already too late for today. */}
-          <div className="mx-auto mt-6 flex max-w-sm flex-col gap-3 text-left">
-            <CameraGuide variant="row" />
-            {/* The sample sits beside the camera advice as one more thing to
-                read before recording, rather than as a match in their
-                library that they never uploaded. */}
+          {/* One row of pills the same size and shape, the way the empty
+              Matches card does it (Adil, 2026-09-18). A primary button
+              above two labelled rows put three button languages in one
+              box and made it twice as tall as it needed to be. This is the
+              screen someone sees BEFORE they go to the club, which is the
+              only moment camera advice can still change the recording, so
+              the guide stays a button rather than dropping to a hint. */}
+          <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <Link
+              href="/upload"
+              className="glow-cta w-full max-w-[13rem] rounded-full bg-cyan-glow px-6 py-2.5 text-center text-sm font-semibold text-ink"
+            >
+              Upload a match
+            </Link>
+            <CameraGuide variant="button" className="flex w-full justify-center sm:w-auto" />
             {showSampleDoor && sampleMatch && (
               <Link
                 href={`/match/${sampleMatch.id}`}
-                className="group flex w-full items-center gap-3 rounded-xl border border-edge bg-surface-2/40 px-4 py-3.5 text-left transition-colors hover:border-cyan-glow/50"
+                className="w-full max-w-[13rem] rounded-full border border-edge px-6 py-2.5 text-center text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-glow/10 text-cyan-glow">
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-                    <rect x="3" y="5" width="18" height="14" rx="2.5" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m10.2 9.4 4.6 2.6-4.6 2.6Z" />
-                  </svg>
-                </span>
-                <span className="min-w-0 flex-1 text-sm font-semibold text-zinc-100">
-                  {SAMPLE_CTA}
-                </span>
-                <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-zinc-600 transition-colors group-hover:text-cyan-glow" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
-                </svg>
+                {SAMPLE_CTA}
               </Link>
             )}
           </div>
