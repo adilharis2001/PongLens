@@ -8236,6 +8236,7 @@ export const Player = forwardRef<
                       ownerId={ownerId}
                       viewerId={userId}
                       authorNames={authorNames}
+                      demo={demo}
                     />
                     <NoteComposer
                       matchId={matchId}
@@ -8660,6 +8661,7 @@ export const Player = forwardRef<
                 ownerId={ownerId}
                 viewerId={userId}
                 authorNames={authorNames}
+                demo={demo}
               />
               <NoteComposer
                 matchId={matchId}

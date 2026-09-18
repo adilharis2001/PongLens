@@ -39,6 +39,7 @@ export function NoteItem({
   viewerId,
   authorName,
   clamp = false,
+  demo = false,
   onDeleted,
 }: {
   note: Note;
@@ -46,6 +47,11 @@ export function NoteItem({
   ownerId: string;
   viewerId: string;
   authorName?: string | null;
+  /** The demo match: this note was never written to the database, so its
+   *  own Edit and Delete must not go looking for a row. Delete in
+   *  particular came back "no rows" and showed an error for a note that
+   *  was only ever on screen. */
+  demo?: boolean;
   /** Over video (the note sheet, the analysis panel): cut a long note to
    *  four lines so the thread can't push the footage off the screen. */
   clamp?: boolean;
@@ -73,16 +79,23 @@ export function NoteItem({
     setEditing(false);
     if (body === (localBody ?? note.body)) return;
     setLocalBody(body);
+    if (demo) return;
     const supabase = createClient();
     const { error } = await supabase
       .from("notes")
       .update({ body })
       .eq("id", note.id);
     if (error) setLocalBody(null);
-  }, [draft, localBody, note.body, note.id]);
+  }, [demo, draft, localBody, note.body, note.id]);
 
   const deleteNote = useCallback(async () => {
     if (deleting) return;
+    if (demo) {
+      setConfirmDel(false);
+      setRemoved(true);
+      onDeleted?.(note.id);
+      return;
+    }
     setDeleting(true);
     setDeleteError(null);
     const supabase = createClient();
@@ -101,7 +114,7 @@ export function NoteItem({
     setConfirmDel(false);
     setRemoved(true);
     onDeleted?.(note.id);
-  }, [deleting, note.id, onDeleted]);
+  }, [deleting, demo, note.id, onDeleted]);
 
   const isCoachNote = note.author_id !== ownerId;
   const isMine = note.author_id === viewerId;
@@ -317,12 +330,15 @@ export function PointNoteThread({
   ownerId,
   viewerId,
   authorNames,
+  demo = false,
 }: {
   notes: Note[];
   matchId: string;
   ownerId: string;
   viewerId: string;
   authorNames: Map<string, string>;
+  /** The demo match: a note written here only ever existed on screen. */
+  demo?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (notes.length === 0) return null;
@@ -341,6 +357,7 @@ export function PointNoteThread({
             viewerId={viewerId}
             authorName={authorNames.get(n.author_id)}
             clamp={!expanded}
+            demo={demo}
           />
         ))}
       </ul>

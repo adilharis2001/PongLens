@@ -461,6 +461,8 @@ final class NotesStore {
         guard let i = notes.firstIndex(where: { $0.id == note.id }) else { return false }
         let before = notes[i]
         notes[i].body = body
+        // The demo's notes were never written, so there is no row to edit.
+        if demo { return true }
         do {
             try await supa.from("notes").update(["body": body])
                 .eq("id", value: note.id.uuidString.lowercased())
@@ -475,6 +477,7 @@ final class NotesStore {
     func delete(_ note: NoteRow) async -> Bool {
         guard let i = notes.firstIndex(where: { $0.id == note.id }) else { return false }
         let removed = notes.remove(at: i)
+        if demo { return true }
         do {
             try await supa.from("notes").delete()
                 .eq("id", value: note.id.uuidString.lowercased())

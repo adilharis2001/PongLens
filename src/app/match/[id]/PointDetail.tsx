@@ -881,6 +881,7 @@ export function PointDetail({
                 authorName={
                   demo ? SAMPLE_NOTE_AUTHOR : authorNames.get(n.author_id)
                 }
+                demo={demo}
               />
             ))}
           </ul>

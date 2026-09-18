@@ -5038,6 +5038,7 @@ export function MatchView({
                 authorName={
                   sampleViewer ? SAMPLE_NOTE_AUTHOR : authorNames.get(n.author_id)
                 }
+                demo={sampleViewer}
               />
             ))}
           </ul>
