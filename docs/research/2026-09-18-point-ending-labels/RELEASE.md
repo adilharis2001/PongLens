@@ -54,3 +54,11 @@ advance, and Yu Yu Lin raw 254.266966 s / match 12.30 s checked. Screenshots:
 `/private/tmp/point-ending-overlay-desktop.png`,
 `/private/tmp/point-ending-overlay-mobile.png`. Native iOS not changed or tested.
 Rebased onto main `6a6fe1bf`; the only intervening main change is iOS source.
+
+## Publication
+
+Adil explicitly approved the updated overlays and requested production testing.
+The complete feature was pushed to remote main as `8bb9dd16`. Vercel did not
+create a deployment or commit check for that push; its latest production build
+still pointed at `6a6fe1bf`. This documentation update retries the normal
+main-branch Git trigger without changing the verified application source.
