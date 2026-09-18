@@ -864,12 +864,14 @@ struct RecordScreen: View {
     /// The shutter waits for it: a segment enqueued without it would be
     /// refused by the upload route. Ticked stays ticked for this visit.
     @State private var uploadTicked = false
+    /// The save at the shutter did not land. Shown under the box.
+    @State private var uploadSaveFailed = false
     private var uploadAllowed: Bool { !UploadConsent.shared.needed || uploadTicked }
 
     @ViewBuilder
     private var uploadConfirmation: some View {
         if recorder.state != .recording, UploadConsent.shared.needed || uploadTicked {
-            UploadConfirmationRow(ticked: $uploadTicked)
+            UploadConfirmationRow(ticked: $uploadTicked, failed: uploadSaveFailed)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(PL.ink.opacity(0.75), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1278,11 +1280,22 @@ struct RecordScreen: View {
             if recorder.state == .recording {
                 recorder.stop()
             } else {
-                sessionId = UUID()
-                draft = RecordingMetadata(
-                    venue: UserDefaults.standard.string(forKey: "pl-last-venue")
-                )
-                recorder.start()
+                // Segments upload as they are recorded, so the shutter is
+                // where this recording's upload begins and where the tick
+                // is saved. A box that was ticked and then abandoned
+                // confirms nothing.
+                Task {
+                    uploadSaveFailed = false
+                    guard await UploadConsent.shared.confirmIfNeeded() else {
+                        uploadSaveFailed = true
+                        return
+                    }
+                    sessionId = UUID()
+                    draft = RecordingMetadata(
+                        venue: UserDefaults.standard.string(forKey: "pl-last-venue")
+                    )
+                    recorder.start()
+                }
             }
         } label: {
             ZStack {

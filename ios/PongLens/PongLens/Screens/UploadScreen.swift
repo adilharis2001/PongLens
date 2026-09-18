@@ -36,6 +36,8 @@ struct UploadScreen: View {
     /// The first-upload checkbox (new accounts only). Ticked here stays
     /// ticked for this visit even once the row is no longer needed.
     @State private var uploadTicked = false
+    /// The save at upload time did not land. Shown under the box.
+    @State private var uploadSaveFailed = false
     private var uploadAllowed: Bool { !UploadConsent.shared.needed || uploadTicked }
 
     enum ImportStage: Equatable {
@@ -215,7 +217,7 @@ struct UploadScreen: View {
                         .font(.system(size: 26, weight: .medium))
                         .foregroundStyle(PL.text500)
                     if UploadConsent.shared.needed || uploadTicked {
-                        UploadConfirmationRow(ticked: $uploadTicked)
+                        UploadConfirmationRow(ticked: $uploadTicked, failed: uploadSaveFailed)
                             .padding(.horizontal, 4)
                     }
                     Button {
@@ -345,6 +347,15 @@ struct UploadScreen: View {
             try? FileManager.default.removeItem(at: url)
             let mins = Int(duration / 60)
             loadError = "That video is \(mins) minutes. The limit is 45 minutes, so trim it first or upload it in two halves."
+            return
+        }
+
+        // The upload starts here, so this is where the tick is saved. A
+        // box that was ticked and then abandoned confirms nothing.
+        uploadSaveFailed = false
+        guard await UploadConsent.shared.confirmIfNeeded() else {
+            try? FileManager.default.removeItem(at: url)
+            uploadSaveFailed = true
             return
         }
 
