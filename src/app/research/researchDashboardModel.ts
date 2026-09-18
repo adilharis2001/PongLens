@@ -8,6 +8,13 @@ export interface ResearchPage {
 
 export const RESEARCH_PAGES = [
   {
+    title: "Point-ending labels",
+    category: "Data labeling",
+    description: "Label how each of the 479 study points ended. Your answers and notes are saved as you work.",
+    href: "/research/point-endings",
+    accent: "cyan",
+  },
+  {
     title: "V3 serve detector",
     category: "Card assembly",
     description:
