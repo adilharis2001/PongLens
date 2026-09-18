@@ -26,12 +26,15 @@ function summary(state: HighlightState | null) {
 
 export function HighlightsRow({
   matchId,
+  canDownload = true,
   onPlay,
   onScore,
   onStateChange,
 }: {
   matchId: string;
-  onPlay: (asset: HighlightAsset, onDownload: () => void) => void;
+  /** The demo match: watching it is the point, saving our file is not. */
+  canDownload?: boolean;
+  onPlay: (asset: HighlightAsset, onDownload: (() => void) | null) => void;
   onScore: () => void;
   onStateChange?: (state: HighlightState | null) => void;
 }) {
@@ -100,12 +103,17 @@ export function HighlightsRow({
 
   const play = useCallback(() => {
     if (state?.status !== "ready") return;
-    onPlay(state, () => {
-      void downloadReel(matchId, "highlights").catch(() => {
-        window.alert("Couldn't download the highlight. Try again.");
-      });
-    });
-  }, [matchId, onPlay, state]);
+    onPlay(
+      state,
+      canDownload
+        ? () => {
+            void downloadReel(matchId, "highlights").catch(() => {
+              window.alert("Couldn't download the highlight. Try again.");
+            });
+          }
+        : null
+    );
+  }, [canDownload, matchId, onPlay, state]);
 
   const open = useCallback(() => {
     if (state?.status === "ready") {

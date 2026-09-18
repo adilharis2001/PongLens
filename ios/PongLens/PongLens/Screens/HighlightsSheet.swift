@@ -6,6 +6,10 @@ struct HighlightsSheet: View {
     let match: MatchRow
     let model: MatchDetailModel
     let scored: Bool
+    /// The demo match: watching it is the point, and everything else in
+    /// here writes something (a render job, a share link, a download of
+    /// our media). Shown greyed rather than hidden, like its Tools card.
+    var locked = false
     let onChanged: (AutomaticHighlightsResponse) -> Void
     let onScore: () -> Void
 
@@ -64,6 +68,7 @@ struct HighlightsSheet: View {
                                 scored: scored,
                                 includePlay: true,
                                 playDetail: response?.summary ?? "",
+                                locked: locked,
                                 onPlay: { playing = true }
                             )
                         } else {
@@ -91,7 +96,7 @@ struct HighlightsSheet: View {
             if let response, let url = response.url, let manifest = response.manifest {
                 HighlightsTakeover(
                     match: match, model: model, scored: scored,
-                    videoURL: url, manifest: manifest
+                    videoURL: url, manifest: manifest, locked: locked
                 )
             }
         }
@@ -180,6 +185,7 @@ private struct HighlightsTakeover: View {
     let scored: Bool
     let videoURL: URL
     let manifest: AutomaticHighlightManifest
+    var locked = false
 
     @State private var shareOpen = false
 
@@ -199,7 +205,8 @@ private struct HighlightsTakeover: View {
             HighlightsShareSheet(
                 match: match,
                 starredCount: model.visible.filter(\.starred).count,
-                scored: scored
+                scored: scored,
+                locked: locked
             )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -213,6 +220,7 @@ struct HighlightsShareSheet: View {
     let match: MatchRow
     let starredCount: Int
     let scored: Bool
+    var locked = false
 
     var body: some View {
         PLChooserSheet(title: "Share this highlight") {
@@ -222,6 +230,7 @@ struct HighlightsShareSheet: View {
                 scored: scored,
                 includePlay: false,
                 playDetail: "",
+                locked: locked,
                 onPlay: {}
             )
         }
@@ -236,6 +245,8 @@ private struct AutomaticHighlightActions: View {
     let scored: Bool
     let includePlay: Bool
     let playDetail: String
+    /// The demo match: Play is the only live row.
+    var locked = false
     let onPlay: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -261,6 +272,8 @@ private struct AutomaticHighlightActions: View {
                     ),
                     id: \.self
                 ) { action in
+                    let dead = locked && action != .play
+                    Group {
                     switch action {
                     case .play:
                         PLChooserRow(
@@ -296,6 +309,9 @@ private struct AutomaticHighlightActions: View {
                             destination: nil
                         )
                     }
+                    }
+                    .disabled(dead)
+                    .opacity(dead ? 0.45 : 1)
                 }
             }
 
@@ -308,6 +324,9 @@ private struct AutomaticHighlightActions: View {
             } footer: {
                 Text("For Instagram and saved videos.")
             }
+            // Only the rows they dress, so they go quiet with them.
+            .disabled(locked)
+            .opacity(locked ? 0.45 : 1)
 
             if let message = model.errorMessage {
                 Section {

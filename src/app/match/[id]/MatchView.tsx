@@ -1151,19 +1151,6 @@ export function MatchView({
   /// Someone reading the sample match: not its owner, nothing to edit, and
   /// the two players stay unnamed everywhere the analysis would name them.
   const sampleViewer = !isOwner && isSampleMatch(match);
-  const [dismissingSample, setDismissingSample] = useState(false);
-  /** Hide the demo for this account only: one row, no media touched. */
-  async function dismissSample() {
-    if (!userId) return;
-    setDismissingSample(true);
-    const { error } = await createClient()
-      .from("sample_match_dismissals")
-      .insert({ user_id: userId });
-    setDismissingSample(false);
-    // A duplicate means it was already removed, which is the state we
-    // wanted either way.
-    if (!error || error.code === "23505") router.push("/matches");
-  }
   /// Tools are SHOWN on the sample so the page is the real page, and greyed
   /// because none of them is theirs to press. Highlights is the exception:
   /// it plays what we already rendered.
@@ -3703,6 +3690,7 @@ export function MatchView({
             {hasCutOffsets && !handCut && (
               <HighlightsRow
                 matchId={match.id}
+                canDownload={!sampleViewer}
                 onScore={() => playerRef.current?.openScore()}
                 onPlay={(asset, onDownload) =>
                   playerRef.current?.openHighlights(asset, onDownload)
@@ -5046,24 +5034,6 @@ export function MatchView({
           </div>
         )}
       </section>
-
-      {/* Done with the demo. It used to live under the library's sample
-          section, which is now one button in the empty state, so the
-          control belongs on the one page that is entirely about it. The
-          row is this account's own: the match never moves, and Account ->
-          Support still links back to it. */}
-      {sampleViewer && (
-        <div className="mt-8">
-          <button
-            type="button"
-            disabled={dismissingSample}
-            onClick={() => void dismissSample()}
-            className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-300/50 hover:text-amber-200 disabled:opacity-60"
-          >
-            {dismissingSample ? "Removing…" : "Remove from my matches"}
-          </button>
-        </div>
-      )}
 
       {/* Floating match bar: appears once the page header has scrolled
           away, and carries the three things you lose with it — the way

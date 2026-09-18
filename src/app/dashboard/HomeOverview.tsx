@@ -121,13 +121,11 @@ export function HomeOverview({
   const [reelError, setReelError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  /** This account removed the sample match from its own view. */
-  const [sampleDismissed, setSampleDismissed] = useState(false);
   const services = useProcessingService();
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
-    const [matchRes, jobRows, reelRes, titleRes, playersRes, noteRes, cueRes, dismissRes] =
+    const [matchRes, jobRows, reelRes, titleRes, playersRes, noteRes, cueRes] =
       await Promise.all([
         supabase
           .from("matches")
@@ -165,13 +163,8 @@ export function HomeOverview({
           .eq("user_id", userId)
           .is("retired_at", null)
           .order("created_at"),
-        // limit(1), not maybeSingle(): PostgREST answers a single-object
-        // request with 406 when there is no row, and no row is the normal
-        // case here.
-        supabase.from("sample_match_dismissals").select("user_id").limit(1),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
-    setSampleDismissed((dismissRes.data?.length ?? 0) > 0);
     setJobs(jobRows);
     // Latest activity is the player's own work. Reels now arrive for the
     // sample match too (every account can read it), and our highlights
@@ -412,7 +405,6 @@ export function HomeOverview({
   const showSampleDoor =
     !loading &&
     sampleMatch !== null &&
-    !sampleDismissed &&
     !hasOwnScoredMatch(ownMatches, scoreChips);
 
   // The hero's "what now" for the Continue card, from the same point rows
@@ -596,7 +588,7 @@ export function HomeOverview({
             dismissed={firstStepsDismissed}
             hasUpload={ownMatches.length > 0 || (jobs ?? []).length > 0}
             hasReel={reels.length > 0}
-            sampleMatchId={sampleDismissed ? null : sampleMatch?.id ?? null}
+            sampleMatchId={sampleMatch?.id ?? null}
             latestReadyId={
               latestReady && latestReady.user_id === userId
                 ? latestReady.id

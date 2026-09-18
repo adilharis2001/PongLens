@@ -103,6 +103,7 @@ struct ToolsSection: View {
                 match: match,
                 model: model,
                 scored: score.confirmedCount > 0,
+                locked: sampleViewer,
                 onChanged: { response in
                     automaticHighlights = response
                 },

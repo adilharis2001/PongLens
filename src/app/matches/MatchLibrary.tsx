@@ -167,7 +167,6 @@ export function MatchLibrary({
   const [coachNoted, setCoachNoted] = useState<Set<string>>(new Set());
   const [exportReady, setExportReady] = useState<Set<string>>(new Set());
   /** This account dismissed the sample match (its own row, nobody else's). */
-  const [sampleDismissed, setSampleDismissed] = useState(false);
   const [confirmMatch, setConfirmMatch] = useState<MatchRow | null>(null);
   const [confirmBytes, setConfirmBytes] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -180,7 +179,7 @@ export function MatchLibrary({
     // Notes come back id-less (match_id only) purely for the per-card count.
     // Point rows are NOT here: they're the one payload that grows with the
     // library, so they load per visible card in their own effect below.
-    const [matchRes, jobRes, playersRes, noteRows, reelRes, dismissRes] =
+    const [matchRes, jobRes, playersRes, noteRows, reelRes] =
       await Promise.all([
         supabase
           .from("matches")
@@ -212,14 +211,8 @@ export function MatchLibrary({
           "notes"
         ),
         supabase.from("match_reels").select("match_id, status"),
-        // One row, or none: has this account dismissed the sample match?
-        // limit(1), not maybeSingle(): PostgREST answers a single-object
-        // request with 406 when there is no row, and no row is the normal
-        // case here.
-        supabase.from("sample_match_dismissals").select("user_id").limit(1),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
-    setSampleDismissed((dismissRes.data?.length ?? 0) > 0);
     if (jobRes.data) setJobs(jobRes.data as Job[]);
     if (playersRes.data) setSharedPlayers(playersRes.data as SharedPlayer[]);
     {
@@ -1015,7 +1008,7 @@ export function MatchLibrary({
               >
                 Upload a match
               </Link>
-              {sampleMatch && !sampleDismissed && (
+              {sampleMatch && (
                 <Link
                   href={`/match/${sampleMatch.id}`}
                   className="w-full max-w-[14rem] rounded-full border border-edge px-6 py-2.5 text-center text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"

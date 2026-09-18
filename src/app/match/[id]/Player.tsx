@@ -591,7 +591,11 @@ export interface PlayerHandle {
    * Footage between them is jumped, the working chrome stands down, and
    * the Download pill in the corner runs `onDownload`.
    */
-  openHighlights: (asset: HighlightAsset, onDownload: () => void) => void;
+  openHighlights: (
+    asset: HighlightAsset,
+    /** Null on the demo match: its media is ours, not the reader's. */
+    onDownload: (() => void) | null
+  ) => void;
 }
 
 /**
@@ -1803,6 +1807,8 @@ export const Player = forwardRef<
   highlightAssetRef.current = highlightAsset;
   const highlightRestoreTRef = useRef(0);
   const highlightDownloadRef = useRef<(() => void) | null>(null);
+  /** The highlights tape offers a Download pill; the demo match does not. */
+  const [highlightCanDownload, setHighlightCanDownload] = useState(false);
 
   /**
    * Tap-trimmed dead zones (2026-08-25): for every rally the owner scored
@@ -2992,6 +2998,7 @@ export const Player = forwardRef<
       highlightAssetRef.current = null;
       setHighlightAsset(null);
       highlightDownloadRef.current = null;
+      setHighlightCanDownload(false);
       setServeSheet(false);
       setNamesSheet(false);
       namesPromptedRef.current = false; // fresh entry re-asks if still missing
@@ -3055,13 +3062,14 @@ export const Player = forwardRef<
   );
 
   const openHighlights = useCallback(
-    (asset: HighlightAsset, onDownload: () => void) => {
+    (asset: HighlightAsset, onDownload: (() => void) | null) => {
       const video = videoRef.current;
       highlightRestoreTRef.current =
         video && video.readyState >= 1 ? video.currentTime : playheadT;
       highlightAssetRef.current = asset;
       setHighlightAsset(asset);
       highlightDownloadRef.current = onDownload;
+      setHighlightCanDownload(onDownload !== null);
       pendingSeek.current = 0;
       setPlayheadT(0);
       openTakeover("watch");
@@ -6468,7 +6476,7 @@ export const Player = forwardRef<
             >
               {/* Left: the gestures sheet — or, on the highlights tape,
                   the Download pill, which is that tape's one action. */}
-              {highlightAsset ? (
+              {highlightAsset && highlightCanDownload ? (
                 <button
                   type="button"
                   onClick={() => {
