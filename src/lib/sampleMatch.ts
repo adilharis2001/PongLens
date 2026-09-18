@@ -13,12 +13,19 @@
  */
 
 export const SAMPLE_CHIP = "Demo";
-export const SAMPLE_DOOR_TITLE = "See a finished match first";
-export const SAMPLE_DOOR_BODY = "Ours, already processed and scored.";
-export const SAMPLE_DOOR_CTA = "Open the sample match";
-export const SAMPLE_ACCOUNT_ROW = "View sample match";
+/** The sample is named for what it is, not for who played in it: every
+ *  other card names an opponent, and this one has none for the reader. */
+export const SAMPLE_TITLE = "PongLens demo match";
+export const SAMPLE_CTA = "View sample match";
+export const SAMPLE_FIRST_STEP = "Review the sample match";
 export const SAMPLE_MATCH_NOTE =
   "A real match between the two of us who built PongLens.";
+/** The two players, unnamed, wherever the analysis would use real names. */
+export const SAMPLE_NEAR_LABEL = "Player 1";
+export const SAMPLE_FAR_LABEL = "Player 2";
+/** Notes on the sample are ours, so they are signed PongLens rather than
+ *  with the name of whoever typed them. */
+export const SAMPLE_NOTE_AUTHOR = "PongLens";
 
 export function isSampleMatch(m: { is_sample?: boolean | null }) {
   return m.is_sample === true;

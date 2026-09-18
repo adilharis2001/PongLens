@@ -138,7 +138,7 @@ struct AccountScreen: View {
                         if let sample = SampleMatch.find(in: library.matches) {
                             // The way back once the library and Home have
                             // stopped offering it.
-                            linkRow(SampleMatch.accountRow, value: sample)
+                            linkRow(SampleMatch.cta, value: sample)
                             rowDivider
                         }
                         linkRow("Feedback and discussion", value: "feedback")

@@ -139,10 +139,6 @@ struct HomeScreen: View {
                         }
                     }
 
-                    if library.loaded, showSampleDoor, let sample = sampleMatch {
-                        sampleDoor(sample)
-                    }
-
                     firstSteps
 
                     if !ownMatches.isEmpty {
@@ -286,6 +282,36 @@ struct HomeScreen: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 12)
+                // The sample sits beside the camera advice as one more
+                // thing to read before recording, rather than as a match in
+                // a library they never uploaded to.
+                if showSampleDoor, let sample = sampleMatch {
+                    NavigationLink(value: sample) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.rectangle")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(PL.cyan)
+                            Text(SampleMatch.cta)
+                                .font(.plBody)
+                                .foregroundStyle(PL.text200)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(PL.text600)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(PL.surface2.opacity(0.5),
+                                    in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                                .strokeBorder(PL.edge, lineWidth: 1)
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 8)
+                }
             }
             .frame(maxWidth: .infinity)
             .plCard(padding: 40)
@@ -377,6 +403,13 @@ struct HomeScreen: View {
         }
         return [
             Step(label: "Create your account", done: true, go: nil),
+        ]
+        + (sampleMatch.map { sample in
+            [Step(label: SampleMatch.firstStep,
+                  done: app.sampleMatchSeen,
+                  go: .match(sample))]
+        } ?? [])
+        + [
             Step(label: "Upload your first match", done: !ownMatches.isEmpty,
                  go: .newMatch),
             Step(label: "Score a game",
@@ -461,36 +494,6 @@ struct HomeScreen: View {
                 content
             }
         }
-    }
-
-    /// The sample match, the quiet door beside the bright one: it answers
-    /// "what do I actually get?" before anyone spends an upload.
-    private func sampleDoor(_ sample: MatchRow) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(SampleMatch.doorTitle)
-                        .font(.plCardTitle)
-                        .foregroundStyle(PL.text100)
-                    Text(SampleMatch.doorBody)
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                }
-                Spacer(minLength: 8)
-                Color.clear
-                    .frame(width: 96)
-                    .aspectRatio(16 / 10, contentMode: .fit)
-                    .overlay(MatchThumb(matchId: sample.id))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            NavigationLink(value: sample) {
-                Text(SampleMatch.doorCTA)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(PLSecondaryButtonStyle())
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard(padding: 16)
     }
 
     @ViewBuilder
@@ -681,7 +684,10 @@ struct HomeScreen: View {
                 (PGDate.parse($0.createdAt) ?? .distantPast) > (PGDate.parse($1.createdAt) ?? .distantPast)
             }
             .prefix(2)
-        let recentReels = homeStore.reels.prefix(3)
+        // Our sample's reel is not their activity: every account can read
+        // the match, so its export arrives here unless it is filtered out.
+        let ownIds = Set(ownMatches.map(\.id))
+        let recentReels = homeStore.reels.filter { ownIds.contains($0.matchId) }.prefix(3)
         if !recentNotes.isEmpty || !recentReels.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {

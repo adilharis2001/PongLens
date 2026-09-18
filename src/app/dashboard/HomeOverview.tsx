@@ -16,13 +16,7 @@ import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
 import { FirstSteps } from "./FirstSteps";
-import {
-  hasOwnScoredMatch,
-  isSampleMatch,
-  SAMPLE_DOOR_BODY,
-  SAMPLE_DOOR_CTA,
-  SAMPLE_DOOR_TITLE,
-} from "@/lib/sampleMatch";
+import { hasOwnScoredMatch, isSampleMatch, SAMPLE_CTA } from "@/lib/sampleMatch";
 import { HomeFeedbackBoard } from "./HomeFeedbackBoard";
 import { YourGame } from "./YourGame";
 import {
@@ -127,11 +121,13 @@ export function HomeOverview({
   const [reelError, setReelError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  /** This account removed the sample match from its own view. */
+  const [sampleDismissed, setSampleDismissed] = useState(false);
   const services = useProcessingService();
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
-    const [matchRes, jobRows, reelRes, titleRes, playersRes, noteRes, cueRes] =
+    const [matchRes, jobRows, reelRes, titleRes, playersRes, noteRes, cueRes, dismissRes] =
       await Promise.all([
         supabase
           .from("matches")
@@ -169,12 +165,18 @@ export function HomeOverview({
           .eq("user_id", userId)
           .is("retired_at", null)
           .order("created_at"),
+        // limit(1), not maybeSingle(): PostgREST answers a single-object
+        // request with 406 when there is no row, and no row is the normal
+        // case here.
+        supabase.from("sample_match_dismissals").select("user_id").limit(1),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
+    setSampleDismissed((dismissRes.data?.length ?? 0) > 0);
     setJobs(jobRows);
     // Latest activity is the player's own work. Reels now arrive for the
     // sample match too (every account can read it), and our highlights
-    // reel is not their activity.
+    // reel is not their activity. Its notes are filtered in note_feed()
+    // itself, so every client and every installed build agrees.
     if (reelRes.data) {
       const mine = new Set(
         ((matchRes.data ?? []) as MatchRow[])
@@ -408,7 +410,10 @@ export function HomeOverview({
   // the sample is still there, in Account -> Support, for anyone who wants
   // to check what a screen is meant to look like.
   const showSampleDoor =
-    !loading && sampleMatch !== null && !hasOwnScoredMatch(ownMatches, scoreChips);
+    !loading &&
+    sampleMatch !== null &&
+    !sampleDismissed &&
+    !hasOwnScoredMatch(ownMatches, scoreChips);
 
   // The hero's "what now" for the Continue card, from the same point rows
   // the chips use. Own matches only — a coach is never told to score
@@ -483,8 +488,30 @@ export function HomeOverview({
           {/* This is the screen someone sees BEFORE they go to the club,
               which is the only moment camera advice can still change the
               recording. On /upload it is already too late for today. */}
-          <div className="mx-auto mt-6 max-w-sm text-left">
+          <div className="mx-auto mt-6 flex max-w-sm flex-col gap-3 text-left">
             <CameraGuide variant="row" />
+            {/* The sample sits beside the camera advice as one more thing to
+                read before recording, rather than as a match in their
+                library that they never uploaded. */}
+            {showSampleDoor && sampleMatch && (
+              <Link
+                href={`/match/${sampleMatch.id}`}
+                className="group flex w-full items-center gap-3 rounded-xl border border-edge bg-surface-2/40 px-4 py-3.5 text-left transition-colors hover:border-cyan-glow/50"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-glow/10 text-cyan-glow">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                    <rect x="3" y="5" width="18" height="14" rx="2.5" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m10.2 9.4 4.6 2.6-4.6 2.6Z" />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1 text-sm font-semibold text-zinc-100">
+                  {SAMPLE_CTA}
+                </span>
+                <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-zinc-600 transition-colors group-hover:text-cyan-glow" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+                </svg>
+              </Link>
+            )}
           </div>
         </section>
       ) : activeWork > 0 ? (
@@ -557,34 +584,6 @@ export function HomeOverview({
         </section>
       ) : null}
 
-      {/* The sample match, the quiet door beside the bright one. It answers
-          "what do I actually get?" before anyone spends an upload, and it
-          steps aside the moment they have scored a match of their own. */}
-      {showSampleDoor && sampleMatch && (
-        <section className="rounded-2xl border border-edge bg-surface p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="font-semibold text-zinc-100">
-                {SAMPLE_DOOR_TITLE}
-              </p>
-              <p className="mt-1 text-sm text-zinc-500">{SAMPLE_DOOR_BODY}</p>
-            </div>
-            <Thumb
-              url={thumbs[sampleMatch.id]}
-              className="aspect-video w-24 shrink-0 overflow-hidden rounded-lg sm:w-28"
-            />
-          </div>
-          {/* Full width on a phone with a 44px target, content width from
-              sm up: the application baseline for an action button. */}
-          <Link
-            href={`/match/${sampleMatch.id}`}
-            className="mt-4 block w-full rounded-full border border-cyan-glow/40 px-5 py-3 text-center text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/10 sm:inline-block sm:w-auto sm:py-2.5"
-          >
-            {SAMPLE_DOOR_CTA}
-          </Link>
-        </section>
-      )}
-
       {/* First steps: the new-account checklist. Gone once the account is
           established (a handful of matches), every step is done, or it was
           hidden. Coach-only accounts (shared matches, none of their own)
@@ -597,6 +596,7 @@ export function HomeOverview({
             dismissed={firstStepsDismissed}
             hasUpload={ownMatches.length > 0 || (jobs ?? []).length > 0}
             hasReel={reels.length > 0}
+            sampleMatchId={sampleDismissed ? null : sampleMatch?.id ?? null}
             latestReadyId={
               latestReady && latestReady.user_id === userId
                 ? latestReady.id

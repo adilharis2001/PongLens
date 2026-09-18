@@ -18,7 +18,14 @@ import type {
 } from "@/lib/types";
 import { TagGlyph, TagPicker } from "./Tags";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
-import { isSampleMatch, SAMPLE_MATCH_NOTE } from "@/lib/sampleMatch";
+import {
+  isSampleMatch,
+  SAMPLE_FAR_LABEL,
+  SAMPLE_MATCH_NOTE,
+  SAMPLE_NEAR_LABEL,
+  SAMPLE_NOTE_AUTHOR,
+  SAMPLE_TITLE,
+} from "@/lib/sampleMatch";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ClipAvailabilityNotice } from "@/components/ClipAvailabilityNotice";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
@@ -1142,6 +1149,28 @@ export function MatchView({
   // reads "A vs B" instead of opponent-led. Threaded down to every surface
   // that would otherwise say "Me"/"your". Owner-only: coach viewers already
   // see names, and we only know the ACCOUNT holder's name for the owner.
+  /// Someone reading the sample match: not its owner, nothing to edit, and
+  /// the two players stay unnamed everywhere the analysis would name them.
+  const sampleViewer = !isOwner && isSampleMatch(match);
+  /// Tools are SHOWN on the sample so the page is the real page, and greyed
+  /// because none of them is theirs to press. Highlights is the exception:
+  /// it plays what we already rendered.
+  const toolRowClass = sampleViewer
+    ? `${TOOL_ROW_CLASS} cursor-default opacity-45 hover:bg-transparent lg:hover:border-edge lg:hover:bg-surface`
+    : TOOL_ROW_CLASS;
+
+  // Opening the sample is the First steps item "Review the sample match",
+  // and reading it leaves no other trace, so record it once.
+  useEffect(() => {
+    if (!sampleViewer) return;
+    const supabase = createClient();
+    void (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (data.user?.user_metadata?.sample_match_seen === true) return;
+      await supabase.auth.updateUser({ data: { sample_match_seen: true } });
+    })();
+  }, [sampleViewer]);
+
   const neutral = useMemo(() => {
     // The sample match is somebody else's match to everyone who opens it,
     // which is exactly what neutral means: name both players, say "Me" to
@@ -1162,13 +1191,23 @@ export function MatchView({
       (userSide === "near" ? nearName : farName).trim() ||
       (ownerName ?? "").trim() ||
       "Player";
+    if (sampleViewer) {
+      // Nobody's names on someone else's demo: the cards and maps read
+      // Player 1 / Player 2, near side first.
+      return {
+        you: userSide === "near" ? SAMPLE_NEAR_LABEL : SAMPLE_FAR_LABEL,
+        them: userSide === "near" ? SAMPLE_FAR_LABEL : SAMPLE_NEAR_LABEL,
+        near: SAMPLE_NEAR_LABEL,
+        far: SAMPLE_FAR_LABEL,
+      };
+    }
     return {
       you: isOwner && !neutral ? "Me" : userName,
       them: opponentName.trim() || (isOwner ? "Them" : "Opponent"),
       near: nearName.trim() || "Near player",
       far: farName.trim() || "Far player",
     };
-  }, [isOwner, neutral, userSide, nearName, farName, opponentName, ownerName]);
+  }, [isOwner, neutral, userSide, nearName, farName, opponentName, ownerName, sampleViewer]);
 
   // ITTF rotation from first_server (overrides re-anchor downstream);
   // recomputes instantly on any first_server / override / let change.
@@ -2396,7 +2435,14 @@ export function MatchView({
   // header edit below only touches the opponent field.
   const titleParts = useMemo(
     () =>
-      deriveMatchTitleParts({
+      sampleViewer
+        ? { primary: SAMPLE_TITLE, secondary: deriveMatchTitleParts({
+            opponentName,
+            venue,
+            playedAt: match.played_at,
+            matchType,
+          }).secondary }
+        : deriveMatchTitleParts({
         opponentName,
         venue,
         playedAt: match.played_at,
@@ -2405,7 +2451,7 @@ export function MatchView({
         nameA: ownSideName,
         nameB: opponentName.trim(),
       }),
-    [opponentName, venue, match.played_at, matchType, neutral, ownSideName]
+    [opponentName, venue, match.played_at, matchType, neutral, ownSideName, sampleViewer]
   );
 
   const hasCutOffsets = visiblePoints.some((p) => p.cut_t0 !== null);
@@ -3599,12 +3645,19 @@ export function MatchView({
         {!isOwner && (
           <div className="mt-4">
             {/* A coach never sees Tools, so the two rows that are not
-                owner actions get the Tools card treatment on their own. */}
-            <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:space-y-2 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent">
+                owner actions get the Tools card treatment on their own.
+                On the sample they are greyed with the rest: reporting a
+                problem with our match is not the reader's errand. */}
+            <div
+              className={`divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:space-y-2 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent${
+                sampleViewer ? " pointer-events-none opacity-45" : ""
+              }`}
+              inert={sampleViewer}
+            >
               <MatchFeedbackLink matchId={match.id} isOwner={false} matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
               <FeedbackBoardLink />
             </div>
-            <CoachCta compact />
+            {!sampleViewer && <CoachCta compact />}
           </div>
         )}
 
@@ -3612,7 +3665,7 @@ export function MatchView({
             links, coach invite, export, and placement maps. Coach viewers never see it
             (every row is an owner action). On desktop this sits in the left
             column; scroll-mt keeps the back-to-top jump target clear. */}
-        {isOwner && (
+        {(isOwner || sampleViewer) && (
           <section className="mt-8 scroll-mt-32" ref={toolsRef}>
           <SectionHeading>Tools</SectionHeading>
           <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent">
@@ -3621,7 +3674,8 @@ export function MatchView({
               <button
                 type="button"
                 onClick={() => playerRef.current?.openScore()}
-                className={TOOL_ROW_CLASS}
+                className={toolRowClass}
+                disabled={sampleViewer}
               >
                 {/* Games won, not the per-game line: this row is itself a
                     button (it opens the scorer), so it can't nest a
@@ -3667,7 +3721,8 @@ export function MatchView({
                   if (analysisRowAction) void placement.requestAction();
                   scrollToSection(matchStatsRef);
                 }}
-                className={TOOL_ROW_CLASS}
+                className={toolRowClass}
+                disabled={sampleViewer}
               >
                 <span className="text-sm font-semibold">Match analysis</span>
                 <span className="flex shrink-0 items-center gap-2">
@@ -3692,7 +3747,8 @@ export function MatchView({
             <button
               type="button"
               onClick={() => setShareTarget({})}
-              className={TOOL_ROW_CLASS}
+              className={toolRowClass}
+                disabled={sampleViewer}
             >
               <span className="text-sm font-semibold">Share a link</span>
               <span className="flex shrink-0 items-center gap-2">
@@ -3713,7 +3769,8 @@ export function MatchView({
             <button
               type="button"
               onClick={() => setCoachOpen(true)}
-              className={TOOL_ROW_CLASS}
+              className={toolRowClass}
+                disabled={sampleViewer}
             >
               <span className="text-sm font-semibold">Coach</span>
               <span className="flex shrink-0 items-center gap-2">
@@ -3730,19 +3787,31 @@ export function MatchView({
               </span>
             </button>
             {hasCutOffsets && (
+              sampleViewer ? (
+                <div className="pointer-events-none opacity-45" inert>
+                  <ReelRow
+                    matchId={match.id}
+                    visiblePoints={visiblePoints}
+                    canScore={score.confirmedCount > 0}
+                    tagOptions={tagShareOptions}
+                  />
+                </div>
+              ) : (
               <ReelRow
                 matchId={match.id}
                 visiblePoints={visiblePoints}
                 canScore={score.confirmedCount > 0}
                 tagOptions={tagShareOptions}
               />
+              )
             )}
             {/* Jump to the overall notes at the bottom — saves the long
                 scroll past every point on mobile. */}
             <button
               type="button"
               onClick={() => scrollToSection(notesRef)}
-              className={TOOL_ROW_CLASS}
+              className={toolRowClass}
+                disabled={sampleViewer}
             >
               <span className="text-sm font-semibold">Notes</span>
               <span className="flex shrink-0 items-center gap-2">
@@ -3764,14 +3833,19 @@ export function MatchView({
             <button
               type="button"
               onClick={openDetails}
-              className={TOOL_ROW_CLASS}
+              className={toolRowClass}
+                disabled={sampleViewer}
             >
               <span className="text-sm font-semibold">Match details</span>
               <span className="flex shrink-0 items-center gap-2">
                 <span className="min-w-0 shrink truncate text-xs text-zinc-400">
-                  {[opponentName.trim(), venue.trim()]
-                    .filter(Boolean)
-                    .join(" · ") || "Add opponent and venue"}
+                  {/* Our players are not named to a stranger, here or in
+                      the cards: the sample says Player 1 and Player 2. */}
+                  {sampleViewer
+                    ? `${SAMPLE_NEAR_LABEL} and ${SAMPLE_FAR_LABEL}`
+                    : [opponentName.trim(), venue.trim()]
+                        .filter(Boolean)
+                        .join(" · ") || "Add opponent and venue"}
                 </span>
                 <ToolRowChevron />
               </span>
@@ -3784,7 +3858,8 @@ export function MatchView({
               <button
                 type="button"
                 onClick={() => setSideSheetOpen(true)}
-                className={TOOL_ROW_CLASS}
+                className={toolRowClass}
+                disabled={sampleViewer}
               >
                 <span className="text-sm font-semibold">Your side</span>
                 <span className="flex shrink-0 items-center gap-2">
@@ -4896,9 +4971,13 @@ export function MatchView({
       {/* match-level notes (point_id null): overall takeaways + coach review */}
       <section className="mt-10 scroll-mt-32" ref={notesRef}>
         <SectionHeading>Overall notes</SectionHeading>
-        <p className="mt-1 text-sm text-zinc-500">
-          Notes about the whole match. Type or record a voice note.
-        </p>
+        {/* The line tells you how to add one, and on the sample there is
+            no composer to add one with. */}
+        {!sampleViewer && (
+          <p className="mt-1 text-sm text-zinc-500">
+            Notes about the whole match. Type or record a voice note.
+          </p>
+        )}
         {matchNotes.length > 0 && (
           <ul className="mt-4 space-y-3">
             {matchNotes.map((n) => (
@@ -4908,7 +4987,9 @@ export function MatchView({
                 matchId={match.id}
                 ownerId={match.user_id}
                 viewerId={userId}
-                authorName={authorNames.get(n.author_id)}
+                authorName={
+                  sampleViewer ? SAMPLE_NOTE_AUTHOR : authorNames.get(n.author_id)
+                }
               />
             ))}
           </ul>

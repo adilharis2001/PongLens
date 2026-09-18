@@ -862,6 +862,16 @@ struct MatchDetailScreen: View {
     /// account is looking at the same one.
     private var canWrite: Bool { isOwner || !SampleMatch.isSample(current) }
 
+    /// Reading the sample: Tools are shown but dead, and the two players
+    /// stay unnamed.
+    private var sampleViewer: Bool { !isOwner && SampleMatch.isSample(current) }
+    /// Player 1 / Player 2 in the app's own "me / them" order, on the
+    /// sample match only. Nil everywhere else, where the real names and
+    /// the owner's or the coach's wording apply.
+    private var sampleLabels: (you: String, them: String)? {
+        sampleViewer ? SampleMatch.labels(userSide: current.userSide) : nil
+    }
+
     private var pad: ClipPad {
         clipPad(strictness: nil, stored: current.clipPads)
     }
@@ -994,8 +1004,9 @@ struct MatchDetailScreen: View {
     }
 
     var body: some View {
+        let head = MatchTitle.head(for: current)
         let parts = MatchTitle.parts(
-            opponentName: current.opponentName, venue: current.venue,
+            opponentName: head.opponent, venue: head.venue,
             playedAt: current.playedAt, matchType: current.matchType
         )
         ZStack {
@@ -1042,7 +1053,7 @@ struct MatchDetailScreen: View {
 
                         // A coach never sees Tools, so the two rows that
                         // are not owner actions get their own card here.
-                        if !isOwner {
+                        if !isOwner, !sampleViewer {
                             VStack(spacing: 0) {
                                 ProcessingToolRow(match: current)
                                 Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1).padding(.leading, 16)
@@ -1058,7 +1069,7 @@ struct MatchDetailScreen: View {
                         if current.status == .ready {
                             // Coach viewers never see Tools — every row is
                             // an owner action, matching the web.
-                            if isOwner {
+                            if isOwner || sampleViewer {
                                 ToolsSection(
                                     match: current,
                                     model: model,
@@ -1086,7 +1097,8 @@ struct MatchDetailScreen: View {
                                         Task {
                                             await refreshMatch(refreshLibrary: true)
                                         }
-                                    }
+                                    },
+                                    sampleViewer: sampleViewer
                                 )
                             }
                             pointsSection(proxy: proxy)
@@ -1121,6 +1133,11 @@ struct MatchDetailScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task {
+            // Opening the sample is the First steps row "Review the sample
+            // match", and reading it leaves no other trace.
+            if sampleViewer, !app.sampleMatchSeen {
+                await app.setMetadataFlag("sample_match_seen", true)
+            }
             await model.load(match)
             model.startClipPoll(match.id)
             await notesStore.load(matchId: match.id)
@@ -1963,7 +1980,9 @@ struct MatchDetailScreen: View {
                         matchId: current.id,
                         ownerId: current.userId,
                         viewerId: app.userId ?? current.userId,
-                        authorName: notesStore.authorNames[note.authorId],
+                        authorName: sampleViewer
+                            ? SampleMatch.noteAuthor
+                            : notesStore.authorNames[note.authorId],
                         notesStore: notesStore
                     )
                 }
@@ -1993,6 +2012,7 @@ struct MatchDetailScreen: View {
             AnalysisCards(
                 bundle: MatchAnalysisBundle(match: current, model: model, score: score),
                 coachView: coachView,
+                neutralLabels: sampleLabels,
                 video: VideoCardsInput(
                     match: current,
                     points: model.visible,
@@ -2000,7 +2020,9 @@ struct MatchDetailScreen: View {
                     gameIndexByPoint: gameIndexByPoint,
                     serving: serving,
                     pad: pad,
-                    opponentLabel: current.opponentName ?? "Them",
+                    // Nobody is named on the sample: the cards and maps read
+                    // Player 1 and Player 2, the uploader's own side first.
+                    opponentLabel: sampleLabels?.them ?? (current.opponentName ?? "Them"),
                     servesOnly: app.placementServesOnly,
                     scoredType: tracksServe,
                     showMaps: showPlacementAggregate,
@@ -2139,6 +2161,7 @@ struct MatchDetailScreen: View {
                             displayServer: serving[point.id]?.server ?? point.displayServer,
                             scoring: tracksServe,
                             coachView: !isOwner,
+                            neutralLabels: sampleLabels,
                             noteCount: notesStore.count(for: point.id),
                             tagCount: tagsStore.tags(for: point.id).count,
                             onOpen: {

@@ -24,7 +24,7 @@ import { AiFeaturesSetting } from "./AiFeaturesSetting";
 import { RecollectSetting } from "./RecollectSetting";
 import { WorkspaceSwitch } from "./WorkspaceSwitch";
 import { rememberedWorkspace } from "@/lib/workspaceServer";
-import { SAMPLE_ACCOUNT_ROW } from "@/lib/sampleMatch";
+import { SAMPLE_CTA } from "@/lib/sampleMatch";
 
 export const metadata: Metadata = {
   title: "Account",
@@ -276,7 +276,7 @@ export default async function AccountPage() {
           {sampleMatch && (
             <RowLink
               href={`/match/${sampleMatch.id}`}
-              label={SAMPLE_ACCOUNT_ROW}
+              label={SAMPLE_CTA}
             />
           )}
           <RowLink href="/feedback" label="Feedback and discussion" />

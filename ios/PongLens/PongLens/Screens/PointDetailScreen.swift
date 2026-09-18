@@ -130,6 +130,11 @@ struct PointDetailScreen: View {
     /// A note or a sketch on the sample match is refused by the database:
     /// it is ours, and every account reads the same one.
     private var canWrite: Bool { isOwner || !SampleMatch.isSample(match) }
+    /// Player 1 / Player 2 in the app's own "me / them" order, on the
+    /// sample match only. Nil everywhere else.
+    private var sampleLabels: (you: String, them: String)? {
+        canWrite ? nil : SampleMatch.labels(userSide: match.userSide)
+    }
 
     var body: some View {
         ZStack {
@@ -864,7 +869,10 @@ struct PointDetailScreen: View {
                     placement: placement,
                     userSide: match.userSide,
                     gameIndex: gameIndex,
-                    opponentLabel: match.opponentName ?? "Them",
+                    // Nobody is named on the sample: the maps read Player 1
+                    // and Player 2, the uploader's own side first.
+                    opponentLabel: sampleLabels?.them ?? (match.opponentName ?? "Them"),
+                    playerLabel: sampleLabels?.you,
                     serverPhysicalSide: serverPhysicalSide,
                     flagged: point.placementFlagged ?? false,
                     onFlagToggle: { Task { await model.togglePlacementFlag(point) } },
@@ -917,7 +925,9 @@ struct PointDetailScreen: View {
                         matchId: match.id,
                         ownerId: match.userId,
                         viewerId: app.userId ?? match.userId,
-                        authorName: notesStore.authorNames[note.authorId],
+                        authorName: canWrite
+                            ? notesStore.authorNames[note.authorId]
+                            : SampleMatch.noteAuthor,
                         notesStore: notesStore
                     )
                 }

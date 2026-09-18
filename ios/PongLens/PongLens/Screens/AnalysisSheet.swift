@@ -53,6 +53,66 @@ private struct DeckCard: Identifiable {
     let view: AnyView
 }
 
+extension String {
+    /// First letter upper-cased, the rest untouched: "the player's" ->
+    /// "The player's", and "Player 2's" stays "Player 2's". `capitalized`
+    /// would upper-case every word.
+    var capitalizedFirst: String {
+        guard let first else { return self }
+        return String(first).uppercased() + dropFirst()
+    }
+}
+
+/// Who the analysis cards are talking to. The owner reads "you" and
+/// "them"; a coach reads "the player" and "the opponent"; a visitor on the
+/// sample match reads Player 1 and Player 2, because "you" on their screen
+/// would mean them. One object carries every form a card needs, so a deck
+/// cannot say "you" in one card and a name in the next. The web's `Voice`
+/// in `src/app/match/[id]/cards.tsx`, with the same forms.
+struct CardVoice {
+    /// As the subject of a sentence.
+    let you: String
+    let them: String
+    /// Possessive.
+    let your: String
+    let their: String
+    /// Bare, where a row has already named what it is measuring.
+    let youShort: String
+    let themShort: String
+    /// Group headings on the serve cards.
+    let myServes: String
+    let theirServes: String
+    /// The two-way picker and the near end of a drawn table.
+    let mePill: String
+    /// A point's outcome in a list.
+    let youWon: String
+    let theyWon: String
+
+    static let owner = CardVoice(
+        you: "you", them: "them", your: "your", their: "their",
+        youShort: "you", themShort: "them",
+        myServes: "My serves", theirServes: "Their serves", mePill: "Me",
+        youWon: "You won", theyWon: "They won"
+    )
+    static let coach = CardVoice(
+        you: "the player", them: "the opponent",
+        your: "the player's", their: "the opponent's",
+        youShort: "player", themShort: "opponent",
+        myServes: "Player's serves", theirServes: "Opponent's serves",
+        mePill: "Player",
+        youWon: "Player won", theyWon: "Opponent won"
+    )
+    static func named(you: String, them: String) -> CardVoice {
+        CardVoice(
+            you: you, them: them, your: "\(you)'s", their: "\(them)'s",
+            youShort: you, themShort: them,
+            myServes: "\(you)'s serves", theirServes: "\(them)'s serves",
+            mePill: you,
+            youWon: "\(you) won", theyWon: "\(them) won"
+        )
+    }
+}
+
 /// The deck, shown inline on the match page for both owner and coach.
 /// `coachView` turns "you" into "the player" throughout. One deck for
 /// everything the match can say (Adil, 2026-09-15): the score's cards,
@@ -62,7 +122,15 @@ private struct DeckCard: Identifiable {
 struct AnalysisCards: View {
     let bundle: MatchAnalysisBundle
     var coachView = false
+    /// Names for the two players where the owner reads "you": the sample
+    /// match. Nil keeps the owner's or the coach's wording.
+    var neutralLabels: (you: String, them: String)? = nil
     var video: VideoCardsInput? = nil
+
+    private var voice: CardVoice {
+        if let neutralLabels { return .named(you: neutralLabels.you, them: neutralLabels.them) }
+        return coachView ? .coach : .owner
+    }
 
     @State private var mapsWho: PlacementMapWho = .me
     @State private var mapsShot: PlacementMapShot = .serves
@@ -140,11 +208,11 @@ struct AnalysisCards: View {
             : nil
         if let result {
             if result.pointLength.covered >= SCORED_CARDS_MIN_SAMPLES {
-                cards.append(DeckCard(id: "length", view: AnyView(PointLengthCard(result: result.pointLength, coachView: coachView))))
+                cards.append(DeckCard(id: "length", view: AnyView(PointLengthCard(result: result.pointLength, voice: voice))))
             }
             if !result.serveSpeedMine.isEmpty || !result.serveSpeedTheirs.isEmpty {
                 cards.append(DeckCard(id: "speed", view: AnyView(
-                    ServeSpeedCard(mine: result.serveSpeedMine, theirs: result.serveSpeedTheirs, coachView: coachView)
+                    ServeSpeedCard(mine: result.serveSpeedMine, theirs: result.serveSpeedTheirs, voice: voice)
                 )))
             }
         }
@@ -170,7 +238,7 @@ struct AnalysisCards: View {
                         gameIndexByPoint: video.gameIndexByPoint,
                         serving: video.serving,
                         opponentLabel: video.opponentLabel,
-                        coachView: coachView,
+                        voice: voice,
                         servesOnly: video.servesOnly,
                         who: $mapsWho,
                         shot: $mapsShot,
@@ -182,7 +250,7 @@ struct AnalysisCards: View {
         }
         if let result, result.endings.shown {
             cards.append(DeckCard(id: "endings", view: AnyView(
-                EndingsCard(endings: result.endings, opponentLabel: video.opponentLabel, coachView: coachView)
+                EndingsCard(endings: result.endings, opponentLabel: video.opponentLabel, voice: voice)
             )))
         }
 
@@ -251,8 +319,8 @@ struct AnalysisCards: View {
                             (Text("\(run.len) in a row")
                                 .foregroundStyle(run.who == .user ? PL.cyan : PL.magentaSoft)
                                 + Text(run.who == .user
-                                    ? (coachView ? "  player" : "  you")
-                                    : (coachView ? "  opponent" : "  them"))
+                                    ? "  \(voice.youShort)"
+                                    : "  \(voice.themShort)")
                                 .foregroundStyle(PL.text500))
                                 .font(.system(size: 13, weight: .semibold))
                         }
@@ -292,8 +360,8 @@ struct AnalysisCards: View {
 
     private func mistakesCard(_ mistakes: MatchAnalysisResult.Mistakes) -> some View {
         card(
-            coachView ? "Why the player lost" : "Why you lost",
-            hint: coachView ? "Only points the player lost" : "Only points you lost"
+            "Why \(voice.you) lost",
+            hint: "Only points \(voice.you) lost"
         ) {
             let top = Array(mistakes.reasons.prefix(8))
             let max = mistakes.reasons.map(\.count).max() ?? 1
@@ -336,10 +404,10 @@ struct AnalysisCards: View {
     // MARK: - Serve
 
     private func serveCard(_ serve: MatchAnalysisResult.ServeCuts) -> some View {
-        card("Serve", hint: coachView ? "Share of those points the player won" : "Share of those points you won") {
+        card("Serve", hint: "Share of those points \(voice.you) won") {
             VStack(alignment: .leading, spacing: 10) {
                 if !serve.mineSpins.isEmpty {
-                    eyebrow(coachView ? "Player's serves (\(serve.mineCount))" : "My serves (\(serve.mineCount))")
+                    eyebrow("\(voice.myServes) (\(serve.mineCount))")
                     ForEach(serve.mineSpins, id: \.label) { splitBar($0) }
                     if !serve.mineLengths.isEmpty {
                         Rectangle().fill(PL.edge.opacity(0.6))
@@ -349,7 +417,7 @@ struct AnalysisCards: View {
                     }
                 }
                 if !serve.theirSpins.isEmpty {
-                    eyebrow(coachView ? "Opponent's serves (\(serve.theirCount))" : "Their serves (\(serve.theirCount))")
+                    eyebrow("\(voice.theirServes) (\(serve.theirCount))")
                         .padding(.top, serve.mineSpins.isEmpty ? 0 : 8)
                     ForEach(serve.theirSpins, id: \.label) { splitBar($0) }
                 }

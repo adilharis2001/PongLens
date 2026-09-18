@@ -32,6 +32,8 @@ struct MatchesScreen: View {
     @State private var sort: LibrarySort = .uploaded
     @State private var shareMatch: MatchRow?
     @State private var deleteTarget: MatchRow?
+    @State private var sampleDismissed = false
+    @State private var dismissingSample = false
 
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
@@ -46,6 +48,7 @@ struct MatchesScreen: View {
     /// keeps it reachable after that.
     private var showSample: Bool {
         sampleMatch != nil
+            && !sampleDismissed
             && !SampleMatch.hasOwnScoredMatch(
                 ownMatches: ownMatches, scores: scores.scores
             )
@@ -198,6 +201,7 @@ struct MatchesScreen: View {
                 await loadPlayerNames()
             }
             .task { await loadPlayerNames() }
+            .task { sampleDismissed = await SampleMatch.isDismissed() }
 
             PLFabStack()
                 .padding(20)
@@ -341,6 +345,22 @@ struct MatchesScreen: View {
                 }
                 .buttonStyle(.plain)
             }
+            // Removing it is per account: the match is ours and stays where
+            // it is, and Account → Support links back to it.
+            Button {
+                guard let uid = app.userId else { return }
+                dismissingSample = true
+                Task {
+                    if await SampleMatch.dismiss(userId: uid) { sampleDismissed = true }
+                    dismissingSample = false
+                }
+            } label: {
+                Text(dismissingSample ? "Removing…" : "Remove from my matches")
+                    .font(.plBody)
+            }
+            .buttonStyle(PLSecondaryButtonStyle())
+            .disabled(dismissingSample)
+            .padding(.top, 4)
         }
     }
 

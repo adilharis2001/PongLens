@@ -19,6 +19,9 @@ struct PointCard: View {
     /// starring and deleting are the owner's; a coach opens the point
     /// and leaves notes.
     var coachView = false
+    /// Names for the two players when neither of them is "me": the sample
+    /// match, where the rows read Player 1 / Player 2 like its cards.
+    var neutralLabels: (you: String, them: String)? = nil
     var noteCount = 0
     var tagCount = 0
     let onOpen: () -> Void
@@ -137,8 +140,10 @@ struct PointCard: View {
     private var winnerLabel: (text: String, color: Color)? {
         if point.isLet { return ("Skipped", PL.warningText) }
         switch point.confirmedWinner {
-        case .user: return (coachView ? "Player won" : "I won", PL.successText)
-        case .opponent: return (coachView ? "Opponent won" : "They won", PL.text400)
+        case .user:
+            return (neutralLabels.map { "\($0.you) won" } ?? (coachView ? "Player won" : "I won"), PL.successText)
+        case .opponent:
+            return (neutralLabels.map { "\($0.them) won" } ?? (coachView ? "Opponent won" : "They won"), PL.text400)
         case nil: return nil
         }
     }
@@ -147,9 +152,9 @@ struct PointCard: View {
     private var serverChip: some View {
         switch displayServer {
         case .user:
-            chipBody(coachView ? "Player served" : "I served", tint: PL.cyan, textColor: PL.cyan)
+            chipBody(neutralLabels.map { "\($0.you) served" } ?? (coachView ? "Player served" : "I served"), tint: PL.cyan, textColor: PL.cyan)
         case .opponent:
-            chipBody(coachView ? "Opponent served" : "They served", tint: PL.magenta, textColor: PL.magentaSoft)
+            chipBody(neutralLabels.map { "\($0.them) served" } ?? (coachView ? "Opponent served" : "They served"), tint: PL.magenta, textColor: PL.magentaSoft)
         case nil:
             Text("Server")
                 .font(.system(size: 11, weight: .medium))

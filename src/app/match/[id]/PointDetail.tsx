@@ -23,6 +23,7 @@ import {
 } from "./PlacementMap";
 import { NoteComposer, NoteItem } from "./Notes";
 import { TagGlyph, TagPicker } from "./Tags";
+import { SAMPLE_NOTE_AUTHOR } from "@/lib/sampleMatch";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import type { ServeInfo } from "./serving";
 import { otherSide, physicalSideForGame, type Side } from "./sides";
@@ -876,7 +877,9 @@ export function PointDetail({
                 matchId={matchId}
                 ownerId={ownerId}
                 viewerId={userId}
-                authorName={authorNames.get(n.author_id)}
+                authorName={
+                  canNote ? authorNames.get(n.author_id) : SAMPLE_NOTE_AUTHOR
+                }
               />
             ))}
           </ul>

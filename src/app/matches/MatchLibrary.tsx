@@ -39,6 +39,7 @@ import {
   hasOwnScoredMatch,
   isSampleMatch,
   SAMPLE_CHIP,
+  SAMPLE_TITLE,
 } from "@/lib/sampleMatch";
 
 // Same cadence as Home. Upgrade path: Supabase Realtime.
@@ -165,6 +166,9 @@ export function MatchLibrary({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [coachNoted, setCoachNoted] = useState<Set<string>>(new Set());
   const [exportReady, setExportReady] = useState<Set<string>>(new Set());
+  /** This account dismissed the sample match (its own row, nobody else's). */
+  const [sampleDismissed, setSampleDismissed] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
   const [confirmMatch, setConfirmMatch] = useState<MatchRow | null>(null);
   const [confirmBytes, setConfirmBytes] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -177,7 +181,7 @@ export function MatchLibrary({
     // Notes come back id-less (match_id only) purely for the per-card count.
     // Point rows are NOT here: they're the one payload that grows with the
     // library, so they load per visible card in their own effect below.
-    const [matchRes, jobRes, playersRes, noteRows, reelRes] =
+    const [matchRes, jobRes, playersRes, noteRows, reelRes, dismissRes] =
       await Promise.all([
         supabase
           .from("matches")
@@ -209,8 +213,14 @@ export function MatchLibrary({
           "notes"
         ),
         supabase.from("match_reels").select("match_id, status"),
+        // One row, or none: has this account dismissed the sample match?
+        // limit(1), not maybeSingle(): PostgREST answers a single-object
+        // request with 406 when there is no row, and no row is the normal
+        // case here.
+        supabase.from("sample_match_dismissals").select("user_id").limit(1),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
+    setSampleDismissed((dismissRes.data?.length ?? 0) > 0);
     if (jobRes.data) setJobs(jobRes.data as Job[]);
     if (playersRes.data) setSharedPlayers(playersRes.data as SharedPlayer[]);
     {
@@ -571,6 +581,20 @@ export function MatchLibrary({
     )
   );
 
+  /** Hide the sample for this account only: one row, no media touched. */
+  async function dismissSample() {
+    setDismissing(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("sample_match_dismissals")
+        .insert({ user_id: userId });
+      if (!error || error.code === "23505") setSampleDismissed(true);
+    } finally {
+      setDismissing(false);
+    }
+  }
+
   async function openDeleteConfirm(m: MatchRow) {
     setMenuFor(null);
     setConfirmMatch(m);
@@ -732,14 +756,22 @@ export function MatchLibrary({
     const s = chipForMatch(m.status, live);
     const chip = scoreChipByMatch.get(m.id);
     const notes = noteCounts.get(m.id) ?? 0;
-    const parts = deriveMatchTitleParts({
+    const parts = isSampleMatch(m)
+      ? {
+          primary: SAMPLE_TITLE,
+          secondary: deriveMatchTitleParts({
+            opponentName: m.opponent_name,
+            venue: m.venue,
+            playedAt: m.played_at,
+            matchType: m.match_type,
+          }).secondary,
+        }
+      : deriveMatchTitleParts({
       opponentName: m.opponent_name,
       venue: m.venue,
       playedAt: m.played_at,
       matchType: m.match_type,
-      // The sample names both players ("Adil vs Anton"): the viewer is
-      // neither of them, which is what the neutral title is for.
-      ...(shared && !isSampleMatch(m)
+      ...(shared
         ? { neutral: false, nameA: "", nameB: (m.opponent_name ?? "").trim() }
         : neutralTitleFields(m, accountName)),
     });
@@ -1088,7 +1120,10 @@ export function MatchLibrary({
 
       {/* The sample match: ours, read-only, and only until they have scored
           a match of their own. Account -> Support keeps a way back to it. */}
-      {!loading && sampleMatch && !hasOwnScoredMatch(ownMatches, scoreChipByMatch) && (
+      {!loading &&
+        sampleMatch &&
+        !sampleDismissed &&
+        !hasOwnScoredMatch(ownMatches, scoreChipByMatch) && (
         <section>
           <SectionHeading>Sample match</SectionHeading>
           <p className="mt-1 text-sm text-zinc-500">
@@ -1098,6 +1133,16 @@ export function MatchLibrary({
           <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
             {matchCard(sampleMatch, true)}
           </ul>
+          {/* Removing it is per account: the match itself is ours and stays
+              where it is, and Account -> Support links back to it. */}
+          <button
+            type="button"
+            disabled={dismissing}
+            onClick={() => void dismissSample()}
+            className="mt-3 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-300/50 hover:text-amber-200 disabled:opacity-60"
+          >
+            {dismissing ? "Removing…" : "Remove from my matches"}
+          </button>
         </section>
       )}
 

@@ -266,6 +266,10 @@ final class AppState {
         }
     }
 
+    /// Has this account opened the sample match? Set by the match screen,
+    /// read by the First steps row. Same user_metadata key as web.
+    var sampleMatchSeen: Bool { metadataFlag("sample_match_seen") }
+
     func metadataFlag(_ key: String) -> Bool {
         guard case .signedIn(let session) = phase else { return false }
         return session.user.userMetadata[key]?.boolValue ?? false

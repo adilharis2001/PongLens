@@ -120,7 +120,10 @@ struct MatchCard: View {
                 Text(parts.primary)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(PL.text100)
-                    .lineLimit(1)
+                    // Two lines: the grid column is about 150pt, which cuts
+                    // an ordinary "you vs their full name" and cut the
+                    // sample's own name in half.
+                    .lineLimit(2)
                 Text(processingLabel ?? parts.secondary)
                     .font(.system(size: 12))
                     .foregroundStyle(PL.text500)

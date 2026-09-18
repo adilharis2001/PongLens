@@ -59,6 +59,9 @@ struct PlacementMapView: View {
     let userSide: String? // matches.user_side
     let gameIndex: Int // 0-based; players change ends each game
     let opponentLabel: String
+    /// What to call the uploader's own side. Nil keeps "Me"; the sample
+    /// match passes "Player 1"/"Player 2" so nobody is named.
+    var playerLabel: String? = nil
     /// Rotation-derived physical side of this point's server, when known.
     let serverPhysicalSide: String?
     let flagged: Bool
@@ -285,11 +288,12 @@ struct PlacementMapView: View {
                     ViewMode.allCases.map(\.rawValue),
                     active: mode.rawValue
                 ) { mode = ViewMode(rawValue: $0) ?? .trajectory }
+                let meLabel = playerLabel ?? "Me"
                 segmented(
-                    ["Me", opponentLabel, "Both"],
-                    active: whose == .me ? "Me" : whose == .them ? opponentLabel : "Both"
+                    [meLabel, opponentLabel, "Both"],
+                    active: whose == .me ? meLabel : whose == .them ? opponentLabel : "Both"
                 ) { picked in
-                    whose = picked == "Me" ? .me : picked == opponentLabel ? .them : .both
+                    whose = picked == meLabel ? .me : picked == opponentLabel ? .them : .both
                 }
             }
         }
@@ -545,7 +549,7 @@ struct PlacementMapView: View {
         drawPlacementTable(
             context, scale: s,
             topLabel: tagged ? opponentLabel : "Far player",
-            bottomLabel: tagged ? "Me" : "Near player"
+            bottomLabel: tagged ? (playerLabel ?? "Me") : "Near player"
         )
     }
 
@@ -677,7 +681,7 @@ struct PlacementMapView: View {
     // MARK: - Legend + controls
 
     private func legend(showRing: Bool) -> some View {
-        let youLabel = tagged ? "Me" : "Far player"
+        let youLabel = tagged ? (playerLabel ?? "Me") : "Far player"
         let themLabel = tagged ? opponentLabel : "Near player"
         return VStack(spacing: 4) {
             HStack(spacing: 12) {

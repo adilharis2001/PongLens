@@ -676,24 +676,21 @@ enum MatchTitle {
         return (head.joined(separator: " · "), tail.joined(separator: " · "))
     }
 
+    /// What a title leads with. The sample match is named for what it is:
+    /// whoever reads it played on neither side, so an opponent-led title
+    /// would claim they did, and the two players stay unnamed here as they
+    /// do in the analysis cards. One statement of that rule, because the
+    /// match screen composes its own title rather than using `parts(for:)`.
+    static func head(for match: MatchRow) -> (opponent: String?, venue: String?) {
+        match.isSample == true
+            ? (SampleMatch.title, nil)
+            : (match.opponentName, match.venue)
+    }
+
     static func parts(for match: MatchRow) -> (primary: String, secondary: String) {
-        // The sample match names both players: whoever is reading it played
-        // in neither, so the opponent-led title would claim they did. Web
-        // reaches the same title through its neutral mode.
-        if match.isSample == true {
-            let mine = (match.userSide == "far" ? match.playerFarName : match.playerNearName)?
-                .trimmingCharacters(in: .whitespaces) ?? ""
-            let theirs = (match.opponentName ?? "").trimmingCharacters(in: .whitespaces)
-            if !mine.isEmpty, !theirs.isEmpty {
-                return parts(
-                    opponentName: "\(mine) vs \(theirs)", venue: match.venue,
-                    playedAt: match.playedAt, matchType: match.matchType,
-                    pointCount: match.pointCount
-                )
-            }
-        }
+        let head = head(for: match)
         return parts(
-            opponentName: match.opponentName, venue: match.venue,
+            opponentName: head.opponent, venue: head.venue,
             playedAt: match.playedAt, matchType: match.matchType,
             pointCount: match.pointCount
         )
