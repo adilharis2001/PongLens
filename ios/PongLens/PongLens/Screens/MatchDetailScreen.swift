@@ -865,6 +865,7 @@ struct MatchDetailScreen: View {
     /// Reading the sample: Tools are shown but dead, and the two players
     /// stay unnamed.
     private var sampleViewer: Bool { !isOwner && SampleMatch.isSample(current) }
+    @State private var dismissingSample = false
     /// Player 1 / Player 2 in the app's own "me / them" order, on the
     /// sample match only. Nil everywhere else, where the real names and
     /// the owner's or the coach's wording apply.
@@ -1477,12 +1478,6 @@ struct MatchDetailScreen: View {
                     }
                 }
             }
-            // The sample says what it is, once, where the eye already is.
-            if SampleMatch.isSample(current), !isOwner {
-                Text(SampleMatch.note)
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-            }
             if showGamesDetail, !score.games.isEmpty {
                 Text(score.games.map { "\($0.you)-\($0.them)" }.joined(separator: "  ·  "))
                     .font(.plCaption)
@@ -2000,6 +1995,27 @@ struct MatchDetailScreen: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .plCard()
+
+            // Done with the demo. It used to sit under the library's own
+            // sample section, which is now one button in the empty state,
+            // so the control belongs on the one screen that is entirely
+            // about it. The row written is this account's alone: the match
+            // never moves, and Account → Support still links back to it.
+            if sampleViewer {
+                Button {
+                    guard let uid = app.userId else { return }
+                    dismissingSample = true
+                    Task {
+                        if await SampleMatch.dismiss(userId: uid) { dismiss() }
+                        dismissingSample = false
+                    }
+                } label: {
+                    Text(dismissingSample ? "Removing…" : "Remove from my matches")
+                        .font(.plBody)
+                }
+                .buttonStyle(PLSecondaryButtonStyle())
+                .disabled(dismissingSample)
+            }
         }
         .id("overall-notes")
     }
@@ -2162,6 +2178,7 @@ struct MatchDetailScreen: View {
                             scoring: tracksServe,
                             coachView: !isOwner,
                             neutralLabels: sampleLabels,
+                            locked: sampleViewer,
                             noteCount: notesStore.count(for: point.id),
                             tagCount: tagsStore.tags(for: point.id).count,
                             onOpen: {

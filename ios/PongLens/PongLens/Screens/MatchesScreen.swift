@@ -33,7 +33,6 @@ struct MatchesScreen: View {
     @State private var shareMatch: MatchRow?
     @State private var deleteTarget: MatchRow?
     @State private var sampleDismissed = false
-    @State private var dismissingSample = false
 
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
@@ -184,9 +183,6 @@ struct MatchesScreen: View {
 
                     content
 
-                    if library.loaded, showSample, let sample = sampleMatch {
-                        sampleSection(sample)
-                    }
 
                     if !sharedByPlayer.isEmpty {
                         sharedSection
@@ -296,6 +292,15 @@ struct MatchesScreen: View {
                 Button("New match") { router.newMatchOpen = true }
                     .buttonStyle(PLPrimaryButtonStyle())
                     .padding(.top, 8)
+                // The demo sits beside New match rather than in a section
+                // of its own (Adil, 2026-09-18): same shape and size,
+                // outlined instead of filled.
+                if showSample, let sample = sampleMatch {
+                    NavigationLink(value: sample) {
+                        Text(SampleMatch.cta).font(.plBody)
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                }
             }
             .frame(maxWidth: .infinity)
             .plCard(padding: 40)
@@ -326,41 +331,6 @@ struct MatchesScreen: View {
                     .buttonStyle(.plain)
                 }
             }
-        }
-    }
-
-    /// The sample match, ours, read-only, until they have scored their own.
-    private func sampleSection(_ sample: MatchRow) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeading("Sample match")
-            Text("A finished match of ours to look around. It goes once you have scored one of your own.")
-                .font(.plBody)
-                .foregroundStyle(PL.text400)
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())],
-                spacing: 16
-            ) {
-                NavigationLink(value: sample) {
-                    MatchCard(match: sample, score: scores.scores[sample.id])
-                }
-                .buttonStyle(.plain)
-            }
-            // Removing it is per account: the match is ours and stays where
-            // it is, and Account → Support links back to it.
-            Button {
-                guard let uid = app.userId else { return }
-                dismissingSample = true
-                Task {
-                    if await SampleMatch.dismiss(userId: uid) { sampleDismissed = true }
-                    dismissingSample = false
-                }
-            } label: {
-                Text(dismissingSample ? "Removing…" : "Remove from my matches")
-                    .font(.plBody)
-            }
-            .buttonStyle(PLSecondaryButtonStyle())
-            .disabled(dismissingSample)
-            .padding(.top, 4)
         }
     }
 

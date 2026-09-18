@@ -36,9 +36,9 @@ import {
   canOpenMatch,
 } from "@/app/dashboard/shared";
 import {
-  hasOwnScoredMatch,
   isSampleMatch,
   SAMPLE_CHIP,
+  SAMPLE_CTA,
   SAMPLE_TITLE,
 } from "@/lib/sampleMatch";
 
@@ -168,7 +168,6 @@ export function MatchLibrary({
   const [exportReady, setExportReady] = useState<Set<string>>(new Set());
   /** This account dismissed the sample match (its own row, nobody else's). */
   const [sampleDismissed, setSampleDismissed] = useState(false);
-  const [dismissing, setDismissing] = useState(false);
   const [confirmMatch, setConfirmMatch] = useState<MatchRow | null>(null);
   const [confirmBytes, setConfirmBytes] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -581,19 +580,6 @@ export function MatchLibrary({
     )
   );
 
-  /** Hide the sample for this account only: one row, no media touched. */
-  async function dismissSample() {
-    setDismissing(true);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("sample_match_dismissals")
-        .insert({ user_id: userId });
-      if (!error || error.code === "23505") setSampleDismissed(true);
-    } finally {
-      setDismissing(false);
-    }
-  }
 
   async function openDeleteConfirm(m: MatchRow) {
     setMenuFor(null);
@@ -1019,12 +1005,25 @@ export function MatchLibrary({
               Upload your first match. When processing finishes it will appear
               here, broken into points and ready to review.
             </p>
-            <Link
-              href="/upload"
-              className="glow-cta mt-5 inline-block rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
-            >
-              Upload a match
-            </Link>
+            {/* The sample sits beside Upload rather than in a section of
+                its own (Adil, 2026-09-18): same shape and size, outlined
+                instead of filled, so it reads as the quieter of the two. */}
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+              <Link
+                href="/upload"
+                className="glow-cta inline-block rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
+              >
+                Upload a match
+              </Link>
+              {sampleMatch && !sampleDismissed && (
+                <Link
+                  href={`/match/${sampleMatch.id}`}
+                  className="inline-block rounded-full border border-edge px-6 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                >
+                  {SAMPLE_CTA}
+                </Link>
+              )}
+            </div>
           </div>
         ) : !anythingVisible ? (
           <p className="mt-4 text-sm text-zinc-500">
@@ -1117,34 +1116,6 @@ export function MatchLibrary({
           </>
         )}
       </section>
-
-      {/* The sample match: ours, read-only, and only until they have scored
-          a match of their own. Account -> Support keeps a way back to it. */}
-      {!loading &&
-        sampleMatch &&
-        !sampleDismissed &&
-        !hasOwnScoredMatch(ownMatches, scoreChipByMatch) && (
-        <section>
-          <SectionHeading>Sample match</SectionHeading>
-          <p className="mt-1 text-sm text-zinc-500">
-            A finished match of ours to look around. It goes once you have
-            scored one of your own.
-          </p>
-          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {matchCard(sampleMatch, true)}
-          </ul>
-          {/* Removing it is per account: the match itself is ours and stays
-              where it is, and Account -> Support links back to it. */}
-          <button
-            type="button"
-            disabled={dismissing}
-            onClick={() => void dismissSample()}
-            className="mt-3 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-300/50 hover:text-amber-200 disabled:opacity-60"
-          >
-            {dismissing ? "Removing…" : "Remove from my matches"}
-          </button>
-        </section>
-      )}
 
       {/* coach view: matches other players shared via accepted coach links */}
       {!loading && filteredShared.size > 0 && (

@@ -15,11 +15,9 @@
 export const SAMPLE_CHIP = "Demo";
 /** The sample is named for what it is, not for who played in it: every
  *  other card names an opponent, and this one has none for the reader. */
-export const SAMPLE_TITLE = "PongLens demo match";
+export const SAMPLE_TITLE = "PongLens Demo Match";
 export const SAMPLE_CTA = "View sample match";
 export const SAMPLE_FIRST_STEP = "Review the sample match";
-export const SAMPLE_MATCH_NOTE =
-  "A real match between the two of us who built PongLens.";
 /** The two players, unnamed, wherever the analysis would use real names. */
 export const SAMPLE_NEAR_LABEL = "Player 1";
 export const SAMPLE_FAR_LABEL = "Player 2";

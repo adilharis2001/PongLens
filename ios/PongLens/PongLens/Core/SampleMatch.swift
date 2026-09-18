@@ -13,10 +13,9 @@ import Supabase
 enum SampleMatch {
     static let chip = "Demo"
     /// Named for what it is, not for who played in it.
-    static let title = "PongLens demo match"
+    static let title = "PongLens Demo Match"
     static let cta = "View sample match"
     static let firstStep = "Review the sample match"
-    static let note = "A real match between the two of us who built PongLens."
     /// The two players, unnamed, wherever the analysis would use real names.
     static let nearLabel = "Player 1"
     static let farLabel = "Player 2"

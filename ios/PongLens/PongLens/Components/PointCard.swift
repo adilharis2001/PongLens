@@ -22,6 +22,10 @@ struct PointCard: View {
     /// Names for the two players when neither of them is "me": the sample
     /// match, where the rows read Player 1 / Player 2 like its cards.
     var neutralLabels: (you: String, them: String)? = nil
+    /// The demo match: the row carries the owner's tag/star/delete rail so
+    /// it is the height and shape a real one is, with every control dead.
+    /// The row itself still opens the point.
+    var locked = false
     var noteCount = 0
     var tagCount = 0
     let onOpen: () -> Void
@@ -96,7 +100,7 @@ struct PointCard: View {
                 }
             }
 
-            if coachView {
+            if coachView && !locked {
                 if point.starred {
                     Image(systemName: "star.fill")
                         .font(.system(size: 15))
@@ -125,6 +129,8 @@ struct PointCard: View {
                 .buttonStyle(.plain)
             }
             .padding(.leading, 2)
+            .disabled(locked)
+            .opacity(locked ? 0.45 : 1)
             }
         }
         .plCard(padding: 16)
