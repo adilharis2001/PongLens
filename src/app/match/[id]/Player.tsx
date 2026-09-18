@@ -861,6 +861,9 @@ export const Player = forwardRef<
     onOpenPoint: (pointId: string) => void;
     /** Viewer, for notes written from the watch chrome (player or coach). */
     userId: string;
+    /** The demo match, for anyone but its owner: scoring, drawing and
+     *  notes all work and none of them is sent anywhere. */
+    demo?: boolean;
     /** Match owner, so a coach's note is styled and labelled as one. */
     ownerId: string;
     /** Every note on the match; the sheets filter to the point on screen. */
@@ -941,6 +944,7 @@ export const Player = forwardRef<
     onOpenPoint,
     onOpenChange,
     userId,
+    demo = false,
     ownerId,
     notes,
     authorNames,
@@ -8238,6 +8242,7 @@ export const Player = forwardRef<
                       pointId={analysisPoint.id}
                       userId={userId}
                       placeholder="What did you notice?"
+                      demo={demo}
                       onNoteAdded={onNoteAdded}
                     />
                   </div>
@@ -8514,6 +8519,17 @@ export const Player = forwardRef<
           frame={annotate.frame}
           onCancel={() => setAnnotate(null)}
           onSave={async (blob) => {
+            // The demo keeps the drawing in the browser: uploading it
+            // would leave a file of ours behind for a note that is never
+            // written.
+            if (demo) {
+              const preview = URL.createObjectURL(blob);
+              clearPendingImage();
+              setPendingImage({ path: preview, preview });
+              setNoteSheet(annotate.point);
+              setAnnotate(null);
+              return;
+            }
             const form = new FormData();
             form.append("image", blob, "frame.jpg");
             const res = await fetch("/api/note-image", {
@@ -8651,6 +8667,7 @@ export const Player = forwardRef<
                 userId={userId}
                 placeholder="What did you notice?"
                 imagePath={pendingImage?.path ?? null}
+                demo={demo}
                 onNoteAdded={(n) => {
                   onNoteAdded(n);
                   setNoteSheet(null);

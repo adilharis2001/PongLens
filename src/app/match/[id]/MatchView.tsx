@@ -1154,6 +1154,10 @@ export function MatchView({
   /// Tools are SHOWN on the sample so the page is the real page, and greyed
   /// because none of them is theirs to press. Highlights is the exception:
   /// it plays what we already rendered.
+  // Greyed on the demo, because most of these rows write something that
+  // is ours. The three that do not — scoring, the analysis and the notes —
+  // use TOOL_ROW_CLASS and read as live, which is the point: a demo you
+  // can only look at teaches nothing (Adil, 2026-09-18).
   const toolRowClass = sampleViewer
     ? `${TOOL_ROW_CLASS} cursor-default opacity-45 hover:bg-transparent lg:hover:border-edge lg:hover:bg-surface`
     : TOOL_ROW_CLASS;
@@ -1850,6 +1854,13 @@ export function MatchView({
           pointsRef.current.find((point) => point.id === pointId) ?? null,
         apply: (pointId, state) => updatePoint(pointId, state),
         persist: async (pointId, state) => {
+          // The demo match is there to be tried. Scoring it moves the
+          // score, the games and the cards on screen exactly as it would
+          // on your own match, and stops at the browser: nothing is sent,
+          // so there is no write for the database to refuse and no error
+          // to explain. Undo and the rest of the command layer see an
+          // ordinary successful save.
+          if (sampleViewer) return true;
           const current = pointsRef.current.find((point) => point.id === pointId);
           if (!current) return false;
           const outcome = state.confirmed_winner ??
@@ -1890,7 +1901,7 @@ export function MatchView({
           );
         },
       }),
-    [executeCanonical, updatePoint]
+    [executeCanonical, sampleViewer, updatePoint]
   );
 
   const savePointOutcome = useCallback(
@@ -3544,8 +3555,15 @@ export function MatchView({
             hasOriginal={hasOriginal}
             canDownload={isOwner || !isSampleMatch(match)}
           >
+            {/* The demo is there to be tried, and what it demonstrates is
+                scoring, reading and writing notes: those work here and
+                stop at the browser. Everything else a player control can
+                write belongs to somebody else's match, so on the demo
+                those handlers do nothing rather than reach a database that
+                would refuse them. */}
             <Player
               ref={playerRef}
+              demo={sampleViewer}
               matchId={match.id}
               expectedVersionId={match.active_processing_version_id}
               onVersionStale={refreshActiveSnapshot}
@@ -3564,32 +3582,33 @@ export function MatchView({
               pad={pad}
               ends={ends}
               deletedSpans={deletedSpans}
-              onDeletePoint={(p) => void deletePointQuiet(p)}
-              onUndoDelete={(id) => void undoDelete(id)}
-              onDeleteAllBefore={(p) => void deleteAllBeforeQuiet(p)}
+              onDeletePoint={(p) => { if (!sampleViewer) void deletePointQuiet(p); }}
+              onUndoDelete={(id) => { if (!sampleViewer) void undoDelete(id); }}
+              onDeleteAllBefore={(p) => { if (!sampleViewer) void deleteAllBeforeQuiet(p); }}
               namesPrompt={namesPrompt}
-              onSaveNames={(you, them) => void saveNames(you, them)}
-              onSaveFirstServer={(v) => void saveFirstServer(v)}
+              onSaveNames={(you, them) => { if (!sampleViewer) void saveNames(you, them); }}
+              onSaveFirstServer={(v) => { if (!sampleViewer) void saveFirstServer(v); }}
               onSetWinner={setWinner}
               onRestoreScorer={restoreScorer}
               canLabelServeStart={canLabelServeStart}
-              onSetServeStart={(p, at, meta) =>
-                void setServeStart(p, at, meta)
-              }
+              onSetServeStart={(p, at, meta) => {
+                if (!sampleViewer) void setServeStart(p, at, meta);
+              }}
               onSetSkipped={setSkipped}
               onSaveOutcome={savePointOutcome}
-              onSetServer={(p, v) => void setServerOverride(p, v)}
+              onSetServer={(p, v) => { if (!sampleViewer) void setServerOverride(p, v); }}
               onInsertPoint={isOwner ? insertMissingPoint : undefined}
-              onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
-              onSetGameWinner={(p, v) => void setGameWinnerOverride(p, v)}
+              onSetGameOverride={(p, v) => { if (!sampleViewer) void setGameEndOverride(p, v); }}
+              onSetGameWinner={(p, v) => { if (!sampleViewer) void setGameWinnerOverride(p, v); }}
               sideChanges={sideChanges}
               onDismissSideChange={
                 gameEndDetection && isOwner
                   ? (p) => void dismissSideChange(p)
                   : undefined
               }
-              onToggleStar={(p) => void toggleStar(p)}
+              onToggleStar={(p) => { if (!sampleViewer) void toggleStar(p); }}
               onSplit={(parent, patch, child) => {
+                if (sampleViewer) return;
                 updatePoint(parent.id, patch);
                 addSplitPoint(child);
               }}
@@ -3597,6 +3616,7 @@ export function MatchView({
               canonicalJoinExecutor={canonicalJoinExecutor}
               onUndoSplitPlan={undoSplitPlan}
               onMerge={(survivorId, patch, removedIds) => {
+                if (sampleViewer) return;
                 const drop = new Set(removedIds);
                 updatePoints((ps) =>
                   ps
@@ -3604,7 +3624,7 @@ export function MatchView({
                     .map((p) => (p.id === survivorId ? { ...p, ...patch } : p))
                 );
               }}
-              onAdjustTiming={adjustPointTiming}
+              onAdjustTiming={sampleViewer ? undefined : adjustPointTiming}
               onOpenPoint={(id) => {
                 const i = visiblePoints.findIndex((p) => p.id === id);
                 if (i < 0) return;
@@ -3625,10 +3645,10 @@ export function MatchView({
               onPointUpdate={(id, patch) => updatePoint(id, patch)}
               tagsForPoint={tagsForPoint}
               tagVocab={sortedVocab}
-              onToggleTag={(pointId, tag) => void toggleTag(pointId, tag)}
-              onCreateTag={(pointId, label) =>
-                void createTag(pointId, label)
-              }
+              onToggleTag={(pointId, tag) => { if (!sampleViewer) void toggleTag(pointId, tag); }}
+              onCreateTag={(pointId, label) => {
+                if (!sampleViewer) void createTag(pointId, label);
+              }}
             />
           </DownloadCard>
         </div>
@@ -3664,8 +3684,7 @@ export function MatchView({
               <button
                 type="button"
                 onClick={() => playerRef.current?.openScore()}
-                className={toolRowClass}
-                disabled={sampleViewer}
+                className={TOOL_ROW_CLASS}
               >
                 {/* Games won, not the per-game line: this row is itself a
                     button (it opens the scorer), so it can't nest a
@@ -3712,8 +3731,7 @@ export function MatchView({
                   if (analysisRowAction) void placement.requestAction();
                   scrollToSection(matchStatsRef);
                 }}
-                className={toolRowClass}
-                disabled={sampleViewer}
+                className={TOOL_ROW_CLASS}
               >
                 <span className="text-sm font-semibold">Match analysis</span>
                 <span className="flex shrink-0 items-center gap-2">
@@ -3805,8 +3823,7 @@ export function MatchView({
             <button
               type="button"
               onClick={() => scrollToSection(notesRef)}
-              className={toolRowClass}
-                disabled={sampleViewer}
+              className={TOOL_ROW_CLASS}
             >
               <span className="text-sm font-semibold">Notes</span>
               <span className="flex shrink-0 items-center gap-2">
@@ -4823,7 +4840,7 @@ export function MatchView({
             </div>
             <PointDetail
               key={panePoint.id}
-              canNote={isOwner || !isSampleMatch(match)}
+              demo={sampleViewer}
               matchId={match.id}
               // panePoint falls back to the first point when nothing is
               // selected, which is how opening a match on desktop landed
@@ -5020,19 +5037,16 @@ export function MatchView({
             ))}
           </ul>
         )}
-        {/* No composer on the sample: the database refuses a note there,
-            so offering the box would only produce an error. */}
-        {(isOwner || !isSampleMatch(match)) && (
-          <div className="mt-4">
-            <NoteComposer
-              matchId={match.id}
-              pointId={null}
-              userId={userId}
-              placeholder="How did the match go?"
-              onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
-            />
-          </div>
-        )}
+        <div className="mt-4">
+          <NoteComposer
+            matchId={match.id}
+            pointId={null}
+            userId={userId}
+            placeholder="How did the match go?"
+            demo={sampleViewer}
+            onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
+          />
+        </div>
       </section>
 
       {/* Floating match bar: appears once the page header has scrolled
@@ -5147,7 +5161,7 @@ export function MatchView({
       {/* mobile point sheet */}
       {!isDesktop && selectedPoint && (
         <PointSheet
-          canNote={isOwner || !isSampleMatch(match)}
+          demo={sampleViewer}
           matchId={match.id}
           ownerId={match.user_id}
           customReasons={customReasons}

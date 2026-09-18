@@ -116,6 +116,12 @@ export function NoteItem({
   // there, unlike audio which waits for a play tap.
   useEffect(() => {
     if (!note.image_path) return;
+    // A demo note's drawing was never uploaded: its "path" is the object
+    // URL the canvas produced, which the browser can show directly.
+    if (note.image_path.startsWith("blob:")) {
+      setImageUrl(note.image_path);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -364,6 +370,7 @@ export function NoteComposer({
   userId,
   placeholder,
   imagePath = null,
+  demo = false,
   onNoteAdded,
 }: {
   matchId: string;
@@ -373,6 +380,11 @@ export function NoteComposer({
   /** Annotated frame already uploaded (040) — saved with the note. The
    *  caller renders its own preview; this only writes the column. */
   imagePath?: string | null;
+  /** The demo match. The note is written into the page and nowhere else:
+   *  the database would refuse it, and an error where a person expected a
+   *  note is a worse demonstration than a note that does not outlive the
+   *  visit. The line under the box says so before they type. */
+  demo?: boolean;
   onNoteAdded: (note: Note) => void;
 }) {
   const [body, setBody] = useState("");
@@ -489,6 +501,22 @@ export function NoteComposer({
   const save = useCallback(async () => {
     const trimmed = body.trim();
     if (!trimmed && !audioPath && !imagePath) return;
+    if (demo) {
+      onNoteAdded({
+        id: `demo-${Date.now()}`,
+        match_id: matchId,
+        point_id: pointId,
+        author_id: userId,
+        body: trimmed,
+        audio_path: null,
+        image_path: imagePath,
+        created_at: new Date().toISOString(),
+      } as Note);
+      setBody("");
+      setAudioPath(null);
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      return;
+    }
     setPosting(true);
     setError(null);
     const supabase = createClient();
@@ -513,7 +541,7 @@ export function NoteComposer({
     setAudioPath(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     onNoteAdded(data as Note);
-  }, [body, audioPath, imagePath, matchId, pointId, userId, onNoteAdded]);
+  }, [body, audioPath, demo, imagePath, matchId, pointId, userId, onNoteAdded]);
 
   const busy = recState !== "idle";
   const canSend =
@@ -635,6 +663,11 @@ export function NoteComposer({
             )}
           </button>
         </div>
+      )}
+      {demo && (
+        <p className="mt-2 text-xs text-zinc-500">
+          Notes on the demo match are not saved.
+        </p>
       )}
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
     </div>

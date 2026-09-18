@@ -119,7 +119,7 @@ export function PointDetail({
   onAdjustTiming,
   onShare,
   onOpenInPlayer,
-  canNote = true,
+  demo = false,
   tags,
   tagVocab,
   onToggleTag,
@@ -219,9 +219,10 @@ export function PointDetail({
   onToggleStar?: () => void;
   /** Jump to this point's moment in the full-match Player. */
   onOpenInPlayer?: () => void;
-  /** False on the sample match for anyone but its owner: the database
-   *  refuses a note there, so the composer must not be offered. */
-  canNote?: boolean;
+  /** The demo match, for anyone but its owner. Drawing and notes are
+   *  offered exactly as they are on a real point; the note is written
+   *  into the page and nowhere else, and the composer says so. */
+  demo?: boolean;
 }) {
   const isOwner = ownerId === userId;
   // The clip-overlay tag button opens the picker directly (the chip row
@@ -878,7 +879,7 @@ export function PointDetail({
                 ownerId={ownerId}
                 viewerId={userId}
                 authorName={
-                  canNote ? authorNames.get(n.author_id) : SAMPLE_NOTE_AUTHOR
+                  demo ? SAMPLE_NOTE_AUTHOR : authorNames.get(n.author_id)
                 }
               />
             ))}
@@ -913,7 +914,7 @@ export function PointDetail({
                 </button>
               </div>
             </div>
-          ) : videoUrl && canNote ? (
+          ) : videoUrl ? (
             <button
               type="button"
               onClick={startDrawing}
@@ -939,19 +940,18 @@ export function PointDetail({
           {captureError && (
             <p className="text-xs text-amber-300/90">{captureError}</p>
           )}
-          {canNote && (
           <NoteComposer
             matchId={matchId}
             pointId={point.id}
             userId={userId}
             placeholder="Add a note about this point"
             imagePath={pendingImage?.path ?? null}
+            demo={demo}
             onNoteAdded={(n) => {
               onNoteAdded(n);
               clearPendingImage();
             }}
           />
-          )}
         </div>
       </section>
 
@@ -965,6 +965,16 @@ export function PointDetail({
               frame={annotateFrame}
               onCancel={() => setAnnotateFrame(null)}
               onSave={async (blob) => {
+                // The demo keeps the drawing in the browser: uploading it
+                // would leave a file of ours behind for a note that is
+                // never written.
+                if (demo) {
+                  const preview = URL.createObjectURL(blob);
+                  clearPendingImage();
+                  setPendingImage({ path: preview, preview });
+                  setAnnotateFrame(null);
+                  return;
+                }
                 const form = new FormData();
                 form.append("image", blob, "frame.jpg");
                 const res = await fetch("/api/note-image", {
