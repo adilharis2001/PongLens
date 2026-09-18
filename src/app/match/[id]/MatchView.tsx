@@ -3879,8 +3879,25 @@ export function MatchView({
                 </span>
               </button>
             )}
-            <MatchFeedbackLink matchId={match.id} isOwner matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
-            <FeedbackBoardLink />
+            {/* Both rows are their own components and carry TOOL_ROW_CLASS
+                themselves, so they never picked up the sample's greying and
+                stayed tappable — a visitor could open a problem report
+                against our match. Same wrapper the Export row uses. */}
+            {sampleViewer ? (
+              <>
+                <div className="pointer-events-none opacity-45" inert>
+                  <MatchFeedbackLink matchId={match.id} isOwner matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
+                </div>
+                <div className="pointer-events-none opacity-45" inert>
+                  <FeedbackBoardLink />
+                </div>
+              </>
+            ) : (
+              <>
+                <MatchFeedbackLink matchId={match.id} isOwner matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
+                <FeedbackBoardLink />
+              </>
+            )}
           </div>
           </section>
         )}
