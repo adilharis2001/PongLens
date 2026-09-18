@@ -2079,6 +2079,9 @@ export function MatchView({
       const prev = point.server_override;
       updatePoint(point.id, { server_override: next });
       for (const s of stale) updatePoint(s.id, { server_override: null });
+      // The demo stops here: the rotation has already moved on screen,
+      // and that is the whole of what it is demonstrating.
+      if (sampleViewer) return;
       const result = await executeCanonical({
         rpc: "set_server_override_v2",
         args: { p_point_id: point.id, p_server: next },
@@ -2098,7 +2101,7 @@ export function MatchView({
         for (const s of stale) updatePoint(s.id, { server_override: s.was });
       }
     },
-    [executeCanonical, updatePoint, visiblePoints]
+    [executeCanonical, sampleViewer, updatePoint, visiblePoints]
   );
 
   // Optimistic game-boundary override write (Keep score's pills and the
@@ -2123,6 +2126,7 @@ export function MatchView({
         ...(clearWinner ? { game_winner_override: null } : {}),
       };
       updatePoint(point.id, patch);
+      if (sampleViewer) return true;
       const result = await executeCanonical({
         rpc: "set_game_boundary_v2",
         args: {
@@ -2151,7 +2155,7 @@ export function MatchView({
       }
       return true;
     },
-    [executeCanonical, updatePoint]
+    [executeCanonical, sampleViewer, updatePoint]
   );
 
   // Optimistic game-winner naming (099): who took the game that ends at
@@ -2162,6 +2166,7 @@ export function MatchView({
       const prev = point.game_winner_override;
       if (prev === next) return;
       updatePoint(point.id, { game_winner_override: next });
+      if (sampleViewer) return;
       const result = await executeCanonical({
         rpc: "set_game_boundary_v2",
         args: {
@@ -2183,7 +2188,7 @@ export function MatchView({
         (result.kind === "legacy" && result.value);
       if (!saved) updatePoint(point.id, { game_winner_override: prev });
     },
-    [executeCanonical, updatePoint]
+    [executeCanonical, sampleViewer, updatePoint]
   );
 
   // Hide a detected side-change marker (146). Display only, and
@@ -3573,7 +3578,7 @@ export function MatchView({
               removedPoints={removedPoints}
               canScore={isOwner && hasCutOffsets}
               scoringRelevant={scored}
-              opponentName={opponentName}
+              opponentName={mapLabels.them}
               youLabel={mapLabels.you}
               firstServer={firstServer}
               serveGuess={serveGuess}
@@ -3596,10 +3601,10 @@ export function MatchView({
               }}
               onSetSkipped={setSkipped}
               onSaveOutcome={savePointOutcome}
-              onSetServer={(p, v) => { if (!sampleViewer) void setServerOverride(p, v); }}
+              onSetServer={(p, v) => void setServerOverride(p, v)}
               onInsertPoint={isOwner ? insertMissingPoint : undefined}
-              onSetGameOverride={(p, v) => { if (!sampleViewer) void setGameEndOverride(p, v); }}
-              onSetGameWinner={(p, v) => { if (!sampleViewer) void setGameWinnerOverride(p, v); }}
+              onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
+              onSetGameWinner={(p, v) => void setGameWinnerOverride(p, v)}
               sideChanges={sideChanges}
               onDismissSideChange={
                 gameEndDetection && isOwner
