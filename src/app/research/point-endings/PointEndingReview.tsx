@@ -4,6 +4,8 @@ import Link from 'next/link';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {clock,ENDING_REASONS,frameStep,nextUnlabeled,reasonText,savedLabel,validEndingLabel,type EndingLabel,type EndingRow} from '@/lib/research/pointEndings';
 import {EndingSaveQueue} from '@/lib/research/endingSaveQueue';
+import type {EndingEvidence} from '@/lib/research/endingEvidence';
+import {BallEvidence} from './BallEvidence';
 
 const field='w-full min-h-11 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus:border-cyan-glow focus:outline-none';
 const secondary='min-h-11 w-full rounded-lg border border-edge px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 disabled:opacity-40 sm:w-auto';
@@ -25,6 +27,12 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const [mediaError,setMediaError]=useState('');
  const [mediaRetry,setMediaRetry]=useState(0);
  const [ready,setReady]=useState(false);
+ const [showTrail,setShowTrail]=useState(true);
+ const [showBounces,setShowBounces]=useState(true);
+ const [evidenceResult,setEvidenceResult]=useState<{id:string;data:EndingEvidence}|null>(null);
+ const [evidenceError,setEvidenceError]=useState('');
+ const [evidenceRetry,setEvidenceRetry]=useState(0);
+ const evidenceCache=useRef(new Map<string,EndingEvidence>());
  const [time,setTime]=useState(0);
  const [playing,setPlaying]=useState(false);
  const [rate,setRate]=useState(1);
@@ -33,6 +41,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const cache=useRef(new Map<string,{url:string;expires:number}>());
  const point=rows.find(r=>r.id===selected)??rows[0];
  const pointRef=useRef(point);pointRef.current=point;
+ const evidence=evidenceResult?.id===point?.id?evidenceResult?.data??null:null;
  const matches=useMemo(()=>Array.from(new Map(rows.map(r=>[r.match_id,r.source.matchName])).entries()),[rows]);
  const matchRows=rows.filter(r=>matchId==='all'||r.match_id===matchId);
  const visible=matchRows.filter(r=>filter==='all'||(filter==='labeled')===savedLabel(r.label));
@@ -93,6 +102,24 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
    // eslint-disable-next-line react-hooks/exhaustive-deps
  },[point?.match_id,mediaRetry]);
 
+ useEffect(()=>{
+   if(!point)return;
+   const id=point.id,abort=new AbortController();let cancelled=false;
+   setEvidenceError('');
+   const cached=evidenceCache.current.get(id);
+   if(cached){setEvidenceResult({id,data:cached});return;}
+   void (async()=>{
+     try{
+       const response=await fetch(`/api/research/point-endings/evidence?id=${id}`,{signal:abort.signal});
+       const result=await response.json();
+       if(!response.ok||result.id!==id||!result.evidence)throw Error(result.error??'Could not load ball evidence.');
+       if(cancelled)return;
+       evidenceCache.current.set(id,result.evidence);setEvidenceResult({id,data:result.evidence});
+     }catch(error){if(!cancelled)setEvidenceError(error instanceof Error?error.message:'Could not load ball evidence.');}
+   })();
+   return()=>{cancelled=true;abort.abort();};
+ },[point?.id,evidenceRetry]);
+
  function seek(at:number){const v=video.current;if(!v||!point)return;v.pause();v.currentTime=Math.min(point.source.end,Math.max(point.source.start,at));setTime(v.currentTime);}
  function seekEnding(){const p=pointRef.current;const v=video.current;if(!p||!v)return;v.pause();v.currentTime=Math.max(p.source.start,(p.source.tap??p.source.end)-4);setTime(v.currentTime);}
  useEffect(()=>{if(video.current?.readyState){seekEnding();setReady(true);}
@@ -105,10 +132,10 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>id==='all'||r.match_id===id);setSelected((nextUnlabeled(list)??list[0])?.id??'');}
  function retryVideo(){if(point)cache.current.delete(point.match_id);setMediaRetry(n=>n+1);}
 
- if(!point)return <main className="mx-auto max-w-6xl px-4 py-8"><h1 className="text-2xl font-semibold">Point-ending labels</h1><p className="mt-3 text-zinc-400">The study points have not been loaded yet.</p></main>;
+ if(!point)return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8"><h1 className="text-2xl font-semibold">Point-ending labels</h1><p className="mt-3 text-zinc-400">The study points have not been loaded yet.</p></main>;
  const start=point.source.start,end=point.source.end;
  const customSelected=point.label.reason==='custom'&&customOptions.includes(point.label.custom);
- return <main className="mx-auto max-w-6xl px-4 py-8 lg:px-6">
+ return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8 lg:px-6">
    <Link href="/research" onClick={e=>{if(unfinishedSaves){e.preventDefault();setExitBlocked(true);}}} className="text-sm text-zinc-400 hover:text-cyan-glow">← Research</Link>
    <h1 className="mt-3 text-2xl font-semibold text-white">Point-ending labels</h1>
    <p className="mt-1 max-w-3xl text-sm text-zinc-400">Choose how each point ended. Your answers and notes save automatically, so you can return at any time.</p>
@@ -128,9 +155,22 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
      <div className="min-w-0 flex-1">
        <div className="relative aspect-video overflow-hidden rounded-xl border border-edge bg-black">
          {url&&<video ref={video} src={url} playsInline preload="metadata" className="absolute inset-0 h-full w-full" onLoadedMetadata={()=>{seekEnding();setReady(true);if(video.current)video.current.playbackRate=rate;}} onTimeUpdate={e=>{const v=e.currentTarget;setTime(v.currentTime);if(v.currentTime>=end&&!v.paused)v.pause();}} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onError={()=>setMediaError('Could not play this video. Reload it to try again.')} />}
+         {url&&<BallEvidence key={url} video={video} evidence={evidence} trail={showTrail} bounces={showBounces}/>}
          {!ready&&!mediaError&&<div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">Loading video…</div>}
        </div>
        {mediaError&&<div role="alert" className="mt-3 space-y-2 text-sm text-rose-300"><p>{mediaError}</p><button className={secondary} onClick={retryVideo}>Reload video</button></div>}
+       <div className="mt-2 flex flex-wrap items-center gap-2">
+         <button type="button" aria-pressed={showTrail} onClick={()=>setShowTrail(v=>!v)} className={`rounded-full border px-3 py-1.5 text-xs ${showTrail?'border-yellow-400/50 text-yellow-200':'border-edge text-zinc-400'}`}>Ball trail</button>
+         <button type="button" aria-pressed={showBounces} onClick={()=>setShowBounces(v=>!v)} className={`rounded-full border px-3 py-1.5 text-xs ${showBounces?'border-amber-400/50 text-amber-200':'border-edge text-zinc-400'}`}>Detected bounces</button>
+         {!evidence&&!evidenceError&&<span className="text-xs text-zinc-500">Loading ball evidence…</span>}
+       </div>
+       {evidenceError&&<div role="alert" className="mt-2 text-sm text-rose-300">{evidenceError} <button className={secondary} onClick={()=>setEvidenceRetry(n=>n+1)}>Retry ball evidence</button></div>}
+       {evidence&&showBounces&&<div className="mt-2">
+         <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Jump to detected bounce">
+           {evidence.bounces.map((b,i)=><button key={i} disabled={!ready} onClick={()=>seek(b.t+evidence.rawOffset)} className="min-h-11 shrink-0 rounded-lg border border-edge px-3 py-2 text-xs tabular-nums text-amber-200 hover:border-zinc-500 disabled:opacity-40" aria-label={`Go to bounce ${i+1} at ${clock(b.t+evidence.rawOffset-start)} into point`}>{i+1} · {clock(b.t+evidence.rawOffset-start)}</button>)}
+         </div>
+         <p className="mt-1 text-xs text-zinc-500">Detected bounces may include paddle contacts or bounces off the table.</p>
+       </div>}
        <label className="mt-3 block text-xs text-zinc-400">Point playback<input aria-label="Point playback" className="mt-2 block w-full accent-cyan-400" type="range" min={start} max={end} step={1/point.source.fps} value={Math.max(start,Math.min(end,time))} onChange={e=>seek(Number(e.target.value))} disabled={!ready}/></label>
        <div className="mt-2 flex items-center justify-between text-xs tabular-nums text-zinc-500"><span>Point {clock(Math.max(0,time-start))} / {clock(end-start)}</span><span>Match {clock(Math.max(0,time-point.source.rawOffset))}</span></div>
        <div className="mt-3 flex flex-wrap gap-2">
@@ -166,7 +206,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
        </div>
      </div>
    </div>
-   <details className="mt-5 text-xs text-zinc-500"><summary className="cursor-pointer">About the saved references</summary><p className="mt-2">Scores, servers and taps come from the study’s saved Scorekeeper record. A tap is a timing reference, not an exact physical ending. These labels do not change match scores.</p></details>
+   <details className="mt-5 text-xs text-zinc-500"><summary className="cursor-pointer">About the saved references</summary><p className="mt-2">Scores, servers and taps come from the study’s saved Scorekeeper record. A tap is a timing reference, not an exact physical ending. These labels do not change match scores.</p>{evidence&&<p className="mt-2">{evidence.lineage}</p>}</details>
    <div className="mt-6 border-t border-edge pt-4"><h2 className="text-sm font-medium text-zinc-300">{visible.length} points in this view</h2>
      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
        {visible.map(r=><button key={r.id} aria-current={selected===r.id?'true':undefined} onClick={()=>{setSelected(r.id);review.current?.scrollIntoView({behavior:'smooth',block:'start'});}} className={`min-h-14 rounded-lg border px-3 py-2 text-left ${selected===r.id?'border-cyan-glow/60 bg-cyan-500/10':'border-edge hover:border-zinc-500'}`}><span className="block text-sm text-zinc-200">{r.source.matchName} · {r.source.number}</span><span className={`mt-1 block text-xs ${statuses[r.id]?.state==='error'?'text-rose-300':savedLabel(r.label)?'text-cyan-100':'text-zinc-500'}`}>{statuses[r.id]?.state==='error'?'Not saved':reasonText(r.label)}</span></button>)}

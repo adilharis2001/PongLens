@@ -22,3 +22,27 @@ All 479 frozen study points are available under Admin → Research → Point-end
 The user explicitly requested immediate production publishing after checks, then confirmed placement under Admin → Research. Production must be a push to main, never a branch CLI deployment. Source-clock taps are human timing references, not exact physical end labels. Yu Yu Lin's original video offset uses the prior frame-verified 241.96666666666667 seconds, not the nominal trim value.
 
 Private inputs stay outside git. Re-running scripts/research/seed-point-ending-labels.py with the original artifact directory verifies immutable source values and never overwrites existing labels. Contact-only annotations remain notes/provenance, not inferred ending causes. Brian's original reviews are archived but are not part of this six-recording cohort.
+
+## Ball evidence addition
+
+User requested trail and bounce access on this page and approved the page
+screenshots on September 18. The overlay uses the shipped Serve accuracy
+player (`ServeAccuracy.tsx`, inspected rendered on production) as its visual
+reference: a half-second yellow trail and timed bounce rings, with controls
+immediately below the same video. Numbered bounce buttons seek while paused.
+
+- Frozen evidence: 479 points, 80,835 observations, 3,604 bounce candidates.
+- `point_ending_evidence` stores immutable snapshots separately from labels;
+  admin SELECT only, no authenticated writes. Migration applied and seeded.
+- Prabhas/Ishan use the earlier cached full-frame research detections; other
+  matches use stored production tracks. Bounce candidates come from the
+  frozen placement record. Lineage is disclosed in the page references.
+- Observations remain in processed-match time. Playback subtracts the raw
+  offset exactly once; bounce seek adds it once (Yu Yu Lin: 241.9666667 s).
+- Trail breaks at missing observations and large jumps; no gap interpolation.
+- All 239 research tests pass, including offset, gaps, timed rings and fit.
+- Database isolation verified: admin reads 479, non-admin reads zero,
+  anonymous denied, admin evidence update denied. Labels remain 32/479 and
+  revision sum 3 before and after seed.
+- Source review found no actionable findings. This changes desktop and mobile
+  web only; no worker pipeline, detector, score, or native iOS changes.
