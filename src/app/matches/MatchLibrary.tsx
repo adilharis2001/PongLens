@@ -35,6 +35,11 @@ import {
   type PointLite,
   canOpenMatch,
 } from "@/app/dashboard/shared";
+import {
+  hasOwnScoredMatch,
+  isSampleMatch,
+  SAMPLE_CHIP,
+} from "@/lib/sampleMatch";
 
 // Same cadence as Home. Upgrade path: Supabase Realtime.
 const POLL_MS = 10_000;
@@ -252,7 +257,12 @@ export function MatchLibrary({
 
   const loading = matches === null || jobs === null;
   const ownMatches = (matches ?? []).filter((m) => m.user_id === userId);
-  const sharedMatches = (matches ?? []).filter((m) => m.user_id !== userId);
+  // The sample match reads like a shared one but belongs to no player, so
+  // it stays out of "Shared with me" and gets its own card below the list.
+  const sampleMatch = (matches ?? []).find((m) => isSampleMatch(m)) ?? null;
+  const sharedMatches = (matches ?? []).filter(
+    (m) => m.user_id !== userId && !isSampleMatch(m)
+  );
   const playerName = new Map(
     sharedPlayers.map((p) => [p.player_id, p.player_name])
   );
@@ -552,6 +562,7 @@ export function MatchLibrary({
         [
           ...filteredOwn,
           ...[...filteredShared.values()].flat(),
+          ...(sampleMatch ? [sampleMatch] : []),
         ]
           .filter((m) => m.thumb_path)
           .map((m) => m.id),
@@ -726,7 +737,9 @@ export function MatchLibrary({
       venue: m.venue,
       playedAt: m.played_at,
       matchType: m.match_type,
-      ...(shared
+      // The sample names both players ("Adil vs Anton"): the viewer is
+      // neither of them, which is what the neutral title is for.
+      ...(shared && !isSampleMatch(m)
         ? { neutral: false, nameA: "", nameB: (m.opponent_name ?? "").trim() }
         : neutralTitleFields(m, accountName)),
     });
@@ -750,6 +763,11 @@ export function MatchLibrary({
           {m.status !== "ready" && (
             <span className="absolute left-2 top-2">
               <Chip s={s} />
+            </span>
+          )}
+          {isSampleMatch(m) && (
+            <span className="absolute left-2 top-2 rounded-full border border-cyan-glow/40 bg-ink/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-glow">
+              {SAMPLE_CHIP}
             </span>
           )}
         </div>
@@ -789,7 +807,9 @@ export function MatchLibrary({
               coach={!shared && coachNoted.has(m.id)}
               onOpen={() => router.push(`/journal?match=${m.id}`)}
             />
-            {exportReady.has(m.id) && (
+            {/* Not on the sample: the export is ours, and a visitor cannot
+                download it anyway. */}
+            {exportReady.has(m.id) && !isSampleMatch(m) && (
               <span
                 title="Export rendered and ready"
                 className="ml-auto inline-flex shrink-0 items-center text-zinc-500"
@@ -1065,6 +1085,21 @@ export function MatchLibrary({
           </>
         )}
       </section>
+
+      {/* The sample match: ours, read-only, and only until they have scored
+          a match of their own. Account -> Support keeps a way back to it. */}
+      {!loading && sampleMatch && !hasOwnScoredMatch(ownMatches, scoreChipByMatch) && (
+        <section>
+          <SectionHeading>Sample match</SectionHeading>
+          <p className="mt-1 text-sm text-zinc-500">
+            A finished match of ours to look around. It goes once you have
+            scored one of your own.
+          </p>
+          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {matchCard(sampleMatch, true)}
+          </ul>
+        </section>
+      )}
 
       {/* coach view: matches other players shared via accepted coach links */}
       {!loading && filteredShared.size > 0 && (

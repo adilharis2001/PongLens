@@ -16,6 +16,13 @@ import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
 import { FirstSteps } from "./FirstSteps";
+import {
+  hasOwnScoredMatch,
+  isSampleMatch,
+  SAMPLE_DOOR_BODY,
+  SAMPLE_DOOR_CTA,
+  SAMPLE_DOOR_TITLE,
+} from "@/lib/sampleMatch";
 import { HomeFeedbackBoard } from "./HomeFeedbackBoard";
 import { YourGame } from "./YourGame";
 import {
@@ -165,7 +172,19 @@ export function HomeOverview({
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
     setJobs(jobRows);
-    if (reelRes.data) setReels(reelRes.data as ReelRow[]);
+    // Latest activity is the player's own work. Reels now arrive for the
+    // sample match too (every account can read it), and our highlights
+    // reel is not their activity.
+    if (reelRes.data) {
+      const mine = new Set(
+        ((matchRes.data ?? []) as MatchRow[])
+          .filter((m) => m.user_id === userId)
+          .map((m) => m.id)
+      );
+      setReels(
+        (reelRes.data as ReelRow[]).filter((r) => mine.has(r.match_id))
+      );
+    }
 
     // Score chips for the cards Home actually shows (recent + Continue):
     // a scoped fetch, not the library's all-points pull — this runs on
@@ -311,7 +330,13 @@ export function HomeOverview({
   const loading = matches === null || jobs === null;
   const ownMatches = (matches ?? []).filter((m) => m.user_id === userId);
   const processingFeedback = useProcessingFeedback(ownMatches.map((m) => m.id));
-  const sharedMatches = (matches ?? []).filter((m) => m.user_id !== userId);
+  // The sample match arrives through RLS like a shared one, but it is
+  // nobody's play: it must not fill the empty state, the recent list or
+  // "Shared with me". It has one place of its own, the door below.
+  const sampleMatch = (matches ?? []).find((m) => isSampleMatch(m)) ?? null;
+  const sharedMatches = (matches ?? []).filter(
+    (m) => m.user_id !== userId && !isSampleMatch(m)
+  );
   const playerName = new Map(
     sharedPlayers.map((p) => [p.player_id, p.player_name])
   );
@@ -369,13 +394,21 @@ export function HomeOverview({
   const latestReady = recentPool.find((m) => m.status === "ready");
   const thumbs = useThumbs(
     useMemo(
-      () => recent.filter((m) => m.thumb_path).map((m) => m.id),
-      [recent]
+      () =>
+        [...recent, ...(sampleMatch ? [sampleMatch] : [])]
+          .filter((m) => m.thumb_path)
+          .map((m) => m.id),
+      [recent, sampleMatch]
     )
   );
 
   const isEmpty = !loading && recentPool.length === 0 && activeWork === 0;
   const scoreChips = useScoreChips(pointsLite);
+  // The door stays until they have scored a match of their own. After that
+  // the sample is still there, in Account -> Support, for anyone who wants
+  // to check what a screen is meant to look like.
+  const showSampleDoor =
+    !loading && sampleMatch !== null && !hasOwnScoredMatch(ownMatches, scoreChips);
 
   // The hero's "what now" for the Continue card, from the same point rows
   // the chips use. Own matches only — a coach is never told to score
@@ -523,6 +556,34 @@ export function HomeOverview({
           </Link>
         </section>
       ) : null}
+
+      {/* The sample match, the quiet door beside the bright one. It answers
+          "what do I actually get?" before anyone spends an upload, and it
+          steps aside the moment they have scored a match of their own. */}
+      {showSampleDoor && sampleMatch && (
+        <section className="rounded-2xl border border-edge bg-surface p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="font-semibold text-zinc-100">
+                {SAMPLE_DOOR_TITLE}
+              </p>
+              <p className="mt-1 text-sm text-zinc-500">{SAMPLE_DOOR_BODY}</p>
+            </div>
+            <Thumb
+              url={thumbs[sampleMatch.id]}
+              className="aspect-video w-24 shrink-0 overflow-hidden rounded-lg sm:w-28"
+            />
+          </div>
+          {/* Full width on a phone with a 44px target, content width from
+              sm up: the application baseline for an action button. */}
+          <Link
+            href={`/match/${sampleMatch.id}`}
+            className="mt-4 block w-full rounded-full border border-cyan-glow/40 px-5 py-3 text-center text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/10 sm:inline-block sm:w-auto sm:py-2.5"
+          >
+            {SAMPLE_DOOR_CTA}
+          </Link>
+        </section>
+      )}
 
       {/* First steps: the new-account checklist. Gone once the account is
           established (a handful of matches), every step is done, or it was

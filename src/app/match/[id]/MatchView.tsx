@@ -18,6 +18,7 @@ import type {
 } from "@/lib/types";
 import { TagGlyph, TagPicker } from "./Tags";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
+import { isSampleMatch, SAMPLE_MATCH_NOTE } from "@/lib/sampleMatch";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ClipAvailabilityNotice } from "@/components/ClipAvailabilityNotice";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
@@ -325,11 +326,15 @@ function DownloadCard({
   matchId,
   isOwner,
   hasOriginal,
+  canDownload = true,
   children,
 }: {
   matchId: string;
   /** Owner gets the quiet ↓ icon; coach viewers the plain Download pill. */
   isOwner: boolean;
+  /** False on the sample match for anyone but its owner: our footage is
+   *  there to be watched, not taken away. */
+  canDownload?: boolean;
   /** Is there an original upload left to watch? Server-resolved, so the
    *  pill is correct at first paint rather than appearing a beat late. */
   hasOriginal: boolean;
@@ -371,7 +376,7 @@ function DownloadCard({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {hasOriginal && <OriginalVideoButton matchId={matchId} />}
-          {isOwner ? (
+          {!canDownload ? null : isOwner ? (
             <button
               type="button"
               onClick={() => void download()}
@@ -1138,10 +1143,14 @@ export function MatchView({
   // that would otherwise say "Me"/"your". Owner-only: coach viewers already
   // see names, and we only know the ACCOUNT holder's name for the owner.
   const neutral = useMemo(() => {
-    if (!isOwner || !ownSideName) return false;
+    // The sample match is somebody else's match to everyone who opens it,
+    // which is exactly what neutral means: name both players, say "Me" to
+    // nobody. Its own owner still sees his own library's wording.
+    if (!isOwner) return isSampleMatch(match) && ownSideName !== "";
+    if (!ownSideName) return false;
     const acct = (accountName ?? "").trim().toLowerCase();
     return acct === "" || ownSideName.toLowerCase() !== acct;
-  }, [isOwner, ownSideName, accountName]);
+  }, [isOwner, match, ownSideName, accountName]);
 
   // Placement map labels. The user is always drawn at the bottom edge;
   // the near/far pair is the neutral fallback while user_side is unset.
@@ -3339,6 +3348,12 @@ export function MatchView({
             )
           )}
         </div>
+        {/* The sample match says what it is, once, where the eye already
+            is. Everyone who sees this page is a visitor: the editing
+            controls are gone for them anyway, because they do not own it. */}
+        {isSampleMatch(match) && !isOwner && (
+          <p className="mt-2 text-sm text-zinc-400">{SAMPLE_MATCH_NOTE}</p>
+        )}
         {headerScoreOpen && scored && score.confirmedCount > 0 && (
           <>
             <ScoreLine
@@ -3488,6 +3503,7 @@ export function MatchView({
             matchId={match.id}
             isOwner={isOwner}
             hasOriginal={hasOriginal}
+            canDownload={isOwner || !isSampleMatch(match)}
           >
             <Player
               ref={playerRef}
@@ -4709,6 +4725,7 @@ export function MatchView({
             </div>
             <PointDetail
               key={panePoint.id}
+              canNote={isOwner || !isSampleMatch(match)}
               matchId={match.id}
               // panePoint falls back to the first point when nothing is
               // selected, which is how opening a match on desktop landed
@@ -4896,15 +4913,19 @@ export function MatchView({
             ))}
           </ul>
         )}
-        <div className="mt-4">
-          <NoteComposer
-            matchId={match.id}
-            pointId={null}
-            userId={userId}
-            placeholder="How did the match go?"
-            onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
-          />
-        </div>
+        {/* No composer on the sample: the database refuses a note there,
+            so offering the box would only produce an error. */}
+        {(isOwner || !isSampleMatch(match)) && (
+          <div className="mt-4">
+            <NoteComposer
+              matchId={match.id}
+              pointId={null}
+              userId={userId}
+              placeholder="How did the match go?"
+              onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
+            />
+          </div>
+        )}
       </section>
 
       {/* Floating match bar: appears once the page header has scrolled
@@ -5019,6 +5040,7 @@ export function MatchView({
       {/* mobile point sheet */}
       {!isDesktop && selectedPoint && (
         <PointSheet
+          canNote={isOwner || !isSampleMatch(match)}
           matchId={match.id}
           ownerId={match.user_id}
           customReasons={customReasons}

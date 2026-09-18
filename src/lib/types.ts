@@ -183,6 +183,10 @@ export interface Match {
   // Versioned, summarized RTMPose evidence. Raw frames/keypoints never land
   // here; owner server/game overrides remain separate and authoritative.
   match_structure: MatchStructureEvidence | null;
+  // The one demo match every signed-in account can read (migration
+  // 20260918030000). Optional because older projections predate the column.
+  // Never writable by a player: the column is not in their update grant.
+  is_sample?: boolean;
   // Where a 9:16 share cuts this camera (135), in SOURCE pixels. Computed
   // from the table quad straight after calibration, so it costs no extra
   // inference. null means "use the whole frame", which is what a share

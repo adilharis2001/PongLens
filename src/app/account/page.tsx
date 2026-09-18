@@ -24,6 +24,7 @@ import { AiFeaturesSetting } from "./AiFeaturesSetting";
 import { RecollectSetting } from "./RecollectSetting";
 import { WorkspaceSwitch } from "./WorkspaceSwitch";
 import { rememberedWorkspace } from "@/lib/workspaceServer";
+import { SAMPLE_ACCOUNT_ROW } from "@/lib/sampleMatch";
 
 export const metadata: Metadata = {
   title: "Account",
@@ -84,6 +85,14 @@ export default async function AccountPage() {
   const { data: qa } = await supabase.rpc("is_qa");
   const isQa = qa === true;
   const supportEmail = await getSupportEmail();
+  // The sample match lives here for good: the library and Home stop showing
+  // it once a player has scored a match of their own, and this is how they
+  // get back to it when they want to see what a finished match looks like.
+  const { data: sampleMatch } = await supabase
+    .from("matches")
+    .select("id")
+    .eq("is_sample", true)
+    .maybeSingle();
   const commerceEnabled = await getCommerceEnabled();
   const purchasesEnabled = commerceEnabled && await getPurchasesEnabled();
   const { workspace } = await rememberedWorkspace();
@@ -264,6 +273,12 @@ export default async function AccountPage() {
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
           <RowLink href="/learn" label="How-to guides" />
           <RowLink href="/learn/videos" label="Tutorial videos" />
+          {sampleMatch && (
+            <RowLink
+              href={`/match/${sampleMatch.id}`}
+              label={SAMPLE_ACCOUNT_ROW}
+            />
+          )}
           <RowLink href="/feedback" label="Feedback and discussion" />
           <a
             href={`mailto:${supportEmail}`}

@@ -118,6 +118,7 @@ export function PointDetail({
   onAdjustTiming,
   onShare,
   onOpenInPlayer,
+  canNote = true,
   tags,
   tagVocab,
   onToggleTag,
@@ -217,6 +218,9 @@ export function PointDetail({
   onToggleStar?: () => void;
   /** Jump to this point's moment in the full-match Player. */
   onOpenInPlayer?: () => void;
+  /** False on the sample match for anyone but its owner: the database
+   *  refuses a note there, so the composer must not be offered. */
+  canNote?: boolean;
 }) {
   const isOwner = ownerId === userId;
   // The clip-overlay tag button opens the picker directly (the chip row
@@ -906,7 +910,7 @@ export function PointDetail({
                 </button>
               </div>
             </div>
-          ) : videoUrl ? (
+          ) : videoUrl && canNote ? (
             <button
               type="button"
               onClick={startDrawing}
@@ -932,6 +936,7 @@ export function PointDetail({
           {captureError && (
             <p className="text-xs text-amber-300/90">{captureError}</p>
           )}
+          {canNote && (
           <NoteComposer
             matchId={matchId}
             pointId={point.id}
@@ -943,6 +948,7 @@ export function PointDetail({
               clearPendingImage();
             }}
           />
+          )}
         </div>
       </section>
 

@@ -168,6 +168,7 @@ export function PointSheet({
   onAdjustTiming,
   onShare,
   onOpenInPlayer,
+  canNote = true,
   tags,
   tagVocab,
   customReasons = [],
@@ -238,6 +239,8 @@ export function PointSheet({
   onShare?: () => void;
   /** Jump to this point's moment in the full-match Player. */
   onOpenInPlayer?: () => void;
+  /** Passed through to PointDetail: no note composer on the sample. */
+  canNote?: boolean;
   /** This point's tags + the owner's vocabulary (see PointDetail). */
   tags: Tag[];
   tagVocab: Tag[];
@@ -545,6 +548,7 @@ export function PointSheet({
             onAdjustTiming={onAdjustTiming}
             onShare={onShare}
             onOpenInPlayer={onOpenInPlayer}
+            canNote={canNote}
             tags={tags}
             tagVocab={tagVocab}
             customReasons={customReasons}
