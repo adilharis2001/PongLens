@@ -378,6 +378,12 @@ final class NotesStore {
     var notes: [NoteRow] = []
     var authorNames: [UUID: String] = [:]
     var loaded = false
+    /// The demo match, read by anyone but its owner. A note written there
+    /// goes into the list and nowhere else: the database would refuse it,
+    /// and an error where a person expected a note is a worse
+    /// demonstration than a note that does not outlive the visit. The
+    /// composer says so under the box before they type.
+    var demo = false
 
     func load(matchId: UUID) async {
         do {
@@ -414,6 +420,19 @@ final class NotesStore {
             let body: String
             let audio_path: String?
             let image_path: String?
+        }
+        if demo {
+            notes.append(NoteRow(
+                id: UUID(),
+                matchId: matchId,
+                pointId: pointId,
+                authorId: authorId,
+                body: body,
+                audioPath: nil,
+                imagePath: imagePath,
+                createdAt: ISO8601DateFormatter().string(from: Date())
+            ))
+            return true
         }
         do {
             let inserted: NoteRow = try await supa

@@ -31,7 +31,10 @@ struct ToolsSection: View {
     @State private var analysisRequestOpen = false
     @State private var automaticHighlights: AutomaticHighlightsResponse?
 
-    /// Greys and deadens a row on the sample match.
+    /// Greys and deadens a row on the demo match. Three rows do NOT take
+    /// this: scoring, the analysis and the notes all work there and stop
+    /// at the phone, because a demo you can only look at teaches nothing
+    /// (Adil, 2026-09-18).
     @ViewBuilder
     private func locked(_ row: some View) -> some View {
         row.disabled(sampleViewer).opacity(sampleViewer ? 0.45 : 1)
@@ -47,7 +50,7 @@ struct ToolsSection: View {
                 // tagging, starring and noting all stay: they are the
                 // reason to film a practice session at all.
                 if MatchTitle.tracksServe(match.matchType) {
-                    locked(toolRow("Score the Match", trailing: gamesTrailing) { onOpenPlayer() })
+                    toolRow("Score the Match", trailing: gamesTrailing) { onOpenPlayer() }
                     divider
                 }
                 toolRow("Highlights", trailing: .text(highlightsTrailing)) {
@@ -59,12 +62,15 @@ struct ToolsSection: View {
                 // trailing text names whatever the section is waiting on.
                 // Generating maps is a card in that section now.
                 if MatchTitle.tracksServe(match.matchType) || match.placementStatus == "ready" {
-                    locked(
-                        toolRow("Match analysis", trailing: .text(analysisTrailing)) {
-                            // Past the bar the row triggers the analysis.
-                            if analysisRowAction { analysisRequestOpen = true } else { onScrollToAnalysis() }
+                    toolRow("Match analysis", trailing: .text(analysisTrailing)) {
+                        // Past the bar the row triggers the analysis, which
+                        // is a job the demo has no business queueing.
+                        if analysisRowAction && !sampleViewer {
+                            analysisRequestOpen = true
+                        } else {
+                            onScrollToAnalysis()
                         }
-                    )
+                    }
                     divider
                 }
                 locked(toolRow("Share a link", trailing: .text("Not shared")) { shareOpen = true })
@@ -73,7 +79,7 @@ struct ToolsSection: View {
                 divider
                 locked(toolRow("Export", trailing: .text("Video files")) { exportOpen = true })
                 divider
-                locked(toolRow("Notes", trailing: .text("Add a note")) { onScrollToNotes() })
+                toolRow("Notes", trailing: .text("Add a note")) { onScrollToNotes() }
                 divider
                 locked(toolRow("Match details", trailing: .text(detailsTrailing)) { detailsOpen = true })
                 divider

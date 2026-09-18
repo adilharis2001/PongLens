@@ -115,6 +115,12 @@ final class MatchDetailModel {
     private var feedbackMatchId: UUID?
     var minutesBalance: Int?
     var needsMoreMinutes = false
+    /// The demo match, seen by anyone but its owner. Scoring it moves the
+    /// score, the games, the rotation and the cards on screen exactly as
+    /// it would on your own match, and stops at the phone: nothing is
+    /// sent, so there is no write for the database to refuse and no error
+    /// to explain. The screen sets this once it knows who is reading.
+    var demo = false
 
     /// Scoring commands read from the model when their turn begins. The
     /// queue is per point, so two quick corrections cannot finish out of
@@ -131,6 +137,7 @@ final class MatchDetailModel {
         },
         persist: { [weak self] id, state in
             guard let self else { return false }
+            if demo { return true }
             let skipKind = canonicalSkipCommandKind(
                 points.first(where: { $0.id == id })?.confirmedHow)
             let outcome = state.winner?.rawValue ?? (state.isLet ? skipKind : "clear")
@@ -1133,6 +1140,10 @@ struct MatchDetailScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task {
+            // Before anything loads: every write the model makes has to
+            // know whether it is allowed to leave the phone.
+            model.demo = sampleViewer
+            notesStore.demo = sampleViewer
             // Opening the sample is the First steps row "Review the sample
             // match", and reading it leaves no other trace.
             if sampleViewer, !app.sampleMatchSeen {
@@ -1981,16 +1992,14 @@ struct MatchDetailScreen: View {
                     )
                 }
                 // No composer on the sample: the database refuses a note
-                // there, so offering the box would only produce an error.
-                if canWrite {
-                    NoteComposerView(
-                        matchId: current.id,
-                        pointId: nil,
-                        userId: app.userId ?? current.userId,
-                        notesStore: notesStore,
-                        placeholder: "How did the match go?"
-                    )
-                }
+                NoteComposerView(
+                    matchId: current.id,
+                    pointId: nil,
+                    userId: app.userId ?? current.userId,
+                    notesStore: notesStore,
+                    placeholder: "How did the match go?",
+                    demo: sampleViewer
+                )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .plCard()

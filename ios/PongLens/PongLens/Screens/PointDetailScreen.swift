@@ -37,7 +37,9 @@ struct PointDetailScreen: View {
     @State private var feedbackOpen = false
     @State private var confirmingBefore = false
     @State private var annotateFrame: UIImage?
-    @State private var pendingImage: (path: String, preview: UIImage)?
+    /// path is nil on the demo: the drawing shows in the composer and
+    /// never becomes a stored file.
+    @State private var pendingImage: (path: String?, preview: UIImage)?
     @State private var captureError: String?
 
     // The "Saved" / "Couldn't save" line under the questions.
@@ -239,6 +241,14 @@ struct PointDetailScreen: View {
                     frame: frame,
                     onCancel: { annotateFrame = nil },
                     onSave: { jpeg in
+                        // The demo keeps the drawing on the phone:
+                        // uploading it would leave a file of ours behind
+                        // for a note that is never written.
+                        if !canWrite {
+                            pendingImage = (nil, UIImage(data: jpeg) ?? frame)
+                            annotateFrame = nil
+                            return true
+                        }
                         do {
                             let path = try await NoteMedia.uploadImage(jpeg)
                             pendingImage = (path, UIImage(data: jpeg) ?? frame)
@@ -954,7 +964,7 @@ struct PointDetailScreen: View {
                             .buttonStyle(.plain)
                     }
                 }
-            } else if canWrite, (usesCut(point) ? cutURL : clipURLs[clipKey(point)]) != nil {
+            } else if (usesCut(point) ? cutURL : clipURLs[clipKey(point)]) != nil {
                 Button {
                     captureFrame()
                 } label: {
@@ -981,17 +991,16 @@ struct PointDetailScreen: View {
                     .foregroundStyle(PL.warningText)
             }
 
-            if canWrite {
-                NoteComposerView(
-                    matchId: match.id,
-                    pointId: point.id,
-                    userId: app.userId ?? match.userId,
-                    notesStore: notesStore,
-                    placeholder: "Add a note about this point",
-                    pendingImagePath: pendingImage?.path,
-                    onSent: { clearPendingImage() }
-                )
-            }
+            NoteComposerView(
+                matchId: match.id,
+                pointId: point.id,
+                userId: app.userId ?? match.userId,
+                notesStore: notesStore,
+                placeholder: "Add a note about this point",
+                pendingImagePath: pendingImage?.path,
+                demo: !canWrite,
+                onSent: { clearPendingImage() }
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

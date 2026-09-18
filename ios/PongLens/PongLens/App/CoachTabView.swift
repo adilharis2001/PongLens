@@ -229,7 +229,7 @@ struct CoachTabView: View {
         .task {
             await workspace.load(userId: app.userId)
             await library.load()
-            await scores.load(for: library.matches.filter { $0.status == .ready })
+            await scores.load(for: library.matches.filter { $0.status == .ready }, viewerId: app.userId)
             library.startPolling()
             // A coach invite accepted in the app asked for the roster;
             // the tree was swapped to get here, so the request travels
@@ -278,7 +278,7 @@ struct CoachTabView: View {
         }
         .onChange(of: library.matches) { _, matches in
             Task {
-                await scores.load(for: matches.filter { $0.status == .ready })
+                await scores.load(for: matches.filter { $0.status == .ready }, viewerId: app.userId)
             }
         }
     }
