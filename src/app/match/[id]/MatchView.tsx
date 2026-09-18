@@ -3749,13 +3749,17 @@ export function MatchView({
             >
               <span className="text-sm font-semibold">Share a link</span>
               <span className="flex shrink-0 items-center gap-2">
-                {shareLinkCount !== null && (
+                {/* A visitor's link count comes back null (the query is
+                    the owner's), which left two of the greyed rows with a
+                    blank right-hand side among six that carry one. The
+                    sample is not shared, and that is what iOS says. */}
+                {(shareLinkCount !== null || sampleViewer) && (
                   <span
                     className={`shrink-0 text-xs tabular-nums ${
-                      shareLinkCount > 0 ? "text-zinc-400" : "text-zinc-500"
+                      (shareLinkCount ?? 0) > 0 ? "text-zinc-400" : "text-zinc-500"
                     }`}
                   >
-                    {shareLinkCount > 0
+                    {(shareLinkCount ?? 0) > 0
                       ? `${shareLinkCount} link${shareLinkCount === 1 ? "" : "s"}`
                       : "Not shared"}
                   </span>
@@ -3771,7 +3775,7 @@ export function MatchView({
             >
               <span className="text-sm font-semibold">Coach</span>
               <span className="flex shrink-0 items-center gap-2">
-                {coachShared !== null && (
+                {(coachShared !== null || sampleViewer) && (
                   <span
                     className={`shrink-0 text-xs ${
                       coachShared ? "text-zinc-400" : "text-zinc-500"
