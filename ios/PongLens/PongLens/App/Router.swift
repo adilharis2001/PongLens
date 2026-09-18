@@ -63,6 +63,8 @@ final class Router {
         devOpenAccount = args.contains("--dev-open-account")
         devOpenStarred = args.contains("--dev-open-starred")
         if args.contains("--dev-open-upload") { uploadOpen = true }
+        // The New match chooser itself, for a screenshot of its rows.
+        if args.contains("--dev-new-match") { newMatchOpen = true }
         // Straight into the recorder. The landing video needs a shot of
         // it, and the route there is two taps through a sheet — which a
         // capture script cannot rely on, because the app restores

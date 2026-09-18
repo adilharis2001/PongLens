@@ -64,18 +64,28 @@ export default async function UploadPage({
 
   return (
     <AppShell avatarUrl={avatarUrl}>
-      {/* No subtitle. It used to say "Process it into points whenever you
-          like", which was the opposite of what the page did — processing
-          started on its own the moment an upload finished. The card now
-          carries the toggle and the price, so it explains itself. */}
+      {/* The subtitle says what you get, the same promise the iPhone's
+          New match chooser makes on its Upload row (Adil, 2026-09-18).
+          There is no chooser on the web, because a browser cannot
+          record, so this page is where that line belongs.
+
+          It is NOT the old subtitle, which said "Process it into points
+          whenever you like" and was the opposite of what the page did:
+          processing started on its own the moment an upload finished. */}
       {/* A way out. The bottom bar stopped pretending this page is
           Matches, which left a phone with nothing to press. Same UpLink
           the match page uses, so there is one "up" control in the app. */}
       <div className="mb-4 md:hidden">
         <UpLink href="/matches" label="Matches" />
       </div>
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Upload</h1>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Upload</h1>
+          <p className="mt-2 text-zinc-400">
+            Pick a match you have already filmed, on any camera. Score it and
+            you get your match analysis cards and highlights.
+          </p>
+        </div>
         {/* The one way into the camera guide on this page. It used to
             anchor to a second, full-width copy of the same control at the
             bottom — two entries into one sheet read as two features.

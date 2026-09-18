@@ -585,17 +585,28 @@ struct NewMatchSheet: View {
             PLChooserRow(
                 icon: "record.circle",
                 title: "Record a match",
-                detail: "Film a match you are about to play."
+                // What you get, not only what you do (Adil, 2026-09-18).
+                // The analysis cards are the deck, serve maps included;
+                // naming the maps separately read as smaller than the
+                // truth. The app says highlights, never "reel".
+                detail: "Film a match you are about to play. Score it and you get your match analysis cards and highlights of your best rallies."
             ) { onChoose(.record(.match)) }
             PLChooserRow(
                 icon: "figure.table.tennis",
                 title: "Record a practice session",
-                detail: "Film drills or non-match play."
+                // The one row that cannot promise any of that: practice
+                // starts with processing and placement off by design
+                // (MatchKind.forcesProcessingOff), so the honest promise
+                // is the footage plus the choice.
+                detail: "Film drills or practice. It lands in your library to look back on, and you choose whether to turn it into points."
             ) { onChoose(.record(.practice)) }
             PLChooserRow(
                 icon: "tray.and.arrow.up",
                 title: "Upload a match",
-                detail: "Pick a video you have already filmed."
+                // Recording and uploading come back identical, so the
+                // promise repeats on purpose and the first sentence is
+                // what separates them.
+                detail: "Pick a match you have already filmed, on any camera. Score it and you get your match analysis cards and highlights."
             ) { onChoose(.upload) }
         }
     }
