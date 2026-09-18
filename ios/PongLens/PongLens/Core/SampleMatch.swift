@@ -1,5 +1,4 @@
 import Foundation
-import Supabase
 
 /// The sample match: one finished match every signed-in account can read.
 ///
@@ -10,6 +9,13 @@ import Supabase
 /// It shows on Home and in the library until the player has scored a match of
 /// their own, and Account → Support keeps a way back to it after that. The
 /// words live here so iOS and web say the same thing (src/lib/sampleMatch.ts).
+///
+/// Foundation only, on purpose. `Models.swift` reads `title` when it names a
+/// match, and `ios/Tests/run.sh` compiles that file with a plain swiftc
+/// invocation that has no Swift Package Manager dependencies. An `import
+/// Supabase` here takes the whole logic-check suite down with it, which is
+/// what happened on 2026-09-18. Everything that needs the network or the
+/// score store lives in `SampleMatchStore.swift` instead.
 enum SampleMatch {
     static let chip = "Demo"
     /// Named for what it is, not for who played in it.
@@ -35,40 +41,5 @@ enum SampleMatch {
     /// The match itself, if the account can see one.
     static func find(in matches: [MatchRow]) -> MatchRow? {
         matches.first { isSample($0) }
-    }
-
-    /// Has this player finished scoring a match of their own? Same meaning as
-    /// the library's score chip: every point answered.
-    static func hasOwnScoredMatch(
-        ownMatches: [MatchRow],
-        scores: [UUID: ScoresStore.Entry]
-    ) -> Bool {
-        ownMatches.contains { scores[$0.id]?.fullyScored == true }
-    }
-
-    /// Has this account removed the sample from its own library? One row,
-    /// theirs alone: the match itself is ours and never moves.
-    static func isDismissed() async -> Bool {
-        struct Row: Decodable { let user_id: UUID }
-        let rows: [Row]? = try? await supa
-            .from("sample_match_dismissals")
-            .select("user_id")
-            .limit(1)
-            .execute()
-            .value
-        return (rows?.isEmpty == false)
-    }
-
-    /// Remove it for this account only. Nothing is deleted.
-    static func dismiss(userId: UUID) async -> Bool {
-        do {
-            try await supa
-                .from("sample_match_dismissals")
-                .insert(["user_id": userId.uuidString])
-                .execute()
-            return true
-        } catch {
-            return false
-        }
     }
 }

@@ -10,6 +10,7 @@ CORE=../PongLens/PongLens/Core
 OUT=$(mktemp -d)/scorelogic
 swiftc -O -o "$OUT" \
   "$CORE/Models.swift" \
+  "$CORE/SampleMatch.swift" \
   "$CORE/Placement.swift" \
   "$CORE/MatchAnalysis.swift" \
   "$CORE/ScoredCards.swift" \
