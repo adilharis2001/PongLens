@@ -38,7 +38,7 @@ export function StudentsView({ userId }: { userId: string }) {
         .is("archived_at", null)
         .order("created_at", { ascending: false }),
       supabase.from("coach_entries").select("id, student_id"),
-      supabase.from("matches").select("id, user_id").neq("user_id", userId),
+      supabase.from("matches").select("id, user_id").not("is_sample", "is", true).neq("user_id", userId),
     ]);
     const rows = (studentsRes.data as CoachStudentRow[]) ?? [];
     setStudents(rows);
