@@ -3641,23 +3641,20 @@ export function MatchView({
         </div>
 
         {/* A coach viewing someone's match is exactly who paid reviews are
-            for; one dismissible line, never for the owner. */}
-        {!isOwner && (
+            for; one dismissible line, never for the owner.
+
+            A coach never sees Tools, so the two rows that are not owner
+            actions get the Tools card treatment on their own here. The
+            sample viewer DOES see Tools, which carries both rows at its
+            foot, so this card would be the same two rows a second time,
+            above the heading. */}
+        {!isOwner && !sampleViewer && (
           <div className="mt-4">
-            {/* A coach never sees Tools, so the two rows that are not
-                owner actions get the Tools card treatment on their own.
-                On the sample they are greyed with the rest: reporting a
-                problem with our match is not the reader's errand. */}
-            <div
-              className={`divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:space-y-2 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent${
-                sampleViewer ? " pointer-events-none opacity-45" : ""
-              }`}
-              inert={sampleViewer}
-            >
+            <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:space-y-2 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent">
               <MatchFeedbackLink matchId={match.id} isOwner={false} matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
               <FeedbackBoardLink />
             </div>
-            {!sampleViewer && <CoachCta compact />}
+            <CoachCta compact />
           </div>
         )}
 
@@ -4449,6 +4446,10 @@ export function MatchView({
                       )}
                       {!isOwner && (
                         <span className="flex shrink-0 flex-col items-center">
+                          {/* Tagging is a write, and the sample refuses
+                              every write: the glyph would be a control
+                              that can only fail. */}
+                          {!sampleViewer && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -4464,6 +4465,7 @@ export function MatchView({
                           >
                             <TagGlyph className="h-5 w-5" />
                           </button>
+                          )}
                           {point.starred && (
                             <span className="p-1.5 text-amber-300">
                               <svg
@@ -4883,8 +4885,11 @@ export function MatchView({
       </div>
 
       {/* A coach gets the result line the share page shows, above the
-          same deck the owner has (Adil, 2026-09-15). */}
-      {!isOwner && scored && score.games.length > 0 && (
+          same deck the owner has (Adil, 2026-09-15). Not on the sample:
+          the score in the header opens to the same per-game line, so this
+          is the result stated twice on one page, the second time in a
+          place nothing else on a match page occupies. */}
+      {!isOwner && !sampleViewer && scored && score.games.length > 0 && (
         <ShareResult
           you={mapLabels.you}
           them={mapLabels.them}
