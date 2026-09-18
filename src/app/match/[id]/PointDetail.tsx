@@ -23,6 +23,7 @@ import {
 } from "./PlacementMap";
 import { NoteComposer, NoteItem } from "./Notes";
 import { TagGlyph, TagPicker } from "./Tags";
+import { SAMPLE_NOTE_AUTHOR } from "@/lib/sampleMatch";
 import { PointScorecard, useSaveFlash } from "./PointScorecard";
 import type { ServeInfo } from "./serving";
 import { otherSide, physicalSideForGame, type Side } from "./sides";
@@ -118,6 +119,7 @@ export function PointDetail({
   onAdjustTiming,
   onShare,
   onOpenInPlayer,
+  demo = false,
   tags,
   tagVocab,
   onToggleTag,
@@ -217,6 +219,10 @@ export function PointDetail({
   onToggleStar?: () => void;
   /** Jump to this point's moment in the full-match Player. */
   onOpenInPlayer?: () => void;
+  /** The demo match, for anyone but its owner. Drawing and notes are
+   *  offered exactly as they are on a real point; the note is written
+   *  into the page and nowhere else, and the composer says so. */
+  demo?: boolean;
 }) {
   const isOwner = ownerId === userId;
   // The clip-overlay tag button opens the picker directly (the chip row
@@ -872,7 +878,10 @@ export function PointDetail({
                 matchId={matchId}
                 ownerId={ownerId}
                 viewerId={userId}
-                authorName={authorNames.get(n.author_id)}
+                authorName={
+                  demo ? SAMPLE_NOTE_AUTHOR : authorNames.get(n.author_id)
+                }
+                demo={demo}
               />
             ))}
           </ul>
@@ -938,6 +947,7 @@ export function PointDetail({
             userId={userId}
             placeholder="Add a note about this point"
             imagePath={pendingImage?.path ?? null}
+            demo={demo}
             onNoteAdded={(n) => {
               onNoteAdded(n);
               clearPendingImage();
@@ -956,6 +966,16 @@ export function PointDetail({
               frame={annotateFrame}
               onCancel={() => setAnnotateFrame(null)}
               onSave={async (blob) => {
+                // The demo keeps the drawing in the browser: uploading it
+                // would leave a file of ours behind for a note that is
+                // never written.
+                if (demo) {
+                  const preview = URL.createObjectURL(blob);
+                  clearPendingImage();
+                  setPendingImage({ path: preview, preview });
+                  setAnnotateFrame(null);
+                  return;
+                }
                 const form = new FormData();
                 form.append("image", blob, "frame.jpg");
                 const res = await fetch("/api/note-image", {

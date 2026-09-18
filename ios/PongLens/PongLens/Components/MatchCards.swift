@@ -96,7 +96,21 @@ struct MatchCard: View {
                 .overlay(MatchThumb(matchId: match.id))
                 .clipped()
                 .overlay(alignment: .topLeading) {
-                    if match.status != .ready {
+                    if SampleMatch.isSample(match) {
+                        // Ours, not theirs. The chip is the only thing that
+                        // says so on a card that otherwise reads as a match.
+                        Text(SampleMatch.chip.uppercased())
+                            .font(.system(size: 10, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(PL.cyan)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule().fill(PL.ink.opacity(0.7))
+                            )
+                            .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.4), lineWidth: 1))
+                            .padding(8)
+                    } else if match.status != .ready {
                         StatusChip(status: processingUnavailable && (liveJob != nil || match.status == .processing) ? .queued : match.chipStatus(live: liveJob))
                             .padding(8)
                     }
@@ -106,7 +120,10 @@ struct MatchCard: View {
                 Text(parts.primary)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(PL.text100)
-                    .lineLimit(1)
+                    // Two lines: the grid column is about 150pt, which cuts
+                    // an ordinary "you vs their full name" and cut the
+                    // sample's own name in half.
+                    .lineLimit(2)
                 Text(processingLabel ?? parts.secondary)
                     .font(.system(size: 12))
                     .foregroundStyle(PL.text500)

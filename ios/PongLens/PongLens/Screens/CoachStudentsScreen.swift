@@ -13,7 +13,7 @@ struct CoachStudentsScreen: View {
 
     private func matchCount(for student: CoachStudentRow) -> Int {
         guard let playerId = student.playerId else { return 0 }
-        return library.matches.filter { $0.userId == playerId }.count
+        return library.matches.filter { $0.userId == playerId && !SampleMatch.isSample($0) }.count
     }
 
     var body: some View {

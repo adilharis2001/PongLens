@@ -373,7 +373,23 @@ struct PlayerTakeover: View {
     /// cannot move it to a different rally.
     @State var sharePoint: MatchPoint?
     @State var annotateFrame: UIImage?
-    @State var pendingImage: (path: String, preview: UIImage)?
+    /// path is nil on the demo: the drawing shows in the composer and
+    /// never becomes a stored file.
+    @State var pendingImage: (path: String?, preview: UIImage)?
+    /// The demo match: notes and drawings stay on the phone.
+    private var demoNotes: Bool { notesStore?.demo == true }
+    /// Nobody is named on the demo, here either: the scorer's two sides
+    /// read Player 1 and Player 2 like the rest of the match page.
+    private var demoLabels: (you: String, them: String)? {
+        guard match.userId != app.userId, SampleMatch.isSample(match) else { return nil }
+        return SampleMatch.labels(userSide: match.userSide)
+    }
+    /// The other side as a noun ("Anton", "Player 1", else "Them").
+    private var themName: String { demoLabels?.them ?? (match.opponentName ?? "Them") }
+    /// The other side as the subject of a verb; only the fallback differs.
+    private var themSubject: String { demoLabels?.them ?? (match.opponentName ?? "They") }
+    /// This side, which is "Me" to the person whose match it is.
+    private var youName: String { demoLabels?.you ?? "Me" }
 
     /// Empty only on the original, whose clock has no point mapping.
     var points: [MatchPoint] {
@@ -734,6 +750,15 @@ struct PlayerTakeover: View {
                     frame: frame,
                     onCancel: { annotateFrame = nil },
                     onSave: { jpeg in
+                        // The demo keeps the drawing on the phone:
+                        // uploading it would leave a file of ours behind
+                        // for a note that is never written.
+                        if demoNotes {
+                            pendingImage = (nil, UIImage(data: jpeg) ?? frame)
+                            annotateFrame = nil
+                            noteComposerOpen = true
+                            return true
+                        }
                         do {
                             let path = try await NoteMedia.uploadImage(jpeg)
                             pendingImage = (path, UIImage(data: jpeg) ?? frame)
@@ -823,6 +848,7 @@ struct PlayerTakeover: View {
                     notesStore: notesStore,
                     placeholder: "What do you see here?",
                     pendingImagePath: pendingImage?.path,
+                    demo: demoNotes,
                     onSent: {
                         pendingImage = nil
                         noteComposerOpen = false
@@ -1316,7 +1342,7 @@ struct PlayerTakeover: View {
                     games: score.games.map(\.you), current: score.current.you
                 )
                 scoreBugRow(
-                    name: match.opponentName ?? "Them", tint: PL.magentaSoft,
+                    name: themName, tint: PL.magentaSoft,
                     games: score.games.map(\.them), current: score.current.them
                 )
             }
@@ -1829,11 +1855,11 @@ struct PlayerTakeover: View {
 
             // Winner buttons
             HStack(spacing: 10) {
-                winnerButton("Me", tint: PL.cyan, selected: target?.confirmedWinner == .user, enabled: target != nil) {
+                winnerButton(youName, tint: PL.cyan, selected: target?.confirmedWinner == .user, enabled: target != nil) {
                     tapWinner(.user)
                 }
                 winnerButton(
-                    match.opponentName ?? "Them", tint: PL.magentaSoft,
+                    themName, tint: PL.magentaSoft,
                     selected: target?.confirmedWinner == .opponent,
                     enabled: target != nil
                 ) {
@@ -1985,13 +2011,13 @@ struct PlayerTakeover: View {
         let target = displayTarget
         return VStack(spacing: 8) {
             winnerButton(
-                "Me", tint: PL.cyan, selected: target?.confirmedWinner == .user,
+                youName, tint: PL.cyan, selected: target?.confirmedWinner == .user,
                 enabled: target != nil, solid: true
             ) {
                 tapWinner(.user)
             }
             winnerButton(
-                match.opponentName ?? "Them", tint: PL.magentaSoft,
+                themName, tint: PL.magentaSoft,
                 selected: target?.confirmedWinner == .opponent,
                 enabled: target != nil, solid: true
             ) {
@@ -2190,7 +2216,7 @@ struct PlayerTakeover: View {
         if tracksServe, let server = shown {
             let them = server == .opponent
             let tint = them ? PL.magentaSoft : PL.cyan
-            let name = match.opponentName
+            let name = demoLabels?.them ?? match.opponentName
             Button {
                 guard !pending else { return }
                 flipServer(to: them ? .user : .opponent)
@@ -2203,7 +2229,7 @@ struct PlayerTakeover: View {
                     // lines to make room. Cap it and let it truncate.
                     Text(them
                          ? "\(name ?? "They") serve\(name == nil ? "" : "s")\(pending ? " next" : "")"
-                         : "You serve\(pending ? " next" : "")")
+                         : "\(youName == "Me" ? "You" : youName) serve\(youName == "Me" ? "" : "s")\(pending ? " next" : "")")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(tint)
                         .lineLimit(1)
@@ -2248,7 +2274,7 @@ struct PlayerTakeover: View {
         Task { await model.setServerOverride(target, side) }
         showFlash(side == .user
             ? "I serve. Rotation updated from here."
-            : "\(match.opponentName ?? "They") serve. Rotation updated from here.")
+            : "\(themSubject) serve. Rotation updated from here.")
     }
 
     func serveBallFace(active: Bool, them: Bool = false, size: CGFloat = 26) -> some View {
@@ -3361,7 +3387,7 @@ struct PlayerTakeover: View {
             let name: String
             switch action {
             case .winner(let side):
-                name = side == .user ? "Me" : (match.opponentName ?? "Them")
+                name = side == .user ? youName : themName
             case .skip:
                 name = "let"
             }
@@ -4399,6 +4425,15 @@ struct PadAnalysisPanel: View {
     let onClose: () -> Void
 
     @Environment(AppState.self) var app
+    /// The demo names nobody: "Player 1 served" rather than "Anton served",
+    /// and "Player 2 served" rather than "You served" — the reader played
+    /// on neither side.
+    private var demoLabels: (you: String, them: String)? {
+        guard match.userId != app.userId, SampleMatch.isSample(match) else { return nil }
+        return SampleMatch.labels(userSide: match.userSide)
+    }
+    private var themSubject: String { demoLabels?.them ?? (match.opponentName ?? "They") }
+    private var youSubject: String { demoLabels?.you ?? "You" }
     @State private var addingReason = false
     @State private var tagPickerOpen = false
     @State private var newReason = ""
@@ -4506,7 +4541,7 @@ struct PadAnalysisPanel: View {
                                 // Name the opponent rather than "they": on a
                                 // match with a name set, "THEY SERVED" reads
                                 // like the app forgot who it is watching.
-                                Text(iServed ? "You served" : "\(match.opponentName ?? "They") served")
+                                Text(iServed ? "\(youSubject) served" : "\(themSubject) served")
                                     .font(.plSection)
                                     .tracking(0.6)
                                     .textCase(.uppercase)
@@ -4684,7 +4719,8 @@ struct PadAnalysisPanel: View {
                 NoteComposerView(
                     matchId: match.id, pointId: point.id, userId: uid,
                     notesStore: notesStore,
-                    placeholder: "What did you notice?"
+                    placeholder: "What did you notice?",
+                    demo: notesStore.demo
                 )
             }
         }

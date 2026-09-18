@@ -16,6 +16,10 @@ struct ToolsSection: View {
     /// captured MatchRow, and reloading the library alone left the rows'
     /// trailing text stale, which read as the save not working.
     let onRowChanged: () -> Void
+    /// Reading the sample match: the card is shown in full so the page is
+    /// the real page, but every row except Highlights is dead — none of
+    /// them is this reader's to press.
+    var sampleViewer = false
 
     @Environment(AppState.self) private var app
     @State private var shareOpen = false
@@ -26,6 +30,15 @@ struct ToolsSection: View {
     @State private var sideOpen = false
     @State private var analysisRequestOpen = false
     @State private var automaticHighlights: AutomaticHighlightsResponse?
+
+    /// Greys and deadens a row on the demo match. Three rows do NOT take
+    /// this: scoring, the analysis and the notes all work there and stop
+    /// at the phone, because a demo you can only look at teaches nothing
+    /// (Adil, 2026-09-18).
+    @ViewBuilder
+    private func locked(_ row: some View) -> some View {
+        row.disabled(sampleViewer).opacity(sampleViewer ? 0.45 : 1)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -50,26 +63,31 @@ struct ToolsSection: View {
                 // Generating maps is a card in that section now.
                 if MatchTitle.tracksServe(match.matchType) || match.placementStatus == "ready" {
                     toolRow("Match analysis", trailing: .text(analysisTrailing)) {
-                        // Past the bar the row is the trigger for the analysis.
-                        if analysisRowAction { analysisRequestOpen = true } else { onScrollToAnalysis() }
+                        // Past the bar the row triggers the analysis, which
+                        // is a job the demo has no business queueing.
+                        if analysisRowAction && !sampleViewer {
+                            analysisRequestOpen = true
+                        } else {
+                            onScrollToAnalysis()
+                        }
                     }
                     divider
                 }
-                toolRow("Share a link", trailing: .text("Not shared")) { shareOpen = true }
+                locked(toolRow("Share a link", trailing: .text("Not shared")) { shareOpen = true })
                 divider
-                toolRow("Coach", trailing: .text("Invite your coach")) { coachOpen = true }
+                locked(toolRow("Coach", trailing: .text("Invite your coach")) { coachOpen = true })
                 divider
-                toolRow("Export", trailing: .text("Video files")) { exportOpen = true }
+                locked(toolRow("Export", trailing: .text("Video files")) { exportOpen = true })
                 divider
                 toolRow("Notes", trailing: .text("Add a note")) { onScrollToNotes() }
                 divider
-                toolRow("Match details", trailing: .text(detailsTrailing)) { detailsOpen = true }
+                locked(toolRow("Match details", trailing: .text(detailsTrailing)) { detailsOpen = true })
                 divider
-                toolRow("Your side", trailing: .text(sideTrailing)) { sideOpen = true }
+                locked(toolRow("Your side", trailing: .text(sideTrailing)) { sideOpen = true })
                 divider
-                ProcessingToolRow(match: match)
+                locked(ProcessingToolRow(match: match))
                 divider
-                FeedbackBoardToolRow(match: match)
+                locked(FeedbackBoardToolRow(match: match))
             }
             .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
             .overlay(
@@ -91,6 +109,7 @@ struct ToolsSection: View {
                 match: match,
                 model: model,
                 scored: score.confirmedCount > 0,
+                locked: sampleViewer,
                 onChanged: { response in
                     automaticHighlights = response
                 },
@@ -203,6 +222,10 @@ struct ToolsSection: View {
     }
 
     private var detailsTrailing: String {
+        // The sample names nobody, and this row is locked anyway: the
+        // two players read Player 1 and Player 2 wherever a visitor
+        // sees them.
+        if sampleViewer { return "Player 1 and Player 2" }
         let opp = match.opponentName ?? ""
         let venue = match.venue ?? ""
         if opp.isEmpty && venue.isEmpty { return "Add opponent and venue" }

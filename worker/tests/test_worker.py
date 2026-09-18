@@ -1,8 +1,46 @@
 import inspect
+from pathlib import Path
 
 import pytest
 
 import worker
+
+
+def test_worker_identity_and_housekeeping_are_host_configurable():
+    source = (Path(worker.__file__).parent / "worker.py").read_text()
+    assert 'WORKER_HOST = os.environ.get("PONGLENS_WORKER_HOST", "mac")' in source
+    assert 'os.environ.get("PONGLENS_HOUSEKEEPING", "1") != "0"' in source
+
+
+def test_pulse_renews_held_queue_message_visibility(monkeypatch):
+    calls = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params):
+            calls.append((" ".join(query.split()), params))
+
+    class PulseConnection:
+        def cursor(self):
+            return Cursor()
+
+    monkeypatch.setattr(worker.os, "getloadavg", lambda: (0.5, 0.0, 0.0))
+    worker.pulse_job("job-id", "deadspace_cut", 123)
+    try:
+        worker._pulse_once(PulseConnection())
+    finally:
+        worker.pulse_job(None, None)
+
+    assert calls[-1] == (
+        "select pgmq.set_vt(%s, %s::bigint, %s)",
+        (worker.QUEUE_NAME, 123, worker.VISIBILITY_S),
+    )
+    assert worker._pulse_state["msg_id"] is None
 
 
 def test_automatic_highlights_switch_supports_one_user_canary():

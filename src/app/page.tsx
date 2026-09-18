@@ -48,7 +48,7 @@ const cards = [
 const faqs = [
   {
     q: "What does PongLens do?",
-    a: "You film a table tennis match and upload it. PongLens removes the time between points and cuts the match into individual clips. You score the points, and it builds your stats, serve maps and highlights from there. Your coach can watch the match and leave notes on any point.",
+    a: "You film a table tennis match and upload it. PongLens removes the breaks between points and cuts the match into one clip per point. You add the score, and PongLens builds your stats from it and adds serve placement and rally lengths from the video. Your coach can watch the match and leave notes on any point.",
   },
   {
     q: "What do I need to record a match?",
@@ -56,15 +56,15 @@ const faqs = [
   },
   {
     q: "What do I get for free?",
-    a: `Enough for ${BETA_ALLOWANCE.matchesWord} matches. Every account gets ${BETA_ALLOWANCE.processingMinutes} processing minutes and ${BETA_ALLOWANCE.storageGb} GB of storage during beta, and a match uses its recording length in minutes. When you run out, you can request more for free.`,
+    a: `During beta, your account includes ${BETA_ALLOWANCE.processingMinutes} processing minutes and ${BETA_ALLOWANCE.storageGb} GB of storage. Processing a 30-minute recording uses 30 processing minutes, so the allowance covers about ${BETA_ALLOWANCE.matchesWord} matches. You can request more minutes or storage for free.`,
   },
   {
     q: "How long does processing take?",
-    a: "About 45 minutes on average, depending on the recording and the queue. The match page shows an estimate, and you get an email when it is ready.",
+    a: "Most matches are ready in under an hour, depending on the recording and the queue. The match page shows an estimate, and you get an email when it is ready.",
   },
   {
     q: "Can my coach use it?",
-    a: "Yes. Share one match with a link or a QR code, or invite your coach to all of them. Coaches get their own workspace for students, lesson notes and match feedback, and the same account can be both a player and a coach.",
+    a: "Yes. Share one match with a link or a QR code, or invite your coach to all of them. Coaches get their own pages for students, lesson notes and match feedback, and the same account can be both a player and a coach.",
   },
   {
     q: "What happens to my videos? Are they private?",
@@ -72,7 +72,7 @@ const faqs = [
   },
   {
     q: "What can I upload?",
-    a: "MP4 or MOV files up to 45 minutes long, from your phone or camera. Trim a longer recording before processing. Televised or professionally produced matches are turned away, because the camera cuts between points.",
+    a: "MP4 or MOV recordings of your own matches, up to 45 minutes long, from your phone or camera. Trim a longer recording before processing. PongLens does not support televised or professionally produced matches, because the camera cuts between points.",
   },
   {
     q: "Is there an app?",
@@ -81,20 +81,21 @@ const faqs = [
 ];
 
 const features = [
-  "Removes the dead time between points",
-  "Cuts the match into one clip per point, with who served and who won",
+  "Removes the breaks between points",
+  "Cuts the match into one clip per point, and shows who served and who won once you add the score",
   "Score the match by tapping who won each point",
   "Call out the score while recording on iPhone",
   "Match analysis: momentum, serve and receive win rates, pressure points",
   "Serve placement maps and heat maps for both players",
-  "Rally length and serve speed by whose serve",
+  "Rally length and serve speed categories by whose serve",
   "Automatic highlights video",
-  "Export clips and full matches with the score on the picture",
+  "Export clips and full matches with the score displayed on the video",
   "Post a rally to Instagram from the iPhone app",
   "Share a match with a link or a QR code",
   "Invite a coach to leave written, spoken or drawn notes on any point",
   "Coach workspace with students, lesson notes and video recaps",
-  "Record a lesson on iPhone and get it back as takeaways",
+  "Record lesson audio on iPhone and get a summary of the coaching advice",
+  "Upload a lesson video and get a recap under fifteen minutes long, split into chapters",
   "A journal you can dictate to, photograph pages into and ask questions of",
   "Stats across every scored match",
 ];
@@ -120,7 +121,7 @@ const jsonLd = (supportEmail: string) => ({
       url: "https://www.ponglens.com",
       name: "PongLens",
       description:
-        "A performance hub for competitive table tennis. Film a match, upload it, and get every point as a clip with analysis, highlights and a place for you and your coach to work on it.",
+        "A performance hub for competitive table tennis. Film a match, upload it, and get one clip per point with the breaks removed. Add the score, and PongLens builds your match analysis and highlights. Your coach can leave notes on any point.",
       publisher: { "@id": "https://www.ponglens.com/#organization" },
     },
     {
@@ -131,7 +132,7 @@ const jsonLd = (supportEmail: string) => ({
       applicationCategory: "SportsApplication",
       operatingSystem: "Web, iOS",
       description:
-        "A performance hub for competitive table tennis. Upload a match video and PongLens removes the dead time, cuts the match into individual points, builds your match analysis and highlights, and gives you and your coach a place to work on it.",
+        "A performance hub for competitive table tennis. Upload a match video and PongLens removes the breaks between points and cuts the match into one clip per point. Add the score, and it builds your match analysis and highlights. Your coach can leave notes on any point.",
       featureList: features,
       offers: {
         "@type": "Offer",
@@ -147,7 +148,7 @@ const jsonLd = (supportEmail: string) => ({
       "@id": "https://www.ponglens.com/#walkthrough",
       name: "How PongLens works",
       description:
-        "A walkthrough of PongLens: upload a table tennis match from your phone, get it back with the dead time between points removed, score it in about ten minutes, and read what the match says about your game.",
+        "A walkthrough of PongLens: upload a table tennis match from your phone, get it back with the breaks between points removed, score it, and read what the match says about your game.",
       thumbnailUrl: ["https://www.ponglens.com/demo/walkthrough-desktop.jpg"],
       uploadDate: WALKTHROUGH.uploaded,
       duration: WALKTHROUGH.duration,
@@ -226,9 +227,9 @@ export default async function Home() {
                 </span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                Upload a match video. PongLens removes the time between
-                points, then gives you every point as a clip to score, review
-                and share with your coach.
+                Upload a match video. PongLens removes the breaks between
+                points and creates one clip per point for you to score,
+                review and share with your coach.
               </p>
               <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 lg:justify-start">
                 <TrackedLink
@@ -242,7 +243,9 @@ export default async function Home() {
                 <IosBetaSignup placement="hero" />
               </div>
               <p className="mt-5 text-sm text-zinc-400">
-                Analyze four matches for free during beta.
+                Free during beta, with {BETA_ALLOWANCE.processingMinutes}{" "}
+                processing minutes and {BETA_ALLOWANCE.storageGb} GB of
+                storage included.
               </p>
             </div>
           </div>
@@ -283,12 +286,12 @@ export default async function Home() {
         <div id="features" className="scroll-mt-20">
           <Feature
             id="just-the-play"
-            title="Just the play"
+            title="Review each point"
             media={
               <BrowserFrame className="w-full max-w-2xl">
                 <Image
                   src="/showcase/anton-points-d.jpg"
-                  alt="A processed match in PongLens: the cut video with the running score, and the list of points under it"
+                  alt="A processed match in PongLens: the cut video with the score shown, and the list of points under it"
                   width={1440}
                   height={876}
                   sizes="(min-width: 1024px) 560px, 100vw"
@@ -297,15 +300,16 @@ export default async function Home() {
               </BrowserFrame>
             }
           >
-            A {EXAMPLE.recordingMinutes}-minute recording became {EXAMPLE.points}{" "}
-            points and about {EXAMPLE.playMinutesWord} minutes of play. Every
-            point is its own clip, with who served and who won, and the dead
-            time between them is gone.
+            Every point becomes its own clip, in order, with the breaks
+            between them removed. A {EXAMPLE.recordingMinutes}-minute recording
+            turns into about {EXAMPLE.playMinutesWord} minutes of play, cut
+            into {EXAMPLE.points} clips. Add the score and each clip shows who
+            served and who won.
           </Feature>
 
           <Feature
             id="score"
-            title="Score the match in ten minutes"
+            title="Score the match"
             flip
             media={
               <Phone
@@ -314,9 +318,9 @@ export default async function Home() {
               />
             }
           >
-            Points play one after another and you tap who won. On iPhone you
-            can call the score out at the table while you record, and it is
-            written down for you.
+            Watch the points in order and tap who won each one. On iPhone, you
+            can also call out the score while you record, and PongLens writes
+            it down for you.
           </Feature>
 
           {/* THE DECK, full width: the cards as the app shows them, in a row
@@ -327,9 +331,10 @@ export default async function Home() {
                 Match analysis
               </h2>
               <p className="mt-4 max-w-2xl text-lg leading-relaxed text-zinc-400">
-                Momentum, serve and receive win rates, what happened at 9-all,
-                where serves landed, how long rallies ran and how fast serves
-                were. All built from your scoring.
+                Your scoring gives you serve and receive win rates, momentum
+                and what happened at 9-all. From the video, PongLens adds
+                where serves landed, how long rallies ran and whether serves
+                were slow, medium or fast.
               </p>
             </div>
             <div className="mt-10 flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-5 lg:px-[max(1.5rem,calc((100vw-72rem)/2+1.5rem))]">
@@ -361,14 +366,15 @@ export default async function Home() {
               />
             }
           >
-            The best rallies are cut into one highlights video. Star a point
-            and post it to Instagram, or export the whole match, with the
-            running score on the picture.
+            PongLens picks the longest rallies and cuts them into one
+            highlights video. Star a point and post it to Instagram from the
+            iPhone app, or export the whole match with the score displayed on
+            the video.
           </Feature>
 
           <Feature
             id="coach"
-            title="Your coach, on every point"
+            title="Review matches with your coach"
             flip
             media={
               <Phone
@@ -388,32 +394,72 @@ export default async function Home() {
               </TrackedLink>
             }
           >
-            Share a link or a QR code. Your coach watches the points and
-            leaves written, spoken or drawn notes, and you get a
-            notification.
+            Share a match by link or QR code. Your coach can add comments,
+            voice notes and drawings to individual points, and you get a
+            notification when they do.
           </Feature>
 
           <Feature
-            id="journal"
-            title="Lessons you can go back to"
+            id="record"
+            title="Record a lesson"
             media={
               <div className="flex items-start justify-center gap-4 sm:gap-6">
                 <Phone
-                  src="/showcase/journal-feed-m.jpg"
-                  alt="The journal on a phone: a lesson broken into takeaways beside match notes"
+                  src="/showcase/coach-record-m.jpg"
+                  alt="Recording a lesson in the PongLens iPhone app"
                   className="w-[46%] max-w-[240px]"
                 />
                 <Phone
-                  src="/learn/journal-ask-m.jpg"
-                  alt="Asking the journal a question and getting an answer drawn from your own entries"
+                  src="/showcase/player-lesson-m.jpg"
+                  alt="The lesson in the journal afterwards: a summary of the coaching advice, grouped by theme"
                   className="mt-10 w-[46%] max-w-[240px]"
                 />
               </div>
             }
           >
-            Record a lesson on your iPhone and it comes back as takeaways.
-            Dictate a note, photograph a handwritten page, and ask your
-            journal what your coach said about your backhand.
+            Record the lesson audio in the iPhone app. PongLens creates a
+            transcript and a summary of the key coaching advice, and saves
+            both to your journal.
+          </Feature>
+
+          <Feature
+            id="recaps"
+            title="Video lesson recaps"
+            flip
+            media={
+              <Phone
+                src="/showcase/coach-recap-current-m.jpg"
+                alt="A lesson video recap on a phone, split into chapters"
+              />
+            }
+          >
+            Upload a recording of your lesson, even a 90-minute one, and
+            PongLens cuts it down to a recap of under fifteen minutes, split
+            into chapters. Go back to the explanation or the demonstration
+            you want to see again.
+          </Feature>
+
+          <Feature
+            id="journal"
+            title="Ask your journal"
+            media={
+              <div className="flex items-start justify-center gap-4 sm:gap-6">
+                <Phone
+                  src="/showcase/journal-feed-m.jpg"
+                  alt="The journal on a phone: a lesson summary beside practice and match notes"
+                  className="w-[46%] max-w-[240px]"
+                />
+                <Phone
+                  src="/showcase/player-ask-m.jpg"
+                  alt="Asking the journal what the coach said to work on, and the answer drawn from the player's own entries"
+                  className="mt-10 w-[46%] max-w-[240px]"
+                />
+              </div>
+            }
+          >
+            Lesson summaries, match notes and dictated notes live in one
+            journal. Photograph a page of your notebook to add it, then ask
+            questions like “What did my coach say about my backhand?”
           </Feature>
 
           <Feature
@@ -445,9 +491,9 @@ export default async function Home() {
               </div>
             }
           >
-            Film in the app with the table lined up on screen, and the upload
-            starts while you play. Invites from a coach open straight in the
-            app.
+            The app shows you where to place your phone before you record,
+            and the upload starts while you play. Invitations from a coach
+            open directly in the app.
           </Feature>
         </div>
 
@@ -495,12 +541,12 @@ export default async function Home() {
               Try it on your{" "}
               <span className="text-magenta-soft">next match</span>.
             </h2>
-            {/* The one place the numbers appear on the page. The hero keeps
-                its single sentence; the FAQ has the rest. */}
+            {/* The hero states the allowance; this says what it covers and
+                that more is free. The FAQ has the unit. */}
             <p className="max-w-xl text-zinc-400">
-              Free during beta: {BETA_ALLOWANCE.processingMinutes} processing
-              minutes and {BETA_ALLOWANCE.storageGb} GB of storage, enough for{" "}
-              {BETA_ALLOWANCE.matchesWord} matches.
+              Free during beta. Enough for about {BETA_ALLOWANCE.matchesWord}{" "}
+              matches, and you can request more processing minutes or storage
+              for free.
             </p>
             <TrackedLink
               href="/login"

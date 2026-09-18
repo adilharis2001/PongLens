@@ -288,6 +288,10 @@ struct MatchRow: Codable, Identifiable, Hashable {
     let durationS: Double?
     let originalName: String?
     let userSide: String?
+    /// The two players by side. Only the sample match reads them today
+    /// (its title names both players); nil everywhere they were never set.
+    var playerNearName: String? = nil
+    var playerFarName: String? = nil
     let firstServer: String?
     /// Who supplied firstServer. Only an owner-confirmed "user" value may
     /// anchor canonical rotation; a worker "detected" value stays a guess.
@@ -308,6 +312,9 @@ struct MatchRow: Codable, Identifiable, Hashable {
     /// Scores called out at the phone while recording (152). Reference
     /// only: never feeds the scorekeeper or the analysis.
     var spokenScores: [SpokenGameScore]? = nil
+    /// The one demo match every signed-in account can read. Optional so old
+    /// fixtures and a backend without the column still decode.
+    var isSample: Bool? = nil
     let createdAt: String
     let points: [CountRow]?
 
@@ -326,6 +333,8 @@ struct MatchRow: Codable, Identifiable, Hashable {
         case durationS = "duration_s"
         case originalName = "original_name"
         case userSide = "user_side"
+        case playerNearName = "player_near_name"
+        case playerFarName = "player_far_name"
         case firstServer = "first_server"
         case firstServerSource = "first_server_source"
         case clipPads = "clip_pads"
@@ -335,11 +344,12 @@ struct MatchRow: Codable, Identifiable, Hashable {
         case scoreRevision = "score_revision"
         case matchStructure = "match_structure"
         case spokenScores = "spoken_scores"
+        case isSample = "is_sample"
         case createdAt = "created_at"
     }
 
     static let librarySelect =
-        "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,placement_status,active_processing_version_id,spoken_scores,created_at,points(count)"
+        "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,player_near_name,player_far_name,first_server,clip_pads,placement_status,active_processing_version_id,spoken_scores,is_sample,created_at,points(count)"
 
     /// One match, opened. Adds the game-end detector's evidence, which the
     /// library list has no use for — it is a JSONB blob per row and the
@@ -666,9 +676,21 @@ enum MatchTitle {
         return (head.joined(separator: " · "), tail.joined(separator: " · "))
     }
 
+    /// What a title leads with. The sample match is named for what it is:
+    /// whoever reads it played on neither side, so an opponent-led title
+    /// would claim they did, and the two players stay unnamed here as they
+    /// do in the analysis cards. One statement of that rule, because the
+    /// match screen composes its own title rather than using `parts(for:)`.
+    static func head(for match: MatchRow) -> (opponent: String?, venue: String?) {
+        match.isSample == true
+            ? (SampleMatch.title, nil)
+            : (match.opponentName, match.venue)
+    }
+
     static func parts(for match: MatchRow) -> (primary: String, secondary: String) {
-        parts(
-            opponentName: match.opponentName, venue: match.venue,
+        let head = head(for: match)
+        return parts(
+            opponentName: head.opponent, venue: head.venue,
             playedAt: match.playedAt, matchType: match.matchType,
             pointCount: match.pointCount
         )

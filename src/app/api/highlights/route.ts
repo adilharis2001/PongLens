@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
 import { highlightsEnabled } from "./access";
+import { isSampleMatch } from "@/lib/sampleMatch";
 import { highlightShareMediaKey } from "../share/highlightShare";
 import {
   automaticHighlightEvidenceRefreshNeeded,
@@ -155,7 +156,10 @@ export async function GET(req: Request) {
     .select("*")
     .eq("id", matchId)
     .maybeSingle();
-  if (matchError || !match || match.user_id !== user.id) {
+  // The sample match is read by every account and its reel was rendered
+  // once, by us. Reading it is open; generating one (POST) stays owner-only.
+  const sample = match ? isSampleMatch(match) : false;
+  if (matchError || !match || (match.user_id !== user.id && !sample)) {
     return response({ error: "Match not found" }, 404);
   }
   // A hand-cut match has no ball track to find highlights in. Asking
@@ -199,6 +203,12 @@ export async function GET(req: Request) {
       pointsUpdating: points.some((point) => !point.deleted && point.edited),
       scoreEligible: eligibility.eligible,
     });
+
+    // A visitor cannot render anything on a match they do not own, so the
+    // sample either plays the reel we made or says nothing at all.
+    if (sample && match.user_id !== user.id && decision.status !== "ready") {
+      return response({ status: "unavailable" });
+    }
 
     if (decision.status === "ready") {
       if (

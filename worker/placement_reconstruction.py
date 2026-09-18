@@ -20,6 +20,12 @@ STRICT_U_BOUNDS = (-0.08, TABLE_WIDTH_M + 0.06)
 STRICT_V_BOUNDS = (-0.08, TABLE_LENGTH_M + 0.21)
 SAFETY_U_BOUNDS = (-0.14, TABLE_WIDTH_M + 0.12)
 SAFETY_V_BOUNDS = (-0.14, TABLE_LENGTH_M + 0.27)
+SECOND_BOUNCE_MIN_AFTER_ANCHOR_S = 0.25
+SECOND_BOUNCE_MAX_AFTER_ANCHOR_S = 1.35
+SECOND_BOUNCE_MIN_BEFORE_RETURN_S = 0.05
+SECOND_BOUNCE_MAX_BEFORE_RETURN_S = 0.45
+SECOND_BOUNCE_MIN_EVIDENCE = 0.75
+RECEIVER_CONTACT_MIN_EVIDENCE = 0.55
 
 
 def split_track_chunks(
@@ -522,6 +528,156 @@ def _event_reference(candidate: Mapping[str, Any]) -> dict[str, Any]:
     } | {"event_id": candidate.get("id")}
     reference["confidence"] = round(_candidate_evidence(candidate), 4)
     return reference
+
+
+def recover_second_bounce(
+    hypothesis: Mapping[str, Any],
+    candidates: Sequence[Mapping[str, Any]],
+    server_side: str,
+    serve_s: float | None,
+    suggestion: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Recover a serve landing immediately before the receiver's return.
+
+    The serve anchor may be sound even when the server-side first bounce is
+    hidden. In that case the ordinary two-bounce walk can skip the real serve
+    landing and later promote a rally pair. The receiver's first paddle
+    contact supplies the missing ordering fact: a high-confidence bounce on
+    that player's half immediately before that contact is the serve landing.
+
+    Later shots are discarded because they were assembled from the rejected
+    pair. A recovery is deliberately impossible without a detected
+    receiver-side contact reversal, which leaves occluded landings and
+    service errors withheld.
+    """
+
+    current = deepcopy(hypothesis)
+    if serve_s is None or server_side not in {"near", "far"}:
+        return current
+    if current.get("status") == "ready":
+        return current
+
+    # A bounce followed by a reversal can also be a pass or warm-up stroke.
+    # If the existing solve is physically invalid, the recovery is repairing
+    # that explicit contradiction. Otherwise require evidence that play
+    # continued beyond the apparent return before promoting a review result.
+    hard_reasons = current.get("hard_reasons") or []
+    try:
+        continued_hits = int((suggestion or {}).get("n_hits") or 0)
+    except (TypeError, ValueError):
+        continued_hits = 0
+    if not hard_reasons and continued_hits < 2:
+        return current
+
+    receiver_side = _other_side(server_side)
+    anchor = float(serve_s)
+    receiver_contacts = sorted(
+        (
+            candidate
+            for candidate in candidates
+            if _candidate_kind(candidate) == "contact"
+            and candidate.get("side") == receiver_side
+            and anchor + SECOND_BOUNCE_MIN_AFTER_ANCHOR_S
+            <= float(candidate["t"])
+            <= anchor + SECOND_BOUNCE_MAX_AFTER_ANCHOR_S
+                 + SECOND_BOUNCE_MAX_BEFORE_RETURN_S
+            and _candidate_evidence(candidate)
+            >= RECEIVER_CONTACT_MIN_EVIDENCE
+        ),
+        key=lambda candidate: float(candidate["t"]),
+    )
+    if not receiver_contacts:
+        return current
+
+    receiver_contact = receiver_contacts[0]
+    contact_t = float(receiver_contact["t"])
+    possible = [
+        candidate
+        for candidate in candidates
+        if _candidate_kind(candidate) == "bounce"
+        and _table_half(candidate) == receiver_side
+        and anchor + SECOND_BOUNCE_MIN_AFTER_ANCHOR_S
+        <= float(candidate["t"])
+        <= anchor + SECOND_BOUNCE_MAX_AFTER_ANCHOR_S
+        and SECOND_BOUNCE_MIN_BEFORE_RETURN_S
+        <= contact_t - float(candidate["t"])
+        <= SECOND_BOUNCE_MAX_BEFORE_RETURN_S
+        and _candidate_evidence(candidate) >= SECOND_BOUNCE_MIN_EVIDENCE
+    ]
+    if not possible:
+        return current
+
+    recovered = max(possible, key=lambda candidate: float(candidate["t"]))
+    recovered_t = float(recovered["t"])
+    existing_serve = next(
+        (
+            shot
+            for shot in current.get("shots", [])
+            if shot.get("phase") == "serve"
+        ),
+        None,
+    )
+    existing_landing = (existing_serve or {}).get("landing") or {}
+    existing_t = existing_landing.get("t")
+    if (
+        existing_t is not None
+        and _table_half(existing_landing) == receiver_side
+        and float(existing_t) <= recovered_t
+    ):
+        return current
+
+    landing = _event_reference(recovered)
+    clamped = False
+    if landing.get("u") is not None:
+        bounded_u = min(TABLE_WIDTH_M, max(0.0, float(landing["u"])))
+        clamped = clamped or bounded_u != float(landing["u"])
+        landing["u"] = round(bounded_u, 4)
+    if landing.get("v") is not None:
+        bounded_v = min(TABLE_LENGTH_M, max(0.0, float(landing["v"])))
+        clamped = clamped or bounded_v != float(landing["v"])
+        landing["v"] = round(bounded_v, 4)
+
+    landing_evidence = _candidate_evidence(recovered)
+    contact_evidence = _candidate_evidence(receiver_contact)
+    reasons = [
+        "serve_first_bounce_missing",
+        "serve_landing_recovered_before_receiver_contact",
+    ]
+    if clamped:
+        reasons.append("serve_landing_clamped_to_table_edge")
+    confidence = min(
+        0.9,
+        0.68 + 0.16 * landing_evidence + 0.08 * contact_evidence,
+    )
+    return {
+        "serverSide": server_side,
+        "server_side": server_side,
+        "status": "ready",
+        "confidence": round(confidence, 4),
+        "score": round(4.0 * math.log(confidence / (1.0 - confidence)), 3),
+        "reasons": reasons,
+        "hard_reasons": [],
+        "shots": [{
+            "id": "shot-1",
+            "seq": 1,
+            "phase": "serve",
+            "hitter_side": server_side,
+            "contact": None,
+            "contact_t": None,
+            "serve_first_bounce": None,
+            "landing": landing,
+            "terminal": None,
+            "confidence": round(confidence, 4),
+        }],
+        "used_event_ids": [
+            event_id
+            for event_id in (
+                recovered.get("id"),
+                receiver_contact.get("id"),
+            )
+            if event_id is not None
+        ],
+    }
 
 
 def _seed_state(server_side: str) -> dict[str, Any]:
@@ -1123,15 +1279,21 @@ def reconstruct_placement(
         annotated["end_v"] = end_v
         annotated_segments.append(annotated)
 
-    hypotheses = {
-        side: solve_hypothesis(
+    hypotheses = {}
+    for side in ("near", "far"):
+        solved = solve_hypothesis(
             candidates,
             side,
             suggestion,
             annotated_segments,
         )
-        for side in ("near", "far")
-    }
+        hypotheses[side] = recover_second_bounce(
+            solved,
+            candidates,
+            side,
+            serve_s,
+            suggestion,
+        )
     statuses = {hypothesis["status"] for hypothesis in hypotheses.values()}
     status = (
         "ready"

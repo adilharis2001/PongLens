@@ -37,7 +37,9 @@ struct PointDetailScreen: View {
     @State private var feedbackOpen = false
     @State private var confirmingBefore = false
     @State private var annotateFrame: UIImage?
-    @State private var pendingImage: (path: String, preview: UIImage)?
+    /// path is nil on the demo: the drawing shows in the composer and
+    /// never becomes a stored file.
+    @State private var pendingImage: (path: String?, preview: UIImage)?
     @State private var captureError: String?
 
     // The "Saved" / "Couldn't save" line under the questions.
@@ -126,6 +128,15 @@ struct PointDetailScreen: View {
     /// score, star, tag or edit — the web hides every owner action, and
     /// the column grants would silently refuse the writes anyway.
     private var isOwner: Bool { app.userId == match.userId }
+
+    /// A note or a sketch on the sample match is refused by the database:
+    /// it is ours, and every account reads the same one.
+    private var canWrite: Bool { isOwner || !SampleMatch.isSample(match) }
+    /// Player 1 / Player 2 in the app's own "me / them" order, on the
+    /// sample match only. Nil everywhere else.
+    private var sampleLabels: (you: String, them: String)? {
+        canWrite ? nil : SampleMatch.labels(userSide: match.userSide)
+    }
 
     var body: some View {
         ZStack {
@@ -230,6 +241,14 @@ struct PointDetailScreen: View {
                     frame: frame,
                     onCancel: { annotateFrame = nil },
                     onSave: { jpeg in
+                        // The demo keeps the drawing on the phone:
+                        // uploading it would leave a file of ours behind
+                        // for a note that is never written.
+                        if !canWrite {
+                            pendingImage = (nil, UIImage(data: jpeg) ?? frame)
+                            annotateFrame = nil
+                            return true
+                        }
                         do {
                             let path = try await NoteMedia.uploadImage(jpeg)
                             pendingImage = (path, UIImage(data: jpeg) ?? frame)
@@ -860,7 +879,10 @@ struct PointDetailScreen: View {
                     placement: placement,
                     userSide: match.userSide,
                     gameIndex: gameIndex,
-                    opponentLabel: match.opponentName ?? "Them",
+                    // Nobody is named on the sample: the maps read Player 1
+                    // and Player 2, the uploader's own side first.
+                    opponentLabel: sampleLabels?.them ?? (match.opponentName ?? "Them"),
+                    playerLabel: sampleLabels?.you,
                     serverPhysicalSide: serverPhysicalSide,
                     flagged: point.placementFlagged ?? false,
                     onFlagToggle: { Task { await model.togglePlacementFlag(point) } },
@@ -913,7 +935,9 @@ struct PointDetailScreen: View {
                         matchId: match.id,
                         ownerId: match.userId,
                         viewerId: app.userId ?? match.userId,
-                        authorName: notesStore.authorNames[note.authorId],
+                        authorName: canWrite
+                            ? notesStore.authorNames[note.authorId]
+                            : SampleMatch.noteAuthor,
                         notesStore: notesStore
                     )
                 }
@@ -974,6 +998,7 @@ struct PointDetailScreen: View {
                 notesStore: notesStore,
                 placeholder: "Add a note about this point",
                 pendingImagePath: pendingImage?.path,
+                demo: !canWrite,
                 onSent: { clearPendingImage() }
             )
         }

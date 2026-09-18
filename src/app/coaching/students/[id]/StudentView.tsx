@@ -209,8 +209,13 @@ export function StudentView({
         supabase
           .from("matches")
           .select(
-            "id, score_revision, opponent_name, original_name, match_type, venue, played_at, status",
+            "id, score_revision, opponent_name, original_name, match_type, venue, played_at, status, is_sample",
           )
+          // Not the demo. It is owned by whoever published it, so to that
+          // one account's coaches it reads as a match of theirs that they
+          // never shared — and it arrives through the sample's own read,
+          // which no per-coach sharing setting gates.
+          .not("is_sample", "is", true)
           .eq("user_id", playerId)
           .order("created_at", { ascending: false }),
         // Every student's shared entries come back; this page wants one

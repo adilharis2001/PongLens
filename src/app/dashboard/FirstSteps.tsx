@@ -42,6 +42,11 @@ interface Steps {
   lessonRecorded: boolean;
   /** An imported lesson video: its own row, so the data answers this one. */
   lessonVideo: boolean;
+  /**
+   * Opening the sample match leaves no trace either, so the match page sets
+   * user_metadata.sample_match_seen the first time somebody reads it.
+   */
+  sampleSeen: boolean;
 }
 
 export function FirstSteps({
@@ -50,6 +55,7 @@ export function FirstSteps({
   hasUpload,
   hasReel,
   latestReadyId,
+  sampleMatchId = null,
 }: {
   userId: string;
   /** user_metadata.first_steps_dismissed, read server-side. */
@@ -58,6 +64,8 @@ export function FirstSteps({
   hasUpload: boolean;
   /** Any rendered export. */
   hasReel: boolean;
+  /** The sample match, when this account still has it. */
+  sampleMatchId?: string | null;
   /** A ready match to point the remaining steps at, if one exists. */
   latestReadyId: string | null;
 }) {
@@ -120,6 +128,7 @@ export function FirstSteps({
         watched: tutorialWasStarted(meta, "player"),
         lessonRecorded: meta?.lesson_recorded === true,
         lessonVideo: (videoRes.data?.length ?? 0) > 0,
+        sampleSeen: meta?.sample_match_seen === true,
       });
     })();
     return () => {
@@ -138,6 +147,15 @@ export function FirstSteps({
     href: string | null;
   }[] = [
     { label: "Create your account", done: true, href: null },
+    ...(sampleMatchId
+      ? [
+          {
+            label: "Review the sample match",
+            done: steps.sampleSeen,
+            href: `/match/${sampleMatchId}`,
+          },
+        ]
+      : []),
     { label: "Upload your first match", done: hasUpload, href: "/upload" },
     {
       label: "Score a game",

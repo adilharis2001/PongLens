@@ -196,6 +196,26 @@ abandoned 2026-09-05 design's columns: its word-list rule on
 (`20260916173909`); do not add fixed-vocabulary constraints to columns the
 dispatcher writes its reasons into.
 
+**The shadow replay has to exercise the change, or it proves nothing.** The
+runbook says replay two or three recent uploads before deploying the twin. On
+2026-09-18 that step is the ONLY reason a broken release did not ship: the
+table fix in it was inert, and every ordinary single-table replay passed
+happily because the new code path never ran on them. It was the crowded-venue
+replay that showed the cloud still choosing the wrong table, which then showed
+the Mac doing the same. **Pick replay footage that hits the thing you changed**,
+and if a shadow disagrees with what the Mac published, stop — do not reason it
+away as platform variance. On this footage the two platforms agreed to half a
+pixel, so a real disagreement is a real defect.
+
+**Current pairing (2026-09-18):** Mac main/fast and the health monitor run
+`e2eb55a72d0eb8576c81a6832a85fa31c78e6da232f9696e2e4ca3078eb8582b`
+(source `f28fa91a`, merged to main as `6485d4a0`); the registered twin is
+`cd82d58970a3958590b30cc01f04274f9e11efb3c76674799ff8c9bfae866355`, shared
+`pipeline_id` `746bb79ef5d211bf153a6a352ab271c1e9bfdf78f2dd6982a8f53dd20c529750`,
+`release_match` true. Rollback is `07c5823c…`, which is also what the hand lane
+still runs — it has no detector, so table work does not touch it.
+`cloud_mode` is `disabled`; registering the twin does not change that.
+
 **The code is built so a missed update is visible rather than silent.** An
 unrecognised kind or stage renders as its own raw name with a marker
 beside it, so `spin_report` turns up in the middle of a page of English
@@ -507,6 +527,49 @@ at this level:
 - **A wrong table is worse than no table.** Every detector in the ladder
   refuses rather than guesses, and a match with no calibration still
   processes — points, clips and scoring never needed the table.
+- **Detection runs in the middle 80% of the frame** (`CROP_LADDER` in
+  `table_keypoints.py`, live 2026-09-18 in release `e2eb55a7…`), widening to
+  90% and then the whole frame only when the tighter view finds no table at
+  all. In a crowded hall the per-frame rule prefers a table NOBODY IS USING:
+  it ranks by keypoint weight, and an idle table shows all eleven landmarks
+  because no player stands in front of it, then tie-breaks on area, and a wide
+  lens stretches whatever sits near the frame edge. On a tournament upload
+  with eight tables in view it chose an empty table 68% of the way to the
+  right edge, in sixteen frames of sixteen, reporting 2.2px of agreement — 24
+  points cut instead of 119, and a placement map drawn on a table nobody
+  played on. Nothing downstream can catch that: the ball crop and the pose
+  window are both built FROM the chosen table, so neither can contradict it.
+- **Two fixes were tried before the crop and BOTH failed. Do not re-propose
+  either.** (1) Ranking the candidates and preferring the most central picks a
+  NEIGHBOUR whenever the neighbour is nearer the middle than your own table,
+  which in a club is common — one match's real table sits 18% off centre
+  against a neighbour at 5%, another 11% against 2%. The reasoning behind it
+  was wrong in an instructive way: it measured where the TRUE table sits
+  (median 11% off, never past 35%) and never asked whether a COMPETING table
+  sits nearer the middle. (2) Lowering `MIN_INLIER_WEIGHT` has no working
+  value: the played-on table needs the bar at 5.87 or below because a player
+  occludes it, and a different match breaks by 5.75. Cropping beats both
+  because it does not argue about which table is better — it takes the
+  neighbour out of the picture and the existing rule that rejects a quad with
+  a corner outside the frame does the rest. Widening only on refusal is safe
+  for that same reason.
+- **A table threshold measured on extracted or cached frames is not
+  measured.** The first version of this fix was corpus-tested on 37 matches,
+  sealed, and taken to a cloud deploy before anyone found it did NOTHING in
+  production. The harness read re-encoded JPEGs, whose per-frame scores come
+  back about 0.2 high — and the scores that decide this sit 0.1 to 0.5 from
+  the bar. Measure with `smoke_match_release.py --mode table` against the real
+  video, or drive `sample_frames()` directly. `real_decode_check.py` and
+  `crop_experiment.py` under
+  `~/Library/Caches/PongLens/calibration-study/knox-2026-09-18/` do it right,
+  in about ten minutes over 45 videos, free.
+- **`tables_seen` is not a crowded-venue signal.** It is `len(deduped)` capped
+  by `max_clusters` (8), and across all 99 keypoint-calibrated production
+  matches it reads 8 on ninety of them. The signal that actually separates a
+  booth from a tournament hall is how far the CHOSEN table sits from the frame
+  centre: production runs a median 7% off, p90 18%, max 21%, against hand
+  marks that never exceed 35%. Anything past ~35% is outside everything ever
+  seen and is the alarm worth wiring.
 - **The ladder is keypoints, then Luna, then Sol, then refuse**, ordered by
   measured accuracy against 62 hand-marked matches. `keypoint_calibrate` in
   `points_pipeline.py` is the entry point. About one match in ten falls

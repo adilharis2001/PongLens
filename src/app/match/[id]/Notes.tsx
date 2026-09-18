@@ -39,6 +39,7 @@ export function NoteItem({
   viewerId,
   authorName,
   clamp = false,
+  demo = false,
   onDeleted,
 }: {
   note: Note;
@@ -46,6 +47,11 @@ export function NoteItem({
   ownerId: string;
   viewerId: string;
   authorName?: string | null;
+  /** The demo match: this note was never written to the database, so its
+   *  own Edit and Delete must not go looking for a row. Delete in
+   *  particular came back "no rows" and showed an error for a note that
+   *  was only ever on screen. */
+  demo?: boolean;
   /** Over video (the note sheet, the analysis panel): cut a long note to
    *  four lines so the thread can't push the footage off the screen. */
   clamp?: boolean;
@@ -73,16 +79,23 @@ export function NoteItem({
     setEditing(false);
     if (body === (localBody ?? note.body)) return;
     setLocalBody(body);
+    if (demo) return;
     const supabase = createClient();
     const { error } = await supabase
       .from("notes")
       .update({ body })
       .eq("id", note.id);
     if (error) setLocalBody(null);
-  }, [draft, localBody, note.body, note.id]);
+  }, [demo, draft, localBody, note.body, note.id]);
 
   const deleteNote = useCallback(async () => {
     if (deleting) return;
+    if (demo) {
+      setConfirmDel(false);
+      setRemoved(true);
+      onDeleted?.(note.id);
+      return;
+    }
     setDeleting(true);
     setDeleteError(null);
     const supabase = createClient();
@@ -101,7 +114,7 @@ export function NoteItem({
     setConfirmDel(false);
     setRemoved(true);
     onDeleted?.(note.id);
-  }, [deleting, note.id, onDeleted]);
+  }, [deleting, demo, note.id, onDeleted]);
 
   const isCoachNote = note.author_id !== ownerId;
   const isMine = note.author_id === viewerId;
@@ -116,6 +129,12 @@ export function NoteItem({
   // there, unlike audio which waits for a play tap.
   useEffect(() => {
     if (!note.image_path) return;
+    // A demo note's drawing was never uploaded: its "path" is the object
+    // URL the canvas produced, which the browser can show directly.
+    if (note.image_path.startsWith("blob:")) {
+      setImageUrl(note.image_path);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -311,12 +330,15 @@ export function PointNoteThread({
   ownerId,
   viewerId,
   authorNames,
+  demo = false,
 }: {
   notes: Note[];
   matchId: string;
   ownerId: string;
   viewerId: string;
   authorNames: Map<string, string>;
+  /** The demo match: a note written here only ever existed on screen. */
+  demo?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (notes.length === 0) return null;
@@ -335,6 +357,7 @@ export function PointNoteThread({
             viewerId={viewerId}
             authorName={authorNames.get(n.author_id)}
             clamp={!expanded}
+            demo={demo}
           />
         ))}
       </ul>
@@ -364,6 +387,7 @@ export function NoteComposer({
   userId,
   placeholder,
   imagePath = null,
+  demo = false,
   onNoteAdded,
 }: {
   matchId: string;
@@ -373,6 +397,11 @@ export function NoteComposer({
   /** Annotated frame already uploaded (040) — saved with the note. The
    *  caller renders its own preview; this only writes the column. */
   imagePath?: string | null;
+  /** The demo match. The note is written into the page and nowhere else:
+   *  the database would refuse it, and an error where a person expected a
+   *  note is a worse demonstration than a note that does not outlive the
+   *  visit. The line under the box says so before they type. */
+  demo?: boolean;
   onNoteAdded: (note: Note) => void;
 }) {
   const [body, setBody] = useState("");
@@ -489,6 +518,22 @@ export function NoteComposer({
   const save = useCallback(async () => {
     const trimmed = body.trim();
     if (!trimmed && !audioPath && !imagePath) return;
+    if (demo) {
+      onNoteAdded({
+        id: `demo-${Date.now()}`,
+        match_id: matchId,
+        point_id: pointId,
+        author_id: userId,
+        body: trimmed,
+        audio_path: null,
+        image_path: imagePath,
+        created_at: new Date().toISOString(),
+      } as Note);
+      setBody("");
+      setAudioPath(null);
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      return;
+    }
     setPosting(true);
     setError(null);
     const supabase = createClient();
@@ -513,7 +558,7 @@ export function NoteComposer({
     setAudioPath(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     onNoteAdded(data as Note);
-  }, [body, audioPath, imagePath, matchId, pointId, userId, onNoteAdded]);
+  }, [body, audioPath, demo, imagePath, matchId, pointId, userId, onNoteAdded]);
 
   const busy = recState !== "idle";
   const canSend =
@@ -635,6 +680,11 @@ export function NoteComposer({
             )}
           </button>
         </div>
+      )}
+      {demo && (
+        <p className="mt-2 text-xs text-zinc-500">
+          Notes on the demo match are not saved.
+        </p>
       )}
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
     </div>

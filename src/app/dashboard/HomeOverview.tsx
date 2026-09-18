@@ -16,6 +16,7 @@ import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
 import { FirstSteps } from "./FirstSteps";
+import { hasOwnScoredMatch, isSampleMatch, SAMPLE_CTA } from "@/lib/sampleMatch";
 import { HomeFeedbackBoard } from "./HomeFeedbackBoard";
 import { YourGame } from "./YourGame";
 import {
@@ -165,7 +166,20 @@ export function HomeOverview({
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
     setJobs(jobRows);
-    if (reelRes.data) setReels(reelRes.data as ReelRow[]);
+    // Latest activity is the player's own work. Reels now arrive for the
+    // sample match too (every account can read it), and our highlights
+    // reel is not their activity. Its notes are filtered in note_feed()
+    // itself, so every client and every installed build agrees.
+    if (reelRes.data) {
+      const mine = new Set(
+        ((matchRes.data ?? []) as MatchRow[])
+          .filter((m) => m.user_id === userId)
+          .map((m) => m.id)
+      );
+      setReels(
+        (reelRes.data as ReelRow[]).filter((r) => mine.has(r.match_id))
+      );
+    }
 
     // Score chips for the cards Home actually shows (recent + Continue):
     // a scoped fetch, not the library's all-points pull — this runs on
@@ -311,7 +325,13 @@ export function HomeOverview({
   const loading = matches === null || jobs === null;
   const ownMatches = (matches ?? []).filter((m) => m.user_id === userId);
   const processingFeedback = useProcessingFeedback(ownMatches.map((m) => m.id));
-  const sharedMatches = (matches ?? []).filter((m) => m.user_id !== userId);
+  // The sample match arrives through RLS like a shared one, but it is
+  // nobody's play: it must not fill the empty state, the recent list or
+  // "Shared with me". It has one place of its own, the door below.
+  const sampleMatch = (matches ?? []).find((m) => isSampleMatch(m)) ?? null;
+  const sharedMatches = (matches ?? []).filter(
+    (m) => m.user_id !== userId && !isSampleMatch(m)
+  );
   const playerName = new Map(
     sharedPlayers.map((p) => [p.player_id, p.player_name])
   );
@@ -369,13 +389,23 @@ export function HomeOverview({
   const latestReady = recentPool.find((m) => m.status === "ready");
   const thumbs = useThumbs(
     useMemo(
-      () => recent.filter((m) => m.thumb_path).map((m) => m.id),
-      [recent]
+      () =>
+        [...recent, ...(sampleMatch ? [sampleMatch] : [])]
+          .filter((m) => m.thumb_path)
+          .map((m) => m.id),
+      [recent, sampleMatch]
     )
   );
 
   const isEmpty = !loading && recentPool.length === 0 && activeWork === 0;
   const scoreChips = useScoreChips(pointsLite);
+  // The door stays until they have scored a match of their own. After that
+  // the sample is still there, in Account -> Support, for anyone who wants
+  // to check what a screen is meant to look like.
+  const showSampleDoor =
+    !loading &&
+    sampleMatch !== null &&
+    !hasOwnScoredMatch(ownMatches, scoreChips);
 
   // The hero's "what now" for the Continue card, from the same point rows
   // the chips use. Own matches only — a coach is never told to score
@@ -441,17 +471,29 @@ export function HomeOverview({
             match into points, so you can review it point by point and add
             notes for yourself or a coach.
           </p>
-          <Link
-            href="/upload"
-            className="glow-cta mt-6 inline-block rounded-full bg-cyan-glow px-7 py-3 text-sm font-semibold text-ink"
-          >
-            Upload a match
-          </Link>
-          {/* This is the screen someone sees BEFORE they go to the club,
-              which is the only moment camera advice can still change the
-              recording. On /upload it is already too late for today. */}
-          <div className="mx-auto mt-6 max-w-sm text-left">
-            <CameraGuide variant="row" />
+          {/* One row of pills the same size and shape, the way the empty
+              Matches card does it (Adil, 2026-09-18). A primary button
+              above two labelled rows put three button languages in one
+              box and made it twice as tall as it needed to be. This is the
+              screen someone sees BEFORE they go to the club, which is the
+              only moment camera advice can still change the recording, so
+              the guide stays a button rather than dropping to a hint. */}
+          <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <Link
+              href="/upload"
+              className="glow-cta w-full max-w-[13rem] rounded-full bg-cyan-glow px-6 py-2.5 text-center text-sm font-semibold text-ink"
+            >
+              Upload a match
+            </Link>
+            <CameraGuide variant="button" className="flex w-full justify-center sm:w-auto" />
+            {showSampleDoor && sampleMatch && (
+              <Link
+                href={`/match/${sampleMatch.id}`}
+                className="w-full max-w-[13rem] rounded-full border border-edge px-6 py-2.5 text-center text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+              >
+                {SAMPLE_CTA}
+              </Link>
+            )}
           </div>
         </section>
       ) : activeWork > 0 ? (
@@ -536,6 +578,7 @@ export function HomeOverview({
             dismissed={firstStepsDismissed}
             hasUpload={ownMatches.length > 0 || (jobs ?? []).length > 0}
             hasReel={reels.length > 0}
+            sampleMatchId={sampleMatch?.id ?? null}
             latestReadyId={
               latestReady && latestReady.user_id === userId
                 ? latestReady.id

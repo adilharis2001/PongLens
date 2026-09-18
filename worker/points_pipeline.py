@@ -1646,9 +1646,13 @@ def keypoint_calibrate(video, workdir):
                                         "C_far_2", "D_far_1"], src)},
         "orientation": "canonical-v1",
         "legacy_reordered": legacy_reordered,
+        # Anything new goes at the END of this sentence: the admin uploads
+        # page reads its front with a regex.
         "note": f"keypoint detector ({result.get('detector')}), "
                 f"{result['frames_used']}/{result['frames_kept']} frames "
-                f"agree, spread {result['spread_px']:.1f}px",
+                f"agree, spread {result['spread_px']:.1f}px"
+                + (f", found in the middle {result['crop']:.0%} of the frame"
+                   if (result.get("crop") or 1.0) < 1.0 else ""),
         "debug": "",
         "source": "keypoints",
         "agreement": {
@@ -1658,6 +1662,9 @@ def keypoint_calibrate(video, workdir):
             "agreement": result.get("agreement"),
             "spread_px": result.get("spread_px"),
             "tables_seen": result.get("tables_seen"),
+            # Which rung of the crop ladder answered. 1.0 is the whole frame,
+            # i.e. what every release before 2026-09-18 always used.
+            "crop": result.get("crop"),
         },
     }
 

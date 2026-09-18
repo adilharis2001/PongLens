@@ -621,12 +621,20 @@ export function UploadCard({
     setPhase("error");
   }, []);
 
-  /** The first-upload confirmation. One tick writes upload_confirmed_at
-   *  on the account's own profile row (the same upsert onboarding uses)
-   *  and the box never shows again. /api/upload-url checks the same
-   *  column, so an untouched box is not the only thing in the way. */
-  const confirmUpload = useCallback(async () => {
-    if (confirming || confirmed) return;
+  /** The first-upload confirmation, written when an upload actually
+   *  starts rather than when the box is ticked.
+   *
+   *  Ticking used to write upload_confirmed_at immediately, so somebody
+   *  who ticked it and then left without uploading was confirmed for
+   *  good and their first real upload had nothing in front of it. The box
+   *  says "this video", so the answer belongs to the upload. The tick is
+   *  local until then, which also means it can be unticked.
+   *
+   *  True when there was nothing to save. False only when the write
+   *  failed; /api/upload-url checks the same column and would refuse. */
+  const savedConfirmation = useRef(uploadConfirmed);
+  const saveConfirmation = useCallback(async () => {
+    if (savedConfirmation.current) return true;
     setConfirming(true);
     setConfirmError(null);
     const supabase = createClient();
@@ -640,10 +648,11 @@ export function UploadCard({
     setConfirming(false);
     if (confirmWriteError) {
       setConfirmError("We couldn't save that. Try again.");
-      return;
+      return false;
     }
-    setConfirmed(true);
-  }, [confirming, confirmed, userId]);
+    savedConfirmation.current = true;
+    return true;
+  }, [userId]);
 
   useEffect(() => {
     if (!active) return;
@@ -1180,6 +1189,13 @@ export function UploadCard({
         return;
       }
 
+      // The upload starts here, so this is where the tick is saved. A box
+      // that was ticked and then abandoned confirms nothing.
+      if (!(await saveConfirmation())) {
+        fail("pick");
+        return;
+      }
+
       // Only ever a record this tab may pick up — readPending leaves
       // another tab's live upload alone. A different file simply starts
       // its own upload now; the old record keeps its seven days to be
@@ -1257,7 +1273,7 @@ export function UploadCard({
         // Errors surface through the upload-error handler.
       });
     },
-    [acquireWakeLock, buildUppy, revokeLocalVideo, fail]
+    [acquireWakeLock, buildUppy, revokeLocalVideo, fail, saveConfirmation]
   );
 
   const onFiles = useCallback(
@@ -1613,8 +1629,11 @@ export function UploadCard({
         <input
           type="checkbox"
           checked={confirmed}
-          disabled={confirming || confirmed}
-          onChange={() => void confirmUpload()}
+          disabled={confirming}
+          onChange={() => {
+            setConfirmError(null);
+            setConfirmed((on) => !on);
+          }}
           className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-edge bg-surface-2 accent-cyan-glow disabled:cursor-default"
         />
         <span className="text-sm leading-snug text-zinc-200">

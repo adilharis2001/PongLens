@@ -50,8 +50,18 @@ final class ScoresStore {
     private(set) var loaded = false
     private var loading = false
 
-    func load(for matches: [MatchRow]) async {
+    /// `viewerId` names whose matches the AGGREGATE counts. Every match
+    /// passed in still gets its own `scores` entry — the library needs a
+    /// chip on a coach's student cards and on the demo — but "My stats" is
+    /// the viewer's own play and nobody else's. Without this the walk
+    /// counted every match RLS handed over: a coach's students, and, once
+    /// the demo match existed, 17-23 points on an account that had never
+    /// uploaded anything.
+    func load(for matches: [MatchRow], viewerId: UUID? = nil) async {
         let matchIds = matches.map(\.id)
+        let ownIds = Set(
+            matches.filter { viewerId == nil || $0.userId == viewerId }.map(\.id)
+        )
         let firstServers = Dictionary(
             uniqueKeysWithValues: matches.map {
                 ($0.id, $0.firstServer.flatMap(Winner.init(rawValue:)))
@@ -123,6 +133,7 @@ final class ScoresStore {
         for (matchId, rows) in byMatch {
             let visible = sortPoints(rows.filter { !($0.deleted ?? false) })
             let score = computeMatchScore(visible)
+            let counts = ownIds.contains(matchId)
 
             // Pressure and streak stats need the running walk, so fold the
             // same sequence again point by point.
@@ -132,7 +143,7 @@ final class ScoresStore {
             var run = 0
             for p in visible {
                 let winner: Winner? = (p.isLet ?? false) ? nil : p.confirmedWinner
-                if let winner {
+                if let winner, counts {
                     agg.pointsWon += winner == .user ? 1 : 0
                     agg.pointsLost += winner == .opponent ? 1 : 0
                     if max(walk.you, walk.them) >= 9 {
@@ -153,7 +164,7 @@ final class ScoresStore {
                 }
                 if walk.you >= 10 && walk.them >= 10 { reachedDeuce = true }
                 if let ended = stepBoundaryWalk(&walk, winner: winner, override: p.gameEndOverride) {
-                    if reachedDeuce {
+                    if reachedDeuce, counts {
                         agg.deuceGamesTotal += 1
                         var summary = ended
                         summary.winnerOverride = p.gameWinnerOverride

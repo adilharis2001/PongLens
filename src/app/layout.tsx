@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     template: "%s · PongLens",
   },
   description:
-    "Upload a match video and get back just the play, every point as its own clip, placement maps, and a running score you can share with your coach.",
+    "Upload a match video and get one clip per point with the breaks removed. Add the score for match analysis, serve maps and highlights, and share the match with your coach.",
   applicationName: "PongLens",
   keywords: [
     "table tennis",
@@ -61,7 +61,7 @@ export const metadata: Metadata = {
     siteName: "PongLens",
     title: "PongLens · A performance hub for competitive table tennis",
     description:
-      "Upload a match video and get back just the play, every point as its own clip, placement maps, and a running score you can share with your coach.",
+      "Upload a match video and get one clip per point with the breaks removed. Add the score for match analysis, serve maps and highlights, and share the match with your coach.",
     images: [
       {
         url: "/img/og.jpg",
@@ -75,7 +75,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "PongLens · A performance hub for competitive table tennis",
     description:
-      "Upload a match video and get back just the play, every point as its own clip, placement maps, and a running score you can share with your coach.",
+      "Upload a match video and get one clip per point with the breaks removed. Add the score for match analysis, serve maps and highlights, and share the match with your coach.",
     images: ["/img/og.jpg"],
   },
 };

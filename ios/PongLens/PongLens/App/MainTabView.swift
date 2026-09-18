@@ -361,7 +361,7 @@ struct MainTabView: View {
         .task { await coaching.load(userId: app.userId) }
         .task {
             await library.load()
-            await scores.load(for: library.matches.filter { $0.status == .ready })
+            await scores.load(for: library.matches.filter { $0.status == .ready }, viewerId: app.userId)
             if !journal.loaded {
                 await journal.load(userId: app.userId, recollectAvailable: app.recollectEnabled)
             }
@@ -375,7 +375,7 @@ struct MainTabView: View {
         }
         .onChange(of: library.matches) { _, matches in
             Task {
-                await scores.load(for: matches.filter { $0.status == .ready })
+                await scores.load(for: matches.filter { $0.status == .ready }, viewerId: app.userId)
             }
             #if DEBUG
             if let devId = router.devOpenMatchId,

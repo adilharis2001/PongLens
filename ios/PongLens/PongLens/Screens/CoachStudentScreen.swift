@@ -35,7 +35,11 @@ struct CoachStudentScreen: View {
     private var matches: [MatchRow] {
         guard let playerId = student?.playerId else { return [] }
         return library.matches
-            .filter { $0.userId == playerId }
+            // Not the demo. It is owned by whoever published it, so to that
+            // one account's coaches it reads as a match of theirs that they
+            // never shared — and it arrives through the sample's own read,
+            // which no per-coach sharing setting gates.
+            .filter { $0.userId == playerId && !SampleMatch.isSample($0) }
             .sorted { $0.createdAt > $1.createdAt }
     }
 

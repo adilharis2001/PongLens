@@ -74,7 +74,7 @@ export function StudentsCard() {
             .limit(20),
           supabase
             .from("matches")
-            .select("id, user_id")
+            .select("id, user_id").not("is_sample", "is", true)
             .neq("user_id", user.id),
         ]);
       if (!alive) return;

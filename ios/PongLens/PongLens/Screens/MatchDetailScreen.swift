@@ -115,6 +115,12 @@ final class MatchDetailModel {
     private var feedbackMatchId: UUID?
     var minutesBalance: Int?
     var needsMoreMinutes = false
+    /// The demo match, seen by anyone but its owner. Scoring it moves the
+    /// score, the games, the rotation and the cards on screen exactly as
+    /// it would on your own match, and stops at the phone: nothing is
+    /// sent, so there is no write for the database to refuse and no error
+    /// to explain. The screen sets this once it knows who is reading.
+    var demo = false
 
     /// Scoring commands read from the model when their turn begins. The
     /// queue is per point, so two quick corrections cannot finish out of
@@ -131,6 +137,7 @@ final class MatchDetailModel {
         },
         persist: { [weak self] id, state in
             guard let self else { return false }
+            if demo { return true }
             let skipKind = canonicalSkipCommandKind(
                 points.first(where: { $0.id == id })?.confirmedHow)
             let outcome = state.winner?.rawValue ?? (state.isLet ? skipKind : "clear")
@@ -857,6 +864,21 @@ struct MatchDetailScreen: View {
 
     private var isOwner: Bool { app.userId == current.userId }
 
+    /// Everything a coach-style viewer may normally do (a note, a sketch,
+    /// the download) is off on the sample match: it is ours, and every
+    /// account is looking at the same one.
+    private var canWrite: Bool { isOwner || !SampleMatch.isSample(current) }
+
+    /// Reading the sample: Tools are shown but dead, and the two players
+    /// stay unnamed.
+    private var sampleViewer: Bool { !isOwner && SampleMatch.isSample(current) }
+    /// Player 1 / Player 2 in the app's own "me / them" order, on the
+    /// sample match only. Nil everywhere else, where the real names and
+    /// the owner's or the coach's wording apply.
+    private var sampleLabels: (you: String, them: String)? {
+        sampleViewer ? SampleMatch.labels(userSide: current.userSide) : nil
+    }
+
     private var pad: ClipPad {
         clipPad(strictness: nil, stored: current.clipPads)
     }
@@ -989,8 +1011,9 @@ struct MatchDetailScreen: View {
     }
 
     var body: some View {
+        let head = MatchTitle.head(for: current)
         let parts = MatchTitle.parts(
-            opponentName: current.opponentName, venue: current.venue,
+            opponentName: head.opponent, venue: head.venue,
             playedAt: current.playedAt, matchType: current.matchType
         )
         ZStack {
@@ -1037,7 +1060,7 @@ struct MatchDetailScreen: View {
 
                         // A coach never sees Tools, so the two rows that
                         // are not owner actions get their own card here.
-                        if !isOwner {
+                        if !isOwner, !sampleViewer {
                             VStack(spacing: 0) {
                                 ProcessingToolRow(match: current)
                                 Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1).padding(.leading, 16)
@@ -1053,7 +1076,7 @@ struct MatchDetailScreen: View {
                         if current.status == .ready {
                             // Coach viewers never see Tools — every row is
                             // an owner action, matching the web.
-                            if isOwner {
+                            if isOwner || sampleViewer {
                                 ToolsSection(
                                     match: current,
                                     model: model,
@@ -1081,7 +1104,8 @@ struct MatchDetailScreen: View {
                                         Task {
                                             await refreshMatch(refreshLibrary: true)
                                         }
-                                    }
+                                    },
+                                    sampleViewer: sampleViewer
                                 )
                             }
                             pointsSection(proxy: proxy)
@@ -1116,6 +1140,15 @@ struct MatchDetailScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task {
+            // Before anything loads: every write the model makes has to
+            // know whether it is allowed to leave the phone.
+            model.demo = sampleViewer
+            notesStore.demo = sampleViewer
+            // Opening the sample is the First steps row "Review the sample
+            // match", and reading it leaves no other trace.
+            if sampleViewer, !app.sampleMatchSeen {
+                await app.setMetadataFlag("sample_match_seen", true)
+            }
             await model.load(match)
             model.startClipPoll(match.id)
             await notesStore.load(matchId: match.id)
@@ -1562,11 +1595,11 @@ struct MatchDetailScreen: View {
                 }
             },
             onOriginal: { Task { await openOriginal() } },
-            onDownload: {
+            onDownload: canWrite ? {
                 Task {
                     if let url = await model.downloadURL(current) { openURL(url) }
                 }
-            }
+            } : nil
         )
     }
 
@@ -1952,16 +1985,20 @@ struct MatchDetailScreen: View {
                         matchId: current.id,
                         ownerId: current.userId,
                         viewerId: app.userId ?? current.userId,
-                        authorName: notesStore.authorNames[note.authorId],
+                        authorName: sampleViewer
+                            ? SampleMatch.noteAuthor
+                            : notesStore.authorNames[note.authorId],
                         notesStore: notesStore
                     )
                 }
+                // No composer on the sample: the database refuses a note
                 NoteComposerView(
                     matchId: current.id,
                     pointId: nil,
                     userId: app.userId ?? current.userId,
                     notesStore: notesStore,
-                    placeholder: "How did the match go?"
+                    placeholder: "How did the match go?",
+                    demo: sampleViewer
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1978,6 +2015,7 @@ struct MatchDetailScreen: View {
             AnalysisCards(
                 bundle: MatchAnalysisBundle(match: current, model: model, score: score),
                 coachView: coachView,
+                neutralLabels: sampleLabels,
                 video: VideoCardsInput(
                     match: current,
                     points: model.visible,
@@ -1985,7 +2023,9 @@ struct MatchDetailScreen: View {
                     gameIndexByPoint: gameIndexByPoint,
                     serving: serving,
                     pad: pad,
-                    opponentLabel: current.opponentName ?? "Them",
+                    // Nobody is named on the sample: the cards and maps read
+                    // Player 1 and Player 2, the uploader's own side first.
+                    opponentLabel: sampleLabels?.them ?? (current.opponentName ?? "Them"),
                     servesOnly: app.placementServesOnly,
                     scoredType: tracksServe,
                     showMaps: showPlacementAggregate,
@@ -2124,6 +2164,8 @@ struct MatchDetailScreen: View {
                             displayServer: serving[point.id]?.server ?? point.displayServer,
                             scoring: tracksServe,
                             coachView: !isOwner,
+                            neutralLabels: sampleLabels,
+                            locked: sampleViewer,
                             noteCount: notesStore.count(for: point.id),
                             tagCount: tagsStore.tags(for: point.id).count,
                             onOpen: {

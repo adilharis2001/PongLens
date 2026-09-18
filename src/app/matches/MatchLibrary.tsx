@@ -35,6 +35,12 @@ import {
   type PointLite,
   canOpenMatch,
 } from "@/app/dashboard/shared";
+import {
+  isSampleMatch,
+  SAMPLE_CHIP,
+  SAMPLE_CTA,
+  SAMPLE_TITLE,
+} from "@/lib/sampleMatch";
 
 // Same cadence as Home. Upgrade path: Supabase Realtime.
 const POLL_MS = 10_000;
@@ -160,6 +166,7 @@ export function MatchLibrary({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [coachNoted, setCoachNoted] = useState<Set<string>>(new Set());
   const [exportReady, setExportReady] = useState<Set<string>>(new Set());
+  /** This account dismissed the sample match (its own row, nobody else's). */
   const [confirmMatch, setConfirmMatch] = useState<MatchRow | null>(null);
   const [confirmBytes, setConfirmBytes] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -252,7 +259,12 @@ export function MatchLibrary({
 
   const loading = matches === null || jobs === null;
   const ownMatches = (matches ?? []).filter((m) => m.user_id === userId);
-  const sharedMatches = (matches ?? []).filter((m) => m.user_id !== userId);
+  // The sample match reads like a shared one but belongs to no player, so
+  // it stays out of "Shared with me" and gets its own card below the list.
+  const sampleMatch = (matches ?? []).find((m) => isSampleMatch(m)) ?? null;
+  const sharedMatches = (matches ?? []).filter(
+    (m) => m.user_id !== userId && !isSampleMatch(m)
+  );
   const playerName = new Map(
     sharedPlayers.map((p) => [p.player_id, p.player_name])
   );
@@ -552,6 +564,7 @@ export function MatchLibrary({
         [
           ...filteredOwn,
           ...[...filteredShared.values()].flat(),
+          ...(sampleMatch ? [sampleMatch] : []),
         ]
           .filter((m) => m.thumb_path)
           .map((m) => m.id),
@@ -559,6 +572,7 @@ export function MatchLibrary({
       [matches, query, statusFilter, typeFilter, scoreFilter, sort, cap]
     )
   );
+
 
   async function openDeleteConfirm(m: MatchRow) {
     setMenuFor(null);
@@ -721,7 +735,17 @@ export function MatchLibrary({
     const s = chipForMatch(m.status, live);
     const chip = scoreChipByMatch.get(m.id);
     const notes = noteCounts.get(m.id) ?? 0;
-    const parts = deriveMatchTitleParts({
+    const parts = isSampleMatch(m)
+      ? {
+          primary: SAMPLE_TITLE,
+          secondary: deriveMatchTitleParts({
+            opponentName: m.opponent_name,
+            venue: m.venue,
+            playedAt: m.played_at,
+            matchType: m.match_type,
+          }).secondary,
+        }
+      : deriveMatchTitleParts({
       opponentName: m.opponent_name,
       venue: m.venue,
       playedAt: m.played_at,
@@ -750,6 +774,11 @@ export function MatchLibrary({
           {m.status !== "ready" && (
             <span className="absolute left-2 top-2">
               <Chip s={s} />
+            </span>
+          )}
+          {isSampleMatch(m) && (
+            <span className="absolute left-2 top-2 rounded-full border border-cyan-glow/40 bg-ink/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-glow">
+              {SAMPLE_CHIP}
             </span>
           )}
         </div>
@@ -789,7 +818,9 @@ export function MatchLibrary({
               coach={!shared && coachNoted.has(m.id)}
               onOpen={() => router.push(`/journal?match=${m.id}`)}
             />
-            {exportReady.has(m.id) && (
+            {/* Not on the sample: the export is ours, and a visitor cannot
+                download it anyway. */}
+            {exportReady.has(m.id) && !isSampleMatch(m) && (
               <span
                 title="Export rendered and ready"
                 className="ml-auto inline-flex shrink-0 items-center text-zinc-500"
@@ -967,12 +998,25 @@ export function MatchLibrary({
               Upload your first match. When processing finishes it will appear
               here, broken into points and ready to review.
             </p>
-            <Link
-              href="/upload"
-              className="glow-cta mt-5 inline-block rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
-            >
-              Upload a match
-            </Link>
+            {/* The sample sits beside Upload rather than in a section of
+                its own (Adil, 2026-09-18): same shape and size, outlined
+                instead of filled, so it reads as the quieter of the two. */}
+            <div className="mt-5 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+              <Link
+                href="/upload"
+                className="glow-cta w-full max-w-[14rem] rounded-full bg-cyan-glow px-6 py-2.5 text-center text-sm font-semibold text-ink"
+              >
+                Upload a match
+              </Link>
+              {sampleMatch && (
+                <Link
+                  href={`/match/${sampleMatch.id}`}
+                  className="w-full max-w-[14rem] rounded-full border border-edge px-6 py-2.5 text-center text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                >
+                  {SAMPLE_CTA}
+                </Link>
+              )}
+            </div>
           </div>
         ) : !anythingVisible ? (
           <p className="mt-4 text-sm text-zinc-500">

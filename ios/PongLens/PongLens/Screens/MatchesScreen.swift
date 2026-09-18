@@ -38,6 +38,19 @@ struct MatchesScreen: View {
         return library.matches.filter { $0.userId == uid }
     }
 
+    /// The demo match every account can read. It belongs to nobody here, so
+    /// it is kept out of the grid and the shared groups and shown on its own.
+    private var sampleMatch: MatchRow? { SampleMatch.find(in: library.matches) }
+
+    /// Shown until they have scored a match of their own; Account → Support
+    /// keeps it reachable after that.
+    private var showSample: Bool {
+        sampleMatch != nil
+            && !SampleMatch.hasOwnScoredMatch(
+                ownMatches: ownMatches, scores: scores.scores
+            )
+    }
+
     /// Matches RLS delivered that are not yours, grouped by player, like
     /// the web library's "shared with you". RLS also grants a coach rows
     /// through an active PAID order — web-only work that would appear here
@@ -168,6 +181,7 @@ struct MatchesScreen: View {
 
                     content
 
+
                     if !sharedByPlayer.isEmpty {
                         sharedSection
                     }
@@ -272,9 +286,21 @@ struct MatchesScreen: View {
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                Button("New match") { router.newMatchOpen = true }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    .padding(.top, 8)
+                // The demo sits with New match rather than in a section of
+                // its own (Adil, 2026-09-18): the same size, outlined
+                // instead of filled. Both labels are sized before the
+                // button style so the two read as a pair.
+                Button { router.newMatchOpen = true } label: {
+                    Text("New match").frame(maxWidth: 190)
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .padding(.top, 8)
+                if showSample, let sample = sampleMatch {
+                    NavigationLink(value: sample) {
+                        Text(SampleMatch.cta).font(.plBody).frame(maxWidth: 190)
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                }
             }
             .frame(maxWidth: .infinity)
             .plCard(padding: 40)

@@ -170,6 +170,9 @@ struct NoteComposerView: View {
     /// The pending annotated frame (path + preview), owned by the host so
     /// Redraw can replace it.
     var pendingImagePath: String?
+    /// The demo match: the box works and the note stays on the phone, so
+    /// the line under it says that before anybody types.
+    var demo = false
     var onSent: () -> Void = {}
 
     @State private var draft = ""
@@ -277,6 +280,11 @@ struct NoteComposerView: View {
                 }
             }
 
+            if demo {
+                Text("Notes on the demo match are not saved.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+            }
             if let error {
                 Text(error)
                     .font(.plCaption)

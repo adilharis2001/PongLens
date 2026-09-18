@@ -1,21 +1,30 @@
 import SwiftUI
 
 /// The first-upload checkbox. A real 44pt control: the whole row is the
-/// button, and ticking it writes upload_confirmed_at so the row never shows
-/// again on any device.
+/// button.
 ///
-/// The parent owns `ticked` and shows the row while
-/// `UploadConsent.shared.needed || ticked`, so it stays on screen, ticked,
-/// for the rest of that visit instead of vanishing under the finger.
+/// It writes nothing. Ticking sets a flag the screen owns, and the screen
+/// saves the answer through `UploadConsent.confirmIfNeeded()` at the
+/// moment the upload actually starts. Saving on the tap instead meant a
+/// tick that was never followed by an upload confirmed the account
+/// anyway, so the box never came back and the first real upload had
+/// nothing in front of it.
+///
+/// It unticks as well, because nothing is written until the upload
+/// begins, so changing your mind is free. The parent shows the row while
+/// `UploadConsent.shared.needed || ticked`, so it stays on screen for the
+/// rest of that visit instead of vanishing under the finger.
+///
+/// `failed` is the screen's word that the save at upload time did not
+/// land, shown here so it sits beside the box it is about.
 struct UploadConfirmationRow: View {
     @Binding var ticked: Bool
-    @State private var saving = false
-    @State private var failed = false
+    var failed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                Task { await tick() }
+                ticked.toggle()
             } label: {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: ticked ? "checkmark.square.fill" : "square")
@@ -33,7 +42,6 @@ struct UploadConfirmationRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(saving || ticked)
             .accessibilityAddTraits(ticked ? [.isSelected] : [])
             if failed {
                 Text("Couldn't save that. Try again.")
@@ -41,17 +49,5 @@ struct UploadConfirmationRow: View {
                     .foregroundStyle(PL.dangerText)
             }
         }
-    }
-
-    private func tick() async {
-        guard !ticked else { return }
-        saving = true
-        failed = false
-        ticked = true
-        if !(await UploadConsent.shared.confirm()) {
-            ticked = false
-            failed = true
-        }
-        saving = false
     }
 }

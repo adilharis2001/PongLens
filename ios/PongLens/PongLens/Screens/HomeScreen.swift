@@ -19,9 +19,22 @@ struct HomeScreen: View {
     }
 
     /// Matches someone else owns and shared — a coach's students' footage.
+    /// The sample match is not one of them: it belongs to nobody here, so it
+    /// must not make an empty account look busy.
     private var sharedMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
-        return library.matches.filter { $0.userId != uid }
+        return library.matches.filter { $0.userId != uid && !SampleMatch.isSample($0) }
+    }
+
+    private var sampleMatch: MatchRow? { SampleMatch.find(in: library.matches) }
+
+    /// The door stays until they have scored a match of their own. After
+    /// that the sample lives in Account → Support.
+    private var showSampleDoor: Bool {
+        sampleMatch != nil
+            && !SampleMatch.hasOwnScoredMatch(
+                ownMatches: ownMatches, scores: scores.scores
+            )
     }
 
     /// Nothing to show at all. Shared matches count: a coach whose students
@@ -269,6 +282,36 @@ struct HomeScreen: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 12)
+                // The sample sits beside the camera advice as one more
+                // thing to read before recording, rather than as a match in
+                // a library they never uploaded to.
+                if showSampleDoor, let sample = sampleMatch {
+                    NavigationLink(value: sample) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.rectangle")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(PL.cyan)
+                            Text(SampleMatch.cta)
+                                .font(.plBody)
+                                .foregroundStyle(PL.text200)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(PL.text600)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(PL.surface2.opacity(0.5),
+                                    in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                                .strokeBorder(PL.edge, lineWidth: 1)
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 8)
+                }
             }
             .frame(maxWidth: .infinity)
             .plCard(padding: 40)
@@ -360,6 +403,13 @@ struct HomeScreen: View {
         }
         return [
             Step(label: "Create your account", done: true, go: nil),
+        ]
+        + (sampleMatch.map { sample in
+            [Step(label: SampleMatch.firstStep,
+                  done: app.sampleMatchSeen,
+                  go: .match(sample))]
+        } ?? [])
+        + [
             Step(label: "Upload your first match", done: !ownMatches.isEmpty,
                  go: .newMatch),
             Step(label: "Score a game",
@@ -634,7 +684,10 @@ struct HomeScreen: View {
                 (PGDate.parse($0.createdAt) ?? .distantPast) > (PGDate.parse($1.createdAt) ?? .distantPast)
             }
             .prefix(2)
-        let recentReels = homeStore.reels.prefix(3)
+        // Our sample's reel is not their activity: every account can read
+        // the match, so its export arrives here unless it is filtered out.
+        let ownIds = Set(ownMatches.map(\.id))
+        let recentReels = homeStore.reels.filter { ownIds.contains($0.matchId) }.prefix(3)
         if !recentNotes.isEmpty || !recentReels.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {

@@ -40,9 +40,26 @@ final class UploadConsent {
         loaded = true
     }
 
-    /// The tick. Writes upload_confirmed_at, after which the row never
-    /// shows again on any device.
-    func confirm() async -> Bool {
+    /// Save the answer, at the moment an upload actually begins.
+    ///
+    /// The tick itself writes nothing. It used to: the box saved
+    /// upload_confirmed_at the instant it was touched, so somebody who
+    /// ticked it and then closed the app without uploading was confirmed
+    /// for good, and their first real upload went up with no confirmation
+    /// in front of it. The words on the box say "this video", so the
+    /// answer belongs to the upload, not to the tap.
+    ///
+    /// True when there was nothing to save. False only when the write
+    /// failed, which is the caller's cue to stop and say so: the upload
+    /// route checks the same column and would refuse anyway.
+    func confirmIfNeeded() async -> Bool {
+        guard needed else { return true }
+        return await confirm()
+    }
+
+    /// Writes upload_confirmed_at, after which the row never shows again
+    /// on any device.
+    private func confirm() async -> Bool {
         guard let uid = try? await supa.auth.session.user.id else { return false }
         let stamp = ISO8601DateFormatter().string(from: Date())
         struct Row: Encodable {
