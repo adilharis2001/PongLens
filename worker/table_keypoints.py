@@ -149,7 +149,12 @@ class TableCornerDetector:
         # process. 237 consecutive CPU inferences ran with zero failures.
         self.model, self.transform, self.device = load_model(device)
 
-    def __call__(self, image):
+    def candidates(self, image):
+        """Every table this frame supports, in the frame's own pixels.
+
+        One inference, all the answers. Which of them is the table being
+        played on is decided by the crop ladder in calibrate_video.
+        """
         import einops
         import torch
 
@@ -161,13 +166,16 @@ class TableCornerDetector:
             prediction = self.model(batch.to(self.device))
         heatmap = prediction[0].float().cpu().numpy()
 
-        result = fit.fit_table(heatmap, canvas=CANVAS)
-        if result is None:
-            return None
         height, width = image.shape[:2]
         sx, sy = width / CANVAS[0], height / CANVAS[1]
-        result["quad"] = [[x * sx, y * sy] for x, y in result["quad"]]
-        return result
+        tables = fit.fit_tables(heatmap, canvas=CANVAS)
+        for table in tables:
+            table["quad"] = [[x * sx, y * sy] for x, y in table["quad"]]
+        return tables
+
+    def __call__(self, image):
+        """This frame's own best answer, by the historical rule."""
+        return fit.select_one(self.candidates(image))
 
 
 def sample_frames(video_path, count=DEFAULT_FRAMES):
@@ -200,9 +208,81 @@ def sample_frames(video_path, count=DEFAULT_FRAMES):
         capture.release()
 
 
+# THE CROP LADDER (Adil, 2026-09-18). Tightest first, widening only when the
+# tighter view finds no table at all.
+#
+# A frame cannot tell a busy table from an idle one, and neither can a score:
+# the per-frame rule prefers whichever table has all eleven landmarks visible,
+# which is the table nobody is standing in front of, and a wide lens makes that
+# one bigger too. On match 3794e632 (eight tables in a tournament hall) it
+# chose an EMPTY table 68% of the way to the right edge, in 16 frames of 16,
+# reporting 2.2px of agreement.
+#
+# Ranking the candidates instead was tried and REJECTED on measurement: a rule
+# preferring the more central table picked a NEIGHBOUR on two hand-marked
+# matches, because in a club the table beside yours is often nearer the middle
+# of your shot than your own (Ali's real table sits 18% off centre against a
+# neighbour at 5%; Ishaan's 11% against 2%). No support threshold separated
+# those cases from 3794e632 either.
+#
+# Cropping works where ranking failed because it does not argue about which
+# table is better. It removes the neighbour from the picture, and the geometry
+# rule that has always rejected a quad with a corner outside the frame does the
+# rest. No selection logic changes, so a match with one table in view behaves
+# exactly as it did before.
+#
+# Measured on real video decodes of 45 corpus matches plus 3794e632: at 0.80
+# every hand-marked table is still found to within 0.5% of its mark, nothing
+# that was right became wrong, the three matches that refuse at full frame
+# refuse at every level, and 3794e632 lands on the table actually being played
+# on. Julian's match, whose real table sits 34% off centre, survives 0.80.
+#
+# The ladder only widens on REFUSAL, which is safe for the reason above: when
+# the crop clips a real table, its projected corners fall outside the crop and
+# frame_verdict rejects the frame, rather than quietly naming another table.
+#
+# This must be measured on real decodes. An earlier pass used cached JPEGs and
+# read scores about 0.2 higher, which is more than the distance between passing
+# and failing here.
+CROP_LADDER = (0.80, 0.90, 1.00)
+
+
+def _detect_at_crop(detector, frames, fraction, verbose):
+    """One pass of the ladder: detect inside a centre crop of each frame.
+
+    Quads come back in FULL-FRAME coordinates; the per-frame judgement is made
+    against the crop, because that is the picture whose edges the corners had
+    to stay inside.
+    """
+    kept, rejections = [], []
+    for index, image in frames:
+        height, width = image.shape[:2]
+        keep_w = int(round(width * fraction))
+        x0 = (width - keep_w) // 2
+        view = image if fraction >= 1.0 else image[:, x0:x0 + keep_w]
+        try:
+            tables = detector.candidates(view)
+        except Exception as error:                       # noqa: BLE001
+            rejections.append(f"frame {index}: {error}")
+            continue
+        result = fit.select_one(tables)
+        keep, reason = fit.frame_verdict(result, keep_w, height)
+        if keep:
+            result["quad"] = [[x + x0, y] for x, y in result["quad"]]
+            result["frame_index"] = index
+            kept.append(result)
+        else:
+            rejections.append(f"frame {index}: {reason}")
+        if verbose:
+            print(f"  crop {fraction:.2f} frame {index}: "
+                  f"{'kept' if keep else reason}", flush=True)
+    return kept, rejections
+
+
 def calibrate_video(video_path, count=DEFAULT_FRAMES, device="cpu",
                     verbose=True):
-    """The whole job: sample, detect, filter, pool. Returns a dict."""
+    """The whole job: sample once, then walk the crop ladder until a table is
+    found. Returns a dict."""
     started = time.perf_counter()
     frames = sample_frames(video_path, count)
     if not frames:
@@ -210,25 +290,18 @@ def calibrate_video(video_path, count=DEFAULT_FRAMES, device="cpu",
 
     detector = TableCornerDetector(device=device)
     loaded_at = time.perf_counter()
-
     height, width = frames[0][1].shape[:2]
-    kept, rejections = [], []
-    for index, image in frames:
-        try:
-            result = detector(image)
-        except Exception as error:                       # noqa: BLE001
-            rejections.append(f"frame {index}: {error}")
-            continue
-        keep, reason = fit.frame_verdict(result, width, height)
-        if keep:
-            result["frame_index"] = index
-            kept.append(result)
-        else:
-            rejections.append(f"frame {index}: {reason}")
-        if verbose:
-            print(f"  frame {index}: {'kept' if keep else reason}", flush=True)
 
-    pooled, reason = fit.pool_frames(kept)
+    pooled, reason, rejections, used_crop = None, "no crop attempted", [], None
+    for fraction in CROP_LADDER:
+        kept, rejections = _detect_at_crop(detector, frames, fraction, verbose)
+        pooled, reason = fit.pool_frames(kept)
+        used_crop = fraction
+        if pooled is not None:
+            break
+        if verbose:
+            print(f"  crop {fraction:.2f}: {reason}; widening", flush=True)
+
     elapsed = time.perf_counter() - started
     common = {
         "detector": f"table-keypoints/{MODEL_NAME}",
@@ -236,6 +309,7 @@ def calibrate_video(video_path, count=DEFAULT_FRAMES, device="cpu",
         "frames_rejected": rejections,
         "source_width": width,
         "source_height": height,
+        "crop": used_crop,
         "load_s": round(loaded_at - started, 2),
         "elapsed_s": round(elapsed, 2),
     }

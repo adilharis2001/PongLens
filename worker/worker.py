@@ -9966,7 +9966,7 @@ def process_job(conn, msg) -> None:
             archive_message(conn, msg["msg_id"])
         return
 
-    pulse_job(job_id, kind)
+    pulse_job(job_id, kind, msg["msg_id"])
     if _feedback_telemetry:
         _feedback_telemetry.emit("claimed", route=kind)
 
@@ -10949,8 +10949,11 @@ def _ytdlp_version() -> str:
 # Every part of this is best-effort. Monitoring must never fail a job:
 # same rule as the storage ledger and the cost meter.
 # ---------------------------------------------------------------------------
-WORKER_ID = f"mac:{LANE}"
-WORKER_HOST = "mac"
+# Which machine this is, for /admin/processing. The Mac Studio keeps the
+# default; the cloud twin sets PONGLENS_WORKER_HOST=modal from its launcher
+# so the two never write over each other's pulse row.
+WORKER_HOST = os.environ.get("PONGLENS_WORKER_HOST", "mac")
+WORKER_ID = f"{WORKER_HOST}:{LANE}"
 PULSE_EVERY_S = 15
 PROCESS_STARTED_AT = datetime.now(timezone.utc)
 # Read once. The commit cannot change under a running process, and this
@@ -10961,14 +10964,18 @@ _pulse_lock = threading.Lock()
 _pulse_state: dict = {
     "job_id": None, "job_kind": None, "stage": None,
     "stage_note": None, "stage_pct": None,
+    # Keep the queue message invisible while a long-running job is held.
+    "msg_id": None,
 }
 
 
-def pulse_job(job_id: str | None, kind: str | None) -> None:
+def pulse_job(job_id: str | None, kind: str | None,
+              msg_id: int | None = None) -> None:
     """Claiming or releasing a job."""
     with _pulse_lock:
         _pulse_state.update(job_id=job_id, job_kind=kind, stage=None,
-                            stage_note=None, stage_pct=None)
+                            stage_note=None, stage_pct=None,
+                            msg_id=msg_id if job_id else None)
 
 
 def pulse_stage(stage: str | None, note: str | None = None,
@@ -11014,6 +11021,9 @@ def _pulse_once(conn) -> None:
              state["stage"], state["stage_note"], state["stage_pct"],
              load, os.cpu_count()),
         )
+        if state["msg_id"] is not None:
+            cur.execute("select pgmq.set_vt(%s, %s::bigint, %s)",
+                        (QUEUE_NAME, state["msg_id"], VISIBILITY_S))
 
 
 def _pulse_monitor() -> None:
@@ -11084,7 +11094,8 @@ def main():
     # Housekeeping belongs to the main lane alone: the digests' last-sent
     # markers in app_config are not atomic across processes, the sweep
     # need not run twice a day, and one cost monitor is one too many.
-    housekeeping = LANE == "main"
+    housekeeping = LANE == "main" and \
+        os.environ.get("PONGLENS_HOUSEKEEPING", "1") != "0"
     if housekeeping:
         start_cost_alert_monitor()
     last_cleanup = 0.0

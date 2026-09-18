@@ -259,12 +259,18 @@ def _refine(H, candidates, canvas, params, rounds=5):
     return H
 
 
-def fit_table(heatmap, canvas=(1920, 1080), **overrides):
-    """The best single-table explanation of one heatmap stack, or None.
+def fit_tables(heatmap, canvas=(1920, 1080), **overrides):
+    """EVERY table this heatmap stack supports, best-supported first.
 
     Every surviving hypothesis is a projection of the real table, so a frame
     with three tables in it produces three CLUSTERS of hypotheses rather than
     one blurred average of all three.
+
+    fit_table() picks one of these per frame. That choice cannot tell a busy
+    table from an idle one: it prefers whichever table has all eleven
+    landmarks visible, which is the one nobody stands in front of. The crop
+    ladder in table_keypoints.calibrate_video is what answers that; the whole
+    list is returned so a caller can see what a frame supported.
     """
     params = dict(DEFAULTS)
     params.update({k: v for k, v in overrides.items() if v is not None})
@@ -348,12 +354,12 @@ def fit_table(heatmap, canvas=(1920, 1080), **overrides):
             continue
         deduped.append(entry)
 
-    best_weight = max(entry["weight"] for entry in deduped)
-    live = [e for e in deduped if e["weight"] >= params["weight_band"] * best_weight]
-    plausible = [e for e in live if e["plausible"]] or live
-    chosen = max(plausible, key=lambda e: e["area"])
+    return [_as_result(entry, len(deduped)) for entry in deduped]
 
-    quad = [[float(x), float(y)] for x, y in chosen["quad"]]
+
+def _as_result(entry, tables_seen):
+    """One candidate in the shape fit_table has always returned."""
+    quad = [[float(x), float(y)] for x, y in entry["quad"]]
     # One winding for every image. Near-left, near-right, far-right, far-left
     # runs the same way round the picture whenever the camera is above the
     # table, which it is in every frame of this footage.
@@ -362,16 +368,43 @@ def fit_table(heatmap, canvas=(1920, 1080), **overrides):
 
     return {
         "quad": quad,
-        "inliers": chosen["inliers"],
-        "weight": float(chosen["weight"]),
-        "inlier_channels": sorted(chosen["used"]),
-        "median_residual": (float(np.median(chosen["residuals"]))
-                            if chosen["residuals"] else None),
-        "area": float(chosen["area"]),
-        "tables_seen": len(deduped),
-        "camera_height": chosen["camera_height"],
-        "homography": np.asarray(chosen["H"], dtype=float).tolist(),
+        "inliers": entry["inliers"],
+        "weight": float(entry["weight"]),
+        "inlier_channels": sorted(entry["used"]),
+        "median_residual": (float(np.median(entry["residuals"]))
+                            if entry["residuals"] else None),
+        "area": float(entry["area"]),
+        "tables_seen": tables_seen,
+        "camera_height": entry["camera_height"],
+        "plausible": bool(entry["plausible"]),
+        "homography": np.asarray(entry["H"], dtype=float).tolist(),
     }
+
+
+def select_one(tables, **overrides):
+    """The historical per-frame rule: most inlier weight, then the LARGEST.
+
+    Kept exactly as it was, because it is still what decides a frame's own
+    answer and what every existing measurement was taken against. Its bias is
+    real: both halves of it prefer a table nobody is standing in front of, an
+    idle table showing all eleven landmarks and a wide lens making the one
+    near the frame edge bigger. CROP_LADDER in table_keypoints.py is what
+    keeps that bias away from a neighbouring table; ranking the candidates
+    instead was measured and rejected (see the note there).
+    """
+    if not tables:
+        return None
+    params = dict(DEFAULTS)
+    params.update({k: v for k, v in overrides.items() if v is not None})
+    best_weight = max(entry["weight"] for entry in tables)
+    live = [e for e in tables if e["weight"] >= params["weight_band"] * best_weight]
+    plausible = [e for e in live if e["plausible"]] or live
+    return max(plausible, key=lambda e: e["area"])
+
+
+def fit_table(heatmap, canvas=(1920, 1080), **overrides):
+    """The best single-table explanation of one heatmap stack, or None."""
+    return select_one(fit_tables(heatmap, canvas, **overrides), **overrides)
 
 
 # ---------------------------------------------------------------------------
