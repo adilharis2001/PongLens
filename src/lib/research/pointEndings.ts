@@ -27,7 +27,7 @@ export function validEndingLabel(value: unknown): value is EndingLabel {
     (x.reason!=='custom' || x.custom.trim().length>0) &&
     typeof x.note==='string' && x.note.length<=4000;
 }
-export function savedLabel(label:EndingLabel) { return label.reason!==null; }
+export function savedLabel(label:EndingLabel) { return label.reason!==null && validEndingLabel(label); }
 export function reasonText(label:EndingLabel) {
   return label.reason==='custom' ? label.custom : ENDING_REASONS.find(([key])=>key===label.reason)?.[1] ?? 'Not labeled';
 }

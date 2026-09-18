@@ -15,7 +15,7 @@ export async function POST(request:Request) {
   if(error) return NextResponse.json({error:'Could not save. Your answer is still on this page.'},{status:500});
   if(!data) {
     const {data:existing}=await db.from('point_ending_research').select('id,label,revision').eq('id',body.id).eq('batch','out-ball-479-v1').maybeSingle();
-    if(existing?.revision===body.revision+1 && existing.label.reason===label.reason && existing.label.custom===label.custom && existing.label.note===label.note)
+    if(existing && existing.revision===body.revision+1 && existing.label.reason===label.reason && existing.label.custom===label.custom && existing.label.note===label.note)
       return NextResponse.json({saved:existing},{headers:{'Cache-Control':'private, no-store'}});
   }
   if(!data) return NextResponse.json({error:'This point changed in another window. Reload to see the saved answer before editing again.'},{status:409});

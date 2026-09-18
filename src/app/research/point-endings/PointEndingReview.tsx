@@ -17,6 +17,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const [matchId,setMatchId]=useState('all');
  const [filter,setFilter]=useState<'all'|'unlabeled'|'labeled'>('all');
  const [statuses,setStatuses]=useState<Record<string,SaveStatus>>({});
+ const [exitBlocked,setExitBlocked]=useState(false);
  const writers=useRef(new Map<string,EndingSaveQueue>());
  const acknowledged=useRef(new Map(initialRows.map(r=>[r.id,r.label])));
  const [customOptions,setCustomOptions]=useState(initialCustom);
@@ -28,6 +29,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const [playing,setPlaying]=useState(false);
  const [rate,setRate]=useState(1);
  const video=useRef<HTMLVideoElement>(null);
+ const review=useRef<HTMLDivElement>(null);
  const cache=useRef(new Map<string,{url:string;expires:number}>());
  const point=rows.find(r=>r.id===selected)??rows[0];
  const pointRef=useRef(point);pointRef.current=point;
@@ -41,10 +43,11 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  function change(patch:Partial<EndingLabel>,saveNow=true) {
    const p=pointRef.current;if(!p)return;
    const label={...p.label,...patch};
+   if(saveNow)label.custom=label.custom.trim();
    // Update the ref synchronously: consecutive events cannot erase an earlier field.
    const next=rowsRef.current.map(r=>r.id===p.id?{...r,label}:r);
    rowsRef.current=next;pointRef.current={...p,label};setRows(next);
-   if(!saveNow||!validEndingLabel(label)) {setStatuses(s=>({...s,[p.id]:{state:'draft',message:label.custom.trim()?'Finish editing the custom reason to save.':'Enter your custom reason to save.'}}));return;}
+   if(!saveNow||!validEndingLabel(label)) {setStatuses(s=>s[p.id]?.state==='error'?s:({...s,[p.id]:{state:'draft',message:label.custom.trim()?'Finish editing the custom reason to save.':'Enter your custom reason to save.'}}));return;}
    let writer=writers.current.get(p.id);
    if(!writer){
      writer=new EndingSaveQueue(p.revision,async(value,revision)=>{
@@ -56,7 +59,8 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
        return result.saved;
      },(state,message)=>setStatuses(s=>{
        const draft=rowsRef.current.find(r=>r.id===p.id)?.label;
-       if(state==='saved'&&JSON.stringify(draft)!==JSON.stringify(acknowledged.current.get(p.id)))return {...s,[p.id]:{state:'draft',message:'Finish editing the custom reason to save.'}};
+       const ack=acknowledged.current.get(p.id);
+       if(state==='saved'&&(draft?.reason!==ack?.reason||draft?.custom!==ack?.custom||draft?.note!==ack?.note))return {...s,[p.id]:{state:'draft',message:'Finish editing the custom reason to save.'}};
        return {...s,[p.id]:{state,message}};
      }));
      writers.current.set(p.id,writer);
@@ -105,7 +109,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const start=point.source.start,end=point.source.end;
  const customSelected=point.label.reason==='custom'&&customOptions.includes(point.label.custom);
  return <main className="mx-auto max-w-6xl px-4 py-8 lg:px-6">
-   <Link href="/research" className="text-sm text-zinc-400 hover:text-cyan-glow">← Research</Link>
+   <Link href="/research" onClick={e=>{if(unfinishedSaves){e.preventDefault();setExitBlocked(true);}}} className="text-sm text-zinc-400 hover:text-cyan-glow">← Research</Link>
    <h1 className="mt-3 text-2xl font-semibold text-white">Point-ending labels</h1>
    <p className="mt-1 max-w-3xl text-sm text-zinc-400">Choose how each point ended. Your answers and notes save automatically, so you can return at any time.</p>
    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-zinc-300" aria-live="polite">
@@ -113,13 +117,14 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
      <span className="text-zinc-500">{rows.length-done} remaining</span>
      <span className={unfinishedSaves?'text-amber-200':'text-zinc-500'}>{unfinishedSaves?`${unfinishedSaves} answer${unfinishedSaves===1?'':'s'} not yet saved`:'All answers saved'}</span>
    </div>
+   {exitBlocked&&unfinishedSaves>0&&<p role="alert" className="mt-3 text-sm text-amber-200">Wait for your answers to save, or retry an unsaved answer before leaving.</p>}
    <div className="mt-4 flex flex-wrap gap-2" aria-label="Matches">
      {[['all','All matches'],...matches].map(([id,name])=><button key={id} onClick={()=>selectMatch(id)} aria-pressed={matchId===id} className={`rounded-full border px-3 py-1.5 text-sm ${matchId===id?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400 hover:border-zinc-500'}`}>{name}{id!=='all'&&<span className="ml-2 text-xs text-zinc-500">{rows.filter(r=>r.match_id===id&&savedLabel(r.label)).length}/{rows.filter(r=>r.match_id===id).length}</span>}</button>)}
    </div>
    <div className="mt-3 flex flex-wrap gap-2">
      {(['all','unlabeled','labeled'] as const).map(f=><button key={f} onClick={()=>setFilter(f)} aria-pressed={filter===f} className={`rounded-full border px-3 py-1 text-sm ${filter===f?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400'}`}>{f==='all'?'All points':f==='unlabeled'?'Unlabeled':'Labeled'}</button>)}
    </div>
-   <div className="mt-4 flex flex-col gap-6 lg:flex-row">
+   <div ref={review} className="mt-4 scroll-mt-4 flex flex-col gap-6 lg:flex-row">
      <div className="min-w-0 flex-1">
        <div className="relative aspect-video overflow-hidden rounded-xl border border-edge bg-black">
          {url&&<video ref={video} src={url} playsInline preload="metadata" className="absolute inset-0 h-full w-full" onLoadedMetadata={()=>{seekEnding();setReady(true);if(video.current)video.current.playbackRate=rate;}} onTimeUpdate={e=>{const v=e.currentTarget;setTime(v.currentTime);if(v.currentTime>=end&&!v.paused)v.pause();}} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onError={()=>setMediaError('Could not play this video. Reload it to try again.')} />}
@@ -156,7 +161,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          <label className="block text-sm text-zinc-300">Note <span className="text-zinc-500">(optional)</span><textarea className={`${field} mt-2 resize-y`} rows={3} maxLength={4000} value={point.label.note} onChange={e=>change({note:e.target.value})}/></label>
          <div role="status" className={`text-xs ${selectedStatus?.state==='error'?'text-rose-300':selectedStatus?.state==='draft'?'text-amber-200':'text-zinc-400'}`}>{selectedStatus?.state==='saving'?'Saving…':selectedStatus?.state==='error'?selectedStatus.message:selectedStatus?.state==='draft'?selectedStatus.message:selectedStatus?.state==='saved'?'Saved':point.source.imported?'Carried over from your earlier review':savedLabel(point.label)?'Saved':'Not labeled yet'}</div>
          {selectedStatus?.state==='error'&&<button className={secondary} onClick={()=>writers.current.get(point.id)?.retry()}>Retry save</button>}
-         <button className="min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300" onClick={next}>Next unlabeled point</button>
+         <button className="min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40" disabled={!nextUnlabeled(matchRows,selected)} onClick={next}>Next unlabeled point</button>
          <button className={secondary} disabled={matchRows.findIndex(r=>r.id===selected)<=0} onClick={()=>{const i=matchRows.findIndex(r=>r.id===selected);if(i>0)setSelected(matchRows[i-1].id);}}>Previous point</button>
        </div>
      </div>
@@ -164,7 +169,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
    <details className="mt-5 text-xs text-zinc-500"><summary className="cursor-pointer">About the saved references</summary><p className="mt-2">Scores, servers and taps come from the study’s saved Scorekeeper record. A tap is a timing reference, not an exact physical ending. These labels do not change match scores.</p></details>
    <div className="mt-6 border-t border-edge pt-4"><h2 className="text-sm font-medium text-zinc-300">{visible.length} points in this view</h2>
      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-       {visible.map(r=><button key={r.id} aria-current={selected===r.id?'true':undefined} onClick={()=>setSelected(r.id)} className={`min-h-14 rounded-lg border px-3 py-2 text-left ${selected===r.id?'border-cyan-glow/60 bg-cyan-500/10':'border-edge hover:border-zinc-500'}`}><span className="block text-sm text-zinc-200">{r.source.matchName} · {r.source.number}</span><span className={`mt-1 block text-xs ${statuses[r.id]?.state==='error'?'text-rose-300':savedLabel(r.label)?'text-cyan-100':'text-zinc-500'}`}>{statuses[r.id]?.state==='error'?'Not saved':reasonText(r.label)}</span></button>)}
+       {visible.map(r=><button key={r.id} aria-current={selected===r.id?'true':undefined} onClick={()=>{setSelected(r.id);review.current?.scrollIntoView({behavior:'smooth',block:'start'});}} className={`min-h-14 rounded-lg border px-3 py-2 text-left ${selected===r.id?'border-cyan-glow/60 bg-cyan-500/10':'border-edge hover:border-zinc-500'}`}><span className="block text-sm text-zinc-200">{r.source.matchName} · {r.source.number}</span><span className={`mt-1 block text-xs ${statuses[r.id]?.state==='error'?'text-rose-300':savedLabel(r.label)?'text-cyan-100':'text-zinc-500'}`}>{statuses[r.id]?.state==='error'?'Not saved':reasonText(r.label)}</span></button>)}
      </div>
    </div>
  </main>;
