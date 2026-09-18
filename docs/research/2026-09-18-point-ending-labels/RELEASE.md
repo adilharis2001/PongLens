@@ -46,3 +46,11 @@ immediately below the same video. Numbered bounce buttons seek while paused.
   revision sum 3 before and after seed.
 - Source review found no actionable findings. This changes desktop and mobile
   web only; no worker pipeline, detector, score, or native iOS changes.
+
+Final overlay verification: full production build passed after the responsive
+width fix. Desktop 1024×900 and mobile 393×660 have no page overflow. Rendered
+Lester trail/ring alignment, both toggles off/on, bounce seeking, repeated frame
+advance, and Yu Yu Lin raw 254.266966 s / match 12.30 s checked. Screenshots:
+`/private/tmp/point-ending-overlay-desktop.png`,
+`/private/tmp/point-ending-overlay-mobile.png`. Native iOS not changed or tested.
+Rebased onto main `6a6fe1bf`; the only intervening main change is iOS source.
