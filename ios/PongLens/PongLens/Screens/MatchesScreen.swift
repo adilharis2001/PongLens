@@ -289,15 +289,18 @@ struct MatchesScreen: View {
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
-                Button("New match") { router.newMatchOpen = true }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    .padding(.top, 8)
-                // The demo sits beside New match rather than in a section
-                // of its own (Adil, 2026-09-18): same shape and size,
-                // outlined instead of filled.
+                // The demo sits with New match rather than in a section of
+                // its own (Adil, 2026-09-18): the same size, outlined
+                // instead of filled. Both labels are sized before the
+                // button style so the two read as a pair.
+                Button { router.newMatchOpen = true } label: {
+                    Text("New match").frame(maxWidth: 190)
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .padding(.top, 8)
                 if showSample, let sample = sampleMatch {
                     NavigationLink(value: sample) {
-                        Text(SampleMatch.cta).font(.plBody)
+                        Text(SampleMatch.cta).font(.plBody).frame(maxWidth: 190)
                     }
                     .buttonStyle(PLSecondaryButtonStyle())
                 }

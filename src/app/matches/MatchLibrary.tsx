@@ -1008,17 +1008,17 @@ export function MatchLibrary({
             {/* The sample sits beside Upload rather than in a section of
                 its own (Adil, 2026-09-18): same shape and size, outlined
                 instead of filled, so it reads as the quieter of the two. */}
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            <div className="mt-5 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <Link
                 href="/upload"
-                className="glow-cta inline-block rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
+                className="glow-cta w-full max-w-[14rem] rounded-full bg-cyan-glow px-6 py-2.5 text-center text-sm font-semibold text-ink"
               >
                 Upload a match
               </Link>
               {sampleMatch && !sampleDismissed && (
                 <Link
                   href={`/match/${sampleMatch.id}`}
-                  className="inline-block rounded-full border border-edge px-6 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                  className="w-full max-w-[14rem] rounded-full border border-edge px-6 py-2.5 text-center text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
                 >
                   {SAMPLE_CTA}
                 </Link>
