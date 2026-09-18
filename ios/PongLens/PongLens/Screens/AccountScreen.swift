@@ -10,6 +10,7 @@ struct AccountScreen: View {
     @Environment(CoachingStore.self) private var coaching
     @Environment(CoachWorkspaceStore.self) private var coachWorkspace
     @Environment(Router.self) private var router
+    @Environment(LibraryStore.self) private var library
     @State private var store = AccountStore()
     @State private var purchases = PurchaseStore()
     @State private var editingName = false
@@ -134,6 +135,12 @@ struct AccountScreen: View {
                             value: LearnVideosRoute(LearnAudience(workspace: app.workspace))
                         )
                         rowDivider
+                        if let sample = SampleMatch.find(in: library.matches) {
+                            // The way back once the library and Home have
+                            // stopped offering it.
+                            linkRow(SampleMatch.accountRow, value: sample)
+                            rowDivider
+                        }
                         linkRow("Feedback and discussion", value: "feedback")
                         rowDivider
                         navRow("Contact support") {

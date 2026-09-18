@@ -127,6 +127,10 @@ struct PointDetailScreen: View {
     /// the column grants would silently refuse the writes anyway.
     private var isOwner: Bool { app.userId == match.userId }
 
+    /// A note or a sketch on the sample match is refused by the database:
+    /// it is ours, and every account reads the same one.
+    private var canWrite: Bool { isOwner || !SampleMatch.isSample(match) }
+
     var body: some View {
         ZStack {
             PL.surface.ignoresSafeArea()
@@ -940,7 +944,7 @@ struct PointDetailScreen: View {
                             .buttonStyle(.plain)
                     }
                 }
-            } else if (usesCut(point) ? cutURL : clipURLs[clipKey(point)]) != nil {
+            } else if canWrite, (usesCut(point) ? cutURL : clipURLs[clipKey(point)]) != nil {
                 Button {
                     captureFrame()
                 } label: {
@@ -967,15 +971,17 @@ struct PointDetailScreen: View {
                     .foregroundStyle(PL.warningText)
             }
 
-            NoteComposerView(
-                matchId: match.id,
-                pointId: point.id,
-                userId: app.userId ?? match.userId,
-                notesStore: notesStore,
-                placeholder: "Add a note about this point",
-                pendingImagePath: pendingImage?.path,
-                onSent: { clearPendingImage() }
-            )
+            if canWrite {
+                NoteComposerView(
+                    matchId: match.id,
+                    pointId: point.id,
+                    userId: app.userId ?? match.userId,
+                    notesStore: notesStore,
+                    placeholder: "Add a note about this point",
+                    pendingImagePath: pendingImage?.path,
+                    onSent: { clearPendingImage() }
+                )
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

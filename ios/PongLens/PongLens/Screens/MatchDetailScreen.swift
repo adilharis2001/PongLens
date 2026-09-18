@@ -857,6 +857,11 @@ struct MatchDetailScreen: View {
 
     private var isOwner: Bool { app.userId == current.userId }
 
+    /// Everything a coach-style viewer may normally do (a note, a sketch,
+    /// the download) is off on the sample match: it is ours, and every
+    /// account is looking at the same one.
+    private var canWrite: Bool { isOwner || !SampleMatch.isSample(current) }
+
     private var pad: ClipPad {
         clipPad(strictness: nil, stored: current.clipPads)
     }
@@ -1455,6 +1460,12 @@ struct MatchDetailScreen: View {
                     }
                 }
             }
+            // The sample says what it is, once, where the eye already is.
+            if SampleMatch.isSample(current), !isOwner {
+                Text(SampleMatch.note)
+                    .font(.plBody)
+                    .foregroundStyle(PL.text400)
+            }
             if showGamesDetail, !score.games.isEmpty {
                 Text(score.games.map { "\($0.you)-\($0.them)" }.joined(separator: "  ·  "))
                     .font(.plCaption)
@@ -1562,11 +1573,11 @@ struct MatchDetailScreen: View {
                 }
             },
             onOriginal: { Task { await openOriginal() } },
-            onDownload: {
+            onDownload: canWrite ? {
                 Task {
                     if let url = await model.downloadURL(current) { openURL(url) }
                 }
-            }
+            } : nil
         )
     }
 
@@ -1956,13 +1967,17 @@ struct MatchDetailScreen: View {
                         notesStore: notesStore
                     )
                 }
-                NoteComposerView(
-                    matchId: current.id,
-                    pointId: nil,
-                    userId: app.userId ?? current.userId,
-                    notesStore: notesStore,
-                    placeholder: "How did the match go?"
-                )
+                // No composer on the sample: the database refuses a note
+                // there, so offering the box would only produce an error.
+                if canWrite {
+                    NoteComposerView(
+                        matchId: current.id,
+                        pointId: nil,
+                        userId: app.userId ?? current.userId,
+                        notesStore: notesStore,
+                        placeholder: "How did the match go?"
+                    )
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .plCard()

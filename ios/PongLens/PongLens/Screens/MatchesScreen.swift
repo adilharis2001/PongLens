@@ -38,6 +38,19 @@ struct MatchesScreen: View {
         return library.matches.filter { $0.userId == uid }
     }
 
+    /// The demo match every account can read. It belongs to nobody here, so
+    /// it is kept out of the grid and the shared groups and shown on its own.
+    private var sampleMatch: MatchRow? { SampleMatch.find(in: library.matches) }
+
+    /// Shown until they have scored a match of their own; Account → Support
+    /// keeps it reachable after that.
+    private var showSample: Bool {
+        sampleMatch != nil
+            && !SampleMatch.hasOwnScoredMatch(
+                ownMatches: ownMatches, scores: scores.scores
+            )
+    }
+
     /// Matches RLS delivered that are not yours, grouped by player, like
     /// the web library's "shared with you". RLS also grants a coach rows
     /// through an active PAID order — web-only work that would appear here
@@ -167,6 +180,10 @@ struct MatchesScreen: View {
                     }
 
                     content
+
+                    if library.loaded, showSample, let sample = sampleMatch {
+                        sampleSection(sample)
+                    }
 
                     if !sharedByPlayer.isEmpty {
                         sharedSection
@@ -304,6 +321,25 @@ struct MatchesScreen: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+        }
+    }
+
+    /// The sample match, ours, read-only, until they have scored their own.
+    private func sampleSection(_ sample: MatchRow) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeading("Sample match")
+            Text("A finished match of ours to look around. It goes once you have scored one of your own.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())],
+                spacing: 16
+            ) {
+                NavigationLink(value: sample) {
+                    MatchCard(match: sample, score: scores.scores[sample.id])
+                }
+                .buttonStyle(.plain)
             }
         }
     }

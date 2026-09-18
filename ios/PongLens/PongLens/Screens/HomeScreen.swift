@@ -19,9 +19,22 @@ struct HomeScreen: View {
     }
 
     /// Matches someone else owns and shared — a coach's students' footage.
+    /// The sample match is not one of them: it belongs to nobody here, so it
+    /// must not make an empty account look busy.
     private var sharedMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
-        return library.matches.filter { $0.userId != uid }
+        return library.matches.filter { $0.userId != uid && !SampleMatch.isSample($0) }
+    }
+
+    private var sampleMatch: MatchRow? { SampleMatch.find(in: library.matches) }
+
+    /// The door stays until they have scored a match of their own. After
+    /// that the sample lives in Account → Support.
+    private var showSampleDoor: Bool {
+        sampleMatch != nil
+            && !SampleMatch.hasOwnScoredMatch(
+                ownMatches: ownMatches, scores: scores.scores
+            )
     }
 
     /// Nothing to show at all. Shared matches count: a coach whose students
@@ -124,6 +137,10 @@ struct HomeScreen: View {
                                 .buttonStyle(.plain)
                             }
                         }
+                    }
+
+                    if library.loaded, showSampleDoor, let sample = sampleMatch {
+                        sampleDoor(sample)
                     }
 
                     firstSteps
@@ -444,6 +461,36 @@ struct HomeScreen: View {
                 content
             }
         }
+    }
+
+    /// The sample match, the quiet door beside the bright one: it answers
+    /// "what do I actually get?" before anyone spends an upload.
+    private func sampleDoor(_ sample: MatchRow) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(SampleMatch.doorTitle)
+                        .font(.plCardTitle)
+                        .foregroundStyle(PL.text100)
+                    Text(SampleMatch.doorBody)
+                        .font(.plBody)
+                        .foregroundStyle(PL.text400)
+                }
+                Spacer(minLength: 8)
+                Color.clear
+                    .frame(width: 96)
+                    .aspectRatio(16 / 10, contentMode: .fit)
+                    .overlay(MatchThumb(matchId: sample.id))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            NavigationLink(value: sample) {
+                Text(SampleMatch.doorCTA)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PLSecondaryButtonStyle())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 16)
     }
 
     @ViewBuilder

@@ -9,7 +9,9 @@ struct MatchVideoHero: View {
     let openingOriginal: Bool
     let onPlay: () -> Void
     let onOriginal: () -> Void
-    let onDownload: () -> Void
+    /// nil on the sample match for anyone but its owner: our footage is
+    /// there to be watched, not taken away.
+    let onDownload: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -75,7 +77,7 @@ struct MatchVideoHero: View {
                     .disabled(openingOriginal)
                     .accessibilityLabel("Watch the original video")
                 }
-                if match.status == .ready {
+                if match.status == .ready, let onDownload {
                     Button(action: onDownload) {
                         Image(systemName: "arrow.down.to.line")
                             .font(.system(size: 15, weight: .medium))

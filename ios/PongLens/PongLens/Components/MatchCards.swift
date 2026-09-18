@@ -96,7 +96,21 @@ struct MatchCard: View {
                 .overlay(MatchThumb(matchId: match.id))
                 .clipped()
                 .overlay(alignment: .topLeading) {
-                    if match.status != .ready {
+                    if SampleMatch.isSample(match) {
+                        // Ours, not theirs. The chip is the only thing that
+                        // says so on a card that otherwise reads as a match.
+                        Text(SampleMatch.chip.uppercased())
+                            .font(.system(size: 10, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(PL.cyan)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule().fill(PL.ink.opacity(0.7))
+                            )
+                            .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.4), lineWidth: 1))
+                            .padding(8)
+                    } else if match.status != .ready {
                         StatusChip(status: processingUnavailable && (liveJob != nil || match.status == .processing) ? .queued : match.chipStatus(live: liveJob))
                             .padding(8)
                     }
