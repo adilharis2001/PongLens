@@ -149,7 +149,12 @@ class TableCornerDetector:
         # process. 237 consecutive CPU inferences ran with zero failures.
         self.model, self.transform, self.device = load_model(device)
 
-    def __call__(self, image):
+    def candidates(self, image):
+        """Every table this frame supports, in the frame's own pixels.
+
+        One inference, all the answers. Which of them is the table being
+        played on is decided across frames, in fit.choose_table.
+        """
         import einops
         import torch
 
@@ -161,13 +166,16 @@ class TableCornerDetector:
             prediction = self.model(batch.to(self.device))
         heatmap = prediction[0].float().cpu().numpy()
 
-        result = fit.fit_table(heatmap, canvas=CANVAS)
-        if result is None:
-            return None
         height, width = image.shape[:2]
         sx, sy = width / CANVAS[0], height / CANVAS[1]
-        result["quad"] = [[x * sx, y * sy] for x, y in result["quad"]]
-        return result
+        tables = fit.fit_tables(heatmap, canvas=CANVAS)
+        for table in tables:
+            table["quad"] = [[x * sx, y * sy] for x, y in table["quad"]]
+        return tables
+
+    def __call__(self, image):
+        """This frame's own best answer, by the historical rule."""
+        return fit.select_one(self.candidates(image))
 
 
 def sample_frames(video_path, count=DEFAULT_FRAMES):
@@ -212,13 +220,27 @@ def calibrate_video(video_path, count=DEFAULT_FRAMES, device="cpu",
     loaded_at = time.perf_counter()
 
     height, width = frames[0][1].shape[:2]
-    kept, rejections = [], []
+    kept, rejections, per_frame = [], [], []
     for index, image in frames:
         try:
-            result = detector(image)
+            tables = detector.candidates(image)
         except Exception as error:                       # noqa: BLE001
             rejections.append(f"frame {index}: {error}")
+            per_frame.append([])
             continue
+        # Every candidate faces the same per-frame judgement the winner
+        # always faced; nothing reaches the pool that geometry rejects.
+        surviving = []
+        for table in tables:
+            if not table.get("plausible"):
+                continue
+            keep, _why = fit.frame_verdict(table, width, height)
+            if keep:
+                table["frame_index"] = index
+                surviving.append(table)
+        per_frame.append(surviving)
+
+        result = fit.select_one(tables)
         keep, reason = fit.frame_verdict(result, width, height)
         if keep:
             result["frame_index"] = index
@@ -226,9 +248,10 @@ def calibrate_video(video_path, count=DEFAULT_FRAMES, device="cpu",
         else:
             rejections.append(f"frame {index}: {reason}")
         if verbose:
-            print(f"  frame {index}: {'kept' if keep else reason}", flush=True)
+            print(f"  frame {index}: {'kept' if keep else reason}"
+                  f" ({len(surviving)} table(s) offered)", flush=True)
 
-    pooled, reason = fit.pool_frames(kept)
+    pooled, reason = fit.choose_table(per_frame, kept, width, height)
     elapsed = time.perf_counter() - started
     common = {
         "detector": f"table-keypoints/{MODEL_NAME}",

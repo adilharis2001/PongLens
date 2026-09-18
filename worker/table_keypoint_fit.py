@@ -259,12 +259,16 @@ def _refine(H, candidates, canvas, params, rounds=5):
     return H
 
 
-def fit_table(heatmap, canvas=(1920, 1080), **overrides):
-    """The best single-table explanation of one heatmap stack, or None.
+def fit_tables(heatmap, canvas=(1920, 1080), **overrides):
+    """EVERY table this heatmap stack supports, best-supported first.
 
     Every surviving hypothesis is a projection of the real table, so a frame
     with three tables in it produces three CLUSTERS of hypotheses rather than
     one blurred average of all three.
+
+    fit_table() picks one of these per frame. That choice cannot tell a busy
+    table from an idle one — see choose_table() — so the whole list is
+    returned and the decision is made once, across frames, instead.
     """
     params = dict(DEFAULTS)
     params.update({k: v for k, v in overrides.items() if v is not None})
@@ -348,12 +352,12 @@ def fit_table(heatmap, canvas=(1920, 1080), **overrides):
             continue
         deduped.append(entry)
 
-    best_weight = max(entry["weight"] for entry in deduped)
-    live = [e for e in deduped if e["weight"] >= params["weight_band"] * best_weight]
-    plausible = [e for e in live if e["plausible"]] or live
-    chosen = max(plausible, key=lambda e: e["area"])
+    return [_as_result(entry, len(deduped)) for entry in deduped]
 
-    quad = [[float(x), float(y)] for x, y in chosen["quad"]]
+
+def _as_result(entry, tables_seen):
+    """One candidate in the shape fit_table has always returned."""
+    quad = [[float(x), float(y)] for x, y in entry["quad"]]
     # One winding for every image. Near-left, near-right, far-right, far-left
     # runs the same way round the picture whenever the camera is above the
     # table, which it is in every frame of this footage.
@@ -362,16 +366,40 @@ def fit_table(heatmap, canvas=(1920, 1080), **overrides):
 
     return {
         "quad": quad,
-        "inliers": chosen["inliers"],
-        "weight": float(chosen["weight"]),
-        "inlier_channels": sorted(chosen["used"]),
-        "median_residual": (float(np.median(chosen["residuals"]))
-                            if chosen["residuals"] else None),
-        "area": float(chosen["area"]),
-        "tables_seen": len(deduped),
-        "camera_height": chosen["camera_height"],
-        "homography": np.asarray(chosen["H"], dtype=float).tolist(),
+        "inliers": entry["inliers"],
+        "weight": float(entry["weight"]),
+        "inlier_channels": sorted(entry["used"]),
+        "median_residual": (float(np.median(entry["residuals"]))
+                            if entry["residuals"] else None),
+        "area": float(entry["area"]),
+        "tables_seen": tables_seen,
+        "camera_height": entry["camera_height"],
+        "plausible": bool(entry["plausible"]),
+        "homography": np.asarray(entry["H"], dtype=float).tolist(),
     }
+
+
+def select_one(tables, **overrides):
+    """The historical per-frame rule: most inlier weight, then the LARGEST.
+
+    Kept exactly as it was, because it is still what decides a frame's own
+    answer and what every existing measurement was taken against. Its bias
+    is real and documented in choose_table(): both halves of it prefer a
+    table nobody is standing in front of.
+    """
+    if not tables:
+        return None
+    params = dict(DEFAULTS)
+    params.update({k: v for k, v in overrides.items() if v is not None})
+    best_weight = max(entry["weight"] for entry in tables)
+    live = [e for e in tables if e["weight"] >= params["weight_band"] * best_weight]
+    plausible = [e for e in live if e["plausible"]] or live
+    return max(plausible, key=lambda e: e["area"])
+
+
+def fit_table(heatmap, canvas=(1920, 1080), **overrides):
+    """The best single-table explanation of one heatmap stack, or None."""
+    return select_one(fit_tables(heatmap, canvas, **overrides), **overrides)
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +511,121 @@ def pool_frames(results, iou=0.5):
         "tables_seen": max(r.get("tables_seen", 1) for r in winner),
         "weight": medoid.get("weight"),
     }, "ok"
+
+
+# ---------------------------------------------------------------------------
+# Which table, decided across frames rather than inside one
+# ---------------------------------------------------------------------------
+# How much more central one table must be than another before centrality is
+# allowed to separate them, as a fraction of the frame's half-width. Two
+# tables closer together than this are a coin toss, and a coin toss is a
+# refusal.
+CENTRALITY_MARGIN = 0.10
+
+
+def off_centre(quad, width: float) -> float:
+    """How far a table's centre sits from the middle of the shot, 0 to 1."""
+    centre = sum(point[0] for point in quad) / 4.0
+    return abs(centre - width / 2.0) / (width / 2.0)
+
+
+def choose_table(per_frame, winners, width, height, iou=0.5,
+                 margin=CENTRALITY_MARGIN):
+    """One table from many frames, using position when support cannot decide.
+
+    WHY THIS EXISTS. select_one() picks a frame's answer by keypoint weight
+    and then by area, and in a crowded hall both halves of that rule prefer a
+    table nobody is using: an idle table shows all eleven landmarks because
+    no player is standing in front of it, and a wide lens stretches whatever
+    is near the frame edge. On a tournament upload (match 3794e632, eight
+    tables in view) that chose an EMPTY table 68% of the way to the right
+    edge, in 16 frames of 16, reporting 2.2px of agreement. The table the
+    match was played on was found correctly and ranked second in 14 of those
+    frames.
+
+    Nothing downstream can correct it. The ball detector crops to whatever
+    this returns and the pose window is built from it, so both are measured
+    inside the answer and cannot contradict it. Position in the frame is the
+    only independent signal available, and it is a good one: across the
+    owner's 57 hand-marked matches the real table's centre is a median 11%
+    off centre and never beyond 35%, and across all 99 keypoint-calibrated
+    production matches never beyond 21%.
+
+    THE RULE: centrality may only add a DECISION, never an ANSWER. With
+    fewer than two stable tables this returns exactly what pool_frames()
+    returns, refusals included. Only when two or more tables are each
+    supported in half the frames does position get to choose between them,
+    and two tables of similar centrality still refuse.
+
+    That restraint is not caution, it is measured. A first version answered
+    whenever one stable table existed; replayed over the 37 hand-marked
+    matches with cached frames it turned a protective refusal into a
+    confident table 28% of the diagonal away from the mark. As written here
+    the replay is identical to today on all 37.
+
+    per_frame: one list of surviving candidates per frame, from fit_tables()
+               filtered by frame_verdict().
+    winners:   the per-frame select_one() answers that passed frame_verdict(),
+               i.e. exactly what pool_frames() has always been given.
+    """
+    pooled, reason = pool_frames(winners, iou)
+    kept = [frame for frame in per_frame if frame]
+    if len(kept) < MIN_SURVIVING_FRAMES:
+        return pooled, reason
+
+    # A frame contributes at most one candidate to a group: fit_tables()
+    # already dedupes by the same IoU, so a group's size IS a frame count.
+    groups: list[list[dict]] = []
+    for frame in kept:
+        for candidate in frame:
+            for group in groups:
+                if same_table(candidate["quad"], group[0]["quad"], iou):
+                    group.append(candidate)
+                    break
+            else:
+                groups.append([candidate])
+
+    stable = [g for g in groups if len(g) >= MIN_WINNER_SHARE * len(kept)]
+    if len(stable) < 2:
+        return pooled, reason
+
+    ranked = sorted(stable, key=lambda g: off_centre(_medoid(g)["quad"], width))
+    closest = off_centre(_medoid(ranked[0])["quad"], width)
+    runner_up = off_centre(_medoid(ranked[1])["quad"], width)
+    if runner_up - closest < margin:
+        return None, (f"{len(stable)} tables are equally central "
+                      f"({closest:.0%} and {runner_up:.0%} off centre)")
+
+    winner = ranked[0]
+    medoid = _medoid(winner)
+    return {
+        "quad": medoid["quad"],
+        "homography": medoid.get("homography"),
+        "frames_used": len(winner),
+        "frames_kept": len(kept),
+        "agreement": len(winner) / len(kept),
+        "spread_px": _spread(winner, medoid),
+        "tables_seen": max(c.get("tables_seen", 1) for c in winner),
+        "weight": medoid.get("weight"),
+        "chosen_by": "centrality",
+        # Every stable table this frame set supported, so a wrong answer can
+        # be diagnosed from the stored record instead of by re-running the
+        # network over the original video. Bounded by max_clusters.
+        "candidates": [_candidate_record(g, width, g is winner)
+                       for g in ranked],
+    }, "ok"
+
+
+def _candidate_record(group, width, chosen):
+    medoid = _medoid(group)
+    return {
+        "corners_px": [[round(float(x), 1), round(float(y), 1)]
+                       for x, y in medoid["quad"]],
+        "frames_seen": len(group),
+        "off_centre": round(off_centre(medoid["quad"], width), 3),
+        "mean_weight": round(sum(c["weight"] for c in group) / len(group), 2),
+        "chosen": bool(chosen),
+    }
 
 
 def _corner_distance(a, b) -> float:

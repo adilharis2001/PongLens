@@ -1646,9 +1646,13 @@ def keypoint_calibrate(video, workdir):
                                         "C_far_2", "D_far_1"], src)},
         "orientation": "canonical-v1",
         "legacy_reordered": legacy_reordered,
+        # Anything new goes at the END of this sentence: the admin uploads
+        # page reads its front with a regex.
         "note": f"keypoint detector ({result.get('detector')}), "
                 f"{result['frames_used']}/{result['frames_kept']} frames "
-                f"agree, spread {result['spread_px']:.1f}px",
+                f"agree, spread {result['spread_px']:.1f}px"
+                + (f", most central of {len(result['candidates'])} stable "
+                   f"tables" if result.get("chosen_by") == "centrality" else ""),
         "debug": "",
         "source": "keypoints",
         "agreement": {
@@ -1659,6 +1663,12 @@ def keypoint_calibrate(video, workdir):
             "spread_px": result.get("spread_px"),
             "tables_seen": result.get("tables_seen"),
         },
+        # Present only when more than one table was genuinely supported, so
+        # a wrong choice is diagnosable from the stored match.json rather
+        # than by re-running the network over the original video.
+        **({"chosen_by": result["chosen_by"],
+            "candidates": result["candidates"]}
+           if result.get("chosen_by") == "centrality" else {}),
     }
 
 
@@ -3579,6 +3589,13 @@ def cmd_points(args):
                           "length_axis": calib["e"],
                           "source": calib.get("source", "pink_rim"),
                           "agreement": calib.get("agreement"),
+                          # Present only when more than one table was stable
+                          # and position decided between them. Every stable
+                          # candidate is kept so a wrong table can be
+                          # diagnosed from this file alone.
+                          **({"chosen_by": calib["chosen_by"],
+                              "candidates": calib["candidates"]}
+                             if calib.get("chosen_by") else {}),
                           "note": calib["note"]}
                          if calib else {"ok": False})
     story_crop, story_note = story_crop_from_calibration(
