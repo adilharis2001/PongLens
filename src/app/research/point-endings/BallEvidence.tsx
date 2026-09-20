@@ -10,14 +10,15 @@ export function BallEvidence({video,evidence,trail,bounces,review}:{video:RefObj
  const canvas=useRef<HTMLCanvasElement>(null);
  useEffect(()=>{
   const v=video.current,c=canvas.current;if(!v||!c)return;
-  let raf=0;
+  let raf:number|null=null,videoFrame:number|null=null;
+  let lastTime=-1;
   const draw=()=>{
    const w=v.clientWidth,h=v.clientHeight;if(!w||!h)return;
    const density=window.devicePixelRatio||1;
    if(c.width!==Math.round(w*density)||c.height!==Math.round(h*density)){c.width=Math.round(w*density);c.height=Math.round(h*density);}
    const ctx=c.getContext('2d');if(!ctx)return;
    ctx.setTransform(density,0,0,density,0,0);ctx.clearRect(0,0,w,h);
-   if(!evidence||v.readyState<2)return;
+   if(!evidence||(!trail&&!bounces)||v.readyState<2)return;
    const box=containedFrame(w,h,v.videoWidth||evidence.width,v.videoHeight||evidence.height);
    const state=evidenceAt(evidence,v.currentTime);
    if(trail)state.trail.forEach((p,i)=>{
@@ -38,10 +39,41 @@ export function BallEvidence({video,evidence,trail,bounces,review}:{video:RefObj
    const added=review?.events.find(e=>e.rawTime!==undefined&&Math.abs(e.rawTime-v.currentTime)<=0.34);
    if(bounces&&added){ctx.fillStyle='#09090b';ctx.fillRect(6,6,Math.min(w-12,260),24);ctx.font='12px sans-serif';ctx.fillStyle='#a5f3fc';ctx.fillText(`Added: ${BOUNCE_KINDS.find(([k])=>k===added.kind)?.[1]}${review?.lastBounce===added.id?' · Last':''}`,12,22);}
   };
-  const loop=()=>{draw();raf=requestAnimationFrame(loop);};loop();
-  // Paused seeks and metadata changes also redraw immediately.
-  const events=['seeked','timeupdate','loadeddata'];events.forEach(e=>v.addEventListener(e,draw));
-  return()=>{cancelAnimationFrame(raf);events.forEach(e=>v.removeEventListener(e,draw));c.getContext('2d')?.clearRect(0,0,c.width,c.height);};
+  const stop=()=>{
+   if(raf!==null){cancelAnimationFrame(raf);raf=null;}
+   if(videoFrame!==null){v.cancelVideoFrameCallback(videoFrame);videoFrame=null;}
+  };
+  const active=()=>!!evidence&&(trail||bounces)&&!document.hidden;
+  const paint=()=>{if(!document.hidden){draw();lastTime=v.currentTime;}};
+  const tick=()=>{
+   raf=null;videoFrame=null;
+   if(!active()||v.paused||v.ended)return;
+   if(v.currentTime!==lastTime)paint();
+   schedule();
+  };
+  const schedule=()=>{
+   if(!active()||v.paused||v.ended||raf!==null||videoFrame!==null)return;
+   // Match actual video frames rather than the phone's 60/120 Hz display.
+   if(typeof v.requestVideoFrameCallback==='function')videoFrame=v.requestVideoFrameCallback(tick);
+   else raf=requestAnimationFrame(tick);
+  };
+  const refresh=()=>{stop();paint();schedule();};
+  const timeUpdate=()=>{if(v.paused&&active())paint();};
+  const visibility=()=>{if(document.hidden)stop();else refresh();};
+  const events=['seeked','loadeddata','play','pause','ended'];
+  events.forEach(e=>v.addEventListener(e,refresh));
+  v.addEventListener('timeupdate',timeUpdate);
+  document.addEventListener('visibilitychange',visibility);
+  const resize=typeof ResizeObserver==='undefined'?null:new ResizeObserver(paint);
+  resize?.observe(v);
+  window.addEventListener('resize',paint);
+  refresh();
+  return()=>{
+   stop();resize?.disconnect();window.removeEventListener('resize',paint);
+   events.forEach(e=>v.removeEventListener(e,refresh));
+   v.removeEventListener('timeupdate',timeUpdate);document.removeEventListener('visibilitychange',visibility);
+   c.getContext('2d')?.clearRect(0,0,c.width,c.height);
+  };
  },[video,evidence,trail,bounces,review]);
  return <canvas ref={canvas} aria-label="Ball trail and detected bounce overlay" className="pointer-events-none absolute inset-0 h-full w-full"/>;
 }

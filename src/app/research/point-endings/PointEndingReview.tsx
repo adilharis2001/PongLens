@@ -7,6 +7,7 @@ import {EndingSaveQueue} from '@/lib/research/endingSaveQueue';
 import type {EndingEvidence} from '@/lib/research/endingEvidence';
 import {BallEvidence} from './BallEvidence';
 import {BounceDetails} from './BounceDetails';
+import {PlaybackTimeline} from './PlaybackTimeline';
 
 const field='w-full min-h-11 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus:border-cyan-glow focus:outline-none';
 const secondary='min-h-11 w-full rounded-lg border border-edge px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 disabled:opacity-40 sm:w-auto';
@@ -35,7 +36,6 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const [evidenceError,setEvidenceError]=useState('');
  const [evidenceRetry,setEvidenceRetry]=useState(0);
  const evidenceCache=useRef(new Map<string,EndingEvidence>());
- const [time,setTime]=useState(0);
  const [playing,setPlaying]=useState(false);
  const [rate,setRate]=useState(1);
  const video=useRef<HTMLVideoElement>(null);
@@ -122,8 +122,8 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
    return()=>{cancelled=true;abort.abort();};
  },[point?.id,evidenceRetry]);
 
- function seek(at:number){const v=video.current;if(!v||!point)return;v.pause();v.currentTime=Math.min(point.source.end,Math.max(point.source.start,at));setTime(v.currentTime);}
- function seekEnding(){const p=pointRef.current;const v=video.current;if(!p||!v)return;v.pause();v.currentTime=Math.max(p.source.start,(p.source.tap??p.source.end)-4);setTime(v.currentTime);}
+ function seek(at:number){const v=video.current;if(!v||!point)return;v.pause();v.currentTime=Math.min(point.source.end,Math.max(point.source.start,at));}
+ function seekEnding(){const p=pointRef.current;const v=video.current;if(!p||!v)return;v.pause();v.currentTime=Math.max(p.source.start,(p.source.tap??p.source.end)-4);}
  useEffect(()=>{if(video.current?.readyState){seekEnding();setReady(true);}
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[selected,url]);
@@ -156,7 +156,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
    <div ref={review} className="mt-4 scroll-mt-4 flex flex-col gap-6 lg:flex-row">
      <div className="min-w-0 flex-1">
        <div className="relative aspect-video overflow-hidden rounded-xl border border-edge bg-black">
-         {url&&<video ref={video} src={url} playsInline preload="metadata" className="absolute inset-0 h-full w-full" onLoadedMetadata={()=>{seekEnding();setReady(true);if(video.current)video.current.playbackRate=rate;}} onTimeUpdate={e=>{const v=e.currentTarget;setTime(v.currentTime);if(v.currentTime>=end&&!v.paused)v.pause();}} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onError={()=>setMediaError('Could not play this video. Reload it to try again.')} />}
+         {url&&<video ref={video} src={url} playsInline preload="metadata" className="absolute inset-0 h-full w-full" onLoadedMetadata={()=>{seekEnding();setReady(true);if(video.current)video.current.playbackRate=rate;}} onTimeUpdate={e=>{const v=e.currentTarget;if(v.currentTime>=end&&!v.paused)v.pause();}} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onError={()=>setMediaError('Could not play this video. Reload it to try again.')} />}
          {url&&<BallEvidence key={url} video={video} evidence={evidence} trail={showTrail} bounces={showBounces} review={point.label.bounceReview}/>}
          {!ready&&!mediaError&&<div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">Loading video…</div>}
        </div>
@@ -174,12 +174,11 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          </div>
          <p className="mt-1 text-xs text-zinc-500">Detected bounces may include paddle contacts or bounces off the table.</p>
        </div>}
-       <label className="mt-3 block text-xs text-zinc-400">Point playback<input aria-label="Point playback" className="mt-2 block w-full accent-cyan-400" type="range" min={start} max={end} step={1/point.source.fps} value={Math.max(start,Math.min(end,time))} onChange={e=>seek(Number(e.target.value))} disabled={!ready}/></label>
-       <div className="mt-2 flex items-center justify-between text-xs tabular-nums text-zinc-500"><span>Point {clock(Math.max(0,time-start))} / {clock(end-start)}</span><span>Match {clock(Math.max(0,time-point.source.rawOffset))}</span></div>
+       <PlaybackTimeline key={`${point.id}:${url}`} video={video} start={start} end={end} fps={point.source.fps} rawOffset={point.source.rawOffset} ready={ready} onSeek={seek}/>
        <div className="mt-3 flex flex-wrap gap-2">
          <button className={mediaButton} disabled={!ready} onClick={play}>{playing?'Pause':'Play'}</button>
-         <button className={mediaButton} disabled={!ready} onClick={()=>seek(frameStep(time,-1,point.source.fps,start,end))} aria-label="Back one frame">−1 frame</button>
-         <button className={mediaButton} disabled={!ready} onClick={()=>seek(frameStep(time,1,point.source.fps,start,end))} aria-label="Forward one frame">+1 frame</button>
+         <button className={mediaButton} disabled={!ready} onClick={()=>seek(frameStep(video.current?.currentTime??start,-1,point.source.fps,start,end))} aria-label="Back one frame">−1 frame</button>
+         <button className={mediaButton} disabled={!ready} onClick={()=>seek(frameStep(video.current?.currentTime??start,1,point.source.fps,start,end))} aria-label="Forward one frame">+1 frame</button>
          {[0.25,0.5,1].map(r=><button key={r} aria-pressed={rate===r} onClick={()=>setRate(r)} className={`${mediaButton} ${rate===r?'border-cyan-glow/60 text-cyan-100':''}`}>{r}×</button>)}
        </div>
        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -187,7 +186,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          <button className={secondary} disabled={!ready} onClick={()=>{seek(start);void video.current?.play();}}>Play whole point</button>
          {point.source.tap!==null&&<button className={secondary} disabled={!ready} onClick={()=>seek(point.source.tap!)}>Go to saved tap</button>}
        </div>
-       <BounceDetails key={point.id} value={point.label.bounceReview} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>setBounceSelection({pointId:point.id,id})} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??time}/>
+       <BounceDetails key={point.id} value={point.label.bounceReview} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>setBounceSelection({pointId:point.id,id})} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??start}/>
      </div>
      <div className="w-full shrink-0 lg:w-[340px]">
        <div className="space-y-4 rounded-xl border border-edge bg-surface-1 p-4">
