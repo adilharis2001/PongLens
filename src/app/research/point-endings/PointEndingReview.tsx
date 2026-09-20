@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {clock,ENDING_REASONS,frameStep,nextUnlabeled,reasonText,savedLabel,validEndingLabel,type EndingLabel,type EndingRow} from '@/lib/research/pointEndings';
+import {clock,BOUNCE_KINDS,EMPTY_BOUNCE_REVIEW,sameEndingLabel,ENDING_REASONS,frameStep,nextUnlabeled,reasonText,savedLabel,validEndingLabel,type EndingLabel,type EndingRow} from '@/lib/research/pointEndings';
 import {EndingSaveQueue} from '@/lib/research/endingSaveQueue';
 import type {EndingEvidence} from '@/lib/research/endingEvidence';
 import {BallEvidence} from './BallEvidence';
+import {BounceDetails} from './BounceDetails';
 
 const field='w-full min-h-11 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus:border-cyan-glow focus:outline-none';
 const secondary='min-h-11 w-full rounded-lg border border-edge px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 disabled:opacity-40 sm:w-auto';
@@ -29,6 +30,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const [ready,setReady]=useState(false);
  const [showTrail,setShowTrail]=useState(true);
  const [showBounces,setShowBounces]=useState(true);
+ const [bounceSelection,setBounceSelection]=useState({pointId:'',id:''});
  const [evidenceResult,setEvidenceResult]=useState<{id:string;data:EndingEvidence}|null>(null);
  const [evidenceError,setEvidenceError]=useState('');
  const [evidenceRetry,setEvidenceRetry]=useState(0);
@@ -69,7 +71,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
      },(state,message)=>setStatuses(s=>{
        const draft=rowsRef.current.find(r=>r.id===p.id)?.label;
        const ack=acknowledged.current.get(p.id);
-       if(state==='saved'&&(draft?.reason!==ack?.reason||draft?.custom!==ack?.custom||draft?.note!==ack?.note))return {...s,[p.id]:{state:'draft',message:'Finish editing the custom reason to save.'}};
+       if(state==='saved'&&(!draft||!ack||!sameEndingLabel(draft,ack)))return {...s,[p.id]:{state:'draft',message:'Finish editing the custom reason to save.'}};
        return {...s,[p.id]:{state,message}};
      }));
      writers.current.set(p.id,writer);
@@ -155,7 +157,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
      <div className="min-w-0 flex-1">
        <div className="relative aspect-video overflow-hidden rounded-xl border border-edge bg-black">
          {url&&<video ref={video} src={url} playsInline preload="metadata" className="absolute inset-0 h-full w-full" onLoadedMetadata={()=>{seekEnding();setReady(true);if(video.current)video.current.playbackRate=rate;}} onTimeUpdate={e=>{const v=e.currentTarget;setTime(v.currentTime);if(v.currentTime>=end&&!v.paused)v.pause();}} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onError={()=>setMediaError('Could not play this video. Reload it to try again.')} />}
-         {url&&<BallEvidence key={url} video={video} evidence={evidence} trail={showTrail} bounces={showBounces}/>}
+         {url&&<BallEvidence key={url} video={video} evidence={evidence} trail={showTrail} bounces={showBounces} review={point.label.bounceReview}/>}
          {!ready&&!mediaError&&<div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">Loading video…</div>}
        </div>
        {mediaError&&<div role="alert" className="mt-3 space-y-2 text-sm text-rose-300"><p>{mediaError}</p><button className={secondary} onClick={retryVideo}>Reload video</button></div>}
@@ -167,7 +169,8 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
        {evidenceError&&<div role="alert" className="mt-2 text-sm text-rose-300">{evidenceError} <button className={secondary} onClick={()=>setEvidenceRetry(n=>n+1)}>Retry ball evidence</button></div>}
        {evidence&&showBounces&&<div className="mt-2">
          <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Jump to detected bounce">
-           {evidence.bounces.map((b,i)=><button key={i} disabled={!ready} onClick={()=>seek(b.t+evidence.rawOffset)} className="min-h-11 shrink-0 rounded-lg border border-edge px-3 py-2 text-xs tabular-nums text-amber-200 hover:border-zinc-500 disabled:opacity-40" aria-label={`Go to bounce ${i+1} at ${clock(b.t+evidence.rawOffset-start)} into point`}>{i+1} · {clock(b.t+evidence.rawOffset-start)}</button>)}
+           {evidence.bounces.map((b,i)=><button key={i} disabled={!ready} onClick={()=>{seek(b.t+evidence.rawOffset);setBounceSelection({pointId:point.id,id:`detected:${i}`});}} className="min-h-11 shrink-0 rounded-lg border border-edge px-3 py-2 text-xs tabular-nums text-amber-200 hover:border-zinc-500 disabled:opacity-40" aria-label={`Go to bounce ${i+1} at ${clock(b.t+evidence.rawOffset-start)} into point`}>{i+1} · {clock(b.t+evidence.rawOffset-start)}{point.label.bounceReview?.lastBounce===`detected:${i}`?' · Last':''}{point.label.bounceReview?.events.find(e=>e.id===`detected:${i}`)?` · ${BOUNCE_KINDS.find(([k])=>k===point.label.bounceReview?.events.find(e=>e.id===`detected:${i}`)?.kind)?.[1]}`:''}</button>)}
+           {(point.label.bounceReview??EMPTY_BOUNCE_REVIEW).events.filter(e=>e.rawTime!==undefined).map(e=><button key={e.id} disabled={!ready} onClick={()=>{seek(e.rawTime!);setBounceSelection({pointId:point.id,id:e.id});}} className="min-h-11 shrink-0 rounded-lg border border-cyan-glow/50 px-3 py-2 text-xs tabular-nums text-cyan-100">Added · {clock(e.rawTime!-start)}{point.label.bounceReview?.lastBounce===e.id?' · Last':''}</button>)}
          </div>
          <p className="mt-1 text-xs text-zinc-500">Detected bounces may include paddle contacts or bounces off the table.</p>
        </div>}
@@ -184,6 +187,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          <button className={secondary} disabled={!ready} onClick={()=>{seek(start);void video.current?.play();}}>Play whole point</button>
          {point.source.tap!==null&&<button className={secondary} disabled={!ready} onClick={()=>seek(point.source.tap!)}>Go to saved tap</button>}
        </div>
+       <BounceDetails key={point.id} value={point.label.bounceReview} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>setBounceSelection({pointId:point.id,id})} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??time}/>
      </div>
      <div className="w-full shrink-0 lg:w-[340px]">
        <div className="space-y-4 rounded-xl border border-edge bg-surface-1 p-4">

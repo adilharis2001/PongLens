@@ -62,3 +62,46 @@ The complete feature was pushed to remote main as `8bb9dd16`. Vercel did not
 create a deployment or commit check for that push; its latest production build
 still pointed at `6a6fe1bf`. This documentation update retries the normal
 main-branch Git trigger without changing the verified application source.
+
+Production verified at 2026-09-18 22:04 UTC: Vercel deployment
+`dpl_G8XUfWvHrwUwpbN8Ufm7ELCHUTww` is READY for exact remote main
+`e37223d48ac72279f3e5a1796a80921dd50534ef`, with www.ponglens.com and
+ponglens.com aliases. The delayed normal Git deployment succeeded; no fallback
+API deployment was performed and no fallback approval is needed. Authenticated
+production Research contains Point-ending labels; the page loads all 479 rows,
+32 prior labels, signed video and ball evidence. Bounce jump, visible trail/ring,
+frame advance and autosave checked live. Re-saved Lester37's existing long
+answer unchanged, with UI Saved / All answers saved. Research labels only;
+match scores unchanged. Live URL: https://www.ponglens.com/research/point-endings
+
+## Optional bounce annotations, 2026-09-20
+
+Owner requested five optional capabilities and explicitly instructed immediate
+production publishing without any further questions; screenshot review is
+waived for this change. The shipped Point-ending labels screen is the rendered
+and source visual reference. No separate design language or required fields.
+
+- Collapsed Bounce details beside player controls. Add a missed bounce at the
+  current raw-video frame; classify as table/serve/rally, paddle, floor, or
+  non-playing table bounce; optionally record near/far side; choose one last
+  rally bounce. Clear individual annotations or remove additions.
+- Detected indices remain stable. Added events retain UUIDs and raw timestamps;
+  no guessed image position. The overlay shows classifications and timed added
+  event captions. Original detector evidence is immutable.
+- Optional `label.bounceReview` uses the existing audited revisioned JSON store.
+  No migration, scoring change, worker change or native iOS change. Old clients
+  omitting annotations preserve them; retries compare the whole normalized label.
+  Server validates all detector references, times, kinds and last-bounce state.
+- 244 research tests passed; full `npm run build` passed (existing unrelated
+  lint warnings). Independent review caught playback-end timestamp overshoot;
+  timestamp clamping fixed and regression covered.
+- Browser QA uses the real component with two isolated local fixtures, real
+  signed Lester/Yu video and built CSS. No invented production labels. All event
+  types, last-bounce reassignment/clearing, add/remove, reload persistence, one
+  frame seek, failed save plus newer edit/retry, and Yu raw offset checked.
+- Desktop1024×900 and mobile393×660 rendered; no page overflow, mobile action
+  buttons/selects361×44px. Screenshots `/private/tmp/bounce-annotations-mobile.png`
+  and `/private/tmp/bounce-annotations-desktop.png`. Native iOS not tested.
+- Existing database transaction verified optional JSON and matching history;
+  rollback verified all479 labels and revisions unchanged.
+- Recurring study remains paused. No hypothesis testing or label reinterpretation.

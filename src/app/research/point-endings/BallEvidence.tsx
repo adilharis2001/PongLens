@@ -1,11 +1,12 @@
 'use client';
 
 import {useEffect,useRef,type RefObject} from 'react';
+import {BOUNCE_KINDS,type BounceReview} from '@/lib/research/pointEndings';
 import {containedFrame,evidenceAt,type EndingEvidence} from '@/lib/research/endingEvidence';
 
 /** Same fading tail and timed rings as Serve accuracy, fitted to the video's
  * contained frame. Drawing never re-renders the 479-point labeling list. */
-export function BallEvidence({video,evidence,trail,bounces}:{video:RefObject<HTMLVideoElement|null>;evidence:EndingEvidence|null;trail:boolean;bounces:boolean}) {
+export function BallEvidence({video,evidence,trail,bounces,review}:{video:RefObject<HTMLVideoElement|null>;evidence:EndingEvidence|null;trail:boolean;bounces:boolean;review?:BounceReview}) {
  const canvas=useRef<HTMLCanvasElement>(null);
  useEffect(()=>{
   const v=video.current,c=canvas.current;if(!v||!c)return;
@@ -29,13 +30,18 @@ export function BallEvidence({video,evidence,trail,bounces}:{video:RefObject<HTM
     const x=box.x+b.x*box.width,y=box.y+b.y*box.height;
     ctx.globalAlpha=0.25+0.75*b.fade;ctx.strokeStyle='#f59e0b';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(x,y,5+7*(1-b.fade),0,Math.PI*2);ctx.stroke();
     ctx.globalAlpha=1;ctx.font='bold 12px sans-serif';ctx.lineWidth=3;ctx.strokeStyle='#09090b';ctx.strokeText(String(b.index),x+12,y-8);ctx.fillStyle='#fbbf24';ctx.fillText(String(b.index),x+12,y-8);
+    const annotation=review?.events.find(e=>e.id===`detected:${b.index-1}`);
+    const description=[annotation?BOUNCE_KINDS.find(([kind])=>kind===annotation.kind)?.[1]:null,review?.lastBounce===`detected:${b.index-1}`?'Last rally bounce':null].filter(Boolean).join(' · ');
+    if(description){ctx.font='11px sans-serif';ctx.strokeText(description,Math.min(w-ctx.measureText(description).width-8,Math.max(8,x+12)),Math.min(h-8,y+12));ctx.fillText(description,Math.min(w-ctx.measureText(description).width-8,Math.max(8,x+12)),Math.min(h-8,y+12));}
    }
    ctx.globalAlpha=1;
+   const added=review?.events.find(e=>e.rawTime!==undefined&&Math.abs(e.rawTime-v.currentTime)<=0.34);
+   if(bounces&&added){ctx.fillStyle='#09090b';ctx.fillRect(6,6,Math.min(w-12,260),24);ctx.font='12px sans-serif';ctx.fillStyle='#a5f3fc';ctx.fillText(`Added: ${BOUNCE_KINDS.find(([k])=>k===added.kind)?.[1]}${review?.lastBounce===added.id?' · Last':''}`,12,22);}
   };
   const loop=()=>{draw();raf=requestAnimationFrame(loop);};loop();
   // Paused seeks and metadata changes also redraw immediately.
   const events=['seeked','timeupdate','loadeddata'];events.forEach(e=>v.addEventListener(e,draw));
   return()=>{cancelAnimationFrame(raf);events.forEach(e=>v.removeEventListener(e,draw));c.getContext('2d')?.clearRect(0,0,c.width,c.height);};
- },[video,evidence,trail,bounces]);
+ },[video,evidence,trail,bounces,review]);
  return <canvas ref={canvas} aria-label="Ball trail and detected bounce overlay" className="pointer-events-none absolute inset-0 h-full w-full"/>;
 }
