@@ -61,9 +61,9 @@ test('missed-bounce time stays inside point after playback overshoots its end',(
  assert.equal(bounceFrameTime(8.123,3,12),8.123);
 });
 
-test('non-rally, other-table and handling annotations cannot be the last rally bounce',()=>{
+test('non-rally and non-table annotations cannot be the last rally bounce',()=>{
  const base={reason:null,custom:'',note:''};
- for(const kind of ['non_rally','other_table','ball_handling','non_playing'] as const){
+ for(const kind of ['non_rally','other_table','ball_handling','ceiling','non_playing'] as const){
   const event={id:'detected:0',kind,side:null};
   const bounceReview={version:1 as const,events:[event],lastBounce:null};
   assert.equal(validEndingLabel({...base,bounceReview}),true,kind);

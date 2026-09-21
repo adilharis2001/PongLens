@@ -51,6 +51,7 @@ export const BOUNCE_KINDS = [
  ['paddle','Paddle contact'], ['floor','Floor bounce'],
  ['non_rally','Non-rally bounces'], ['other_table','Bounce on another table'],
  ['ball_handling','Ball handling mistaken for a bounce'],
+ ['ceiling','Ceiling / overhead contact'],
  // Earlier labels were interpreted both ways. Keep them until explicitly reviewed.
  ['non_playing','Non-playing table bounce (earlier label)'],
 ] as const;
