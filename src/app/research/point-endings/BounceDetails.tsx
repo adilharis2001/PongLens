@@ -63,7 +63,8 @@ export function BounceDetails({value,evidence,start,end,ready,selected,onSelect,
     </div>
     {kind==='non_rally'&&<p className="text-xs text-zinc-400">On the playing table before the serve or after the point, including preparation, retrieving or passing the ball.</p>}
     {kind==='other_table'&&<p className="text-xs text-zinc-400">On a different table, outside this match.</p>}
-    {kind==='non_playing'&&<p className="text-xs text-zinc-400">Earlier label. Choose Non-rally bounces for preparation or ball handling on the playing table, or Bounce on another table.</p>}
+    {kind==='ball_handling'&&<p className="text-xs text-zinc-400">A player’s handling motion was detected as a bounce, without an actual table bounce.</p>}
+    {kind==='non_playing'&&<p className="text-xs text-zinc-400">Earlier label. Choose a more specific event type when you can identify what happened.</p>}
     <label className={`flex min-h-11 items-center gap-3 text-sm ${isRallyBounce(kind)?'text-zinc-300':'text-zinc-500'}`}>
      <input type="checkbox" className="h-5 w-5 shrink-0 accent-cyan-400" checked={review.lastBounce===selected} disabled={!isRallyBounce(kind)} onChange={e=>onChange({...review,lastBounce:e.target.checked?selected:null})}/>
      Last bounce of the rally
