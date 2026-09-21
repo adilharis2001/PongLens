@@ -201,6 +201,16 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          {point.label.reason==='net'&&<p className="text-xs text-zinc-400">Includes the ball staying on the table or rolling off after hitting the net.</p>}
          {point.label.reason==='missed_return'&&<p className="text-xs text-zinc-400">Includes an opponent’s winner that bounced legally and could not be reached.</p>}
          {point.label.reason==='custom'&&<label className="block text-sm text-zinc-300">Custom reason<input className={`${field} mt-2`} maxLength={120} value={point.label.custom} onChange={e=>change({custom:e.target.value},false)} onBlur={()=>change({})} placeholder="Describe the ending"/><span className="mt-1 block text-xs text-zinc-500">Saved reasons are available on every point.</span></label>}
+         <div>
+           <label className="block text-sm text-zinc-300" htmlFor="last-rally-contact">Who made the last paddle contact during the rally? <span className="text-zinc-500">(optional)</span></label>
+           <select id="last-rally-contact" aria-describedby="last-rally-contact-help" className={`${field} mt-2`} value={point.label.lastRallyContact??''} onChange={e=>change({lastRallyContact:(e.target.value||null) as EndingLabel['lastRallyContact']})}>
+             <option value="">Not specified</option>
+             <option value="near">Player nearer the camera</option>
+             <option value="far">Player farther from the camera</option>
+             <option value="unsure">Cannot tell</option>
+           </select>
+           <p id="last-rally-contact-help" className="mt-2 text-xs text-zinc-400">Count attempted returns and mishits that touched the ball. Ignore collecting or stopping the ball after the point ended.</p>
+         </div>
          <label className="block text-sm text-zinc-300">Note <span className="text-zinc-500">(optional)</span><textarea className={`${field} mt-2 resize-y`} rows={3} maxLength={4000} value={point.label.note} onChange={e=>change({note:e.target.value})}/></label>
          <div role="status" className={`text-xs ${selectedStatus?.state==='error'?'text-rose-300':selectedStatus?.state==='draft'?'text-amber-200':'text-zinc-400'}`}>{selectedStatus?.state==='saving'?'Saving…':selectedStatus?.state==='error'?selectedStatus.message:selectedStatus?.state==='draft'?selectedStatus.message:selectedStatus?.state==='saved'?'Saved':point.source.imported?'Carried over from your earlier review':savedLabel(point.label)?'Saved':'Not labeled yet'}</div>
          {selectedStatus?.state==='error'&&<button className={secondary} onClick={()=>writers.current.get(point.id)?.retry()}>Retry save</button>}

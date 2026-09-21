@@ -13,7 +13,7 @@ export async function POST(request:Request) {
   const {data:current,error:readError}=await db.from('point_ending_research').select('id,label,revision,source').eq('id',body.id).eq('batch','out-ball-479-v1').maybeSingle();
   if(readError)return NextResponse.json({error:'Could not load the saved answer. Try again.'},{status:500});
   if(!current)return NextResponse.json({error:'Point not found.'},{status:404});
-  // Older open tabs omit bounceReview. Preserve it rather than silently erase it.
+  // Preserve optional bounce/contact answers omitted by older open tabs.
   const label=normalizeEndingLabel(body.label,current.label);
   if(label.bounceReview){
     const {data:evidence,error:evidenceError}=await db.from('point_ending_evidence').select('payload').eq('point_id',body.id).maybeSingle();

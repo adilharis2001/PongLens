@@ -60,3 +60,25 @@ test('missed-bounce time stays inside point after playback overshoots its end',(
  assert.equal(bounceFrameTime(2.99,3,12),3);
  assert.equal(bounceFrameTime(8.123,3,12),8.123);
 });
+
+test('last rally contact is optional, allows explicit uncertainty and rejects other values',()=>{
+ const base={reason:null,custom:'',note:''};
+ for(const lastRallyContact of [undefined,null,'near','far','unsure'] as const){
+  const label={...base,lastRallyContact};
+  assert.equal(validEndingLabel(label),true);
+  assert.equal(savedLabel(label),false,'contact alone must not mark the ending reviewed');
+ }
+ for(const lastRallyContact of ['','both','winner',1,{},[]])assert.equal(validEndingLabel({...base,lastRallyContact}),false);
+});
+test('last rally contact survives older clients and distinguishes changed, cleared and uncertain answers',()=>{
+ const old={reason:'long' as const,custom:'',note:''};
+ const current={...old,lastRallyContact:'near' as const};
+ assert.deepEqual(normalizeEndingLabel(old,current),current);
+ assert.equal(sameEndingLabel(current,{...old,lastRallyContact:'far'}),false);
+ assert.equal(sameEndingLabel(current,{...old,lastRallyContact:'unsure'}),false);
+ const cleared=normalizeEndingLabel({...old,lastRallyContact:null},current);
+ assert.equal(cleared.lastRallyContact??null,null);
+ assert.equal(sameEndingLabel(current,cleared),false);
+ assert.equal(sameEndingLabel(old,cleared),true);
+ assert.equal(normalizeEndingLabel({...old,lastRallyContact:'unsure'},current).lastRallyContact,'unsure');
+});

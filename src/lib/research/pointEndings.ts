@@ -11,7 +11,7 @@ export const ENDING_REASONS = [
   ['custom','Other / custom reason'],
 ] as const;
 export type EndingReason = typeof ENDING_REASONS[number][0];
-export type EndingLabel = { reason: EndingReason | null; custom: string; note: string; bounceReview?: BounceReview };
+export type EndingLabel = { reason: EndingReason | null; custom: string; note: string; bounceReview?: BounceReview; lastRallyContact?: 'near' | 'far' | 'unsure' | null };
 export type EndingSource = {
   matchName: string; slug: string; number: number; game: number; scoreBefore: number[];
   winner: string; server: string | null; start: number; end: number; tap: number | null;
@@ -26,7 +26,8 @@ export function validEndingLabel(value: unknown): value is EndingLabel {
     typeof x.custom==='string' && x.custom.length<=120 &&
     (x.reason!=='custom' || x.custom.trim().length>0) &&
     typeof x.note==='string' && x.note.length<=4000 &&
-    (x.bounceReview===undefined || validBounceReview(x.bounceReview));
+    (x.bounceReview===undefined || validBounceReview(x.bounceReview)) &&
+    (x.lastRallyContact===undefined || x.lastRallyContact===null || ['near','far','unsure'].includes(x.lastRallyContact as string));
 }
 export function savedLabel(label:EndingLabel) { return label.reason!==null && validEndingLabel(label); }
 export function reasonText(label:EndingLabel) {
@@ -88,7 +89,9 @@ export function removeBounce(review:BounceReview,id:string):BounceReview {
 /** Explicit field normalization makes idempotent retries independent of JSON key order. */
 export function normalizeEndingLabel(label:EndingLabel,existing?:EndingLabel):EndingLabel {
  const review=label.bounceReview??existing?.bounceReview;
- return {reason:label.reason,custom:label.custom.trim(),note:label.note,...(review?{bounceReview:{
+ // Omission from older clients preserves the answer; explicit null clears it.
+ const lastRallyContact=label.lastRallyContact===undefined?existing?.lastRallyContact:label.lastRallyContact;
+ return {reason:label.reason,custom:label.custom.trim(),note:label.note,...(lastRallyContact?{lastRallyContact}:{}),...(review?{bounceReview:{
   version:1 as const,lastBounce:review.lastBounce,events:review.events.map(e=>({id:e.id,kind:e.kind,side:e.side,...(e.rawTime!==undefined?{rawTime:e.rawTime}:{})})).sort((a,b)=>a.id.localeCompare(b.id))
  }}:{})};
 }
