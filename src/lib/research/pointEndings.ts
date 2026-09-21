@@ -49,7 +49,9 @@ export function clock(time:number) {
 export const BOUNCE_KINDS = [
  ['table','Table bounce'], ['serve','Serve bounce'], ['rally','Rally bounce'],
  ['paddle','Paddle contact'], ['floor','Floor bounce'],
- ['non_playing','Non-playing table bounce'],
+ ['non_rally','Non-rally bounces'], ['other_table','Bounce on another table'],
+ // Earlier labels were interpreted both ways. Keep them until explicitly reviewed.
+ ['non_playing','Non-playing table bounce (earlier label)'],
 ] as const;
 export type BounceKind = typeof BOUNCE_KINDS[number][0];
 export type BounceAnnotation = {id:string;kind:BounceKind;side:'near'|'far'|null;rawTime?:number};

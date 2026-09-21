@@ -61,6 +61,20 @@ test('missed-bounce time stays inside point after playback overshoots its end',(
  assert.equal(bounceFrameTime(8.123,3,12),8.123);
 });
 
+test('non-rally and other-table annotations save distinctly and cannot be the last rally bounce',()=>{
+ const base={reason:null,custom:'',note:''};
+ for(const kind of ['non_rally','other_table','non_playing'] as const){
+  const event={id:'detected:0',kind,side:null};
+  const bounceReview={version:1 as const,events:[event],lastBounce:null};
+  assert.equal(validEndingLabel({...base,bounceReview}),true,kind);
+  assert.equal(validEndingLabel({...base,bounceReview:{...bounceReview,lastBounce:event.id}}),false,kind);
+  assert.equal(updateBounce({...bounceReview,lastBounce:event.id},event).lastBounce,null);
+  assert.deepEqual(normalizeEndingLabel(base,{...base,bounceReview}).bounceReview,bounceReview);
+ }
+ const label=(kind:'non_rally'|'other_table')=>({...base,bounceReview:{version:1 as const,events:[{id:'detected:0',kind,side:null}],lastBounce:null}});
+ assert.equal(sameEndingLabel(label('non_rally'),label('other_table')),false);
+});
+
 test('last rally contact is optional, allows explicit uncertainty and rejects other values',()=>{
  const base={reason:null,custom:'',note:''};
  for(const lastRallyContact of [undefined,null,'near','far','unsure'] as const){
