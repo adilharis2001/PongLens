@@ -78,11 +78,17 @@ final class StarredStore {
     }
 
     private func write(_ row: StarredPointRow, starred: Bool) async -> Bool {
+        await Self.setStar(row.id, starred: starred)
+    }
+
+    /// One point's star on or off, for any screen that holds a row and no
+    /// store (Home's row plays points too). True when the write landed.
+    static func setStar(_ pointId: UUID, starred: Bool) async -> Bool {
         do {
             try await supa
                 .from("points")
                 .update(["starred": starred])
-                .eq("id", value: row.id.uuidString.lowercased())
+                .eq("id", value: pointId.uuidString.lowercased())
                 .execute()
             return true
         } catch {

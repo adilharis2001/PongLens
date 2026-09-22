@@ -99,11 +99,14 @@ struct StarredCard: View {
 }
 
 /// Home's Starred points row: the newest stars, swiped sideways. A card
-/// opens its point inside its match; View all opens the shelf.
+/// plays its point full screen and steps on through the row; View all
+/// opens the shelf.
 struct HomeStarredRow: View {
     let rows: [StarredPointRow]
-    /// The library, to find each point's match for the push.
-    let matches: [MatchRow]
+    /// The player closed: a star may have come off, so Home re-reads.
+    var onPlayerClosed: () -> Void = {}
+
+    @State private var run: StarredRun?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -125,11 +128,16 @@ struct HomeStarredRow: View {
             // content margin puts the first card back on the page's edge.
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 12) {
-                    ForEach(rows) { row in
-                        card(row)
-                            .containerRelativeFrame(.horizontal) { width, _ in
-                                width * 0.6
-                            }
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                        Button {
+                            run = StarredRun(rows: rows, index: i)
+                        } label: {
+                            StarredCard(row: row)
+                        }
+                        .buttonStyle(.plain)
+                        .containerRelativeFrame(.horizontal) { width, _ in
+                            width * 0.6
+                        }
                     }
                 }
                 .scrollTargetLayout()
@@ -138,17 +146,10 @@ struct HomeStarredRow: View {
             .contentMargins(.horizontal, 20, for: .scrollContent)
             .padding(.horizontal, -20)
         }
-    }
-
-    @ViewBuilder
-    private func card(_ row: StarredPointRow) -> some View {
-        if let match = matches.first(where: { $0.id == row.matchId }) {
-            NavigationLink(value: MatchPointRoute(match: match, pointId: row.id)) {
-                StarredCard(row: row)
+        .fullScreenCover(item: $run, onDismiss: onPlayerClosed) { start in
+            StarredPlayerScreen(rows: start.rows, index: start.index) { row, on in
+                _ = await StarredStore.setStar(row.id, starred: on)
             }
-            .buttonStyle(.plain)
-        } else {
-            StarredCard(row: row)
         }
     }
 }

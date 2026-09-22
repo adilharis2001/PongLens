@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SectionHeading } from "@/components/SectionHeading";
 import { createClient } from "@/lib/supabase/client";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { PointFrame } from "@/app/starred/PointFrame";
+import { StarredPlayer } from "@/app/starred/StarredPlayer";
 import {
   durationLabel,
   outcomeLabel,
@@ -17,9 +17,9 @@ import { ArrowLink } from "./shared";
 
 /**
  * Home's Starred points row (2026-09-22): the ten newest stars, in the
- * shelf's own order, swiped sideways. A card opens its point inside its
- * match; View all goes to the whole shelf. The iOS twin is the
- * `starredPoints` section of HomeScreen.
+ * shelf's own order, swiped sideways. A card plays its point full screen
+ * (StarredPlayer) and steps on through the row; View all goes to the whole
+ * shelf. The iOS twin is HomeStarredRow.
  *
  * One call to starred_points(p_limit => 10), made once when Home mounts —
  * stars change when the player stars something, not every ten seconds —
@@ -38,6 +38,8 @@ const OUTCOME_TEXT: Record<Outcome, string> = {
 export function HomeStarred() {
   const [rows, setRows] = useState<StarredPointRow[] | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
+  /** The card whose point is playing full screen, if any. */
+  const [playing, setPlaying] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -103,7 +105,7 @@ export function HomeStarred() {
         ref={scroller}
         className="-mx-5 mt-4 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto px-5 pb-1 [scrollbar-width:none] sm:mx-0 sm:scroll-px-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
       >
-        {rows.map((row) => {
+        {rows.map((row, i) => {
           const match = deriveMatchTitleParts({
             opponentName: row.opponent_name,
             venue: row.venue,
@@ -112,10 +114,12 @@ export function HomeStarred() {
           }).primary;
           const duration = durationLabel(row);
           return (
-            <Link
+            <button
               key={row.id}
-              href={`/match/${row.match_id}?p=${row.id}`}
-              className="group w-[62%] shrink-0 snap-start sm:w-56"
+              type="button"
+              onClick={() => setPlaying(i)}
+              aria-label={`Play point ${row.display_no}, ${match}`}
+              className="group w-[62%] shrink-0 snap-start text-left sm:w-56"
             >
               <PointFrame
                 row={row}
@@ -136,10 +140,19 @@ export function HomeStarred() {
                 </span>
                 <span className="text-zinc-500"> · {match}</span>
               </span>
-            </Link>
+            </button>
           );
         })}
       </div>
+
+      {playing !== null && (
+        <StarredPlayer
+          rows={rows}
+          index={playing}
+          onIndex={setPlaying}
+          onClose={() => setPlaying(null)}
+        />
+      )}
     </section>
   );
 }

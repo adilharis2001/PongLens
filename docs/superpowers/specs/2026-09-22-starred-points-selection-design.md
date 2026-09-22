@@ -39,15 +39,26 @@ mode with a bottom bar ("3 points · 0:28", Play, Share), one share sheet.
 
 ## Playback
 
-- **Tap a point** (Home card or shelf row): opens that point inside its match
-  in the ordinary point view. No new player.
-- **Play all / Play selected**: back-to-back across matches. No match player
-  can cross matches, so the sequence player stays, cut down to: a header
-  ("Point 42 · Jordan", "3 of 12", close) over the shared clip player
-  (`ClipPlayer` / `ClipPlayerView`). Web keeps the public share page's
-  "‹ 3 / 12 ›" indicator for mouse users; iOS uses the chevrons already on
-  `ClipPlayerView`. The outcome line, the 44pt step buttons, "Remove star"
-  and "Open in match" go (the star on the player still unstars).
+**Revised the same evening (Adil, after using build 232):** opening a point
+inside its match took people to the match screen, and Play all earned its
+place nowhere. Now:
+
+- **Tap a point** (Home card or shelf row): it plays **full screen**, the way
+  the match player shows video, and the side arrows step through the stars
+  across matches; a point that ends moves on to the next. Close returns to
+  where you were. No Play all.
+- It is the shared clip player, not the match player: the full-screen match
+  player (`PlayerTakeover` / `Player.tsx`) is built on one match's cut video
+  and cannot play clips from several matches, and on the web it only exists
+  inside the match page.
+- **Web:** `ClipPlayer` with `fill` (no height cap) and `landscape` (the
+  expand button, which is the match player's own full-screen code) on black,
+  a header with the point and match and the match player's close button.
+- **iOS:** `ClipPlayerView(fullScreen: true)` (square edges, star and mute
+  moved to the bottom row) on black, with the match player's rotate button
+  and close button; landscape uses the notch margins. Tap plays, hold
+  starts selecting.
+- The selection bar keeps **Play** for the picked points.
 
 ## Home
 

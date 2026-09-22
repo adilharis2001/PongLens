@@ -148,7 +148,9 @@ struct HomeScreen: View {
                     // The newest stars, swiped sideways (2026-09-22). Only
                     // once something is starred; the shelf has the rest.
                     if !ownMatches.isEmpty, !homeStore.starred.isEmpty {
-                        HomeStarredRow(rows: homeStore.starred, matches: library.matches)
+                        HomeStarredRow(rows: homeStore.starred) {
+                            Task { await homeStore.load(userId: app.userId) }
+                        }
                     }
 
                     yourGame

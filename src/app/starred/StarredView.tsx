@@ -27,9 +27,10 @@ import {
  * The rows arrive from starred_points() (134) already numbered and ordered,
  * so this file only draws them.
  *
- * Since 2026-09-22 (Adil): compact rows instead of big tiles, a point opens
- * inside its match, and Select picks points across matches to share as one
- * video or one link. Play all still runs the whole set back to back.
+ * Since 2026-09-22 (Adil): compact rows instead of big tiles, a point plays
+ * full screen and steps on through the stars (never into the match page),
+ * and Select picks points across matches to share as one video or one
+ * link. No Play all: a point that ends moves on to the next star by itself.
  * Spec: docs/superpowers/specs/2026-09-22-starred-points-selection-design.md
  */
 
@@ -111,6 +112,7 @@ function Row({
   reasons,
   selecting,
   selected,
+  onOpen,
   onToggle,
   onUnstar,
 }: {
@@ -118,6 +120,7 @@ function Row({
   reasons: CustomReasonLabels;
   selecting: boolean;
   selected: boolean;
+  onOpen: () => void;
   onToggle: () => void;
   onUnstar: () => void;
 }) {
@@ -142,18 +145,20 @@ function Row({
     );
   }
 
-  // The row opens the point inside its match, in the ordinary point view.
-  // The star sits beside the link, not inside it: a button in a link is
-  // not markup, and the two must not fight for the tap.
+  // The row plays the point full screen. The star sits beside the row's
+  // button, not inside it: a button in a button is not markup, and the two
+  // must not fight for the tap.
   return (
     <li className="relative">
-      <Link
-        href={`/match/${row.match_id}?p=${row.id}`}
-        className="group flex items-center gap-3 py-2.5 pl-3 pr-14 transition-colors hover:bg-surface-2/50 sm:pl-4"
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Play point ${row.display_no}`}
+        className="group flex w-full items-center gap-3 py-2.5 pl-3 pr-14 text-left transition-colors hover:bg-surface-2/50 sm:pl-4"
       >
         {frame}
         <RowText row={row} reasons={reasons} />
-      </Link>
+      </button>
       <button
         type="button"
         onClick={onUnstar}
@@ -243,10 +248,6 @@ export function StarredView({
   const undoTimer = useRef<number | null>(null);
 
   const groups = useMemo(() => groupStarred(rows), [rows]);
-  const titles = useMemo(
-    () => new Map(groups.map((g) => [g.matchId, g.title])),
-    [groups],
-  );
   const reasons: CustomReasonLabels = useMemo(
     () => new Map(reasonLabels.map((r) => [r.id, r.label])),
     [reasonLabels]
@@ -364,19 +365,9 @@ export function StarredView({
               Cancel
             </button>
           ) : (
-            <>
-              <button type="button" onClick={startSelecting} className={PILL}>
-                Select
-              </button>
-              <button
-                type="button"
-                onClick={() => setPlayer({ rows, index: 0 })}
-                className="inline-flex min-h-10 items-center gap-2 rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-4 py-2 text-sm font-semibold text-cyan-glow transition-colors hover:border-cyan-glow/70 hover:bg-cyan-glow/15"
-              >
-                <PlayGlyph className="h-4 w-4" />
-                Play all
-              </button>
-            </>
+            <button type="button" onClick={startSelecting} className={PILL}>
+              Select
+            </button>
           )}
         </div>
       </div>
@@ -398,6 +389,9 @@ export function StarredView({
                   reasons={reasons}
                   selecting={selecting}
                   selected={selected.has(row.id)}
+                  onOpen={() =>
+                    setPlayer({ rows, index: rows.findIndex((r) => r.id === row.id) })
+                  }
                   onToggle={() => toggle(row.id)}
                   onUnstar={() => void unstar(row)}
                 />
@@ -455,7 +449,6 @@ export function StarredView({
           index={player.index}
           onIndex={(i) => setPlayer((p) => (p ? { ...p, index: i } : p))}
           onClose={() => setPlayer(null)}
-          titleOf={(row) => titles.get(row.match_id) ?? "Match"}
         />
       )}
 

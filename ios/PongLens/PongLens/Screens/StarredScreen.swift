@@ -6,9 +6,10 @@ import SwiftUI
 /// src/app/starred.
 ///
 /// Since 2026-09-22 (Adil): compact rows grouped by match instead of big
-/// tiles; tapping a point opens it inside its match, in the ordinary point
-/// view; Select picks points across matches to share as one video or one
-/// link; Play all still runs the whole set back to back.
+/// tiles; tapping a point plays it full screen, stepping through the stars
+/// (never into the match screen); Select picks points across matches to
+/// share as one video or one link. No Play all: a point that ends moves on
+/// to the next star by itself.
 /// Spec: docs/superpowers/specs/2026-09-22-starred-points-selection-design.md
 struct StarredScreen: View {
     @Environment(\.dismiss) private var dismiss
@@ -69,7 +70,9 @@ struct StarredScreen: View {
                 .presentationDragIndicator(.visible)
         }
         .fullScreenCover(item: $run) { start in
-            StarredPlayerScreen(store: store, rows: start.rows, index: start.index)
+            StarredPlayerScreen(rows: start.rows, index: start.index) { row, on in
+                if on { await store.putBack(row) } else { await store.unstar(row) }
+            }
         }
     }
 
@@ -100,31 +103,16 @@ struct StarredScreen: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Starred points")
-                    .font(.plPageTitle)
-                    .tracking(-0.6)
-                    .foregroundStyle(PL.textBody)
-                if !store.rows.isEmpty {
-                    Text(starredSummaryLine(store.rows))
-                        .font(.plBody)
-                        .monospacedDigit()
-                        .foregroundStyle(PL.text500)
-                }
-            }
-            Spacer(minLength: 12)
-            if !store.rows.isEmpty, !selecting {
-                Button {
-                    run = StarredRun(rows: store.rows, index: 0)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Text("Play all")
-                    }
-                }
-                .buttonStyle(PLCyanGhostButtonStyle())
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Starred points")
+                .font(.plPageTitle)
+                .tracking(-0.6)
+                .foregroundStyle(PL.textBody)
+            if !store.rows.isEmpty {
+                Text(starredSummaryLine(store.rows))
+                    .font(.plBody)
+                    .monospacedDigit()
+                    .foregroundStyle(PL.text500)
             }
         }
     }
@@ -175,9 +163,9 @@ struct StarredScreen: View {
                             StarredRow(
                                 row: row,
                                 reasons: store.customReasons,
-                                match: library.matches.first { $0.id == row.matchId },
                                 selecting: selecting,
                                 selected: selected.contains(row.id),
+                                onOpen: { play(row) },
                                 onToggle: { toggle(row.id) },
                                 onUnstar: { Task { await store.unstar(row) } },
                                 onLongPress: { startSelecting(with: row.id) }
@@ -236,6 +224,12 @@ struct StarredScreen: View {
         } else {
             words
         }
+    }
+
+    /// Full screen from this point on, stepping through the whole shelf.
+    private func play(_ row: StarredPointRow) {
+        guard let i = store.rows.firstIndex(where: { $0.id == row.id }) else { return }
+        run = StarredRun(rows: store.rows, index: i)
     }
 
     // MARK: - Selecting
@@ -333,8 +327,8 @@ struct StarredScreen: View {
     }
 }
 
-/// One run of the back-to-back player: the rows it plays and where it
-/// starts. A fresh id each time, so opening Play twice presents twice.
+/// One run of the full-screen player: the rows it steps through and where
+/// it starts. A fresh id each time, so opening it twice presents twice.
 struct StarredRun: Identifiable {
     let id = UUID()
     let rows: [StarredPointRow]
@@ -344,15 +338,15 @@ struct StarredRun: Identifiable {
 // MARK: - Row
 
 /// One starred rally, compact: a small frame of it, its number, and
-/// outcome · reason · length. Tapping opens the point inside its match;
-/// while selecting, tapping picks it. Holding a row starts selecting with
-/// that row picked.
+/// outcome · reason · length. Tapping plays it full screen; while
+/// selecting, tapping picks it. Holding a row starts selecting with that
+/// row picked.
 struct StarredRow: View {
     let row: StarredPointRow
     let reasons: [CustomReason]
-    let match: MatchRow?
     let selecting: Bool
     let selected: Bool
+    let onOpen: () -> Void
     let onToggle: () -> Void
     let onUnstar: () -> Void
     let onLongPress: () -> Void
@@ -365,19 +359,16 @@ struct StarredRow: View {
                 .accessibilityAddTraits(selected ? .isSelected : [])
         } else {
             HStack(spacing: 0) {
-                if let match {
-                    NavigationLink(value: MatchPointRoute(match: match, pointId: row.id)) {
-                        content
-                    }
-                    .buttonStyle(.plain)
-                    .simultaneousGesture(
-                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in onLongPress() }
-                    )
-                } else {
-                    content
-                }
-                // Beside the link, not inside it: a button nested in a
-                // NavigationLink's label fights it for the tap.
+                // A tap and a hold on the same row. Gestures rather than a
+                // Button: a Button fires on release however long the finger
+                // was down, so the hold would also open the player.
+                content
+                    .onTapGesture(perform: onOpen)
+                    .onLongPressGesture(minimumDuration: 0.45, perform: onLongPress)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction(named: "Select", onLongPress)
+                // Beside the row's tap target, not inside it, so the two
+                // never fight for the same touch.
                 Button(action: onUnstar) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 15))
@@ -432,24 +423,27 @@ struct StarredRow: View {
     }
 }
 
-// MARK: - The back-to-back player
+// MARK: - The full-screen player
 
-/// Starred points played back to back, across matches: Play all, or Play
-/// on a selection. A single point opens inside its match instead.
+/// A starred point, full screen, the way the match player shows video:
+/// black edge to edge, the picture as large as the screen allows, the
+/// match player's rotate button for landscape (rotation lock or not), and
+/// its close button in the corner. The arrows on the picture step through
+/// the stars, across matches, and a point that ends moves on to the next.
+/// Opened from the shelf, a selection's Play, and Home's row; never the
+/// match screen (Adil, 2026-09-22).
 ///
-/// `ClipPlayerView` is the point sheet's own player, so its chevrons, star,
-/// zoom and their persistence all arrive here without being written twice.
-/// This adds only what makes it a run: a header saying where you are,
-/// advance on the clip ending, and minting the NEXT clip's link while the
-/// current one plays. (Until 2026-09-22 it carried its own outcome line,
-/// step buttons, Remove star and Open in match; Adil asked for the shared
-/// player instead.)
+/// The picture is `ClipPlayerView`, the point sheet's own player, in its
+/// full-screen form, so its gestures, zoom and their persistence arrive
+/// without being written twice.
 struct StarredPlayerScreen: View {
-    let store: StarredStore
     /// A snapshot: unstarring from the player keeps the run as it was, and
     /// the star on the player shows the change.
     let rows: [StarredPointRow]
     @State var index: Int
+    /// Star on (true) or off (false). The host owns the write: the shelf
+    /// goes through its store and its Undo, Home writes directly.
+    let onStarChange: (StarredPointRow, Bool) async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var player = AVPlayer()
@@ -457,73 +451,108 @@ struct StarredPlayerScreen: View {
     @State private var failed = false
     @State private var loadSeq = 0
     @State private var unstarred: Set<UUID> = []
+    /// The rotate button put the screen in landscape; the way out gives it
+    /// back unless the phone really is on its side (PlayerTakeover's rule).
+    @State private var forcedLandscape = false
 
     private var row: StarredPointRow? {
         rows.indices.contains(index) ? rows[index] : nil
     }
 
     var body: some View {
-        ZStack {
-            PL.ink.ignoresSafeArea()
-            if let row {
-                VStack(spacing: 0) {
-                    header(row)
-                    if row.edited,
-                       let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
-                        ProcessingAvailabilityNoticeView(notice: notice).padding(.horizontal, 20)
-                    }
-                    Spacer(minLength: 0)
+        GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height
+            ZStack {
+                Color.black.ignoresSafeArea()
+                if let row {
                     picture(row)
-                    Spacer(minLength: 0)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        // Sideways, the picture may use the notch's margins;
+                        // top and bottom stay clear of the home indicator.
+                        .ignoresSafeArea(edges: landscape ? .horizontal : [])
+                    VStack(alignment: .leading, spacing: 8) {
+                        topBar(row, landscape: landscape)
+                        if row.edited,
+                           let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                            ProcessingAvailabilityNoticeView(notice: notice)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 8)
+                } else {
+                    ProgressView().tint(PL.cyan)
                 }
-            } else {
-                ProgressView().tint(PL.cyan)
             }
         }
         .task(id: row?.id) { await load() }
+        .onDisappear {
+            player.pause()
+            releaseForcedLandscape()
+        }
     }
 
-    private func header(_ row: StarredPointRow) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+    /// Where you are on the left; rotate and close on the right, in the
+    /// match player's corner style. Over the picture's top edge sideways,
+    /// in the black above it upright.
+    private func topBar(_ row: StarredPointRow, landscape: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 8) {
-                    Text("Point \(row.displayNo)")
-                        .font(.system(size: 15, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(PL.text100)
-                    Text(row.matchTitle)
-                        .font(.plBody)
-                        .foregroundStyle(PL.text500)
-                        .lineLimit(1)
-                }
-                Text(
-                    "\(index + 1) of \(rows.count)"
-                    + (row.durationLabel.map { " · \($0)" } ?? "")
-                )
-                .font(.plCaption)
-                .monospacedDigit()
-                .foregroundStyle(PL.text500)
+                Text("Point \(row.displayNo)")
+                    .font(.system(size: 15, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(PL.text100)
+                Text("\(row.matchTitle) · \(index + 1) of \(rows.count)")
+                    .font(.plCaption)
+                    .monospacedDigit()
+                    .foregroundStyle(PL.text300)
+                    .lineLimit(1)
             }
-            Spacer(minLength: 0)
-            Button {
+            .shadow(color: .black.opacity(0.9), radius: 2, y: 1)
+            .shadow(color: .black.opacity(0.6), radius: 6)
+            Spacer(minLength: 8)
+            cornerButton(
+                landscape ? "rectangle.portrait.arrowtriangle.2.outward"
+                          : "rectangle.landscape.rotate",
+                label: landscape ? "Back to portrait" : "Turn to landscape"
+            ) {
+                forcedLandscape = !landscape
+                requestOrientation(landscape ? .portrait : .landscapeRight)
+            }
+            cornerButton("xmark", label: "Close") {
                 player.pause()
                 dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(PL.text300)
-                    .frame(width: 34, height: 34)
-                    .background(PL.surface, in: Circle())
-                    .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 10)
-        .padding(.bottom, 16)
+    }
+
+    private func cornerButton(
+        _ icon: String, label: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(PL.text300)
+                .padding(9)
+                .background(PL.ink.opacity(0.7), in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func requestOrientation(_ orientations: UIInterfaceOrientationMask) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
+    }
+
+    private func releaseForcedLandscape() {
+        guard forcedLandscape else { return }
+        forcedLandscape = false
+        guard !UIDevice.current.orientation.isLandscape else { return }
+        requestOrientation(.portrait)
     }
 
     @ViewBuilder
@@ -544,12 +573,11 @@ struct StarredPlayerScreen: View {
                 onNext: { go(index + 1) },
                 onEnded: {
                     if index < rows.count - 1 { go(index + 1) }
-                }
+                },
+                fullScreen: true
             )
-            .padding(.horizontal, 12)
         } else {
-            RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                .fill(Color.black)
+            Color.black
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .overlay(
                     Text(row.edited
@@ -558,11 +586,6 @@ struct StarredPlayerScreen: View {
                         .font(.plBody)
                         .foregroundStyle(PL.text500)
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                        .strokeBorder(PL.edge, lineWidth: 1)
-                )
-                .padding(.horizontal, 12)
         }
     }
 
@@ -573,15 +596,15 @@ struct StarredPlayerScreen: View {
         index = next
     }
 
-    /// The player's own star: off takes the point off the shelf (with the
-    /// shelf's Undo), on puts it back.
+    /// The player's own star: off takes the point off the stars, on puts
+    /// it back. The host decides how the write happens.
     private func toggleStar(_ row: StarredPointRow) async {
         if unstarred.contains(row.id) {
             unstarred.remove(row.id)
-            await store.putBack(row)
+            await onStarChange(row, true)
         } else {
             unstarred.insert(row.id)
-            await store.unstar(row)
+            await onStarChange(row, false)
         }
     }
 

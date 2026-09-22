@@ -1228,6 +1228,11 @@ struct ClipPlayerView: View {
     /// clip file is stale or missing: the picture is right the moment the
     /// timing is saved, and the file catches up in the background.
     var window: (start: Double, end: Double)? = nil
+    /// Edge to edge on black, the way the match player shows video: square
+    /// corners, no border, and the star and mute buttons moved down into the
+    /// bottom row so the top edge is free for the host's title and close.
+    /// The starred points player (2026-09-22) is the one host that uses it.
+    var fullScreen: Bool = false
 
     @State private var progress: Double = 0
     @State private var muted = false
@@ -1286,10 +1291,10 @@ struct ClipPlayerView: View {
                     .padding(10)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: fullScreen ? 0 : PL.rCard, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                .strokeBorder(PL.edge, lineWidth: 1)
+            RoundedRectangle(cornerRadius: fullScreen ? 0 : PL.rCard, style: .continuous)
+                .strokeBorder(fullScreen ? .clear : PL.edge, lineWidth: 1)
         )
         .task(id: url) {
             guard let url else { return }
@@ -1358,36 +1363,46 @@ struct ClipPlayerView: View {
         }
     }
 
+    /// Tag, star and mute. Top-right on the card; bottom-left when the host
+    /// owns the top edge (fullScreen).
+    @ViewBuilder
+    private var pointButtons: some View {
+        if canEdit {
+            if showTag {
+                glassButton(
+                    icon: "tag", size: 12,
+                    tint: tagged ? PL.cyan : PL.text200, action: onTag
+                )
+                .accessibilityLabel("Tag this point")
+            }
+            glassButton(
+                icon: starred ? "star.fill" : "star", size: 12,
+                tint: starred ? Color(hex: 0xFFD230) : PL.text200, action: onStar
+            )
+            .accessibilityLabel(starred ? "Remove star" : "Star this point")
+        }
+        glassButton(
+            icon: muted ? "speaker.slash.fill" : "speaker.wave.2.fill", size: 12,
+            tint: PL.text200
+        ) {
+            muted.toggle()
+            player.isMuted = muted
+        }
+        .accessibilityLabel(muted ? "Unmute" : "Mute")
+    }
+
     private var controls: some View {
         ZStack {
             VStack {
-                HStack(spacing: 6) {
-                    Spacer()
-                    if canEdit {
-                        if showTag {
-                            glassButton(
-                                icon: "tag", size: 12,
-                                tint: tagged ? PL.cyan : PL.text200, action: onTag
-                            )
-                            .accessibilityLabel("Tag this point")
-                        }
-                        glassButton(
-                            icon: starred ? "star.fill" : "star", size: 12,
-                            tint: starred ? Color(hex: 0xFFD230) : PL.text200, action: onStar
-                        )
-                        .accessibilityLabel(starred ? "Remove star" : "Star this point")
+                if !fullScreen {
+                    HStack(spacing: 6) {
+                        Spacer()
+                        pointButtons
                     }
-                    glassButton(
-                        icon: muted ? "speaker.slash.fill" : "speaker.wave.2.fill", size: 12,
-                        tint: PL.text200
-                    ) {
-                        muted.toggle()
-                        player.isMuted = muted
-                    }
-                    .accessibilityLabel(muted ? "Unmute" : "Mute")
                 }
                 Spacer()
                 HStack(spacing: 6) {
+                    if fullScreen { pointButtons }
                     Spacer()
                     glassButton(
                         icon: "arrow.counterclockwise", size: 13,
