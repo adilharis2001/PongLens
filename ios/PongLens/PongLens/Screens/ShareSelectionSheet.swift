@@ -40,28 +40,31 @@ struct ShareSelectionSheet: View {
                 Section { ProcessingAvailabilityNoticeView(notice: notice) }
             }
             Section {
+                // Whichever row was tapped says what is happening; the
+                // other goes flat, so only the row being acted on animates.
                 if sharingOn, InstagramShare.isAvailable(.reel) {
                     PLChooserRow(
                         icon: "camera.aperture",
-                        title: model.busy ? "Preparing…" : "Instagram Reel",
+                        title: working(.reel) ? "Preparing…" : "Instagram Reel",
                         detail: reelDetail,
-                        pending: tooManyForVideo || tooLongForReel,
-                        busy: model.busy
+                        pending: tooManyForVideo || tooLongForReel
+                            || (model.busy && running != .reel),
+                        busy: working(.reel)
                     ) {
                         Task { await run(to: .reel) }
                     }
                 }
 
-                // While the Instagram row is working this one goes flat
-                // rather than spinning too, so only the row being acted on
-                // animates.
                 PLChooserRow(
                     icon: "square.and.arrow.down",
-                    title: "Save the video",
-                    detail: tooManyForVideo
-                        ? "A video takes up to \(StarredSelection.videoMaxPoints) points."
-                        : "These points as one vertical video, to save or send anywhere.",
-                    pending: tooManyForVideo || model.busy
+                    title: working(.save) ? "Preparing…" : "Save the video",
+                    detail: working(.save)
+                        ? model.progressLine
+                        : tooManyForVideo
+                            ? "A video takes up to \(StarredSelection.videoMaxPoints) points."
+                            : "These points as one vertical video, to save or send anywhere.",
+                    pending: tooManyForVideo || (model.busy && running != .save),
+                    busy: working(.save)
                 ) {
                     Task { await run(to: nil) }
                 }
@@ -79,14 +82,8 @@ struct ShareSelectionSheet: View {
                 }
             }
 
-            // What the video's frame carries: never the link. A match with
-            // no confirmed score prints none whatever this says.
-            Section {
-                Toggle("Include names", isOn: $showNames)
-                Toggle("Include score", isOn: $showScore)
-                Toggle("Include logo", isOn: $showLogo)
-            }
-
+            // Right under the rows, where the eye already is: below the
+            // switches it fell off the bottom of the half-height sheet.
             if let message = model.errorMessage {
                 Section {
                     Text(message)
@@ -94,6 +91,14 @@ struct ShareSelectionSheet: View {
                         .foregroundStyle(PL.dangerText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+
+            // What the video's frame carries: never the link. A match with
+            // no confirmed score prints none whatever this says.
+            Section {
+                Toggle("Include names", isOn: $showNames)
+                Toggle("Include score", isOn: $showScore)
+                Toggle("Include logo", isOn: $showLogo)
             }
         }
         .sheet(item: $shareItem) { url in
@@ -103,8 +108,15 @@ struct ShareSelectionSheet: View {
         .task { sharingOn = await StoryShareModel.sharingEnabled() }
     }
 
+    private enum Running { case reel, save }
+
+    /// Which row started the render in flight, so only that one spins.
+    @State private var running: Running?
+
+    private func working(_ row: Running) -> Bool { model.busy && running == row }
+
     private var reelDetail: String {
-        if model.busy { return model.progressLine }
+        if working(.reel) { return model.progressLine }
         if tooManyForVideo {
             return "A video takes up to \(StarredSelection.videoMaxPoints) points."
         }
@@ -118,6 +130,7 @@ struct ShareSelectionSheet: View {
     /// destination nil = hand the finished file to the system share sheet
     /// instead of to Instagram, the same shape SharePointSheet uses.
     private func run(to destination: InstagramShare.Destination?) async {
+        running = destination == nil ? .save : .reel
         guard let url = await model.prepareSelection(
             pointIds: pointIds,
             purpose: destination == nil ? "save" : "instagram",
