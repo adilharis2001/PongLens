@@ -52,7 +52,7 @@ export function BounceDetails({value,evidence,start,end,ready,selected,onSelect,
      <label className="block min-w-0 text-sm text-zinc-300">Event type
       <select className={field} value={annotation?.kind??''} onChange={e=>{if(e.target.value)edit({kind:e.target.value as BounceAnnotation['kind']});else {onChange(removeBounce(review,selected));}}}>
        {!choice.id.startsWith('added:')&&<option value="">Not annotated</option>}
-       {BOUNCE_KINDS.filter(([key])=>key!=='non_playing'||kind==='non_playing').map(([key,text])=><option key={key} value={key}>{text}</option>)}
+       {BOUNCE_KINDS.filter(([key])=>(key!=='non_playing'&&key!=='rally')||key===kind).map(([key,text])=><option key={key} value={key}>{text}</option>)}
       </select>
      </label>
      <label className="block min-w-0 text-sm text-zinc-300">Side <span className="text-zinc-500">(optional)</span>
@@ -61,6 +61,11 @@ export function BounceDetails({value,evidence,start,end,ready,selected,onSelect,
       </select>
      </label>
     </div>
+    {kind==='table'&&<p className="text-xs text-zinc-400">Use Table bounce for a real bounce on the playing table during the point, including the serve. Serve bounce is optional detail.</p>}
+    {kind==='serve'&&<p className="text-xs text-zinc-400">Either actual table bounce of the serve: first on the server’s side, then on the receiver’s side. These may not be the first two detected markers.</p>}
+    {kind==='rally'&&<p className="text-xs text-zinc-400">A table bounce during play after the serve. You can use Table bounce for this; there is no need to relabel older answers.</p>}
+    {kind==='net_clip'&&<p className="text-xs text-zinc-400">Contact with the net itself, not a table bounce. Play may continue after a clip.</p>}
+    {kind==='net_bounce'&&<p className="text-xs text-zinc-400">A table bounce after a failed net shot has ended play. If play continues after a net clip, use Table bounce instead.</p>}
     {kind==='non_rally'&&<p className="text-xs text-zinc-400">On the playing table before the serve or after the point, including preparation, retrieving or passing the ball.</p>}
     {kind==='other_table'&&<p className="text-xs text-zinc-400">On a different table, outside this match.</p>}
     {kind==='ball_handling'&&<p className="text-xs text-zinc-400">A player’s handling motion was detected as a bounce, without an actual table bounce.</p>}

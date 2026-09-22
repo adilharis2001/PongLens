@@ -49,6 +49,7 @@ export function clock(time:number) {
 export const BOUNCE_KINDS = [
  ['table','Table bounce'], ['serve','Serve bounce'], ['rally','Rally bounce'],
  ['paddle','Paddle contact'], ['floor','Floor bounce'],
+ ['net_clip','Net clipping'], ['net_bounce','Net bounce'],
  ['non_rally','Non-rally bounces'], ['other_table','Bounce on another table'],
  ['ball_handling','Ball handling mistaken for a bounce'],
  ['ceiling','Ceiling / overhead contact'],
