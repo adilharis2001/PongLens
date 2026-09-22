@@ -204,9 +204,14 @@ export function ShareSelectionSheet({
           // dismissed the OS sheet; the link stays visible below
         }
       } else {
-        await navigator.clipboard.writeText(data.url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        try {
+          await navigator.clipboard.writeText(data.url);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          // The link exists and sits below with its own Copy button; a
+          // browser that refuses the clipboard is not a failed link.
+        }
       }
     } catch {
       setError("Couldn't create the link. Try again.");

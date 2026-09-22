@@ -96,9 +96,12 @@ export function HomeStarred() {
         </div>
       </div>
 
+      {/* On a phone the row runs to the screen's edge so the next card
+          peeks in, the way the iOS row does; the padding puts the first
+          card back on the page margin. From sm up it sits in the column. */}
       <div
         ref={scroller}
-        className="mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="-mx-5 mt-4 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto px-5 pb-1 [scrollbar-width:none] sm:mx-0 sm:scroll-px-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
       >
         {rows.map((row) => {
           const match = deriveMatchTitleParts({

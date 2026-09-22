@@ -207,14 +207,19 @@ and if a shadow disagrees with what the Mac published, stop — do not reason it
 away as platform variance. On this footage the two platforms agreed to half a
 pixel, so a real disagreement is a real defect.
 
-**Current pairing (2026-09-18):** Mac main/fast and the health monitor run
-`e2eb55a72d0eb8576c81a6832a85fa31c78e6da232f9696e2e4ca3078eb8582b`
-(source `f28fa91a`, merged to main as `6485d4a0`); the registered twin is
-`cd82d58970a3958590b30cc01f04274f9e11efb3c76674799ff8c9bfae866355`, shared
-`pipeline_id` `746bb79ef5d211bf153a6a352ab271c1e9bfdf78f2dd6982a8f53dd20c529750`,
-`release_match` true. Rollback is `07c5823c…`, which is also what the hand lane
-still runs — it has no detector, so table work does not touch it.
-`cloud_mode` is `disabled`; registering the twin does not change that.
+**Current pairing (2026-09-22):** Mac main/fast and the health monitor run
+`112a1e25b66304f9f76fed1a8a1f75ec822491a54297ffe740516ee2af62afee`
+(source `f78a93f7`): the starred-selection video (`process_selection_reel`)
+and `render_story` writing the source frame rate instead of a fixed 25 fps.
+Everything that decides what a match becomes is identical to the release
+before it (same runtime, models, settings; all smoke modes passed). The
+immediate rollback is `e2eb55a7…` (source `f28fa91a`), still staged, with its
+launchers backed up under `launcher-backups/20260922-selection-release/`. The
+registered twin is still `cd82d589…`, built from `e2eb55a7`, so the dispatcher
+reports `release_mismatch` until the twin is rebuilt from `112a1e25`;
+`cloud_mode` is `disabled`, so nothing is waiting on it. The hand lane still
+runs `07c5823c…` — it has no detector and renders nothing, so neither change
+touches it.
 
 **The code is built so a missed update is visible rather than silent.** An
 unrecognised kind or stage renders as its own raw name with a marker

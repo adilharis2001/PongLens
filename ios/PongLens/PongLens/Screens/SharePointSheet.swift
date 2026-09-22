@@ -434,22 +434,25 @@ final class StoryShareModel {
         }
     }
 
-    /// The starred rallies as ONE vertical video — scope v:starred,
-    /// stitched by the worker. Always the server: joining several clips
-    /// with crossfades is exactly the machinery render_story already has,
-    /// and a phone rebuilding it would be a third copy of the frame.
-    func prepareHighlights(match: MatchRow, showNames: Bool,
-                           showScore: Bool,
-                           showLogo: Bool = true) async -> URL? {
+    /// Starred points picked from any number of matches, as ONE vertical
+    /// video (2026-09-22). Always the worker, like every multi-rally video:
+    /// joining several clips with crossfades is exactly the machinery
+    /// render_story already has, and a phone rebuilding it would be a third
+    /// copy of the frame. The web asks for the same file.
+    ///
+    /// purpose "instagram" holds it to a Reel's 60 seconds; "save" allows
+    /// three minutes. Same render either way.
+    func prepareSelection(pointIds: [UUID], purpose: String,
+                          showNames: Bool, showScore: Bool,
+                          showLogo: Bool) async -> URL? {
         guard !busy else { return nil }
         busy = true
         errorMessage = nil
         progressLine = "This takes a little while."
         defer { busy = false }
-        let matchId = match.id.uuidString.lowercased()
         struct Req: Encodable {
-            let matchId: String
-            let vertical: Bool
+            let pointIds: [String]
+            let purpose: String
             let showScore: Bool
             let showNames: Bool
             let showLogo: Bool
@@ -458,36 +461,86 @@ final class StoryShareModel {
         do {
             let _: Res = try await API.post(
                 "api/reel",
-                Req(matchId: matchId, vertical: true,
-                    showScore: showScore, showNames: showNames,
-                    showLogo: showLogo))
+                Req(pointIds: pointIds.map { $0.uuidString.lowercased() },
+                    purpose: purpose, showScore: showScore,
+                    showNames: showNames, showLogo: showLogo))
         } catch {
             errorMessage = friendly(error)
             return nil
         }
         // Several rallies take several times longer than one; the deadline
         // stretches with them rather than declaring a working render dead.
-        guard await waitForRender(matchId: matchId, scope: "v:starred",
-                                  deadline: .seconds(180)) else { return nil }
-        struct MediaReq: Encodable {
-            let matchId: String
-            let reel: Bool
-            let scope: String
+        guard await waitForSelectionRender(deadline: .seconds(300)) else {
+            return nil
         }
+        struct MediaReq: Encodable { let selectionReel: Bool }
         struct MediaRes: Decodable { let url: String? }
         do {
             let res: MediaRes = try await API.post(
-                "api/media-url",
-                MediaReq(matchId: matchId, reel: true, scope: "v:starred"))
+                "api/media-url", MediaReq(selectionReel: true))
             guard let link = res.url.flatMap(URL.init) else {
                 errorMessage = "Couldn't prepare the video. Try again."
                 return nil
             }
-            return try await download(link, named: "PongLens-highlights.mp4")
+            return try await download(link, named: "PongLens-starred-points.mp4")
         } catch {
             errorMessage = friendly(error)
             return nil
         }
+    }
+
+    /// A public link that plays these points, from however many matches
+    /// (2026-09-22). A fixed list: unstarring later does not change it.
+    func mintSelectionLink(pointIds: [UUID]) async -> URL? {
+        guard !mintingLink else { return nil }
+        mintingLink = true
+        errorMessage = nil
+        defer { mintingLink = false }
+        struct Req: Encodable { let pointIds: [String] }
+        struct Res: Decodable { let url: String }
+        do {
+            let res: Res = try await API.post(
+                "api/share",
+                Req(pointIds: pointIds.map { $0.uuidString.lowercased() }))
+            return URL(string: res.url)
+        } catch {
+            errorMessage = friendly(error)
+            return nil
+        }
+    }
+
+    /// The account's one selection render (selection_reels), read under
+    /// RLS, which returns only the caller's own row.
+    private func waitForSelectionRender(deadline: Duration) async -> Bool {
+        struct Row: Decodable { let status: String }
+        let started = ContinuousClock.now
+        while ContinuousClock.now - started < deadline {
+            let rows: [Row]? = try? await supa
+                .from("selection_reels")
+                .select("status")
+                .execute()
+                .value
+            switch rows?.first?.status {
+            case "ready":
+                return true
+            case "failed":
+                errorMessage = "Couldn't prepare the video. Try again."
+                return false
+            case "rendering":
+                progressLine = "Almost there."
+            default:
+                break
+            }
+            let lane = processingServiceLane(kind: "reel", clipLane: ProcessingServiceStore.shared.clipLane, scope: "v:selection")
+            if let notice = ProcessingServiceStore.shared.notice(lane: lane, context: .fast) {
+                progressLine = notice.body
+                errorMessage = nil
+                return false
+            }
+            try? await Task.sleep(for: pollInterval)
+        }
+        errorMessage = "That took too long. Try again in a minute."
+        return false
     }
 
     /// A vertical derivative of the canonical automatic highlight. The

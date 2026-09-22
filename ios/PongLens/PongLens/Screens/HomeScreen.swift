@@ -145,6 +145,12 @@ struct HomeScreen: View {
                         recentMatches
                     }
 
+                    // The newest stars, swiped sideways (2026-09-22). Only
+                    // once something is starred; the shelf has the rest.
+                    if !ownMatches.isEmpty, !homeStore.starred.isEmpty {
+                        HomeStarredRow(rows: homeStore.starred, matches: library.matches)
+                    }
+
                     yourGame
 
                     workingOn
@@ -157,7 +163,10 @@ struct HomeScreen: View {
                 .padding(.top, 12)
                 .padding(.bottom, 120)
             }
-            .refreshable { await library.load() }
+            .refreshable {
+                await library.load()
+                await homeStore.load(userId: app.userId)
+            }
             .task { await homeStore.load(userId: app.userId) }
 
             // The pill is on every other screen, so it is on this one too.

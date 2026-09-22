@@ -2,43 +2,33 @@ import AVFoundation
 import SwiftUI
 
 /// Every point the player has starred, across every match, in one place
-/// (Account -> Your game). The web twin is src/app/starred.
+/// (Account -> Your game, and View all on Home). The web twin is
+/// src/app/starred.
 ///
-/// Tapping a tile does not open that point on its own — it starts the
-/// whole set playing from there. A grid you have to open and close one
-/// rally at a time is a file browser; a grid that becomes a reel is a
-/// highlights tape, and the tape is the reason to keep stars in one place.
+/// Since 2026-09-22 (Adil): compact rows grouped by match instead of big
+/// tiles; tapping a point opens it inside its match, in the ordinary point
+/// view; Select picks points across matches to share as one video or one
+/// link; Play all still runs the whole set back to back.
+/// Spec: docs/superpowers/specs/2026-09-22-starred-points-selection-design.md
 struct StarredScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
 
     @State private var store = StarredStore()
-    @State private var openIndex: StarredIndex?
-    /// Handed over by the player on the way out (see onChange below).
-    @State private var pendingMatch: StarredPointRow?
-    @State private var openMatch: MatchPointRoute?
-    /// Which match's starred set is being shared, when the group header's
-    /// share button is tapped.
-    @State private var shareMatch: MatchRow?
-    /// The emergency switch (136); an unreadable row answers "on".
-    @State private var sharingOn = true
+    @State private var selecting = false
+    @State private var selected: Set<UUID> = []
+    @State private var run: StarredRun?
+    @State private var sharing = false
+
+    private var picked: [StarredPointRow] { selectedInShelfOrder(store.rows, selected) }
 
     var body: some View {
         ZStack {
             ArenaBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Back")
-                        }
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle())
+                    topBar
 
                     header
 
@@ -60,44 +50,54 @@ struct StarredScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .overlay(alignment: .bottom) { undoBar }
-        .task {
-            sharingOn = await StoryShareModel.sharingEnabled()
-            await store.load(userId: app.userId)
+        .overlay(alignment: .bottom) {
+            if selecting {
+                selectionBar
+            } else {
+                undoBar
+            }
         }
-        .sheet(item: $shareMatch) { match in
-            ShareHighlightsSheet(
-                match: match,
-                starredCount: store.groups
-                    .first { $0.matchId == match.id }?.points.count ?? 0
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+        .animation(.easeOut(duration: 0.2), value: selecting && !selected.isEmpty)
+        .task { await store.load(userId: app.userId) }
+        .onChange(of: store.rows) { _, rows in
+            // A point unstarred elsewhere cannot stay picked.
+            selected.formIntersection(rows.map(\.id))
         }
-        .fullScreenCover(item: $openIndex) { start in
-            StarredPlayerScreen(
-                store: store,
-                index: start.value,
-                onOpenInMatch: { row in pendingMatch = row }
-            )
+        .sheet(isPresented: $sharing) {
+            ShareSelectionSheet(rows: picked)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
-        // The cover has no navigation stack of its own, so "Open in match"
-        // hands the row back and the push happens here, after the cover is
-        // down. Raising a push into a dismissing cover loses the race and
-        // simply does nothing — the same trap the new-match chooser hit.
-        .onChange(of: openIndex) { _, now in
-            guard now == nil, let row = pendingMatch else { return }
-            pendingMatch = nil
-            guard let match = library.matches.first(where: { $0.id == row.matchId })
-            else { return }
-            openMatch = MatchPointRoute(match: match, pointId: row.id)
-        }
-        .navigationDestination(item: $openMatch) { route in
-            MatchDetailScreen(match: route.match, openPointId: route.pointId)
+        .fullScreenCover(item: $run) { start in
+            StarredPlayerScreen(store: store, rows: start.rows, index: start.index)
         }
     }
 
     // MARK: - Header
+
+    /// Back on the left, Select or Cancel on the right: where iOS puts
+    /// both, in Photos and Mail alike.
+    private var topBar: some View {
+        HStack {
+            Button {
+                dismiss()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Back")
+                }
+            }
+            .buttonStyle(PLSecondaryButtonStyle())
+            Spacer()
+            if !store.rows.isEmpty {
+                Button(selecting ? "Cancel" : "Select") {
+                    if selecting { stopSelecting() } else { startSelecting(with: nil) }
+                }
+                .buttonStyle(PLSecondaryButtonStyle())
+            }
+        }
+    }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -114,9 +114,9 @@ struct StarredScreen: View {
                 }
             }
             Spacer(minLength: 12)
-            if !store.rows.isEmpty {
+            if !store.rows.isEmpty, !selecting {
                 Button {
-                    openIndex = StarredIndex(value: 0)
+                    run = StarredRun(rows: store.rows, index: 0)
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "play.fill")
@@ -134,7 +134,7 @@ struct StarredScreen: View {
             ForEach(0..<3, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                     .fill(PL.surface)
-                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .frame(height: 150)
                     .overlay(
                         RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                             .strokeBorder(PL.edge, lineWidth: 1)
@@ -163,99 +163,147 @@ struct StarredScreen: View {
     // MARK: - The shelf
 
     private var shelf: some View {
-        LazyVStack(alignment: .leading, spacing: 28) {
+        LazyVStack(alignment: .leading, spacing: 26) {
             ForEach(store.groups) { group in
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 12) {
                     groupHeader(group)
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.adaptive(minimum: 260), spacing: 12)
-                        ],
-                        spacing: 12
-                    ) {
-                        ForEach(group.points) { row in
-                            StarredTile(
+                    VStack(spacing: 0) {
+                        ForEach(Array(group.points.enumerated()), id: \.element.id) { i, row in
+                            if i > 0 {
+                                Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
+                            }
+                            StarredRow(
                                 row: row,
                                 reasons: store.customReasons,
-                                onOpen: { open(row) },
-                                onUnstar: { Task { await store.unstar(row) } }
+                                match: library.matches.first { $0.id == row.matchId },
+                                selecting: selecting,
+                                selected: selected.contains(row.id),
+                                onToggle: { toggle(row.id) },
+                                onUnstar: { Task { await store.unstar(row) } },
+                                onLongPress: { startSelecting(with: row.id) }
                             )
                         }
                     }
+                    .plCard(padding: 0)
                 }
             }
         }
+        // Room for the selection bar under the last row.
+        .padding(.bottom, selecting ? 90 : 0)
     }
 
     @ViewBuilder
     private func groupHeader(_ group: StarredGroup) -> some View {
-        let destination = library.matches.first { $0.id == group.matchId }
-        let content = HStack(spacing: 12) {
-            Group {
-                if group.hasThumb {
-                    MatchThumb(matchId: group.matchId)
-                } else {
-                    Rectangle().fill(PL.surface2)
-                }
-            }
-            .frame(width: 88, height: 50)
-            .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                    .strokeBorder(PL.edge, lineWidth: 1)
-            )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(group.title)
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                    .lineLimit(1)
-                Text(group.subtitle)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            HStack(spacing: 4) {
-                Text("\(group.points.count) point\(group.points.count == 1 ? "" : "s")")
-                    .font(.plCaption)
-                    .monospacedDigit()
-                if destination != nil {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-            }
-            .foregroundStyle(PL.text500)
+        let words = VStack(alignment: .leading, spacing: 2) {
+            Text(group.title)
+                .font(.plCardTitle)
+                .foregroundStyle(PL.text100)
+                .lineLimit(1)
+            Text(group.subtitle)
+                .font(.plCaption)
+                .foregroundStyle(PL.text500)
+                .lineLimit(1)
         }
-
-        if let destination {
-            HStack(spacing: 10) {
-                NavigationLink(value: destination) { content }
+        if selecting {
+            let all = group.points.allSatisfy { selected.contains($0.id) }
+            HStack(alignment: .bottom, spacing: 12) {
+                words
+                Spacer(minLength: 8)
+                Button(all ? "Deselect all" : "Select all") { toggleGroup(group) }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.cyan)
                     .buttonStyle(.plain)
-                if sharingOn {
-                    // Outside the link on purpose: a button nested inside
-                    // a NavigationLink's label fights it for the tap.
-                    Button {
-                        shareMatch = destination
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(PL.text200)
-                            .frame(width: 38, height: 38)
-                            .background(PL.surface2, in: Circle())
-                            .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
             }
+        } else if let match = library.matches.first(where: { $0.id == group.matchId }) {
+            NavigationLink(value: match) {
+                HStack(alignment: .bottom, spacing: 12) {
+                    words
+                    Spacer(minLength: 8)
+                    HStack(spacing: 4) {
+                        Text("\(group.points.count) point\(group.points.count == 1 ? "" : "s")")
+                            .font(.plCaption)
+                            .monospacedDigit()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(PL.text500)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         } else {
-            content
+            words
         }
     }
 
-    private func open(_ row: StarredPointRow) {
-        guard let i = store.rows.firstIndex(where: { $0.id == row.id }) else { return }
-        openIndex = StarredIndex(value: i)
+    // MARK: - Selecting
+
+    private func startSelecting(with id: UUID?) {
+        store.undo = nil
+        selected = id.map { [$0] } ?? []
+        selecting = true
+    }
+
+    private func stopSelecting() {
+        selecting = false
+        selected = []
+    }
+
+    private func toggle(_ id: UUID) {
+        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+    }
+
+    private func toggleGroup(_ group: StarredGroup) {
+        let ids = group.points.map(\.id)
+        if ids.allSatisfy(selected.contains) {
+            selected.subtract(ids)
+        } else {
+            selected.formUnion(ids)
+        }
+    }
+
+    /// What is picked, and the two things to do with it: Play (outlined)
+    /// and Share (the one cyan primary).
+    @ViewBuilder
+    private var selectionBar: some View {
+        if !picked.isEmpty {
+            HStack(spacing: 10) {
+                Text(selectionSummary(picked))
+                    .font(.system(size: 15, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(PL.text100)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Button {
+                    run = StarredRun(rows: picked, index: 0)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("Play")
+                    }
+                    .frame(minHeight: 28)
+                }
+                .buttonStyle(PLSecondaryButtonStyle())
+                Button("Share") { sharing = true }
+                    .buttonStyle(PLPrimaryButtonStyle())
+            }
+            .padding(.leading, 18)
+            .padding(.trailing, 8)
+            .padding(.vertical, 8)
+            // Opaque: rows scroll underneath, and their words must not
+            // show through the counts and the buttons.
+            .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                    .strokeBorder(PL.edge, lineWidth: 1)
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     // MARK: - Undo
@@ -285,189 +333,133 @@ struct StarredScreen: View {
     }
 }
 
-/// `fullScreenCover(item:)` needs an Identifiable, and an Int is not one.
-struct StarredIndex: Identifiable, Hashable {
-    let value: Int
-    var id: Int { value }
+/// One run of the back-to-back player: the rows it plays and where it
+/// starts. A fresh id each time, so opening Play twice presents twice.
+struct StarredRun: Identifiable {
+    let id = UUID()
+    let rows: [StarredPointRow]
+    let index: Int
 }
 
-// MARK: - Tile
+// MARK: - Row
 
-/// One starred rally: a real frame out of its own clip, with the four
-/// facts in the corners. The wash underneath carries the tile until the
-/// frame arrives, and stays if it never does.
-struct StarredTile: View {
+/// One starred rally, compact: a small frame of it, its number, and
+/// outcome · reason · length. Tapping opens the point inside its match;
+/// while selecting, tapping picks it. Holding a row starts selecting with
+/// that row picked.
+struct StarredRow: View {
     let row: StarredPointRow
     let reasons: [CustomReason]
-    let onOpen: () -> Void
+    let match: MatchRow?
+    let selecting: Bool
+    let selected: Bool
+    let onToggle: () -> Void
     let onUnstar: () -> Void
-
-    private var tint: Color {
-        switch row.outcome {
-        case .won: PL.cyan
-        case .lost: PL.magentaSoft
-        case .skipped: PL.warningText
-        case .unscored: PL.text400
-        }
-    }
+    let onLongPress: () -> Void
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [tint.opacity(0.16), tint.opacity(0.04), .clear],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            // What the tile looks like before the frame arrives: the
-            // point's own number, big enough to be the picture.
-            HStack {
-                Spacer()
-                Text("\(row.displayNo)")
-                    .font(.system(size: 76, weight: .black))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.06))
-                    .padding(.trailing, 12)
-            }
-
-            if row.hasClip, !row.edited {
-                ClipFrame(
-                    matchId: row.matchId, pointId: row.id, at: row.posterTime
-                )
-            }
-
-            // Legibility for the four corners, without flattening the frame.
-            VStack(spacing: 0) {
-                LinearGradient(
-                    colors: [PL.ink.opacity(0.7), .clear],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .frame(height: 54)
-                Spacer(minLength: 0)
-                LinearGradient(
-                    colors: [.clear, PL.ink.opacity(0.5), PL.ink.opacity(0.9)],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .frame(height: 68)
-            }
-
-            chrome
-        }
-        .aspectRatio(16 / 9, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                .strokeBorder(PL.edge, lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onOpen)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Point \(row.displayNo), \(row.outcomeLabel)")
-        .accessibilityAddTraits(.isButton)
-    }
-
-    /// Small text sitting directly on a video frame. A scrim alone cannot
-    /// carry it: these clips are shot in halls with white floors, and the
-    /// bottom of the frame — exactly where the caption goes — is the
-    /// brightest part of the picture.
-    private func onFrame(_ view: some View) -> some View {
-        view
-            .shadow(color: .black.opacity(0.95), radius: 2, y: 1)
-            .shadow(color: .black.opacity(0.6), radius: 6)
-    }
-
-    private var chrome: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 8) {
-                HStack(spacing: 7) {
-                    Circle().fill(tint).frame(width: 6, height: 6)
-                    onFrame(
-                        Text(row.outcomeLabel)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(tint)
-                            .lineLimit(1)
+        if selecting {
+            Button(action: onToggle) { content }
+                .buttonStyle(.plain)
+                .background(selected ? PL.cyan.opacity(0.05) : .clear)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+        } else {
+            HStack(spacing: 0) {
+                if let match {
+                    NavigationLink(value: MatchPointRoute(match: match, pointId: row.id)) {
+                        content
+                    }
+                    .buttonStyle(.plain)
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in onLongPress() }
                     )
+                } else {
+                    content
                 }
-                Spacer(minLength: 0)
+                // Beside the link, not inside it: a button nested in a
+                // NavigationLink's label fights it for the tap.
                 Button(action: onUnstar) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 15))
                         .foregroundStyle(Color(hex: 0xFFD230))
-                        .padding(6)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .padding(-6)
+                .padding(.trailing, 6)
                 .accessibilityLabel("Remove the star from point \(row.displayNo)")
             }
-
-            Spacer(minLength: 0)
-
-            HStack(alignment: .bottom, spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    if let sub = subtitle {
-                        onFrame(
-                            Text(sub)
-                                .font(.system(size: 11))
-                                .foregroundStyle(PL.text200)
-                                .lineLimit(1)
-                        )
-                    }
-                    onFrame(
-                        HStack(spacing: 5) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white.opacity(0.75))
-                            Text("Point \(row.displayNo)")
-                                .font(.system(size: 12, weight: .semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(.white)
-                        }
-                    )
-                }
-                Spacer(minLength: 0)
-                onFrame(
-                    Text(row.edited ? (ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) == nil ? "Updating clip" : "Clip update waiting") : (row.durationLabel ?? ""))
-                        .font(.system(size: 11, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(PL.text200)
-                )
-            }
         }
-        .padding(13)
     }
 
-    private var subtitle: String? {
-        let parts = [row.reasonLabel(custom: reasons), row.directionLabel]
+    private var content: some View {
+        HStack(spacing: 12) {
+            if selecting {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(selected ? PL.cyan : PL.text500)
+            }
+            StarredFrame(row: row)
+                .frame(width: 96)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Point \(row.displayNo)")
+                    .font(.system(size: 15, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(PL.text100)
+                Text("\(Text(row.outcomeLabel).foregroundStyle(row.outcomeTint))\(Text(rest.isEmpty ? "" : " · \(rest)").foregroundStyle(PL.text500))")
+                    .font(.plCaption)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 10)
+        .padding(.leading, 14)
+        .padding(.trailing, selecting ? 14 : 0)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Point \(row.displayNo), \(row.outcomeLabel)")
+    }
+
+    /// reason · direction · length, whichever of them exist.
+    private var rest: String {
+        let length: String? = row.edited
+            ? (ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) == nil
+               ? "Updating clip" : "Clip update waiting")
+            : row.durationLabel
+        return [row.reasonLabel(custom: reasons), row.directionLabel, length]
             .compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+            .joined(separator: " · ")
     }
 }
 
-// MARK: - The sequence player
+// MARK: - The back-to-back player
 
-/// The starred set, played as a tape.
+/// Starred points played back to back, across matches: Play all, or Play
+/// on a selection. A single point opens inside its match instead.
 ///
-/// `ClipPlayerView` is the point sheet's own player, so the pinch zoom,
-/// the speed control and their persistence all arrive here without being
-/// written twice. What this adds is what makes it a sequence: advance on
-/// the clip ending, prev/next, and minting the NEXT clip's link while the
-/// current one plays, so the gap between rallies is not a spinner.
+/// `ClipPlayerView` is the point sheet's own player, so its chevrons, star,
+/// zoom and their persistence all arrive here without being written twice.
+/// This adds only what makes it a run: a header saying where you are,
+/// advance on the clip ending, and minting the NEXT clip's link while the
+/// current one plays. (Until 2026-09-22 it carried its own outcome line,
+/// step buttons, Remove star and Open in match; Adil asked for the shared
+/// player instead.)
 struct StarredPlayerScreen: View {
     let store: StarredStore
+    /// A snapshot: unstarring from the player keeps the run as it was, and
+    /// the star on the player shows the change.
+    let rows: [StarredPointRow]
     @State var index: Int
-    /// Pushed onto the shelf's navigation stack after this closes; the
-    /// cover has no stack of its own to push onto.
-    let onOpenInMatch: (StarredPointRow) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var player = AVPlayer()
     @State private var url: URL?
     @State private var failed = false
     @State private var loadSeq = 0
+    @State private var unstarred: Set<UUID> = []
 
     private var row: StarredPointRow? {
-        store.rows.indices.contains(index) ? store.rows[index] : nil
+        rows.indices.contains(index) ? rows[index] : nil
     }
 
     var body: some View {
@@ -482,7 +474,6 @@ struct StarredPlayerScreen: View {
                     }
                     Spacer(minLength: 0)
                     picture(row)
-                    controls(row)
                     Spacer(minLength: 0)
                 }
             } else {
@@ -490,15 +481,7 @@ struct StarredPlayerScreen: View {
             }
         }
         .task(id: row?.id) { await load() }
-        .onChange(of: store.rows.count) { _, count in
-            // A star removed under the player: stand on whatever took its
-            // place, or leave when there is nothing left.
-            if count == 0 { dismiss() }
-            else if index >= count { index = count - 1 }
-        }
     }
-
-    // MARK: Parts
 
     private func header(_ row: StarredPointRow) -> some View {
         HStack(alignment: .top, spacing: 12) {
@@ -508,14 +491,13 @@ struct StarredPlayerScreen: View {
                         .font(.system(size: 15, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(PL.text100)
-                    Text(row.opponentName?.trimmingCharacters(in: .whitespaces).isEmpty == false
-                         ? row.opponentName! : "Match")
+                    Text(row.matchTitle)
                         .font(.plBody)
                         .foregroundStyle(PL.text500)
                         .lineLimit(1)
                 }
                 Text(
-                    "\(index + 1) of \(store.rows.count)"
+                    "\(index + 1) of \(rows.count)"
                     + (row.durationLabel.map { " · \($0)" } ?? "")
                 )
                 .font(.plCaption)
@@ -533,6 +515,8 @@ struct StarredPlayerScreen: View {
                     .frame(width: 34, height: 34)
                     .background(PL.surface, in: Circle())
                     .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
@@ -548,18 +532,18 @@ struct StarredPlayerScreen: View {
             ClipPlayerView(
                 player: player,
                 url: url,
-                starred: true,
+                starred: !unstarred.contains(row.id),
                 tagged: false,
                 updating: row.edited && ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) == nil,
                 hasPrev: index > 0,
-                hasNext: index < store.rows.count - 1,
+                hasNext: index < rows.count - 1,
                 showTag: false,
-                onStar: { Task { await store.unstar(row) } },
+                onStar: { Task { await toggleStar(row) } },
                 onTag: {},
                 onPrev: { go(index - 1) },
                 onNext: { go(index + 1) },
                 onEnded: {
-                    if index < store.rows.count - 1 { go(index + 1) }
+                    if index < rows.count - 1 { go(index + 1) }
                 }
             )
             .padding(.horizontal, 12)
@@ -582,74 +566,23 @@ struct StarredPlayerScreen: View {
         }
     }
 
-    private func controls(_ row: StarredPointRow) -> some View {
-        VStack(spacing: 16) {
-            HStack {
-                stepButton("chevron.left", enabled: index > 0) { go(index - 1) }
-                    .accessibilityLabel("Previous point")
-                Spacer(minLength: 8)
-                VStack(spacing: 2) {
-                    Text(row.outcomeLabel)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(outcomeTint(row))
-                    if let reason = row.reasonLabel(custom: store.customReasons) {
-                        Text(reason)
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 8)
-                stepButton("chevron.right", enabled: index < store.rows.count - 1) {
-                    go(index + 1)
-                }
-                .accessibilityLabel("Next point")
-            }
-
-            HStack(spacing: 12) {
-                Button("Remove star") { Task { await store.unstar(row) } }
-                    .buttonStyle(PLSoftDestructiveButtonStyle())
-                Button("Open in match") {
-                    player.pause()
-                    onOpenInMatch(row)
-                    dismiss()
-                }
-                .buttonStyle(PLSecondaryButtonStyle())
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
-    }
-
-    private func stepButton(
-        _ icon: String, enabled: Bool, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(enabled ? PL.text200 : PL.text600)
-                .frame(width: 44, height: 44)
-                .background(PL.surface, in: Circle())
-                .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-    }
-
-    private func outcomeTint(_ row: StarredPointRow) -> Color {
-        switch row.outcome {
-        case .won: PL.cyan
-        case .lost: PL.magentaSoft
-        case .skipped: PL.warningText
-        case .unscored: PL.text400
-        }
-    }
-
     // MARK: Data
 
     private func go(_ next: Int) {
-        guard store.rows.indices.contains(next) else { return }
+        guard rows.indices.contains(next) else { return }
         index = next
+    }
+
+    /// The player's own star: off takes the point off the shelf (with the
+    /// shelf's Undo), on puts it back.
+    private func toggleStar(_ row: StarredPointRow) async {
+        if unstarred.contains(row.id) {
+            unstarred.remove(row.id)
+            await store.putBack(row)
+        } else {
+            unstarred.insert(row.id)
+            await store.unstar(row)
+        }
     }
 
     private func load() async {
@@ -662,7 +595,7 @@ struct StarredPlayerScreen: View {
             failed = true
             return
         }
-        let link = await clipURL(row)
+        let link = await ClipLinks.url(matchId: row.matchId, pointId: row.id)
         guard loadSeq == mine else { return }
         if let link {
             url = link
@@ -671,13 +604,9 @@ struct StarredPlayerScreen: View {
         }
         // Read one ahead: a six second rally does not leave time to notice
         // a round trip, so the round trip happens during the rally before.
-        if let next = store.rows[safe: index + 1], next.hasClip {
-            _ = await clipURL(next)
+        if let next = rows[safe: index + 1], next.hasClip {
+            _ = await ClipLinks.url(matchId: next.matchId, pointId: next.id)
         }
-    }
-
-    private func clipURL(_ row: StarredPointRow) async -> URL? {
-        await ClipLinks.url(matchId: row.matchId, pointId: row.id)
     }
 }
 

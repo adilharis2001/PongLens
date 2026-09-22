@@ -1,5 +1,15 @@
 # Starred points: Home row, a compact shelf, and sharing across matches
 
+> **Outcome, 2026-09-22: built as below and live.** Migration
+> `20260922221228_starred_selection`; worker release `112a1e25…` (source
+> `f78a93f7`) active on main, fast and the monitor, every smoke mode passed;
+> a real two-match selection rendered on the live fast lane in about 25 s
+> (26 s of 1080×1920 at 60 fps, each rally with its own names and score).
+> Found on the way: `render_story` had always written 25 fps, because the
+> still band artwork was the overlay's main input. Fixed in the same release.
+> Not done: the cloud twin still carries `e2eb55a7`, so it reports
+> `release_mismatch` (it is Off).
+
 Adil, 2026-09-22. Three asks, every surface (web desktop, mobile web, iOS):
 
 1. Starred points get their own row on Home: sideways-swiping, cheap to load,

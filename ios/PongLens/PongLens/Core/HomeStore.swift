@@ -44,7 +44,13 @@ final class HomeStore {
     /// The three board posts being talked about most recently, for Home's
     /// last section. Open posts only: a finished one is not an invitation.
     var boardItems: [FeedbackItem] = []
+    /// The newest starred points, for Home's Starred points row, in the
+    /// shelf's own order (newest match first).
+    var starred: [StarredPointRow] = []
     var loaded = false
+
+    /// Home shows this many stars; the shelf has the rest.
+    static let starredLimit = 10
 
     func load(userId: UUID?) async {
         guard let userId else { return }
@@ -88,6 +94,16 @@ final class HomeStore {
             .execute()
             .value
         boardItems = Array((board ?? []).filter { !$0.isHidden && !$0.isDone }.prefix(3))
+
+        // One call, ten rows (2026-09-22). A failed read keeps the row that
+        // was already showing rather than emptying it.
+        struct StarredReq: Encodable { let p_limit: Int }
+        if let rows: [StarredPointRow] = try? await supa
+            .rpc("starred_points", params: StarredReq(p_limit: Self.starredLimit))
+            .execute()
+            .value {
+            starred = rows
+        }
         loaded = true
     }
 }
