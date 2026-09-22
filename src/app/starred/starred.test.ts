@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  clockLabel,
   durationLabel,
   groupStarred,
   outcomeLabel,
   outcomeOf,
   rallySeconds,
   reasonLabel,
+  selectedInShelfOrder,
+  selectionSeconds,
+  selectionSummary,
   summaryLine,
   type StarredPointRow,
 } from "./starred.ts";
@@ -145,4 +149,35 @@ test("duration", () => {
   assert.equal(durationLabel(row({ t0: null, t1: null })), null);
   // A zero-length rally is missing timing, not a rally.
   assert.equal(rallySeconds(row({ t0: 100, t1: 100 })), null);
+});
+
+test("lengths read as a phone shows them", () => {
+  assert.equal(clockLabel(0), "0:00");
+  assert.equal(clockLabel(28.4), "0:28");
+  assert.equal(clockLabel(59.6), "1:00");
+  assert.equal(clockLabel(65), "1:05");
+});
+
+test("the selection bar counts points and their rally time", () => {
+  const picked = [
+    row({ id: "a", t0: 0, t1: 6.5 }),
+    row({ id: "b", t0: 10, t1: 21.9 }),
+    row({ id: "c", t0: null, t1: null }),
+  ];
+  assert.equal(Math.round(selectionSeconds(picked) * 10) / 10, 18.4);
+  assert.equal(selectionSummary(picked), "3 points · 0:18");
+  assert.equal(selectionSummary([row()]), "1 point · 0:07");
+});
+
+test("a selection plays in shelf order, not tap order", () => {
+  const shelf = [
+    row({ id: "a", match_id: "m1" }),
+    row({ id: "b", match_id: "m1" }),
+    row({ id: "c", match_id: "m2" }),
+  ];
+  const tapped = new Set(["c", "a"]);
+  assert.deepEqual(
+    selectedInShelfOrder(shelf, tapped).map((r) => r.id),
+    ["a", "c"],
+  );
 });

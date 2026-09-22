@@ -17,6 +17,7 @@ import {
   getUnscoredRallyEndTightBufferS,
 } from "@/lib/config";
 import { Logo } from "@/components/Logo";
+import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
 import { clipPad } from "@/app/match/[id]/clipEdit";
 import { skipSpans } from "@/app/match/[id]/playhead";
@@ -47,6 +48,8 @@ import {
   tagContextLine,
   publicLessonChapters,
   publicLessonLines,
+  selectionContextLine,
+  type ResolvedSelectionPoint,
   type ResolvedShareEntry,
   type ResolvedShareLessonRecap,
   type ResolvedShareLink,
@@ -215,6 +218,33 @@ const resolveShareSkips = cache(
   }
 );
 
+// Starred points picked across matches (2026-09-22). Selection tokens share
+// the URL space and resolve through their own functions, asked after the
+// match resolver comes up empty and before the recap and entry ones: the
+// order the share media route follows too.
+const resolveSelectionLink = cache(
+  async (
+    token: string,
+  ): Promise<{ id: string; title: string | null } | null> => {
+    if (!token || token.length < 32 || token.length > 128) return null;
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("resolve_share_selection_link", {
+      p_token: token,
+    });
+    return (data?.[0] as { id: string; title: string | null } | undefined) ?? null;
+  },
+);
+
+const resolveSelection = cache(
+  async (token: string): Promise<ResolvedSelectionPoint[]> => {
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("resolve_share_selection", {
+      p_token: token,
+    });
+    return (data ?? []) as ResolvedSelectionPoint[];
+  },
+);
+
 // A journal entry link (154). Entry tokens live in the same URL space as
 // match tokens but resolve through their own function — resolve_share_link
 // joins matches and answers nothing for them — so the page asks this only
@@ -265,6 +295,24 @@ export async function generateMetadata({
   const link = await resolve(token);
   const robots = { index: false, follow: false };
   if (!link) {
+    const selectionLink = await resolveSelectionLink(token);
+    if (selectionLink) {
+      const title =
+        selectionLink.title?.trim() ||
+        selectionContextLine(await resolveSelection(token));
+      const description = "Watch these table tennis points on PongLens.";
+      return {
+        title,
+        description,
+        robots,
+        openGraph: { title: `${title} · PongLens`, description },
+        twitter: {
+          card: "summary_large_image",
+          title: `${title} · PongLens`,
+          description,
+        },
+      };
+    }
     const recap = await resolveLessonRecap(token);
     if (recap) {
       const title = recap.title?.trim() || "Lesson recap";
@@ -410,6 +458,80 @@ export default async function SharePage({
   // The three R2 keys stay here — the media route signs them — and the
   // written lesson notes are never published: a recap is the chapters.
   if (!link) {
+    // Starred points picked across matches: the same sequence player a
+    // starred link uses, each clip captioned with the match it came from.
+    const selectionLink = await resolveSelectionLink(token);
+    if (selectionLink) {
+      const rows = await resolveSelection(token);
+      const selectionSupportEmail = await getSupportEmail();
+      const clips: StarredClip[] = rows.map((p) => ({
+        id: p.id,
+        number: p.number,
+        duration:
+          p.t0 !== null && p.t1 !== null
+            ? Math.max(0, Number(p.t1) - Number(p.t0))
+            : null,
+        caption: `Point ${p.number} · ${
+          deriveMatchTitleParts({
+            opponentName: p.opponent_name,
+            venue: p.venue,
+            playedAt: p.played_at,
+            matchType: p.match_type,
+          }).primary
+        }`,
+      }));
+      const countLine = selectionContextLine(rows);
+      const customTitle = selectionLink.title?.trim() || null;
+      const heading = customTitle ?? "Starred points";
+      const subLine = customTitle || rows.length > 0 ? countLine : null;
+      return (
+        <main className="bg-arena flex min-h-screen flex-col">
+          <div className="mx-auto w-full max-w-md flex-1 pb-10 sm:max-w-lg lg:max-w-3xl">
+            <header className="px-4 pt-5 sm:pt-8">
+              <Logo />
+              <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">
+                {heading}
+              </h1>
+              {subLine && (
+                <p className="mt-1 text-sm text-zinc-500">{subLine}</p>
+              )}
+            </header>
+
+            <div className="mt-4 sm:px-4">
+              {clips.length > 0 ? (
+                <StarredView token={token} clips={clips} />
+              ) : (
+                <div className="flex aspect-video items-center justify-center border-y border-edge bg-ink sm:rounded-2xl sm:border">
+                  <p className="text-sm text-zinc-500">Nothing here right now.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="px-4">
+              <Link
+                href="/"
+                className="glow-cta mt-8 block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink"
+              >
+                Analyze your own match — free
+              </Link>
+            </div>
+          </div>
+
+          <footer className="mt-8 border-t border-edge/60 px-4 py-6">
+            <div className="mx-auto flex w-full max-w-md flex-col items-center gap-3 sm:max-w-lg">
+              <Logo />
+              <a
+                href={`mailto:${selectionSupportEmail}?subject=Report%20a%20shared%20video`}
+                className="text-xs text-zinc-600 transition-colors hover:text-zinc-400"
+              >
+                Report this video
+              </a>
+            </div>
+          </footer>
+        </main>
+      );
+    }
+
     const recap = await resolveLessonRecap(token);
     if (recap) {
       const recapSupportEmail = await getSupportEmail();

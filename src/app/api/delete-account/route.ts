@@ -253,10 +253,14 @@ export async function POST(req: Request) {
     await deletePrefix(RAW_BUCKET, `${uid}/`);
 
     // Rendered reels are keyed by match, not by owner. Listing by match id
-    // catches every variant — starred, full, and the per-tag scopes.
+    // catches every variant — starred, full, and the per-tag scopes — and
+    // the vertical share renders carry a v- in front of the same id.
     for (const matchId of matchIds) {
       await deletePrefix(MEDIA_BUCKET, `reels/${matchId}`);
+      await deletePrefix(MEDIA_BUCKET, `reels/v-${matchId}`);
     }
+    // A starred selection spans matches, so it is named by its owner.
+    await deletePrefix(MEDIA_BUCKET, `reels/sel-${uid}`);
 
     // One reference to auth.users is ON DELETE NO ACTION rather than CASCADE:
     // the admin who decided a quota request. It only ever points at an admin,

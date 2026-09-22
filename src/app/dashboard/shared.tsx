@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { computeMatchScore, sortPoints } from "@/app/match/[id]/gameScore";
 import { createClient } from "@/lib/supabase/client";
@@ -10,6 +11,28 @@ import type { Match, MatchStatus, Point } from "@/lib/types";
  * Extracted from the pre-split DashboardLists so both surfaces render
  * matches identically.
  */
+
+/** A Home section's "View all ›": the cyan link beside its heading. */
+export function ArrowLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center gap-1 text-sm font-medium text-cyan-glow transition-colors hover:text-white"
+    >
+      {label}
+      <svg
+        viewBox="0 0 24 24"
+        className="h-4 w-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+      </svg>
+    </Link>
+  );
+}
 
 export type MatchRow = Match & { points: { count: number }[] };
 

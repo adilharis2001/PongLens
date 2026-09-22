@@ -151,3 +151,43 @@ func starredSummaryLine(_ rows: [StarredPointRow]) -> String {
     return "\(rows.count) point\(rows.count == 1 ? "" : "s") · "
         + "\(matches) match\(matches == 1 ? "" : "es")"
 }
+
+// MARK: - Picking points across matches (2026-09-22)
+//
+// The web twin is src/app/starred/starred.ts (the bar) and
+// src/lib/starredSelection.ts (the limits); starred.test.ts and
+// StarredTests.swift check the same cases.
+
+enum StarredSelection {
+    /// A link names up to this many points (share_links_check says so too).
+    static let linkMaxPoints = 100
+    /// A video renders up to this many (enqueue_selection_reel says so too).
+    static let videoMaxPoints = 60
+    /// Instagram takes a minute in a Reel.
+    static let instagramMaxSeconds: Double = 60
+}
+
+/// "0:28", "1:05" — the m:ss every phone shows for a length.
+func clockLabel(_ seconds: Double) -> String {
+    let s = max(0, Int(seconds.rounded()))
+    return "\(s / 60):" + String(format: "%02d", s % 60)
+}
+
+/// Total rally time of a set of points, in seconds (missing timing adds 0).
+func selectionSeconds(_ rows: [StarredPointRow]) -> Double {
+    rows.reduce(0) { $0 + ($1.rallySeconds ?? 0) }
+}
+
+/// The selection bar: "3 points · 0:28".
+func selectionSummary(_ rows: [StarredPointRow]) -> String {
+    "\(rows.count) point\(rows.count == 1 ? "" : "s") · "
+        + clockLabel(selectionSeconds(rows))
+}
+
+/// The picked rows in shelf order, whatever order they were tapped in: the
+/// video and the link play them the way the shelf lists them.
+func selectedInShelfOrder(
+    _ rows: [StarredPointRow], _ selected: Set<UUID>
+) -> [StarredPointRow] {
+    rows.filter { selected.contains($0.id) }
+}

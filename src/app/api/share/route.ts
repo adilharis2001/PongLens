@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { matchShareKind } from "./shareTarget";
 import { highlightShareCanBeCreated } from "./highlightShare";
+import {
+  SELECTION_LINK_MAX_POINTS,
+  selectionPointIds,
+} from "@/lib/starredSelection";
 
 export const runtime = "nodejs";
 
@@ -14,6 +18,9 @@ export const runtime = "nodejs";
  *   { matchId, kind: 'starred' }   -> link to the currently-starred points
  *                                     (live: resolved at view time)
  *   { matchId, kind: 'highlights'} -> link to the current automatic reel
+ *   { pointIds: [...] }            -> link to starred points picked from any
+ *                                     number of matches (2026-09-22). A
+ *                                     fixed list, in the order picked.
  *   { lessonId }                   -> link to one journal entry (154).
  *                                     Live the same way: the page shows
  *                                     the entry as it currently reads,
@@ -68,8 +75,10 @@ export async function POST(req: Request) {
   let titleProvided = false;
   let showScore = true;
   let showScoreProvided = false;
+  let pointIdsRaw: unknown = undefined;
   try {
     const body = await req.json();
+    pointIdsRaw = body.pointIds;
     matchId = String(body.matchId ?? "");
     pointId = String(body.pointId ?? "");
     tagId = String(body.tagId ?? "");
@@ -86,6 +95,111 @@ export async function POST(req: Request) {
     }
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Starred points picked from any number of matches (2026-09-22): a fixed
+  // list, so unstarring later does not change a link already sent. Its own
+  // flow, like the entry and recap links below: nothing further down is
+  // about a set that spans matches.
+  if (pointIdsRaw !== undefined) {
+    const ids = selectionPointIds(pointIdsRaw, SELECTION_LINK_MAX_POINTS);
+    if (
+      !ids ||
+      matchId ||
+      pointId ||
+      tagId ||
+      lessonId ||
+      lessonVideoId ||
+      requestedKind
+    ) {
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    }
+    // Strict ownership, point by point. The points read is RLS-scoped and a
+    // coach passes it for a shared match, so the match row decides; the
+    // database trigger checks the same thing again with definer rights.
+    const { data: pts } = await supabase
+      .from("points")
+      .select("id, match_id, deleted")
+      .in("id", ids);
+    const matchIds = [...new Set((pts ?? []).map((p) => String(p.match_id)))];
+    const { data: owned } = matchIds.length
+      ? await supabase
+          .from("matches")
+          .select("id")
+          .in("id", matchIds)
+          .eq("user_id", user.id)
+      : { data: [] };
+    const ownedIds = new Set((owned ?? []).map((m) => String(m.id)));
+    const livePoints = new Set(
+      (pts ?? [])
+        .filter((p) => !p.deleted && ownedIds.has(String(p.match_id)))
+        .map((p) => String(p.id)),
+    );
+    if (ids.some((id) => !livePoints.has(id))) {
+      return NextResponse.json({ error: "Point not found" }, { status: 404 });
+    }
+
+    const existingSelection = supabase
+      .from("share_links")
+      .select("id, token, title")
+      .eq("owner", user.id)
+      .eq("kind", "selection")
+      .eq("point_ids", `{${ids.join(",")}}`)
+      .is("revoked_at", null);
+    const { data: foundSelection } = await existingSelection.limit(1);
+    if (foundSelection && foundSelection.length > 0) {
+      let storedTitle = foundSelection[0].title as string | null;
+      if (titleProvided && title !== storedTitle) {
+        const { error: patchError } = await supabase
+          .from("share_links")
+          .update({ title })
+          .eq("id", foundSelection[0].id);
+        if (!patchError) storedTitle = title;
+      }
+      return NextResponse.json({
+        id: foundSelection[0].id,
+        token: foundSelection[0].token,
+        title: storedTitle,
+        url: `${shareBase(req)}/s/${foundSelection[0].token}`,
+      });
+    }
+
+    const selectionToken = randomBytes(24).toString("base64url");
+    const { data: createdSelection, error: selectionError } = await supabase
+      .from("share_links")
+      .insert({
+        owner: user.id,
+        kind: "selection",
+        point_ids: ids,
+        token: selectionToken,
+        title,
+      })
+      .select("id, token, title")
+      .single();
+    if (selectionError || !createdSelection) {
+      if (selectionError?.code === "23505") {
+        const { data: raced } = await existingSelection.limit(1);
+        if (raced && raced.length > 0) {
+          return NextResponse.json({
+            id: raced[0].id,
+            token: raced[0].token,
+            title: raced[0].title ?? null,
+            url: `${shareBase(req)}/s/${raced[0].token}`,
+          });
+        }
+      }
+      console.error("share create error:", selectionError);
+      return NextResponse.json(
+        { error: "Could not create the link. Try again." },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({
+      id: createdSelection.id,
+      token: createdSelection.token,
+      title: createdSelection.title ?? null,
+      url: `${shareBase(req)}/s/${createdSelection.token}`,
+    });
   }
 
   // A lesson recap link: its own flow for the same reason the entry link

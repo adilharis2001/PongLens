@@ -191,4 +191,42 @@ func runStarredTests() {
         mkRow(1, match: 1, displayNo: 1).directionLabel == nil,
         "no direction, no label"
     )
+
+    // MARK: picking across matches (same cases as starred.test.ts)
+
+    check(clockLabel(0) == "0:00", "clock: zero")
+    check(clockLabel(28.4) == "0:28", "clock: seconds")
+    check(clockLabel(59.6) == "1:00", "clock: rounds into the minute")
+    check(clockLabel(65) == "1:05", "clock: minutes and padded seconds")
+
+    let picked = [
+        mkRow(1, match: 1, displayNo: 1, t0: 0, t1: 6.5),
+        mkRow(2, match: 1, displayNo: 2, t0: 10, t1: 21.9),
+        mkRow(3, match: 2, displayNo: 1, t0: nil, t1: nil),
+    ]
+    check(
+        abs(selectionSeconds(picked) - 18.4) < 0.001,
+        "selection time sums rallies, missing timing adds nothing"
+    )
+    check(selectionSummary(picked) == "3 points · 0:18", "selection bar")
+    check(
+        selectionSummary([mkRow(1, match: 1, displayNo: 1)]) == "1 point · 0:07",
+        "selection bar, one point"
+    )
+
+    let shelf = [
+        mkRow(1, match: 1, displayNo: 1),
+        mkRow(2, match: 1, displayNo: 2),
+        mkRow(3, match: 2, displayNo: 1),
+    ]
+    check(
+        selectedInShelfOrder(shelf, [starUUID(3), starUUID(1)]).map(\.id)
+            == [starUUID(1), starUUID(3)],
+        "a selection plays in shelf order, not tap order"
+    )
+    check(
+        StarredSelection.videoMaxPoints == 60
+            && StarredSelection.linkMaxPoints == 100,
+        "the limits match the database and the web"
+    )
 }

@@ -59,6 +59,14 @@ test("reels are attributed through the match or tag they were cut from", () => {
   });
 });
 
+test("a starred selection spans matches, so it is its owner's by name", () => {
+  assert.deepEqual(
+    classifyKey("ponglens-media", `reels/sel-${A}-0123456789abcdef0123456789abcdef.mp4`),
+    { kind: "owned", owner: A, category: "reels" },
+  );
+  assert.equal(classifyKey("ponglens-media", "reels/sel-nobody.mp4").kind, "unknown");
+});
+
 test("the platform's own files belong to nobody, and a strange prefix is not guessed", () => {
   assert.equal(classifyKey("ponglens-media", "research/2026/x.json").kind, "platform");
   assert.equal(classifyKey("ponglens-media", "tutorial/ch1.mp4").kind, "platform");

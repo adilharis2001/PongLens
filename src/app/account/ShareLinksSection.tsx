@@ -21,8 +21,10 @@ interface ShareLinkRow {
     | "tag"
     | "entry"
     | "highlights"
-    | "lesson_recap";
-  /** null on journal entry links (154) — they name a lesson, not a match */
+    | "lesson_recap"
+    | "selection";
+  /** null on journal entry links (154) — they name a lesson, not a match —
+   *  and on starred selections, which span matches */
   match_id: string | null;
   point_id: string | null;
   token: string;
@@ -33,7 +35,7 @@ interface ShareLinkRow {
 function kindLabel(kind: ShareLinkRow["kind"]) {
   return kind === "point"
     ? "Point"
-    : kind === "starred"
+    : kind === "starred" || kind === "selection"
       ? "Starred points"
       : kind === "highlights"
         ? "Highlights"
@@ -47,8 +49,10 @@ function kindLabel(kind: ShareLinkRow["kind"]) {
 }
 
 // Journal entry links have no match to group under; they share one
-// "Journal" group at the end of the list.
+// "Journal" group at the end of the list. Starred selections span matches,
+// so they get a group of their own just before it.
 const JOURNAL_GROUP = "journal";
+const SELECTION_GROUP = "selection";
 
 export function ShareLinksSection() {
   const [links, setLinks] = useState<ShareLinkRow[] | null>(null);
@@ -144,20 +148,23 @@ export function ShareLinksSection() {
   const groups = useMemo(() => {
     const map = new Map<string, ShareLinkRow[]>();
     for (const l of links ?? []) {
-      const key = l.match_id ?? JOURNAL_GROUP;
+      const key =
+        l.match_id ?? (l.kind === "selection" ? SELECTION_GROUP : JOURNAL_GROUP);
       const arr = map.get(key) ?? [];
       arr.push(l);
       map.set(key, arr);
     }
+    const rank = (key: string) =>
+      key === JOURNAL_GROUP ? 2 : key === SELECTION_GROUP ? 1 : 0;
     const entries = [...map.entries()];
-    entries.sort((a, b) =>
-      a[0] === JOURNAL_GROUP ? 1 : b[0] === JOURNAL_GROUP ? -1 : 0
-    );
+    entries.sort((a, b) => rank(a[0]) - rank(b[0]));
     return entries;
   }, [links]);
 
   const count = links?.length ?? 0;
-  const matchCount = groups.filter(([key]) => key !== JOURNAL_GROUP).length;
+  const matchCount = groups.filter(
+    ([key]) => key !== JOURNAL_GROUP && key !== SELECTION_GROUP,
+  ).length;
   const journalCount = (links ?? []).filter((l) => l.kind === "entry").length;
 
   return (
@@ -198,7 +205,9 @@ export function ShareLinksSection() {
                   ? `Across ${matchCount} match${matchCount === 1 ? "" : "es"} and your journal`
                   : matchCount > 0
                     ? `Across ${matchCount} match${matchCount === 1 ? "" : "es"}`
-                    : "From your journal"}
+                    : journalCount > 0
+                      ? "From your journal"
+                      : "Starred points"}
               </p>
             </div>
             <button
@@ -219,7 +228,9 @@ export function ShareLinksSection() {
                     <p className="px-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                       {matchId === JOURNAL_GROUP
                         ? "Journal"
-                        : (matchNames.get(matchId) ?? "Match")}
+                        : matchId === SELECTION_GROUP
+                          ? "Starred points"
+                          : (matchNames.get(matchId) ?? "Match")}
                     </p>
                     <ul className="mt-2 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
                       {rows.map((link) => (

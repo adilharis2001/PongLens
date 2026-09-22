@@ -21,6 +21,10 @@ export interface StarredClip {
   number: number;
   /** seconds, null when timing is missing */
   duration: number | null;
+  /** Which match this clip is from ("Point 42 · Jordan · Pingpod"). Set on
+   *  a selection link, whose clips come from several matches; a starred or
+   *  tag link is one match, already named by the page heading. */
+  caption?: string;
 }
 
 export function StarredView({
@@ -113,6 +117,12 @@ export function StarredView({
           </div>
         )}
       </div>
+
+      {clips[idx]?.caption && (
+        <p className="mt-3 truncate px-4 text-center text-sm text-zinc-400">
+          {clips[idx].caption}
+        </p>
+      )}
 
       {/* minimal position indicator: ‹ 2 / 5 › */}
       {clips.length > 1 && (

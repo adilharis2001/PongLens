@@ -424,6 +424,34 @@ export function starredContextLine(
   return names ? `${pts} · ${names}` : pts;
 }
 
+/** Row from resolve_share_selection() (2026-09-22): starred points picked
+ *  across matches, in the order the owner picked them. */
+export interface ResolvedSelectionPoint {
+  id: string;
+  match_id: string;
+  /** display number within its own match, as the owner's shelf prints it */
+  number: number;
+  t0: number | null;
+  t1: number | null;
+  clip_path: string | null;
+  opponent_name: string | null;
+  venue: string | null;
+  played_at: string;
+  match_type: string | null;
+  ord: number;
+}
+
+/** "5 points · 3 matches" | "1 point" — a selection link's count line. */
+export function selectionContextLine(
+  points: { match_id: string }[]
+): string {
+  const count = points.length;
+  if (count < 1) return "Starred points";
+  const matches = new Set(points.map((p) => p.match_id)).size;
+  const pts = `${count} ${count === 1 ? "point" : "points"}`;
+  return matches > 1 ? `${pts} · ${matches} matches` : pts;
+}
+
 export function highlightContextLine(names: string | null): string {
   return names ? `Highlights · ${names}` : "Highlights";
 }

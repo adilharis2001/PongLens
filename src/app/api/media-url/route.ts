@@ -23,6 +23,10 @@ export const runtime = "nodejs";
  *                            'full'), attachment disposition (owner only: the
  *                            match_reels row is read under RLS, whose select
  *                            policy is owner-scoped)
+ *   { selectionReel: true } -> the caller's own starred-selection video
+ *                            (2026-09-22), attachment disposition. No
+ *                            matchId: it spans matches, and there is one per
+ *                            account.
  *   { matchId, raw }      -> original raw upload, attachment disposition.
  *                            Resolved through the source job, whose select
  *                            policy is owner-only, so this one is a
@@ -79,6 +83,7 @@ export async function POST(req: Request) {
   let scope: string;
   let thumbs: string[];
   let tagReel: string;
+  let selectionReel: boolean;
   let lessonId: string;
   let expectedVersionId: string | null | undefined;
   try {
@@ -117,8 +122,37 @@ export async function POST(req: Request) {
           .slice(0, 100)
       : [];
     tagReel = String(body.tagReel ?? "");
+    selectionReel = body.selectionReel === true;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (selectionReel) {
+    // Starred points picked across matches (2026-09-22): one render per
+    // account, and the RLS-scoped selection_reels read is the ownership
+    // check, the same way tag_reels is for a tag reel.
+    try {
+      const { data: reelRow } = await supabase
+        .from("selection_reels")
+        .select("status, r2_key")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!reelRow || reelRow.status !== "ready" || !reelRow.r2_key) {
+        return NextResponse.json({ error: "Video not ready" }, { status: 409 });
+      }
+      const url = await presignGet(MEDIA_BUCKET, reelRow.r2_key, {
+        expiresSeconds: 3600,
+        disposition: "attachment",
+        filename: "Starred points - PongLens.mp4",
+      });
+      return NextResponse.json({ url });
+    } catch (e) {
+      console.error("media-url selection-reel error:", e);
+      return NextResponse.json(
+        { error: "Could not create a download link. Try again shortly." },
+        { status: 500 }
+      );
+    }
   }
 
   // { lessonId, image: true } — a journal entry's attached photo.

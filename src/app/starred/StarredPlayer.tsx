@@ -1,27 +1,23 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
-import type { CustomReasonLabels } from "@/app/match/[id]/scorecard";
 import { clipUrlFor, forgetClipUrl } from "./clipUrls";
-import {
-  durationLabel,
-  outcomeLabel,
-  outcomeOf,
-  reasonLabel,
-  type StarredPointRow,
-} from "./starred";
+import { durationLabel, type StarredPointRow } from "./starred";
 
 /**
- * The starred set, played as a sequence.
+ * Starred points played back to back, across matches: Play all, or Play on
+ * a selection. Tapping a single point opens it inside its match instead, in
+ * the ordinary point view.
  *
  * `ClipPlayer` is the match page's own player, so the gestures, the pinch
- * zoom, the press-and-hold speed and the persistence of both all arrive
- * here without being written twice. Everything this file adds is what
- * turns one clip into a tape: advance on 'ended', prev/next, and reading
- * one clip ahead so the gap between rallies is not a spinner.
+ * zoom, the press-and-hold speed and the persistence of both arrive here
+ * without being written twice. This file adds only what makes it a run of
+ * clips: advance on 'ended', the "‹ 3 / 12 ›" counter the public share page
+ * uses, and reading one clip ahead so the gap between rallies is not a
+ * spinner. (Until 2026-09-22 it carried its own outcome line, step buttons,
+ * Remove star and Open in match; Adil asked for the shared player instead.)
  *
  * Portalled to document.body. `position: fixed` resolves against the
  * nearest transformed ancestor, and AppShell's `.page-enter` holds a
@@ -35,17 +31,16 @@ const chevron =
 export function StarredPlayer({
   rows,
   index,
-  reasons,
   onIndex,
   onClose,
-  onUnstar,
+  titleOf,
 }: {
   rows: StarredPointRow[];
   index: number;
-  reasons: CustomReasonLabels;
   onIndex: (i: number) => void;
   onClose: () => void;
-  onUnstar: (row: StarredPointRow) => void;
+  /** The match a row belongs to, as the shelf names it. */
+  titleOf: (row: StarredPointRow) => string;
 }) {
   const row = rows[index];
   const [src, setSrc] = useState<string | null>(null);
@@ -109,17 +104,7 @@ export function StarredPlayer({
 
   if (!row) return null;
 
-  const reason = reasonLabel(row, reasons);
   const duration = durationLabel(row);
-  const outcome = outcomeOf(row);
-  const outcomeTint =
-    outcome === "won"
-      ? "text-cyan-glow"
-      : outcome === "lost"
-        ? "text-magenta-soft"
-        : outcome === "skipped"
-          ? "text-amber-300"
-          : "text-zinc-400";
 
   const view = (
     <div className="fixed inset-0 z-[80] flex flex-col bg-ink/97 backdrop-blur-sm">
@@ -127,14 +112,11 @@ export function StarredPlayer({
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-zinc-100">
             Point {row.display_no}
-            <span className="pl-2 font-normal text-zinc-500">
-              {row.opponent_name?.trim() || "Match"}
-            </span>
+            <span className="pl-2 font-normal text-zinc-500">{titleOf(row)}</span>
           </p>
-          <p className="mt-0.5 text-xs tabular-nums text-zinc-500">
-            {index + 1} of {rows.length}
-            {duration ? ` · ${duration}` : ""}
-          </p>
+          {duration && (
+            <p className="mt-0.5 text-xs tabular-nums text-zinc-500">{duration}</p>
+          )}
         </div>
         <button
           type="button"
@@ -148,10 +130,6 @@ export function StarredPlayer({
         </button>
       </header>
 
-      {/* Picture and its controls travel together and centre as one
-          block. Pinned to opposite ends of the screen they read as two
-          unrelated things, and on a phone the buttons end up a thumb's
-          journey away from the rally they act on. */}
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5">
         <div className="w-full max-w-5xl overflow-hidden bg-black sm:rounded-2xl sm:border sm:border-edge">
           {src ? (
@@ -185,8 +163,8 @@ export function StarredPlayer({
           )}
         </div>
 
-        <div className="w-full max-w-5xl px-5 sm:px-8">
-          <div className="flex items-center justify-between gap-3">
+        {rows.length > 1 && (
+          <div className="flex items-center justify-center gap-4">
             <button
               type="button"
               onClick={() => go(index - 1)}
@@ -198,18 +176,9 @@ export function StarredPlayer({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
               </svg>
             </button>
-
-            <div className="flex min-w-0 flex-col items-center px-2 text-center">
-              <span className={`truncate text-sm font-semibold ${outcomeTint}`}>
-                {outcomeLabel(row)}
-              </span>
-              {reason && (
-                <span className="mt-0.5 truncate text-xs text-zinc-500">
-                  {reason}
-                </span>
-              )}
-            </div>
-
+            <span className="min-w-14 text-center text-sm font-semibold tabular-nums text-zinc-300">
+              {index + 1} / {rows.length}
+            </span>
             <button
               type="button"
               onClick={() => go(index + 1)}
@@ -222,25 +191,7 @@ export function StarredPlayer({
               </svg>
             </button>
           </div>
-
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <button
-              type="button"
-              // The set shrinks under the player, so where it stands next is
-              // the host's decision to make — it is the one holding the list.
-              onClick={() => onUnstar(row)}
-              className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-amber-300 transition-colors hover:border-amber-300/50"
-            >
-              Remove star
-            </button>
-            <Link
-              href={`/match/${row.match_id}?p=${row.id}`}
-              className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white"
-            >
-              Open in match
-            </Link>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -13,6 +13,8 @@ export const runtime = "nodejs";
  *                           match link   -> the cut video
  *                           highlights   -> the current automatic reel
  *   ?token=...&pointId=...  match link   -> that point's clip
+ *                           selection    -> that clip, while the resolver
+ *                           still returns it (2026-09-22)
  *                           starred link -> that clip, but ONLY if the
  *                           point is CURRENTLY starred and visible —
  *                           re-checked at signing time, because starred
@@ -54,6 +56,36 @@ export async function GET(req: Request) {
   });
   const link = links?.[0];
   if (!link) {
+    // Starred points picked across matches (2026-09-22). Like a starred
+    // link it has no whole-video fallback: a clip request must name a point
+    // the resolver returns right now, which it only does while the owner
+    // still owns that match and the point is live.
+    const { data: selection } = await supabase.rpc("resolve_share_selection", {
+      p_token: token,
+    });
+    if (Array.isArray(selection) && selection.length > 0) {
+      const point = selection.find(
+        (p: { id: string }) => pointId && p.id === pointId
+      );
+      const loc = parseR2(point?.clip_path);
+      if (!loc) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      try {
+        const signed = await presignGet(loc.bucket, loc.key, {
+          expiresSeconds: TTL_SECONDS,
+          disposition: "inline",
+        });
+        return NextResponse.json({ url: signed });
+      } catch (e) {
+        console.error("share media error:", e);
+        return NextResponse.json(
+          { error: "Could not create a media link. Try again shortly." },
+          { status: 500 }
+        );
+      }
+    }
+
     // A lesson recap link. The recap a stranger watches is the CLEAN video
     // with the chapters drawn by the page, the same way the apps show it, so
     // no render stands between creating a link and it working. The download

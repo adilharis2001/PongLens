@@ -19,7 +19,9 @@ import { FirstSteps } from "./FirstSteps";
 import { hasOwnScoredMatch, isSampleMatch, SAMPLE_CTA } from "@/lib/sampleMatch";
 import { HomeFeedbackBoard } from "./HomeFeedbackBoard";
 import { YourGame } from "./YourGame";
+import { HomeStarred } from "./HomeStarred";
 import {
+  ArrowLink,
   Chip,
   Thumb,
   canOpenMatch,
@@ -63,27 +65,6 @@ const POLL_MS = 10_000;
 
 /** How many matches Home previews before pointing at the library. */
 const RECENT_COUNT = 3;
-
-function ArrowLink({ href, label }: { href: string; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="inline-flex items-center gap-1 text-sm font-medium text-cyan-glow transition-colors hover:text-white"
-    >
-      {label}
-      <svg
-        viewBox="0 0 24 24"
-        className="h-4 w-4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        aria-hidden="true"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
-      </svg>
-    </Link>
-  );
-}
 
 /**
  * Home is the overview: one next action, a preview of recent matches, the
@@ -666,6 +647,11 @@ export function HomeOverview({
           </ul>
         </section>
       )}
+
+      {/* Starred points: the newest stars, swiped sideways. Hidden until
+          the player has starred something; it loads once, not on the
+          ten-second poll above. */}
+      {!loading && ownMatches.length > 0 && <HomeStarred />}
 
       {/* Your game: the staged stats showcase. Below Recent matches on
           purpose — footage is the value prop, stats are the reward — and

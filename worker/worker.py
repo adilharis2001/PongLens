@@ -8559,15 +8559,21 @@ def render_story(manifest: dict, show_score: bool, workdir: str,
             show_score=show_score, show_names=show_names,
             show_logo=show_logo)
 
+        # The band artwork is the overlay's MAIN input, and overlay takes its
+        # frame rate from the main input. A bare still arrives at the image
+        # reader's default 25 fps, so until 2026-09-22 every story came out
+        # at 25 whatever `fps` said. Looping the still at the story's own
+        # rate, and ending with the rally, keeps the source's motion.
+        bg_input = ["-framerate", str(fps), "-loop", "1", "-i", bg]
         if from_cut:
             inputs = ["-ss", f"{src[1]:.3f}", "-t", f"{src[2]:.3f}",
-                      "-i", cut_local, "-i", bg]
+                      "-i", cut_local, *bg_input]
         else:
-            inputs = ["-i", src[1], "-i", bg]
+            inputs = ["-i", src[1], *bg_input]
         chain = (
             f"[0:v]{crop_filter}scale={bw}:{bh}:flags=lanczos,setsar=1,"
             f"fps={fps}[vid];"
-            f"[1:v][vid]overlay={bx}:{by}:format=auto[out]"
+            f"[1:v][vid]overlay={bx}:{by}:format=auto:shortest=1[out]"
         )
         maps = ["-map", "[out]"]
         if keep_audio:
@@ -8881,8 +8887,9 @@ def delete_unreferenced_tag_reel_object(conn, key: str | None) -> None:
             cur.execute(
                 "select exists(select 1 from public.tag_reels where r2_key = %s "
                 "union all select 1 from public.match_reels where r2_key = %s "
+                "union all select 1 from public.selection_reels where r2_key = %s "
                 "union all select 1 from public.match_processing_version_reels "
-                "where record->>'r2_key' = %s)", (key, key, key),
+                "where record->>'r2_key' = %s)", (key, key, key, key),
             )
             if cur.fetchone()[0]:
                 return
@@ -8939,6 +8946,377 @@ def process_tag_reel(conn, job_id: str, user_id: str, tag_id: str) -> bool:
                 return False
         except Exception:
             log.exception("  failed to mark tag reel failed")
+        raise
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Selection reels (2026-09-22): starred points the owner picked from any
+# number of matches, as ONE 9:16 video for Instagram or for saving. One row
+# per account in selection_reels; the job is kind 'reel' with
+# options.scope 'v:selection', which routes it to the fast lane.
+# Spec: docs/superpowers/specs/2026-09-22-starred-points-selection-design.md
+#
+# Each rally is rendered by render_story exactly as a single-rally share is
+# (its own match's cut, crop, names and score), then the rallies are joined
+# with the crossfade a multi-rally story uses. render_story is not changed.
+# ---------------------------------------------------------------------------
+
+SELECTION_REEL_MAX_POINTS = 60
+
+
+@dataclass(frozen=True)
+class SelectionReelAttempt:
+    user_id: str
+    job_id: str
+    manifest: dict
+    source_versions: tuple
+    claimed_at: datetime
+    output_key: str
+    previous_key: str | None
+
+
+def selection_manifest_problem(manifest) -> str | None:
+    """Why a stored selection manifest cannot be rendered, or None."""
+    if not isinstance(manifest, dict):
+        return "manifest is not an object"
+    points = manifest.get("points")
+    if not isinstance(points, list) or not points:
+        return "no points"
+    if len(points) > SELECTION_REEL_MAX_POINTS:
+        return "too many points"
+    matches = manifest.get("matches")
+    if not isinstance(matches, dict):
+        return "no match names"
+    for p in points:
+        if (not isinstance(p, dict) or not p.get("point_id")
+                or not p.get("match_id")):
+            return "a point has no identity"
+        if str(p["match_id"]) not in matches:
+            return "a point names a match the manifest does not describe"
+    return None
+
+
+def selection_legs(manifest: dict) -> list[dict]:
+    """One single-rally story manifest per point, in the order picked.
+
+    Each carries its OWN match's names and score switch, in exactly the shape
+    render_story reads for a v:point render, so a rally in a selection is
+    framed the same way it would be shared on its own.
+    """
+    legs = []
+    for p in manifest["points"]:
+        m = manifest["matches"].get(str(p["match_id"])) or {}
+        legs.append({
+            "match_id": str(p["match_id"]),
+            "show_score": m.get("show_score") is True,
+            "manifest": {
+                "you_name": m.get("you_name") or "Player",
+                "them_name": m.get("them_name") or "Opponent",
+                "show_names": manifest.get("show_names") is not False,
+                "show_logo": manifest.get("show_logo") is not False,
+                "points": [p],
+            },
+        })
+    return legs
+
+
+def _story_fps(path: str) -> int:
+    """A rendered story's frame rate, on render_story's own 24 to 60 scale."""
+    try:
+        v = next(st for st in _ffprobe_streams(path)["streams"]
+                 if st["codec_type"] == "video")
+        num, den = (v.get("avg_frame_rate") or "0/1").split("/")
+        f = float(num) / max(1.0, float(den))
+        if f >= 1:
+            return max(24, min(60, round(f)))
+    except Exception:                                           # noqa: BLE001
+        pass
+    return 30
+
+
+def selection_join_graph(durations: list[float], fps: int,
+                         keep_audio: bool) -> tuple[list[str], list[str]]:
+    """The filter graph and maps that crossfade rendered rallies into one.
+
+    The same chain render_story builds for one match's rallies, with one
+    addition: the clips come from different cameras, so each is brought to
+    one frame rate and timebase first, which xfade needs.
+    """
+    n = len(durations)
+    fc = [f"[{i}:v]fps={fps},settb=AVTB,setsar=1,format=yuv420p[n{i}]"
+          for i in range(n)]
+    offset = 0.0
+    vin = "n0"
+    for i in range(1, n):
+        offset += durations[i - 1] - REEL_XFADE_S
+        vout = f"v{i}" if i < n - 1 else "vout"
+        fc.append(f"[{vin}][n{i}]xfade=transition=fade:"
+                  f"duration={REEL_XFADE_S}:offset={offset:.4f}[{vout}]")
+        vin = vout
+    maps = ["-map", "[vout]"]
+    if keep_audio:
+        ain = "0:a"
+        for i in range(1, n):
+            aout = f"a{i}" if i < n - 1 else "aout"
+            fc.append(f"[{ain}][{i}:a]acrossfade=d={REEL_XFADE_S}[{aout}]")
+            ain = aout
+        maps += ["-map", "[aout]"]
+    return fc, maps
+
+
+def render_selection(conn, manifest: dict, sources: tuple, workdir: str,
+                     on_rally=None) -> str:
+    """Render a selection manifest to one 9:16 mp4. Returns the path."""
+    versions = {str(match_id): str(version)
+                for _point, match_id, version, _active in sources}
+    cuts: dict[str, str | None] = {}
+    crops: dict[str, dict | None] = {}
+    legs = selection_legs(manifest)
+    outputs = []
+    for i, leg in enumerate(legs):
+        mid = leg["match_id"]
+        if mid not in cuts:
+            version = versions.get(mid)
+            # A signed URL, range-read, as every share render does; a legacy
+            # cut that cannot be signed is downloaded once per match.
+            cut = _cut_video_url(conn, mid, processing_version_id=version)
+            if cut is None:
+                cut_dir = os.path.join(workdir, f"cut-{len(cuts):02d}")
+                os.makedirs(cut_dir, exist_ok=True)
+                cut = _fetch_cut_video(conn, mid, cut_dir,
+                                       processing_version_id=version)
+            cuts[mid] = cut
+            with conn.cursor() as cur:
+                cur.execute("select story_crop from public.matches "
+                            "where id = %s", (mid,))
+                row = cur.fetchone()
+            crops[mid] = row[0] if row and isinstance(row[0], dict) else None
+        leg_dir = os.path.join(workdir, f"rally-{i:02d}")
+        os.makedirs(leg_dir, exist_ok=True)
+        outputs.append(render_story(leg["manifest"], leg["show_score"],
+                                    leg_dir, cuts[mid], crops[mid]))
+        if on_rally:
+            on_rally(i + 1, len(legs))
+
+    if len(outputs) == 1:
+        return outputs[0]
+
+    durations = [float(_ffprobe_streams(o)["format"]["duration"])
+                 for o in outputs]
+    fps = max(_story_fps(o) for o in outputs)
+    keep_audio = all(
+        any(st["codec_type"] == "audio"
+            for st in _ffprobe_streams(o)["streams"])
+        for o in outputs)
+    fc, maps = selection_join_graph(durations, fps, keep_audio)
+    inputs = []
+    for o in outputs:
+        inputs += ["-i", o]
+    # The multi-rally bitrate render_story uses, for the same reason: Meta
+    # asks for under 50 MB, and a minute at 6 Mbps sits comfortably below.
+    vt = ["-c:v", "h264_videotoolbox", "-b:v", "6000000",
+          "-allow_sw", "1", "-pix_fmt", "yuv420p"]
+    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "21",
+            "-pix_fmt", "yuv420p"]
+    audio_args = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
+    out_path = os.path.join(workdir, "selection.mp4")
+    encoder = _run_ffmpeg_encoded(
+        [*inputs, "-filter_complex", ";".join(fc), *maps],
+        vt, x264,
+        [*(audio_args if keep_audio else []),
+         "-movflags", "+faststart", out_path],
+    )
+    log.info("  selection: %d rallies from %d matches at %dx%d, %d fps, "
+             "audio=%s, encoder=%s", len(outputs), len(cuts), STORY_W,
+             STORY_H, fps, keep_audio, encoder)
+    return out_path
+
+
+def _selection_sources_owned(conn, user_id: str, manifest: dict,
+                             sources: tuple) -> bool:
+    """Every point still sits in the match its manifest entry names, on that
+    match's active version, and every one of those matches is the user's."""
+    named = {str(p["point_id"]): str(p["match_id"])
+             for p in manifest["points"]}
+    for point_id, match_id, version, active in sources:
+        if not (match_id and version and version == active
+                and named.get(str(point_id)) == str(match_id)):
+            return False
+    match_ids = sorted({str(s[1]) for s in sources})
+    with conn.cursor() as cur:
+        cur.execute(
+            "select count(*) from public.matches "
+            "where id = any(%s::uuid[]) and user_id = %s",
+            (match_ids, user_id),
+        )
+        return cur.fetchone()[0] == len(match_ids)
+
+
+def claim_selection_reel_attempt(conn, job_id: str,
+                                 user_id: str) -> SelectionReelAttempt | None:
+    original_autocommit = conn.autocommit
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            cur.execute(
+                "select manifest, r2_key, status from public.selection_reels "
+                "where user_id = %s for update", (user_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise RuntimeError(
+                    f"selection reel: no selection_reels row for {user_id}")
+            manifest, previous_key, status = row
+            # A ready or failed row has nothing waiting: this job is a spare
+            # (the request it was queued for was already rendered by an
+            # earlier job). 'rendering' is claimable on purpose — a worker
+            # that died mid-render leaves it there, and the queue's retry is
+            # the only thing that will ever finish it. The claim timestamp
+            # below keeps any older attempt from publishing over this one.
+            if status not in ("queued", "rendering"):
+                update_job(conn, job_id, status="cancelled", progress=100,
+                           error="Nothing waiting to render.")
+                conn.commit()
+                return None
+            problem = selection_manifest_problem(manifest)
+            if problem:
+                raise RuntimeError(f"selection reel: {problem}")
+            sources = locked_tag_reel_sources(conn, manifest)
+            if not _selection_sources_owned(conn, user_id, manifest, sources):
+                cur.execute(
+                    "update public.selection_reels set status = 'failed', "
+                    "error = 'Match version changed.', "
+                    "updated_at = clock_timestamp() where user_id = %s",
+                    (user_id,),
+                )
+                update_job(conn, job_id, status="cancelled", progress=100,
+                           error="Selection source version changed.")
+                conn.commit()
+                return None
+            cur.execute(
+                "update public.selection_reels set status = 'rendering', "
+                "error = null, updated_at = clock_timestamp() "
+                "where user_id = %s returning updated_at", (user_id,),
+            )
+            attempt = SelectionReelAttempt(
+                str(user_id), job_id, copy.deepcopy(manifest), sources,
+                cur.fetchone()[0],
+                f"reels/sel-{user_id}-{uuid.uuid4().hex}.mp4", previous_key)
+        conn.commit()
+        return attempt
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.autocommit = original_autocommit
+
+
+def finish_selection_reel_attempt(conn, attempt: SelectionReelAttempt, *,
+                                  key=None, duration=None, size=None,
+                                  error=None) -> bool:
+    """Publish only this attempt; a superseded one cancels (see the tag reel:
+    the manifest AND the claim timestamp are the request's identity)."""
+    original_autocommit = conn.autocommit
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            cur.execute(
+                "select manifest, updated_at, status from public.selection_reels "
+                "where user_id = %s for update", (attempt.user_id,),
+            )
+            row = cur.fetchone()
+            owns_request = bool(row and row[0] == attempt.manifest
+                                and row[1] == attempt.claimed_at
+                                and row[2] == "rendering")
+            sources_current = owns_request and locked_tag_reel_sources(
+                conn, attempt.manifest) == attempt.source_versions
+            if not sources_current:
+                if owns_request:
+                    cur.execute(
+                        "update public.selection_reels set status = 'failed', "
+                        "error = 'Match version changed.', "
+                        "updated_at = clock_timestamp() where user_id = %s",
+                        (attempt.user_id,),
+                    )
+                update_job(conn, attempt.job_id, status="cancelled",
+                           progress=100,
+                           error="Selection request or source version changed.")
+            elif error is not None:
+                cur.execute(
+                    "update public.selection_reels set status = 'failed', "
+                    "error = %s, updated_at = clock_timestamp() "
+                    "where user_id = %s",
+                    (str(error)[:500], attempt.user_id),
+                )
+            else:
+                cur.execute(
+                    "update public.selection_reels set status = 'ready', "
+                    "r2_key = %s, duration_s = %s, size_bytes = %s, "
+                    "error = null, updated_at = clock_timestamp() "
+                    "where user_id = %s",
+                    (key, round(duration, 2), size, attempt.user_id),
+                )
+                update_job(conn, attempt.job_id, status="done", progress=100)
+        conn.commit()
+        return bool(sources_current)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.autocommit = original_autocommit
+
+
+def process_selection_reel(conn, job_id: str, user_id: str) -> bool:
+    attempt = claim_selection_reel_attempt(conn, job_id, user_id)
+    if attempt is None:
+        return False
+    update_job(conn, job_id, progress=15)
+
+    workdir = tempfile.mkdtemp(prefix=f"ponglens-selreel-{str(job_id)[:8]}-")
+    uploaded_key = None
+    try:
+        t0 = time.time()
+
+        def on_rally(done: int, total: int):
+            update_job(conn, job_id, progress=15 + int(60 * done / total))
+
+        out = render_selection(conn, attempt.manifest,
+                               attempt.source_versions, workdir,
+                               on_rally=on_rally)
+        update_job(conn, job_id, progress=80)
+
+        key = attempt.output_key
+        r2_uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
+        size = os.path.getsize(out)
+        duration = _video_duration_s(out)
+        r2().upload_file(out, R2_MEDIA_BUCKET, key,
+                         ExtraArgs={"ContentType": "video/mp4"})
+        uploaded_key = key
+        ledger_append(conn, attempt.user_id, "reel", size, r2_uri)
+        if not finish_selection_reel_attempt(conn, attempt, key=key,
+                                             duration=duration, size=size):
+            delete_unreferenced_tag_reel_object(conn, key)
+            log.info("  selection reel attempt cancelled: %s", job_id)
+            return False
+        delete_unreferenced_tag_reel_object(conn, attempt.previous_key)
+        log.info("  selection reel ready: %s (%d rallies, %.1fs video, "
+                 "%d KB, rendered in %.0fs)", r2_uri,
+                 len(attempt.manifest["points"]), duration, size // 1024,
+                 time.time() - t0)
+        # No email and no bell: the owner is holding the phone waiting for
+        # this, the same as every share render.
+        return True
+    except Exception as e:
+        try:
+            still_current = finish_selection_reel_attempt(conn, attempt,
+                                                          error=e)
+            delete_unreferenced_tag_reel_object(conn, uploaded_key)
+            if not still_current:
+                return False
+        except Exception:
+            log.exception("  failed to mark selection reel failed")
         raise
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -9068,6 +9446,10 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
     options = get_job_options(conn, job_id, payload)
     match_id = options.get("match_id")
     if not match_id:
+        # A selection of starred points from any number of matches
+        # (2026-09-22): one row per account, keyed by the job's user.
+        if options.get("scope") == "v:selection":
+            return process_selection_reel(conn, job_id, user_id)
         # kind 'reel' with options.tag_id and no match: a cross-match tag
         # reel (042) — same queue, its own row/table/render path.
         tag_id = options.get("tag_id")
@@ -10717,6 +11099,46 @@ def share_render_sweep(conn):
              len(rows), SHARE_RENDER_RETENTION_DAYS)
 
 
+def selection_render_sweep(conn):
+    """Drop starred-selection renders older than a week (2026-09-22).
+
+    The same courier as a vertical share render: regenerable from the
+    points, handed to Instagram or saved on the phone, and never a thing a
+    player comes back to download from us. Row and object go together and
+    the ledger is zeroed, exactly as share_render_sweep does.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "select user_id, r2_key from public.selection_reels "
+            "where r2_key is not null "
+            "  and updated_at < now() - make_interval(days => %s)",
+            (SHARE_RENDER_RETENTION_DAYS,),
+        )
+        rows = cur.fetchall()
+    if not rows:
+        return
+    keys = [r[1] for r in rows]
+    try:
+        r2().delete_objects(
+            Bucket=R2_MEDIA_BUCKET,
+            Delete={"Objects": [{"Key": k} for k in keys], "Quiet": True},
+        )
+    except Exception as e:
+        log.warning("  selection-render sweep: delete failed (%s) — rows "
+                    "kept so the next pass retries", e)
+        return
+    ledger_negate_keys(conn, [f"r2://{R2_MEDIA_BUCKET}/{k}" for k in keys])
+    with conn.cursor() as cur:
+        for user_id, key in rows:
+            # Only the render that was swept: a new request since the read
+            # has its own row state and must be left alone.
+            cur.execute(
+                "delete from public.selection_reels "
+                "where user_id = %s and r2_key = %s", (user_id, key))
+    log.info("  selection-render sweep: removed %d render(s) older than "
+             "%d days", len(rows), SHARE_RENDER_RETENTION_DAYS)
+
+
 def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
@@ -10729,6 +11151,7 @@ def retention_sweep(conn):
       orphaned sketches (sketch/, unreferenced by notes)    2 days
       orphaned Journal images (entry/, unreferenced by lessons)  2 days
       share renders (v:* reels)                             7 days
+      starred-selection renders (selection_reels)           7 days
     Kept while the account is active (no sweep):
       point clips + match.json (points/), transcripts (Postgres),
       note-referenced sketches (sketch/), entry-referenced images (entry/)
@@ -10746,6 +11169,7 @@ def retention_sweep(conn):
         ("r2-sketch-orphans", lambda: sketch_sweep(conn)),
         ("r2-entry-orphans", lambda: entry_image_sweep(conn)),
         ("r2-share-renders", lambda: share_render_sweep(conn)),
+        ("r2-selection-renders", lambda: selection_render_sweep(conn)),
         ("cost-reconciliation", lambda: reconcile_platform_costs(conn)),
     ):
         try:

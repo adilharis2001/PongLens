@@ -91,3 +91,20 @@ test("a bracketing list is sanitised, never trusted", () => {
   assert.deepEqual(shareData.publicLessonLines(null), []);
   assert.deepEqual(shareData.publicLessonLines("Serve short."), []);
 });
+
+test("a selection link counts its points and, when they span several, its matches", () => {
+  assert.equal(shareData.selectionContextLine([]), "Starred points");
+  assert.equal(shareData.selectionContextLine([{ match_id: "a" }]), "1 point");
+  assert.equal(
+    shareData.selectionContextLine([{ match_id: "a" }, { match_id: "a" }]),
+    "2 points",
+  );
+  assert.equal(
+    shareData.selectionContextLine([
+      { match_id: "a" },
+      { match_id: "b" },
+      { match_id: "a" },
+    ]),
+    "3 points · 2 matches",
+  );
+});

@@ -1,13 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import {
-  createBoundaryWalk,
-  resolvedGameWinner,
-  sortPoints,
-  stepBoundaryWalk,
-} from "@/app/match/[id]/gameScore";
+import { sortPoints } from "@/app/match/[id]/gameScore";
 import { clipPad } from "@/app/match/[id]/clipEdit";
-import { effectiveEnd, type EndOptions } from "@/app/match/[id]/playhead";
+import type { EndOptions } from "@/app/match/[id]/playhead";
 import {
   getTapEndPlayback,
   getUnscoredRallyEnd,
@@ -15,6 +10,14 @@ import {
   getUnscoredRallyEndTightBufferS,
 } from "@/lib/config";
 import type { Point } from "@/lib/types";
+import {
+  canonical,
+  manifestSeconds,
+  storyNames,
+  walkManifestPoints,
+  type ManifestPoint,
+} from "./manifest";
+import { selectionReel } from "./selection";
 
 export const runtime = "nodejs";
 
@@ -148,20 +151,6 @@ function fitQualifiedHighlights(
     .map(({ point }) => point);
 }
 
-interface ManifestPoint {
-  point_id: string;
-  clip_path: string;
-  /** cut-timeline bounds (seconds); null when cut_t0/t0/t1 are unknown */
-  seg_start: number | null;
-  seg_end: number | null;
-  score_you: number;
-  score_them: number;
-  games_you: number;
-  games_them: number;
-  /** completed games entering this rally: [[you, them], ...] */
-  games_detail: [number, number][];
-}
-
 interface Manifest {
   version: number;
   /** 'story' = the 9:16 canvas a share hands to Instagram (135). Absent on
@@ -180,21 +169,6 @@ interface Manifest {
   them_name: string;
   played_at: string | null;
   points: ManifestPoint[];
-}
-
-const round2 = (v: number) => Math.round(v * 100) / 100;
-
-/** Deterministic stringify (sorted keys) so a jsonb round-trip through
- * Postgres — which re-orders object keys — still compares equal. */
-function canonical(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
-  if (v !== null && typeof v === "object") {
-    const entries = Object.entries(v as Record<string, unknown>)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([k, val]) => `${JSON.stringify(k)}:${canonical(val)}`);
-    return `{${entries.join(",")}}`;
-  }
-  return JSON.stringify(v) ?? "null";
 }
 
 export async function POST(req: Request) {
@@ -216,6 +190,11 @@ export async function POST(req: Request) {
   let highlight: string;
   try {
     const body = await req.json();
+    // Starred points picked from any number of matches (2026-09-22): its
+    // own manifest and table, the same canvas and switches.
+    if (Array.isArray(body.pointIds)) {
+      return await selectionReel(supabase, user, body);
+    }
     matchId = String(body.matchId ?? "");
     showScore = body.showScore !== false; // default on
     showNames = body.showNames !== false; // default on
@@ -381,27 +360,14 @@ export async function POST(req: Request) {
     for (const r of taggedRows ?? []) taggedIds.add(String(r.point_id));
   }
 
-  // Running score walk capturing the state ENTERING each rally; lets and
-  // unconfirmed points contribute nothing. Game boundaries come from
-  // gameScore.ts stepBoundaryWalk — the SAME walk computeMatchScore and
-  // serving.ts use (11-with-2-clear plus the owner's game_end_override
-  // end/continue pins), so the reel scorebug always splits games exactly
-  // where the match page does.
-  const walk = createBoundaryWalk();
-  let gamesYou = 0;
-  let gamesThem = 0;
-  let hasScore = false;
-  const gamesDetail: [number, number][] = [];
-  const manifestPoints: ManifestPoint[] = [];
-  for (const p of ordered) {
-    // scope 'full' takes every visible point with a clip; 'starred' only
-    // the starred ones; a tag scope only the points carrying the tag. The
-    // score walk below runs over ALL points either way, so the running
-    // score entering each rally is identical.
-    const clipPath = p.clip_path;
-    const included =
-      clipPath &&
-      (pointId
+  // The score walk and the cut windows (manifest.ts). scope 'full' takes
+  // every visible point with a clip; 'starred' only the starred ones; a tag
+  // scope only the points carrying the tag. The walk runs over ALL points
+  // either way, so the running score entering each rally is identical.
+  const { points: manifestPoints, hasScore } = walkManifestPoints(
+    ordered,
+    (p) =>
+      pointId
         ? p.id === pointId
         : hlKind
           ? hlIds.has(p.id)
@@ -409,69 +375,11 @@ export async function POST(req: Request) {
             ? true
             : tagId
               ? taggedIds.has(p.id)
-              : p.starred);
-    if (included) {
-      // Cut-timeline segment covering the same content as the preview
-      // clip: cut_t0 is the padded clip start, so the span is the rally
-      // length plus both context pads. Split-boundary edges use the tight
-      // pad (effectivePad) so the reel segment matches the reclipped
-      // preview clip instead of running into the sibling's rally — BOTH
-      // edges: split-born points now get a cut_t0 anchored on
-      // t0 - TIGHT_PAD (split_point RPC / migration 023), so a full pre
-      // here would overshoot the child's clip span by pre - 0.3.
-      // The end goes through playhead.effectiveEnd — paddedEnd exactly,
-      // unless a trim shortens it: the owner's winner tap (tap + 0.5s;
-      // 138) or, on an unscored point, the observed rally end plus its
-      // buffer (143). Clamped, never extended. The device renderer mirrors
-      // this same pair of lines in SharePointSheet.swift — keep them
-      // rule-identical.
-      let segStart: number | null = null;
-      let segEnd: number | null = null;
-      const automaticBounds = hlBounds.get(p.id);
-      if (automaticBounds) {
-        segStart = round2(automaticBounds.cut_start_s);
-        segEnd = round2(automaticBounds.cut_end_s);
-      } else if (p.cut_t0 !== null && p.t0 !== null && p.t1 !== null) {
-        segStart = round2(Math.max(0, Number(p.cut_t0)));
-        const end = effectiveEnd(p, pad, ends);
-        segEnd = end === null ? null : round2(end);
-      }
-      manifestPoints.push({
-        point_id: p.id,
-        clip_path: clipPath,
-        seg_start: segStart,
-        seg_end: segEnd,
-        score_you: walk.you,
-        score_them: walk.them,
-        games_you: gamesYou,
-        games_them: gamesThem,
-        games_detail: gamesDetail.map((g) => [g[0], g[1]]),
-      });
-    }
-    // Fold EVERY visible point: skipped/unscored contribute no score
-    // (winner null) but their positional game_end_override still counts —
-    // matching computeMatchScore/serving exactly.
-    const winner = p.is_let ? null : p.confirmed_winner;
-    if (winner) hasScore = true;
-    const ended = stepBoundaryWalk(
-      walk,
-      winner,
-      p.game_end_override ?? null
-    );
-    if (ended) {
-      // resolvedGameWinner, not "whoever is ahead": a game closed by an
-      // owner pin on points that were never scored out belongs to neither
-      // side — unless the owner named its winner (game_winner_override,
-      // 099) — and the reel scorebug must read the same as the match page.
-      const winner = resolvedGameWinner({
-        ...ended,
-        winnerOverride: p.game_winner_override ?? null,
-      });
-      if (winner === "user") gamesYou += 1;
-      else if (winner === "opponent") gamesThem += 1;
-      gamesDetail.push([ended.you, ended.them]);
-    }
-  }
+              : p.starred,
+    pad,
+    ends,
+    hlBounds,
+  );
   if (manifestPoints.length === 0) {
     return NextResponse.json(
       {
@@ -497,14 +405,7 @@ export async function POST(req: Request) {
     // Highlight scopes carry their own ceiling (the picker already fills
     // to it; this is the backstop). Everything else keeps the Reel cap.
     const capS = hlKind ? HIGHLIGHT_CEILINGS_S[hlKind] : VERTICAL_MAX_S;
-    const seconds = manifestPoints.reduce(
-      (total, p) =>
-        total +
-        (p.seg_start !== null && p.seg_end !== null
-          ? p.seg_end - p.seg_start
-          : 0),
-      0
-    );
+    const seconds = manifestSeconds(manifestPoints);
     if (seconds > capS + 0.5) {
       return NextResponse.json(
         {
@@ -521,21 +422,10 @@ export async function POST(req: Request) {
   }
   const show = hasScore && showScore; // no score data -> force off
 
-  // Title-card names: owner first (their tagged side), like the share
-  // sheet's default title. The owner's name falls back to their account
-  // first name (Google auth) before the generic "Player" — the app never
-  // needs to ask the owner for their own name.
-  const accountFullName =
-    ((user.user_metadata?.full_name as string | undefined) ??
-      (user.user_metadata?.name as string | undefined) ??
-      "").trim();
-  const accountName = accountFullName.split(/\s+/)[0] || "";
-  const near = (match.player_near_name ?? "").trim();
-  const far = (match.player_far_name ?? "").trim();
-  const opp = (match.opponent_name ?? "").trim();
-  const userIsFar = match.user_side === "far";
-  const youName = (userIsFar ? far : near) || accountName || "Player";
-  const themName = (userIsFar ? near : far) || opp || "Opponent";
+  const { you: youName, them: themName } = storyNames(
+    match,
+    user.user_metadata,
+  );
 
   const manifest: Manifest = {
     version: MANIFEST_VERSION,

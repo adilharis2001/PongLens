@@ -81,9 +81,13 @@ function owned(
  *   <matchId>.mp4, <matchId>-full.mp4, <matchId>-<scope>.mp4,
  *   <matchId>-highlights-<revision>.mp4, v-<matchId>-<scope>.mp4 (vertical
  *   share render) and tag-<tagId>.mp4.
+ * A starred selection spans matches, so it is named by its owner instead:
+ *   sel-<userId>-<attempt>.mp4 (2026-09-22).
  */
 function reel(name: string | undefined): Classified {
   if (!name) return { kind: "unknown" };
+  const selection = name.match(/^sel-([0-9a-f-]{36})/i);
+  if (selection) return owned(selection[1], "reels");
   const tag = name.match(/^tag-([0-9a-f-]{36})/i);
   if (tag && UUID.test(tag[1])) {
     return { kind: "tag", tagId: tag[1].toLowerCase(), category: "reels" };

@@ -139,6 +139,35 @@ export function durationLabel(row: StarredPointRow): string | null {
   return secs == null ? null : `${secs.toFixed(1)}s`;
 }
 
+/** "0:28", "1:05" — the m:ss every phone shows for a length. */
+export function clockLabel(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Total rally time of a set of points, in seconds (missing timing adds 0). */
+export function selectionSeconds(rows: StarredPointRow[]): number {
+  return rows.reduce((total, r) => total + (rallySeconds(r) ?? 0), 0);
+}
+
+/** The selection bar: "3 points · 0:28". */
+export function selectionSummary(rows: StarredPointRow[]): string {
+  const n = rows.length;
+  return `${n} point${n === 1 ? "" : "s"} · ${clockLabel(selectionSeconds(rows))}`;
+}
+
+/**
+ * The picked rows in shelf order, whatever order they were tapped in. The
+ * video and the link play them the way the shelf lists them, so what the
+ * owner reads top to bottom is what a viewer watches start to finish.
+ */
+export function selectedInShelfOrder(
+  rows: StarredPointRow[],
+  selected: ReadonlySet<string>,
+): StarredPointRow[] {
+  return rows.filter((r) => selected.has(r.id));
+}
+
 /** "67 points · 21 matches" — a count, not a description of the page. */
 export function summaryLine(rows: StarredPointRow[]): string {
   const matches = new Set(rows.map((r) => r.match_id)).size;
