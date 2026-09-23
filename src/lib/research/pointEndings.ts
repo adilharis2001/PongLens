@@ -11,13 +11,14 @@ export const ENDING_REASONS = [
   ['custom','Other / custom reason'],
 ] as const;
 export type EndingReason = typeof ENDING_REASONS[number][0];
-export type EndingLabel = { reason: EndingReason | null; custom: string; note: string; bounceReview?: BounceReview; lastRallyContact?: 'near' | 'far' | 'unsure' | null };
+export type SuggestionReview = {runId:string;fields:string[]};
+export type EndingLabel = {suggestionReview?:SuggestionReview; reason: EndingReason | null; custom: string; note: string; bounceReview?: BounceReview; lastRallyContact?: 'near' | 'far' | 'unsure' | null };
 export type EndingSource = {
   matchName: string; slug: string; number: number; game: number; scoreBefore: number[];
   winner: string; server: string | null; start: number; end: number; tap: number | null;
   fps: number; rawOffset: number; sourceHash: string; imported: boolean;
 };
-export type EndingRow = {id:string; match_id:string; sequence:number; source:EndingSource; label:EndingLabel; revision:number};
+export type EndingRow = {id:string; match_id:string; sequence:number; source:EndingSource; label:EndingLabel; revision:number;suggestion?:import('./endingSuggestions').EndingSuggestion};
 export const EMPTY_LABEL: EndingLabel = {reason:null, custom:'', note:''};
 export function validEndingLabel(value: unknown): value is EndingLabel {
   if(!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -27,7 +28,13 @@ export function validEndingLabel(value: unknown): value is EndingLabel {
     (x.reason!=='custom' || x.custom.trim().length>0) &&
     typeof x.note==='string' && x.note.length<=4000 &&
     (x.bounceReview===undefined || validBounceReview(x.bounceReview)) &&
+    (x.suggestionReview===undefined || validSuggestionReview(x.suggestionReview)) &&
     (x.lastRallyContact===undefined || x.lastRallyContact===null || ['near','far','unsure'].includes(x.lastRallyContact as string));
+}
+export function validSuggestionReview(value:unknown):value is SuggestionReview {
+ if(!value||typeof value!=='object'||Array.isArray(value))return false;
+ const x=value as SuggestionReview;
+ return typeof x.runId==='string'&&/^[a-z0-9-]{1,80}$/.test(x.runId)&&Array.isArray(x.fields)&&x.fields.length<=203&&new Set(x.fields).size===x.fields.length&&x.fields.every(k=>typeof k==='string'&&/^(reason|lastRallyContact|lastBounce|event:detected:(0|[1-9][0-9]{0,3}))$/.test(k));
 }
 export function savedLabel(label:EndingLabel) { return label.reason!==null && validEndingLabel(label); }
 export function reasonText(label:EndingLabel) {
@@ -95,9 +102,10 @@ export function removeBounce(review:BounceReview,id:string):BounceReview {
 /** Explicit field normalization makes idempotent retries independent of JSON key order. */
 export function normalizeEndingLabel(label:EndingLabel,existing?:EndingLabel):EndingLabel {
  const review=label.bounceReview??existing?.bounceReview;
+ const suggestionReview=label.suggestionReview??existing?.suggestionReview;
  // Omission from older clients preserves the answer; explicit null clears it.
  const lastRallyContact=label.lastRallyContact===undefined?existing?.lastRallyContact:label.lastRallyContact;
- return {reason:label.reason,custom:label.custom.trim(),note:label.note,...(lastRallyContact?{lastRallyContact}:{}),...(review?{bounceReview:{
+ return {reason:label.reason,custom:label.custom.trim(),note:label.note,...(suggestionReview?{suggestionReview:{runId:suggestionReview.runId,fields:[...suggestionReview.fields].sort()}}:{}),...(lastRallyContact?{lastRallyContact}:{}),...(review?{bounceReview:{
   version:1 as const,lastBounce:review.lastBounce,events:review.events.map(e=>({id:e.id,kind:e.kind,side:e.side,...(e.rawTime!==undefined?{rawTime:e.rawTime}:{})})).sort((a,b)=>a.id.localeCompare(b.id))
  }}:{})};
 }

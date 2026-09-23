@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {clock,BOUNCE_KINDS,EMPTY_BOUNCE_REVIEW,sameEndingLabel,ENDING_REASONS,frameStep,nextUnlabeled,reasonText,savedLabel,validEndingLabel,type EndingLabel,type EndingRow} from '@/lib/research/pointEndings';
+import {confirmSuggestions,displayLabel,pendingSuggestionKeys,reviewChangedFields,suggestionState} from '@/lib/research/endingSuggestions';
+import {SuggestionHint} from './SuggestionHint';
 import {EndingSaveQueue} from '@/lib/research/endingSaveQueue';
 import type {EndingEvidence} from '@/lib/research/endingEvidence';
 import {BallEvidence} from './BallEvidence';
@@ -17,9 +19,9 @@ type SaveStatus={state:'saving'|'saved'|'error'|'draft';message?:string};
 export function PointEndingReview({initialRows,initialCustom}:{initialRows:EndingRow[];initialCustom:string[]}) {
  const [rows,setRows]=useState(initialRows);
  const rowsRef=useRef(rows);rowsRef.current=rows;
- const [selected,setSelected]=useState(()=>nextUnlabeled(initialRows)?.id??initialRows[0]?.id??'');
+ const [selected,setSelected]=useState(()=>initialRows.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)?.id??nextUnlabeled(initialRows)?.id??initialRows[0]?.id??'');
  const [matchId,setMatchId]=useState('all');
- const [filter,setFilter]=useState<'all'|'unlabeled'|'labeled'>('all');
+ const [filter,setFilter]=useState<'all'|'unlabeled'|'labeled'|'suggested'>('all');
  const [statuses,setStatuses]=useState<Record<string,SaveStatus>>({});
  const [exitBlocked,setExitBlocked]=useState(false);
  const writers=useRef(new Map<string,EndingSaveQueue>());
@@ -46,14 +48,17 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const evidence=evidenceResult?.id===point?.id?evidenceResult?.data??null:null;
  const matches=useMemo(()=>Array.from(new Map(rows.map(r=>[r.match_id,r.source.matchName])).entries()),[rows]);
  const matchRows=rows.filter(r=>matchId==='all'||r.match_id===matchId);
- const visible=matchRows.filter(r=>filter==='all'||(filter==='labeled')===savedLabel(r.label));
+ const visible=matchRows.filter(r=>filter==='all'||(filter==='suggested'?pendingSuggestionKeys(r.label,r.suggestion).length>0:(filter==='labeled')===savedLabel(r.label)));
+ const suggestedPoints=rows.filter(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0).length;
+ const pending=point?pendingSuggestionKeys(point.label,point.suggestion):[];
+ const shown=point?displayLabel(point.label,point.suggestion):undefined;
  const done=rows.filter(r=>savedLabel(r.label)).length;
  const selectedStatus=point?statuses[point.id]:undefined;
  const unfinishedSaves=Object.values(statuses).filter(s=>s.state!=='saved').length;
 
  function change(patch:Partial<EndingLabel>,saveNow=true) {
    const p=pointRef.current;if(!p)return;
-   const label={...p.label,...patch};
+   const label=reviewChangedFields(p.label,{...p.label,...patch},p.suggestion);
    if(saveNow)label.custom=label.custom.trim();
    // Update the ref synchronously: consecutive events cannot erase an earlier field.
    const next=rowsRef.current.map(r=>r.id===p.id?{...r,label}:r);
@@ -130,8 +135,9 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  useEffect(()=>{if(video.current)video.current.playbackRate=rate;},[rate,url]);
  useEffect(()=>{const v=video.current;return()=>{v?.pause();};},[url]);
  function play(){const v=video.current;if(!v||!point)return;if(!v.paused){v.pause();return;}if(v.currentTime>=point.source.end-0.05||v.currentTime<point.source.start)seekEnding();v.playbackRate=rate;void v.play().catch(()=>setMediaError('Video could not play. Reload the video to try again.'));}
- function next(){const index=matchRows.findIndex(r=>r.id===selected);const p=nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
- function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>id==='all'||r.match_id===id);setSelected((nextUnlabeled(list)??list[0])?.id??'');}
+ function confirm(keys?:string[],dismiss=false){const p=pointRef.current;if(p?.suggestion)change(confirmSuggestions(p.label,p.suggestion,keys,dismiss));}
+ function next(){const index=matchRows.findIndex(r=>r.id===selected);const ordered=[...matchRows.slice(index+1),...matchRows.slice(0,index)];const p=ordered.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
+ function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>id==='all'||r.match_id===id);setSelected((list.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(list)??list[0])?.id??'');}
  function retryVideo(){if(point)cache.current.delete(point.match_id);setMediaRetry(n=>n+1);}
 
  if(!point)return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8"><h1 className="text-2xl font-semibold">Point-ending labels</h1><p className="mt-3 text-zinc-400">The study points have not been loaded yet.</p></main>;
@@ -140,10 +146,11 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8 lg:px-6">
    <Link href="/research" onClick={e=>{if(unfinishedSaves){e.preventDefault();setExitBlocked(true);}}} className="text-sm text-zinc-400 hover:text-cyan-glow">← Research</Link>
    <h1 className="mt-3 text-2xl font-semibold text-white">Point-ending labels</h1>
-   <p className="mt-1 max-w-3xl text-sm text-zinc-400">Choose how each point ended. Your answers and notes save automatically, so you can return at any time.</p>
+   <p className="mt-1 max-w-3xl text-sm text-zinc-400">Review the amber suggestions, confirm what is right, or change it. Your answers and notes save automatically.</p>
    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-zinc-300" aria-live="polite">
      <span className="tabular-nums">{done} labeled of {rows.length}</span>
      <span className="text-zinc-500">{rows.length-done} remaining</span>
+     {suggestedPoints>0&&<span className="text-amber-200">{suggestedPoints} with suggestions to review</span>}
      <span className={unfinishedSaves?'text-amber-200':'text-zinc-500'}>{unfinishedSaves?`${unfinishedSaves} answer${unfinishedSaves===1?'':'s'} not yet saved`:'All answers saved'}</span>
    </div>
    {exitBlocked&&unfinishedSaves>0&&<p role="alert" className="mt-3 text-sm text-amber-200">Wait for your answers to save, or retry an unsaved answer before leaving.</p>}
@@ -151,7 +158,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
      {[['all','All matches'],...matches].map(([id,name])=><button key={id} onClick={()=>selectMatch(id)} aria-pressed={matchId===id} className={`rounded-full border px-3 py-1.5 text-sm ${matchId===id?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400 hover:border-zinc-500'}`}>{name}{id!=='all'&&<span className="ml-2 text-xs text-zinc-500">{rows.filter(r=>r.match_id===id&&savedLabel(r.label)).length}/{rows.filter(r=>r.match_id===id).length}</span>}</button>)}
    </div>
    <div className="mt-3 flex flex-wrap gap-2">
-     {(['all','unlabeled','labeled'] as const).map(f=><button key={f} onClick={()=>setFilter(f)} aria-pressed={filter===f} className={`rounded-full border px-3 py-1 text-sm ${filter===f?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400'}`}>{f==='all'?'All points':f==='unlabeled'?'Unlabeled':'Labeled'}</button>)}
+     {(['all','suggested','unlabeled','labeled'] as const).map(f=><button key={f} onClick={()=>setFilter(f)} aria-pressed={filter===f} className={`rounded-full border px-3 py-1 text-sm ${filter===f?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400'}`}>{f==='all'?'All points':f==='suggested'?'Suggestions to review':f==='unlabeled'?'Unlabeled':'Labeled'}</button>)}
    </div>
    <div ref={review} className="mt-4 scroll-mt-4 flex flex-col gap-6 lg:flex-row">
      <div className="min-w-0 flex-1">
@@ -169,7 +176,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
        {evidenceError&&<div role="alert" className="mt-2 text-sm text-rose-300">{evidenceError} <button className={secondary} onClick={()=>setEvidenceRetry(n=>n+1)}>Retry ball evidence</button></div>}
        {evidence&&showBounces&&<div className="mt-2">
          <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Jump to detected bounce">
-           {evidence.bounces.map((b,i)=><button key={i} disabled={!ready} onClick={()=>{seek(b.t+evidence.rawOffset);setBounceSelection({pointId:point.id,id:`detected:${i}`});}} className="min-h-11 shrink-0 rounded-lg border border-edge px-3 py-2 text-xs tabular-nums text-amber-200 hover:border-zinc-500 disabled:opacity-40" aria-label={`Go to bounce ${i+1} at ${clock(b.t+evidence.rawOffset-start)} into point`}>{i+1} · {clock(b.t+evidence.rawOffset-start)}{point.label.bounceReview?.lastBounce===`detected:${i}`?' · Last':''}{point.label.bounceReview?.events.find(e=>e.id===`detected:${i}`)?` · ${BOUNCE_KINDS.find(([k])=>k===point.label.bounceReview?.events.find(e=>e.id===`detected:${i}`)?.kind)?.[1]}`:''}</button>)}
+           {evidence.bounces.map((b,i)=><button key={i} disabled={!ready} onClick={()=>{seek(b.t+evidence.rawOffset);setBounceSelection({pointId:point.id,id:`detected:${i}`});}} className="min-h-11 shrink-0 rounded-lg border border-edge px-3 py-2 text-xs tabular-nums text-amber-200 hover:border-zinc-500 disabled:opacity-40" aria-label={`Go to bounce ${i+1} at ${clock(b.t+evidence.rawOffset-start)} into point`}>{i+1} · {clock(b.t+evidence.rawOffset-start)}{shown?.bounceReview?.lastBounce===`detected:${i}`?' · Last':''}{shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?` · ${BOUNCE_KINDS.find(([k])=>k===shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?.kind)?.[1]}`:''}{point.suggestion&&suggestionState(point.label,point.suggestion,`event:detected:${i}`)==='pending'?' · Suggested':''}</button>)}
            {(point.label.bounceReview??EMPTY_BOUNCE_REVIEW).events.filter(e=>e.rawTime!==undefined).map(e=><button key={e.id} disabled={!ready} onClick={()=>{seek(e.rawTime!);setBounceSelection({pointId:point.id,id:e.id});}} className="min-h-11 shrink-0 rounded-lg border border-cyan-glow/50 px-3 py-2 text-xs tabular-nums text-cyan-100">Added · {clock(e.rawTime!-start)}{point.label.bounceReview?.lastBounce===e.id?' · Last':''}</button>)}
          </div>
          <p className="mt-1 text-xs text-zinc-500">Detected bounces may include paddle contacts or bounces off the table.</p>
@@ -186,35 +193,38 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          <button className={secondary} disabled={!ready} onClick={()=>{seek(start);void video.current?.play();}}>Play whole point</button>
          {point.source.tap!==null&&<button className={secondary} disabled={!ready} onClick={()=>seek(point.source.tap!)}>Go to saved tap</button>}
        </div>
-       <BounceDetails key={point.id} value={point.label.bounceReview} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>setBounceSelection({pointId:point.id,id})} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??start}/>
+       <BounceDetails key={point.id} value={point.label.bounceReview} suggestion={point.suggestion} suggestionReview={point.label.suggestionReview} onReviewSuggestion={confirm} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>setBounceSelection({pointId:point.id,id})} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??start}/>
      </div>
      <div className="w-full shrink-0 lg:w-[340px]">
        <div className="space-y-4 rounded-xl border border-edge bg-surface-1 p-4">
          <div><h2 className="text-sm font-medium text-white">{point.source.matchName} · Point {point.source.number}</h2><p className="mt-1 text-xs text-zinc-500">Game {point.source.game} · Score before {point.source.scoreBefore.join('–')}</p></div>
          <div className="text-xs text-zinc-400"><p>Saved winner: {point.source.winner}</p>{point.source.server&&<p className="mt-1">Server: {point.source.server}</p>}<p className="mt-1">{point.source.tap===null?'No saved end tap':`Saved end tap: ${clock(point.source.tap-point.source.rawOffset)}`}</p></div>
          <label className="block text-sm text-zinc-300" htmlFor="ending-reason">How did the point end?</label>
-         <select id="ending-reason" className={field} value={customSelected?`custom:${point.label.custom}`:point.label.reason??''} onChange={e=>{const value=e.target.value;if(value.startsWith('custom:'))change({reason:'custom',custom:value.slice(7)});else change({reason:(value||null) as EndingLabel['reason'],custom:''});}}>
+         <select id="ending-reason" className={`${field} ${pending.includes('reason')?'border-amber-400/50 text-amber-100':''}`} value={customSelected?`custom:${point.label.custom}`:shown?.reason??''} onChange={e=>{const value=e.target.value;if(!value&&point.suggestion&&suggestionState(point.label,point.suggestion,'reason')==='pending'){confirm(['reason'],true);return;}if(value.startsWith('custom:'))change({reason:'custom',custom:value.slice(7)});else change({reason:(value||null) as EndingLabel['reason'],custom:''});}}>
            <option value="">Choose a reason</option>
            {ENDING_REASONS.map(([key,text])=><option key={key} value={key}>{text}</option>)}
            {customOptions.length>0&&<optgroup label="Your custom reasons">{customOptions.map(c=><option key={c} value={`custom:${c}`}>{c}</option>)}</optgroup>}
          </select>
-         {point.label.reason==='net'&&<p className="text-xs text-zinc-400">Includes the ball staying on the table or rolling off after hitting the net.</p>}
-         {point.label.reason==='missed_return'&&<p className="text-xs text-zinc-400">Includes an opponent’s winner that bounced legally and could not be reached.</p>}
+         {point.suggestion&&<SuggestionHint state={suggestionState(point.label,point.suggestion,'reason')} detail={point.suggestion.reason.detail} onConfirm={()=>confirm(['reason'])}/>}
+         {shown?.reason==='net'&&<p className="text-xs text-zinc-400">Includes the ball staying on the table or rolling off after hitting the net.</p>}
+         {shown?.reason==='missed_return'&&<p className="text-xs text-zinc-400">Includes an opponent’s winner that bounced legally and could not be reached.</p>}
          {point.label.reason==='custom'&&<label className="block text-sm text-zinc-300">Custom reason<input className={`${field} mt-2`} maxLength={120} value={point.label.custom} onChange={e=>change({custom:e.target.value},false)} onBlur={()=>change({})} placeholder="Describe the ending"/><span className="mt-1 block text-xs text-zinc-500">Saved reasons are available on every point.</span></label>}
          <div>
            <label className="block text-sm text-zinc-300" htmlFor="last-rally-contact">Who made the last paddle contact during the rally? <span className="text-zinc-500">(optional)</span></label>
-           <select id="last-rally-contact" aria-describedby="last-rally-contact-help" className={`${field} mt-2`} value={point.label.lastRallyContact??''} onChange={e=>change({lastRallyContact:(e.target.value||null) as EndingLabel['lastRallyContact']})}>
+           <select id="last-rally-contact" aria-describedby="last-rally-contact-help" className={`${field} mt-2 ${pending.includes('lastRallyContact')?'border-amber-400/50 text-amber-100':''}`} value={shown?.lastRallyContact??''} onChange={e=>{if(!e.target.value&&point.suggestion&&suggestionState(point.label,point.suggestion,'lastRallyContact')==='pending'){confirm(['lastRallyContact'],true);return;}change({lastRallyContact:(e.target.value||null) as EndingLabel['lastRallyContact']});}}>
              <option value="">Not specified</option>
              <option value="near">Player nearer the camera</option>
              <option value="far">Player farther from the camera</option>
              <option value="unsure">Cannot tell</option>
            </select>
+           {point.suggestion&&<SuggestionHint state={suggestionState(point.label,point.suggestion,'lastRallyContact')} detail={point.suggestion.lastRallyContact.detail} onConfirm={()=>confirm(['lastRallyContact'])}/>}
            <p id="last-rally-contact-help" className="mt-2 text-xs text-zinc-400">Count attempted returns and mishits that touched the ball. Ignore collecting or stopping the ball after the point ended.</p>
          </div>
          <label className="block text-sm text-zinc-300">Note <span className="text-zinc-500">(optional)</span><textarea className={`${field} mt-2 resize-y`} rows={3} maxLength={4000} value={point.label.note} onChange={e=>change({note:e.target.value})}/></label>
          <div role="status" className={`text-xs ${selectedStatus?.state==='error'?'text-rose-300':selectedStatus?.state==='draft'?'text-amber-200':'text-zinc-400'}`}>{selectedStatus?.state==='saving'?'Saving…':selectedStatus?.state==='error'?selectedStatus.message:selectedStatus?.state==='draft'?selectedStatus.message:selectedStatus?.state==='saved'?'Saved':point.source.imported?'Carried over from your earlier review':savedLabel(point.label)?'Saved':'Not labeled yet'}</div>
          {selectedStatus?.state==='error'&&<button className={secondary} onClick={()=>writers.current.get(point.id)?.retry()}>Retry save</button>}
-         <button className="min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40" disabled={!nextUnlabeled(matchRows,selected)} onClick={next}>Next unlabeled point</button>
+         {pending.length>0&&<div><button type="button" className="min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-medium text-black" onClick={()=>confirm()}>Confirm this point’s suggestions</button><p className="mt-2 text-xs text-zinc-400">Confirms the suggested ending, contact and bounce answers. Uncertain answers stay blank.</p></div>}
+         <button className={pending.length?secondary:"min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40"} disabled={!matchRows.some(r=>r.id!==selected&&pendingSuggestionKeys(r.label,r.suggestion).length>0)&&!nextUnlabeled(matchRows,selected)} onClick={next}>{suggestedPoints?'Next point to review':'Next unlabeled point'}</button>
          <button className={secondary} disabled={matchRows.findIndex(r=>r.id===selected)<=0} onClick={()=>{const i=matchRows.findIndex(r=>r.id===selected);if(i>0)setSelected(matchRows[i-1].id);}}>Previous point</button>
        </div>
      </div>
@@ -222,7 +232,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
    <details className="mt-5 text-xs text-zinc-500"><summary className="cursor-pointer">About the saved references</summary><p className="mt-2">Scores, servers and taps come from the study’s saved Scorekeeper record. A tap is a timing reference, not an exact physical ending. These labels do not change match scores.</p>{evidence&&<p className="mt-2">{evidence.lineage}</p>}</details>
    <div className="mt-6 border-t border-edge pt-4"><h2 className="text-sm font-medium text-zinc-300">{visible.length} points in this view</h2>
      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-       {visible.map(r=><button key={r.id} aria-current={selected===r.id?'true':undefined} onClick={()=>{setSelected(r.id);review.current?.scrollIntoView({behavior:'smooth',block:'start'});}} className={`min-h-14 rounded-lg border px-3 py-2 text-left ${selected===r.id?'border-cyan-glow/60 bg-cyan-500/10':'border-edge hover:border-zinc-500'}`}><span className="block text-sm text-zinc-200">{r.source.matchName} · {r.source.number}</span><span className={`mt-1 block text-xs ${statuses[r.id]?.state==='error'?'text-rose-300':savedLabel(r.label)?'text-cyan-100':'text-zinc-500'}`}>{statuses[r.id]?.state==='error'?'Not saved':reasonText(r.label)}</span></button>)}
+       {visible.map(r=><button key={r.id} aria-current={selected===r.id?'true':undefined} onClick={()=>{setSelected(r.id);review.current?.scrollIntoView({behavior:'smooth',block:'start'});}} className={`min-h-14 rounded-lg border px-3 py-2 text-left ${selected===r.id?'border-cyan-glow/60 bg-cyan-500/10':'border-edge hover:border-zinc-500'}`}><span className="block text-sm text-zinc-200">{r.source.matchName} · {r.source.number}</span><span className={`mt-1 block text-xs ${statuses[r.id]?.state==='error'?'text-rose-300':savedLabel(r.label)?'text-cyan-100':'text-zinc-500'}`}>{statuses[r.id]?.state==='error'?'Not saved':`${r.suggestion&&suggestionState(r.label,r.suggestion,'reason')==='pending'?'Suggested: ':''}${reasonText(displayLabel(r.label,r.suggestion))}`}{pendingSuggestionKeys(r.label,r.suggestion).length>0&&<span className="ml-2 text-amber-200">Review suggestions</span>}</span></button>)}
      </div>
    </div>
  </main>;

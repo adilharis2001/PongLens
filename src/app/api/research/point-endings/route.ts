@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { validEndingLabel, normalizeEndingLabel, sameEndingLabel, bounceReviewInPoint } from '@/lib/research/pointEndings';
+import {suggestionKeys,validSuggestion,type EndingSuggestion} from '@/lib/research/endingSuggestions';
 export const runtime='nodejs';
 export async function POST(request:Request) {
   const db=await createClient();
@@ -19,6 +20,11 @@ export async function POST(request:Request) {
     const {data:evidence,error:evidenceError}=await db.from('point_ending_evidence').select('payload').eq('point_id',body.id).maybeSingle();
     if(evidenceError||!evidence)return NextResponse.json({error:'Could not load bounce references. Try again.'},{status:503});
     if(!bounceReviewInPoint(label.bounceReview,current.source,evidence.payload.bounces.length))return NextResponse.json({error:'Choose a bounce or frame within this point.'},{status:400});
+  }
+  if(label.suggestionReview){
+    const {data:suggestion,error:suggestionError}=await db.from('point_ending_suggestions').select('payload').eq('point_id',body.id).eq('run_id',label.suggestionReview.runId).maybeSingle();
+    if(suggestionError)return NextResponse.json({error:'Could not load the original suggestion. Try again.'},{status:503});
+    if(!suggestion||!validSuggestion(suggestion.payload,10000)||!label.suggestionReview.fields.every(k=>suggestionKeys(suggestion.payload as EndingSuggestion).includes(k)))return NextResponse.json({error:'This suggestion is no longer available. Reload before reviewing it.'},{status:400});
   }
   const {data,error}=await db.from('point_ending_research').update({label,revision:body.revision+1}).eq('id',body.id).eq('batch','out-ball-479-v1').eq('revision',body.revision).select('id,label,revision').maybeSingle();
   if(error) return NextResponse.json({error:'Could not save. Your answer is still on this page.'},{status:500});

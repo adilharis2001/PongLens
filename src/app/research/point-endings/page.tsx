@@ -1,6 +1,7 @@
 import type {Metadata} from 'next';
 import {notFound,redirect} from 'next/navigation';
 import {createClient} from '@/lib/supabase/server';
+import {SUGGESTION_RUN_ID,type EndingSuggestion} from '@/lib/research/endingSuggestions';
 import type {EndingRow} from '@/lib/research/pointEndings';
 import {PointEndingReview} from './PointEndingReview';
 export const dynamic='force-dynamic';
@@ -10,10 +11,12 @@ export default async function PointEndingPage() {
  const {data:{user}}=await db.auth.getUser();
  if(!user) redirect('/login?next=/research/point-endings');
  if((await db.rpc('is_admin')).data!==true) notFound();
- const [{data:rows,error},{data:custom,error:customError}]=await Promise.all([
+ const [{data:rows,error},{data:custom,error:customError},{data:suggestions,error:suggestionError}]=await Promise.all([
    db.from('point_ending_research').select('id,match_id,sequence,source,label,revision').eq('batch','out-ball-479-v1').order('sequence').limit(1000),
-   db.from('point_ending_custom_reasons').select('name').order('name')
+   db.from('point_ending_custom_reasons').select('name').order('name'),
+   db.from('point_ending_suggestions').select('point_id,payload').eq('run_id',SUGGESTION_RUN_ID).limit(1000)
  ]);
- if(error||customError) throw new Error('Could not load point-ending research');
- return <PointEndingReview initialRows={(rows??[]) as EndingRow[]} initialCustom={(custom??[]).map(r=>r.name as string)} />;
+ if(error||customError||suggestionError) throw new Error('Could not load point-ending research');
+ const byId=new Map((suggestions??[]).map(r=>[r.point_id,r.payload as EndingSuggestion]));
+ return <PointEndingReview initialRows={(rows??[]).map(r=>({...r,suggestion:byId.get(r.id)})) as EndingRow[]} initialCustom={(custom??[]).map(r=>r.name as string)} />;
 }
