@@ -4,6 +4,8 @@ import Link from 'next/link';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {clock,BOUNCE_KINDS,EMPTY_BOUNCE_REVIEW,sameEndingLabel,ENDING_REASONS,frameStep,nextUnlabeled,reasonText,savedLabel,validEndingLabel,type EndingLabel,type EndingRow} from '@/lib/research/pointEndings';
 import {confirmSuggestions,displayLabel,pendingSuggestionKeys,reviewChangedFields,suggestionState} from '@/lib/research/endingSuggestions';
+import {RallyPredictionReview} from './RallyPredictionReview';
+import {confirmRallyBounce,rallyPending,reviewRallyBounce,withoutLegacyLastBounce} from '@/lib/research/rallyPredictions';
 import {SuggestionHint} from './SuggestionHint';
 import {EndingSaveQueue} from '@/lib/research/endingSaveQueue';
 import type {EndingEvidence} from '@/lib/research/endingEvidence';
@@ -17,11 +19,11 @@ const mediaButton='min-h-11 rounded-lg border border-edge px-3 py-2 text-sm text
 type SaveStatus={state:'saving'|'saved'|'error'|'draft';message?:string};
 
 export function PointEndingReview({initialRows,initialCustom}:{initialRows:EndingRow[];initialCustom:string[]}) {
- const [rows,setRows]=useState(initialRows);
+ const [rows,setRows]=useState(()=>initialRows.map(r=>({...r,suggestion:withoutLegacyLastBounce(r.suggestion,r.rallyPrediction)})));
  const rowsRef=useRef(rows);rowsRef.current=rows;
- const [selected,setSelected]=useState(()=>initialRows.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)?.id??nextUnlabeled(initialRows)?.id??initialRows[0]?.id??'');
+ const [selected,setSelected]=useState(()=>initialRows.find(r=>rallyPending(r.label,r.rallyPrediction)&&!r.label.bounceReview?.lastBounce)?.id??initialRows.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)?.id??nextUnlabeled(initialRows)?.id??initialRows[0]?.id??'');
  const [matchId,setMatchId]=useState('all');
- const [filter,setFilter]=useState<'all'|'unlabeled'|'labeled'|'suggested'>('all');
+ const [filter,setFilter]=useState<'all'|'unlabeled'|'labeled'|'suggested'|'rally'>('all');
  const [statuses,setStatuses]=useState<Record<string,SaveStatus>>({});
  const [exitBlocked,setExitBlocked]=useState(false);
  const writers=useRef(new Map<string,EndingSaveQueue>());
@@ -33,6 +35,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const [ready,setReady]=useState(false);
  const [showTrail,setShowTrail]=useState(true);
  const [showBounces,setShowBounces]=useState(true);
+ const [bounceOpenRequest,setBounceOpenRequest]=useState(0);
  const [bounceSelection,setBounceSelection]=useState({pointId:'',id:''});
  const [evidenceResult,setEvidenceResult]=useState<{id:string;data:EndingEvidence}|null>(null);
  const [evidenceError,setEvidenceError]=useState('');
@@ -48,7 +51,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const evidence=evidenceResult?.id===point?.id?evidenceResult?.data??null:null;
  const matches=useMemo(()=>Array.from(new Map(rows.map(r=>[r.match_id,r.source.matchName])).entries()),[rows]);
  const matchRows=rows.filter(r=>matchId==='all'||r.match_id===matchId);
- const visible=matchRows.filter(r=>filter==='all'||(filter==='suggested'?pendingSuggestionKeys(r.label,r.suggestion).length>0:(filter==='labeled')===savedLabel(r.label)));
+ const visible=matchRows.filter(r=>filter==='all'||(filter==='rally'?rallyPending(r.label,r.rallyPrediction):filter==='suggested'?pendingSuggestionKeys(r.label,r.suggestion).length>0:(filter==='labeled')===savedLabel(r.label)));
  const suggestedPoints=rows.filter(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0).length;
  const pending=point?pendingSuggestionKeys(point.label,point.suggestion):[];
  const shown=point?displayLabel(point.label,point.suggestion):undefined;
@@ -58,7 +61,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
 
  function change(patch:Partial<EndingLabel>,saveNow=true) {
    const p=pointRef.current;if(!p)return;
-   const label=reviewChangedFields(p.label,{...p.label,...patch},p.suggestion);
+   const label=reviewRallyBounce(p.label,reviewChangedFields(p.label,{...p.label,...patch},p.suggestion),p.rallyPrediction);
    if(saveNow)label.custom=label.custom.trim();
    // Update the ref synchronously: consecutive events cannot erase an earlier field.
    const next=rowsRef.current.map(r=>r.id===p.id?{...r,label}:r);
@@ -136,8 +139,8 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  useEffect(()=>{const v=video.current;return()=>{v?.pause();};},[url]);
  function play(){const v=video.current;if(!v||!point)return;if(!v.paused){v.pause();return;}if(v.currentTime>=point.source.end-0.05||v.currentTime<point.source.start)seekEnding();v.playbackRate=rate;void v.play().catch(()=>setMediaError('Video could not play. Reload the video to try again.'));}
  function confirm(keys?:string[],dismiss=false){const p=pointRef.current;if(p?.suggestion)change(confirmSuggestions(p.label,p.suggestion,keys,dismiss));}
- function next(){const index=matchRows.findIndex(r=>r.id===selected);const ordered=[...matchRows.slice(index+1),...matchRows.slice(0,index)];const p=ordered.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
- function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>id==='all'||r.match_id===id);setSelected((list.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(list)??list[0])?.id??'');}
+ function next(){const index=matchRows.findIndex(r=>r.id===selected);const ordered=[...matchRows.slice(index+1),...matchRows.slice(0,index)];const p=ordered.find(r=>rallyPending(r.label,r.rallyPrediction))??ordered.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
+ function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>id==='all'||r.match_id===id);setSelected((list.find(r=>rallyPending(r.label,r.rallyPrediction))??list.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(list)??list[0])?.id??'');}
  function retryVideo(){if(point)cache.current.delete(point.match_id);setMediaRetry(n=>n+1);}
 
  if(!point)return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8"><h1 className="text-2xl font-semibold">Point-ending labels</h1><p className="mt-3 text-zinc-400">The study points have not been loaded yet.</p></main>;
@@ -150,6 +153,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-zinc-300" aria-live="polite">
      <span className="tabular-nums">{done} labeled of {rows.length}</span>
      <span className="text-zinc-500">{rows.length-done} remaining</span>
+     {rows.some(r=>r.rallyPrediction)&&<span className="text-amber-200">{rows.filter(r=>rallyPending(r.label,r.rallyPrediction)).length} last-bounce reviews remaining</span>}
      {suggestedPoints>0&&<span className="text-amber-200">{suggestedPoints} with suggestions to review</span>}
      <span className={unfinishedSaves?'text-amber-200':'text-zinc-500'}>{unfinishedSaves?`${unfinishedSaves} answer${unfinishedSaves===1?'':'s'} not yet saved`:'All answers saved'}</span>
    </div>
@@ -158,7 +162,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
      {[['all','All matches'],...matches].map(([id,name])=><button key={id} onClick={()=>selectMatch(id)} aria-pressed={matchId===id} className={`rounded-full border px-3 py-1.5 text-sm ${matchId===id?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400 hover:border-zinc-500'}`}>{name}{id!=='all'&&<span className="ml-2 text-xs text-zinc-500">{rows.filter(r=>r.match_id===id&&savedLabel(r.label)).length}/{rows.filter(r=>r.match_id===id).length}</span>}</button>)}
    </div>
    <div className="mt-3 flex flex-wrap gap-2">
-     {(['all','suggested','unlabeled','labeled'] as const).map(f=><button key={f} onClick={()=>setFilter(f)} aria-pressed={filter===f} className={`rounded-full border px-3 py-1 text-sm ${filter===f?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400'}`}>{f==='all'?'All points':f==='suggested'?'Suggestions to review':f==='unlabeled'?'Unlabeled':'Labeled'}</button>)}
+     {(['all','rally','suggested','unlabeled','labeled'] as const).map(f=><button key={f} onClick={()=>setFilter(f)} aria-pressed={filter===f} className={`rounded-full border px-3 py-1 text-sm ${filter===f?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400'}`}>{f==='all'?'All points':f==='rally'?'Last bounce to review':f==='suggested'?'Suggestions to review':f==='unlabeled'?'Unlabeled':'Labeled'}</button>)}
    </div>
    <div ref={review} className="mt-4 scroll-mt-4 flex flex-col gap-6 lg:flex-row">
      <div className="min-w-0 flex-1">
@@ -176,7 +180,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
        {evidenceError&&<div role="alert" className="mt-2 text-sm text-rose-300">{evidenceError} <button className={secondary} onClick={()=>setEvidenceRetry(n=>n+1)}>Retry ball evidence</button></div>}
        {evidence&&showBounces&&<div className="mt-2">
          <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Jump to detected bounce">
-           {evidence.bounces.map((b,i)=><button key={i} disabled={!ready} onClick={()=>{seek(b.t+evidence.rawOffset);setBounceSelection({pointId:point.id,id:`detected:${i}`});}} className="min-h-11 shrink-0 rounded-lg border border-edge px-3 py-2 text-xs tabular-nums text-amber-200 hover:border-zinc-500 disabled:opacity-40" aria-label={`Go to bounce ${i+1} at ${clock(b.t+evidence.rawOffset-start)} into point`}>{i+1} · {clock(b.t+evidence.rawOffset-start)}{shown?.bounceReview?.lastBounce===`detected:${i}`?' · Last':''}{shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?` · ${BOUNCE_KINDS.find(([k])=>k===shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?.kind)?.[1]}`:''}{point.suggestion&&suggestionState(point.label,point.suggestion,`event:detected:${i}`)==='pending'?' · Suggested':''}</button>)}
+           {evidence.bounces.map((b,i)=><button key={i} disabled={!ready} onClick={()=>{seek(b.t+evidence.rawOffset);setBounceSelection({pointId:point.id,id:`detected:${i}`});}} className="min-h-11 shrink-0 rounded-lg border border-edge px-3 py-2 text-xs tabular-nums text-amber-200 hover:border-zinc-500 disabled:opacity-40" aria-label={`Go to bounce ${i+1} at ${clock(b.t+evidence.rawOffset-start)} into point`}>{i+1} · {clock(b.t+evidence.rawOffset-start)}{shown?.bounceReview?.lastBounce===`detected:${i}`?' · Last':''}{point.rallyPrediction?.lastBounce?.id===`detected:${i}`?' · Experiment last':''}{shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?` · ${BOUNCE_KINDS.find(([k])=>k===shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?.kind)?.[1]}`:''}{point.suggestion&&suggestionState(point.label,point.suggestion,`event:detected:${i}`)==='pending'?' · Suggested':''}</button>)}
            {(point.label.bounceReview??EMPTY_BOUNCE_REVIEW).events.filter(e=>e.rawTime!==undefined).map(e=><button key={e.id} disabled={!ready} onClick={()=>{seek(e.rawTime!);setBounceSelection({pointId:point.id,id:e.id});}} className="min-h-11 shrink-0 rounded-lg border border-cyan-glow/50 px-3 py-2 text-xs tabular-nums text-cyan-100">Added · {clock(e.rawTime!-start)}{point.label.bounceReview?.lastBounce===e.id?' · Last':''}</button>)}
          </div>
          <p className="mt-1 text-xs text-zinc-500">Detected bounces may include paddle contacts or bounces off the table.</p>
@@ -193,12 +197,13 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          <button className={secondary} disabled={!ready} onClick={()=>{seek(start);void video.current?.play();}}>Play whole point</button>
          {point.source.tap!==null&&<button className={secondary} disabled={!ready} onClick={()=>seek(point.source.tap!)}>Go to saved tap</button>}
        </div>
-       <BounceDetails key={point.id} value={point.label.bounceReview} suggestion={point.suggestion} suggestionReview={point.label.suggestionReview} onReviewSuggestion={confirm} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>setBounceSelection({pointId:point.id,id})} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??start}/>
+       <BounceDetails key={point.id} openRequest={bounceOpenRequest} value={point.label.bounceReview} suggestion={point.suggestion} suggestionReview={point.label.suggestionReview} onReviewSuggestion={confirm} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>setBounceSelection({pointId:point.id,id})} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??start}/>
      </div>
      <div className="w-full shrink-0 lg:w-[340px]">
        <div className="space-y-4 rounded-xl border border-edge bg-surface-1 p-4">
          <div><h2 className="text-sm font-medium text-white">{point.source.matchName} · Point {point.source.number}</h2><p className="mt-1 text-xs text-zinc-500">Game {point.source.game} · Score before {point.source.scoreBefore.join('–')}</p></div>
          <div className="text-xs text-zinc-400"><p>Saved winner: {point.source.winner}</p>{point.source.server&&<p className="mt-1">Server: {point.source.server}</p>}<p className="mt-1">{point.source.tap===null?'No saved end tap':`Saved end tap: ${clock(point.source.tap-point.source.rawOffset)}`}</p></div>
+         {point.rallyPrediction&&<RallyPredictionReview prediction={point.rallyPrediction} label={point.label} start={start} ready={ready} onSeek={()=>{const b=point.rallyPrediction?.lastBounce;if(b){seek(b.rawTime);if(b.origin==='detected')setBounceSelection({pointId:point.id,id:b.id});}}} onConfirm={()=>{const p=pointRef.current;if(p?.rallyPrediction)change(confirmRallyBounce(p.label,p.rallyPrediction));}} onKeep={()=>change({rallyReview:{runId:point.rallyPrediction!.runId,reviewed:true}})} onCorrect={()=>{const b=point.rallyPrediction?.lastBounce;setBounceSelection({pointId:point.id,id:b?.origin==='detected'?b.id:evidence?.bounces.length?'detected:0':''});setBounceOpenRequest(n=>n+1);document.getElementById('bounce-details-toggle')?.scrollIntoView({block:'center',behavior:'smooth'});}}/>}
          <label className="block text-sm text-zinc-300" htmlFor="ending-reason">How did the point end?</label>
          <select id="ending-reason" className={`${field} ${pending.includes('reason')?'border-amber-400/50 text-amber-100':''}`} value={customSelected?`custom:${point.label.custom}`:shown?.reason??''} onChange={e=>{const value=e.target.value;if(!value&&point.suggestion&&suggestionState(point.label,point.suggestion,'reason')==='pending'){confirm(['reason'],true);return;}if(value.startsWith('custom:'))change({reason:'custom',custom:value.slice(7)});else change({reason:(value||null) as EndingLabel['reason'],custom:''});}}>
            <option value="">Choose a reason</option>
@@ -223,8 +228,8 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          <label className="block text-sm text-zinc-300">Note <span className="text-zinc-500">(optional)</span><textarea className={`${field} mt-2 resize-y`} rows={3} maxLength={4000} value={point.label.note} onChange={e=>change({note:e.target.value})}/></label>
          <div role="status" className={`text-xs ${selectedStatus?.state==='error'?'text-rose-300':selectedStatus?.state==='draft'?'text-amber-200':'text-zinc-400'}`}>{selectedStatus?.state==='saving'?'Saving…':selectedStatus?.state==='error'?selectedStatus.message:selectedStatus?.state==='draft'?selectedStatus.message:selectedStatus?.state==='saved'?'Saved':point.source.imported?'Carried over from your earlier review':savedLabel(point.label)?'Saved':'Not labeled yet'}</div>
          {selectedStatus?.state==='error'&&<button className={secondary} onClick={()=>writers.current.get(point.id)?.retry()}>Retry save</button>}
-         {pending.length>0&&<div><button type="button" className="min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-medium text-black" onClick={()=>confirm()}>Confirm this point’s suggestions</button><p className="mt-2 text-xs text-zinc-400">Confirms the suggested ending, contact and bounce answers. Uncertain answers stay blank.</p></div>}
-         <button className={pending.length?secondary:"min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40"} disabled={!matchRows.some(r=>r.id!==selected&&pendingSuggestionKeys(r.label,r.suggestion).length>0)&&!nextUnlabeled(matchRows,selected)} onClick={next}>{suggestedPoints?'Next point to review':'Next unlabeled point'}</button>
+         {pending.length>0&&<div><button type="button" className="min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-medium text-black" onClick={()=>confirm()}>Confirm this point’s suggestions</button><p className="mt-2 text-xs text-zinc-400">Confirms the earlier ending, contact and bounce-type suggestions. The new last-bounce review is separate.</p></div>}
+         <button className={pending.length?secondary:"min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40"} disabled={!matchRows.some(r=>r.id!==selected&&(rallyPending(r.label,r.rallyPrediction)||pendingSuggestionKeys(r.label,r.suggestion).length>0))&&!nextUnlabeled(matchRows,selected)} onClick={next}>{suggestedPoints||point.rallyPrediction?'Next point to review':'Next unlabeled point'}</button>
          <button className={secondary} disabled={matchRows.findIndex(r=>r.id===selected)<=0} onClick={()=>{const i=matchRows.findIndex(r=>r.id===selected);if(i>0)setSelected(matchRows[i-1].id);}}>Previous point</button>
        </div>
      </div>

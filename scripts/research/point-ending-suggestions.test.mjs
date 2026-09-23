@@ -54,3 +54,35 @@ test('review suggestions are explicit, isolated saves and survive remount',async
   const before=sent.length;await act(async()=>root.render(React.createElement(PointEndingReview,{initialRows:structuredClone(rows),initialCustom:[]})));assert.equal(sent.length,before);assert.match(document.querySelector('h2').textContent,/Point 2/);await act(async()=>button('Previous point').click());assert.match(document.body.textContent,/Your correction/);
  }finally{await act(async()=>root.unmount());dom.window.close();Object.assign(globalThis,old);globalThis.fetch=previousFetch;}
 });
+
+test('new trajectory review confirms only its last bounce and preserves human answers',async()=>{
+ const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost',pretendToBeVisual:true});
+ const old={};for(const [key,value] of Object.entries({window:dom.window,document:dom.window.document,HTMLElement:dom.window.HTMLElement,IS_REACT_ACT_ENVIRONMENT:true})){old[key]=globalThis[key];globalThis[key]=value;}
+ dom.window.HTMLMediaElement.prototype.pause=function(){};
+ dom.window.HTMLElement.prototype.scrollIntoView=function(){};
+ const previousFetch=globalThis.fetch;
+ const source={matchName:'Test match',slug:'test',number:1,game:1,scoreBefore:[0,0],winner:'Near',server:'Near',start:0,end:20,tap:18,fps:30,rawOffset:0,sourceHash:'test',imported:false};
+ const legacy={version:1,runId:'contact-review-20260922-v1',reason:{value:null,confidence:'uncertain',detail:''},lastRallyContact:{value:null,confidence:'uncertain',detail:''},lastBounce:{value:null,confidence:'uncertain',detail:''},events:[{id:'detected:0',kind:'floor',side:null,confidence:'tentative',detail:'Old floor suggestion'}]};
+ const rallyPrediction={version:1,runId:'rally-review-20260923-v1',lastBounce:{id:'detected:0',rawTime:5,side:'far',origin:'detected',agreement:.6},winner:{side:'near',score:.85,threshold:.8},baselineWinner:null};
+ const rows=[{id:'p0',match_id:'m0',sequence:0,revision:0,source,label:{reason:null,custom:'',note:'preserve me'},rallyPrediction,suggestion:legacy},{id:'p1',match_id:'m0',sequence:1,revision:0,source:{...source,number:2},label:{reason:'net',custom:'',note:'human',bounceReview:{version:1,events:[],lastBounce:'detected:1'}},rallyPrediction}];
+ const sent=[];
+ globalThis.fetch=async(url,init)=>{
+  if(init?.method==='POST'){const b=JSON.parse(init.body);sent.push(b);const r=rows.find(r=>r.id===b.id);r.label=b.label;r.revision++;return {ok:true,json:async()=>({saved:{id:r.id,label:r.label,revision:r.revision}})};}
+  if(String(url).includes('/media'))return {ok:false,json:async()=>({error:'No video in form test'})};
+  return {ok:true,json:async()=>({id:new URL(url,'http://localhost').searchParams.get('id'),evidence:{width:1920,height:1080,rawOffset:0,track:[],bounces:[{t:5,x:.5,y:.5},{t:10,x:.6,y:.7}],lineage:'Test'}})};
+ };
+ const root=createRoot(document.getElementById('root'));const button=t=>[...document.querySelectorAll('button')].find(b=>b.textContent===t);
+ try{
+  await act(async()=>root.render(React.createElement(PointEndingReview,{initialRows:structuredClone(rows),initialCustom:[]})));
+  assert.equal(sent.length,0);assert.match(document.body.textContent,/85.0 \/ 100/);
+  await act(async()=>button('Confirm last bounce').click());
+  assert.equal(sent.at(-1).label.bounceReview.lastBounce,'detected:0');assert.equal(sent.at(-1).label.reason,null);assert.equal(sent.at(-1).label.note,'preserve me');assert.equal(sent.at(-1).label.rallyReview.runId,'rally-review-20260923-v1');
+  await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Bounce details')).click());
+  const bounceSelect=[...document.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.value==='detected:0'));
+  await act(async()=>{bounceSelect.value='detected:0';bounceSelect.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  assert.equal(button('Confirm'),undefined);assert.ok(!document.body.textContent.includes('Old floor suggestion'));
+  await act(async()=>button('Next point to review').click());assert.match(document.querySelector('h2').textContent,/Point 2/);assert.equal(button('Confirm last bounce'),undefined);
+  await act(async()=>button('Keep my last-bounce mark').click());assert.equal(sent.at(-1).label.bounceReview.lastBounce,'detected:1');assert.equal(sent.at(-1).label.reason,'net');assert.equal(sent.at(-1).label.note,'human');
+  await act(async()=>button('Previous point').click());assert.match(document.body.textContent,/Confirmed suggestion/);
+ }finally{await act(async()=>root.unmount());dom.window.close();Object.assign(globalThis,old);globalThis.fetch=previousFetch;}
+});

@@ -16,3 +16,11 @@ test('correcting a proposed last bounce to a non-rally event dismisses the depen
  assert.equal(suggestionState(next,suggestion,'lastBounce'),'dismissed');
  assert.equal(displayLabel(next,suggestion).bounceReview?.lastBounce,null);
 });
+
+test('a pending non-rally category cannot clear a saved human last-bounce mark',()=>{
+ const s={version:1 as const,runId:'contact-review-20260922-v1',reason:{value:null,confidence:'uncertain' as const,detail:''},lastRallyContact:{value:null,confidence:'uncertain' as const,detail:''},lastBounce:{value:null,confidence:'uncertain' as const,detail:''},events:[{id:'detected:0',kind:'floor' as const,side:null,confidence:'tentative' as const,detail:''}]};
+ const label={...EMPTY_LABEL,bounceReview:{version:1 as const,lastBounce:'detected:0',events:[]}};
+ assert.equal(suggestionState(label,s,'event:detected:0'),'uncertain');
+ assert.equal(displayLabel(label,s).bounceReview?.lastBounce,'detected:0');
+ assert.equal(confirmSuggestions(label,s).bounceReview?.lastBounce,'detected:0');
+});

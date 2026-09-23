@@ -1,6 +1,6 @@
 'use client';
 
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {displayLabel,suggestionState,type EndingSuggestion} from '@/lib/research/endingSuggestions';
 import {SuggestionHint} from './SuggestionHint';
 import {EMPTY_LABEL,type SuggestionReview,BOUNCE_KINDS,EMPTY_BOUNCE_REVIEW,bounceFrameTime,clock,isRallyBounce,removeBounce,updateBounce,type BounceAnnotation,type BounceReview} from '@/lib/research/pointEndings';
@@ -14,11 +14,12 @@ export function bounceName(id:string,review:BounceReview,start:number) {
  return event?.rawTime!==undefined?`Added · ${clock(event.rawTime-start)}`:'Added bounce';
 }
 
-export function BounceDetails({value,suggestion,suggestionReview,onReviewSuggestion,evidence,start,end,ready,selected,onSelect,onChange,onSeek,currentTime}:{
- value?:BounceReview;suggestion?:EndingSuggestion;suggestionReview?:SuggestionReview;onReviewSuggestion?:(keys:string[],dismiss?:boolean)=>void;evidence:EndingEvidence|null;start:number;end:number;ready:boolean;selected:string;
+export function BounceDetails({openRequest=0,value,suggestion,suggestionReview,onReviewSuggestion,evidence,start,end,ready,selected,onSelect,onChange,onSeek,currentTime}:{
+ openRequest?:number;value?:BounceReview;suggestion?:EndingSuggestion;suggestionReview?:SuggestionReview;onReviewSuggestion?:(keys:string[],dismiss?:boolean)=>void;evidence:EndingEvidence|null;start:number;end:number;ready:boolean;selected:string;
  onSelect:(id:string)=>void;onChange:(review:BounceReview)=>void;onSeek:(time:number)=>void;currentTime:()=>number;
 }) {
  const [open,setOpen]=useState(false);
+ useEffect(()=>{if(openRequest>0)setOpen(true);},[openRequest]);
  const review=value??EMPTY_BOUNCE_REVIEW;
  const actual={...EMPTY_LABEL,bounceReview:review,suggestionReview};
  const displayed=displayLabel(actual,suggestion).bounceReview??review;
@@ -37,7 +38,7 @@ export function BounceDetails({value,suggestion,suggestionReview,onReviewSuggest
   onChange(updateBounce(review,event));
  }
  return <div className="mt-4 border-t border-edge pt-3">
-  <button type="button" className="flex min-h-11 w-full items-center justify-between gap-3 text-left text-sm text-zinc-300" aria-expanded={open} aria-controls="bounce-details" onClick={()=>setOpen(v=>!v)}>
+  <button id="bounce-details-toggle" type="button" className="flex min-h-11 w-full items-center justify-between gap-3 text-left text-sm text-zinc-300" aria-expanded={open} aria-controls="bounce-details" onClick={()=>setOpen(v=>!v)}>
    <span>Bounce details <span className="text-zinc-500">(optional)</span></span><span aria-hidden>{open?'−':'+'}</span>
   </button>
   {!open&&(review.events.length>0||review.lastBounce)&&<p className="text-xs text-zinc-500">{review.events.length} annotation{review.events.length===1?'':'s'}{review.lastBounce?` · Last rally bounce: ${bounceName(review.lastBounce,review,start)}`:''}</p>}

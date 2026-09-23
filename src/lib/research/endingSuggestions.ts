@@ -32,6 +32,7 @@ function answer(label:EndingLabel,key:string):unknown {
 function reviewed(label:EndingLabel,s:EndingSuggestion,key:string) {return label.suggestionReview?.runId===s.runId&&label.suggestionReview.fields.includes(key);}
 export function suggestionState(label:EndingLabel,s:EndingSuggestion,key:string):SuggestionState {
  const own=answer(label,key),guess=proposed(s,key);
+ if(own===null&&conflictsWithLast(label,s,key))return 'uncertain';
  if(reviewed(label,s,key))return own===null?'dismissed':JSON.stringify(own)===JSON.stringify(guess)?'accepted':'corrected';
  return own!==null?'human':guess!==null?'pending':'uncertain';
 }
@@ -40,8 +41,12 @@ function lastAllowed(label:EndingLabel,s:EndingSuggestion) {
  const kind=label.bounceReview?.events.find(e=>e.id===id)?.kind??s.events.find(e=>e.id===id)?.kind;
  return !kind||isRallyBounce(kind);
 }
+function conflictsWithLast(label:EndingLabel,s:EndingSuggestion,key:string) {
+ const e=s.events.find(e=>`event:${e.id}`===key);
+ return !!e?.kind&&e.id===label.bounceReview?.lastBounce&&!isRallyBounce(e.kind);
+}
 export function pendingSuggestionKeys(label:EndingLabel,s?:EndingSuggestion) {
- return s?suggestionKeys(s).filter(k=>suggestionState(label,s,k)==='pending'&&(k!=='lastBounce'||lastAllowed(label,s))):[];
+ return s?suggestionKeys(s).filter(k=>suggestionState(label,s,k)==='pending'&&!conflictsWithLast(label,s,k)&&(k!=='lastBounce'||lastAllowed(label,s))):[];
 }
 function withReviewed(label:EndingLabel,s:EndingSuggestion,keys:string[]):EndingLabel {
  if(!keys.length)return label;
@@ -52,7 +57,7 @@ function withReviewed(label:EndingLabel,s:EndingSuggestion,keys:string[]):Ending
 export function confirmSuggestions(label:EndingLabel,s:EndingSuggestion,keys=pendingSuggestionKeys(label,s),dismiss=false):EndingLabel {
  let next={...label};const done:string[]=[];
  for(const key of [...keys.filter(k=>k!=='lastBounce'),...keys.filter(k=>k==='lastBounce')]){
-  if(!suggestionKeys(s).includes(key))continue;
+  if(!suggestionKeys(s).includes(key)||(!dismiss&&conflictsWithLast(label,s,key)))continue;
   if(key==='lastBounce'&&!dismiss&&!lastAllowed(next,s))continue;
   if(suggestionState(label,s,key)!=='pending')continue;
   const value=proposed(s,key);done.push(key);if(dismiss)continue;
