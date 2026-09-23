@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Avatar,
   CHIP,
   CommentCount,
+  itemLead,
   OfficialReply,
   SEVERITY_CHIP,
   STATUS_CHIP,
@@ -78,9 +79,9 @@ function Row({
           <p className="text-sm font-medium leading-snug text-zinc-100 group-hover:text-white">
             {item.title}
           </p>
-          {item.body.trim() && item.body.trim() !== item.title.trim() && (
+          {itemLead(item) && (
             <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-zinc-400">
-              {item.body}
+              {itemLead(item)}
             </p>
           )}
           {item.official_reply && (
@@ -135,12 +136,17 @@ export function FeedbackBoard({
   const [items, setItems] = useState<BoardItem[] | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
 
+  // Posting reloads twice (once when the post is saved, again when the
+  // tidy step has rewritten or split it), and the first answer can land
+  // last. Only the newest request may set the list.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     const supabase = createClient();
     // Ranked by votes, newest first among equals. A tester's own list
     // reads newest first, because a report is checked on, not ranked.
     const { data } = await supabase.rpc("feedback_board", { p_sort: isQa ? "new" : "top" });
-    if (data) setItems(data as BoardItem[]);
+    if (data && seq === loadSeq.current) setItems(data as BoardItem[]);
   }, [isQa]);
 
   useEffect(() => {

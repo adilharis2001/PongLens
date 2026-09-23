@@ -13,6 +13,10 @@ export type BoardItem = {
   id: string;
   user_id: string;
   title: string;
+  /** One sentence written by the tidy step (2026-09-22). Null on posts it
+   *  never reached; show the body instead. */
+  summary?: string | null;
+  /** The author's own words, never rewritten. */
   body: string;
   type: "bug" | "idea" | "improvement" | "private";
   status: "open" | "planned" | "building" | "done" | "declined";
@@ -253,4 +257,20 @@ export function CommentCount({ count }: { count: number }) {
       <span className="tabular-nums">{count}</span>
     </span>
   );
+}
+
+/** What a row shows under its title: the tidy step's sentence, or the
+ *  author's words when there is none. Empty when it would only repeat the
+ *  title. */
+export function itemLead(item: Pick<BoardItem, "title" | "summary" | "body">): string {
+  const lead = (item.summary ?? "").trim() || item.body.trim();
+  return lead === item.title.trim() ? "" : lead;
+}
+
+/** The author's words, shown under the summary on the post's own page when
+ *  they say something the title and summary do not already. */
+export function itemOriginal(item: Pick<BoardItem, "title" | "summary" | "body">): string {
+  const body = item.body.trim();
+  if (!(item.summary ?? "").trim()) return "";
+  return body === item.title.trim() || body === (item.summary ?? "").trim() ? "" : body;
 }

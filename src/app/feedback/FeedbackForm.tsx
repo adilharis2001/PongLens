@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchWithAiConsent, useAiConsent } from "@/components/AiConsentSheet";
+import { mayTidyFeedback } from "@/lib/feedbackConsent";
 
 /**
  * Feedback 2.0 composer + board (SPEC: Feedback system).
@@ -26,6 +27,9 @@ type AssistResponse = {
   questions: string[];
   similar: { id: string; title: string } | null;
   visibility: string;
+  /** What the message became on the board, in order. More than one when
+   *  it asked for several separate things. */
+  posts?: { id: string; title: string }[];
 };
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
@@ -247,6 +251,7 @@ export function FeedbackForm({
    */
   onPosted?: () => void;
 }) {
+  const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [severity, setSeverity] = useState<"" | "blocker" | "major" | "minor">(
     "",
@@ -262,7 +267,7 @@ export function FeedbackForm({
   // screenshot attachments (private to admin + author)
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
-  const { ensure } = useAiConsent();
+  const { ensure, enabled: aiEnabled } = useAiConsent();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // post-send assist state
@@ -383,7 +388,11 @@ export function FeedbackForm({
   }, []);
 
   const send = useCallback(async () => {
-    const trimmed = body.trim();
+    // Title and details are the author's own words and go up as typed. A
+    // message with no title (dictated, or an old habit) takes its first
+    // words, as before.
+    const typedTitle = title.trim();
+    const trimmed = body.trim() || typedTitle;
     if (!trimmed) return;
     setPhase("sending");
     setSendError(false);
@@ -403,7 +412,7 @@ export function FeedbackForm({
         user_id: userId,
         match_id: matchId || null,
         body: trimmed,
-        title: firstWords(trimmed) || "Feedback",
+        title: typedTitle.slice(0, 120) || firstWords(trimmed) || "Feedback",
         attachments: uploaded,
         // QA reports carry repro context (092). Environment is shown to
         // admin and author only; severity rides the board like type does.
@@ -439,26 +448,33 @@ export function FeedbackForm({
     onPosted?.();
 
     // Background polish; the item is already saved. The text goes to
-    // OpenAI, so the sheet may appear here once; Not now skips it.
+    // OpenAI, so only for an account that allowed AI features. The sheet is
+    // offered at most once per browser to an account that was never asked,
+    // and never to one that switched AI off: the post stands as written.
     try {
-      const res = await fetchWithAiConsent(ensure, "/api/feedback/assist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: trimmed, itemId: newId }),
-      });
-      const parsed: AssistResponse = res?.ok
-        ? await res.json()
-        : { questions: [], similar: null, visibility: "board" };
-      setAssist({
-        questions: (parsed.questions ?? []).slice(0, 2),
-        similar: parsed.similar ?? null,
-        visibility: parsed.visibility ?? "board",
-      });
+      if (!(await mayTidyFeedback(aiEnabled, ensure))) {
+        setAssist({ questions: [], similar: null, visibility: "board" });
+      } else {
+        const res = await fetch("/api/feedback/assist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: trimmed, itemId: newId }),
+        });
+        const parsed: AssistResponse = res.ok
+          ? await res.json()
+          : { questions: [], similar: null, visibility: "board" };
+        setAssist({
+          questions: (parsed.questions ?? []).slice(0, 2),
+          similar: parsed.similar ?? null,
+          visibility: parsed.visibility ?? "board",
+          posts: Array.isArray(parsed.posts) ? parsed.posts : [],
+        });
+      }
     } catch {
       setAssist({ questions: [], similar: null, visibility: "board" });
     }
     onPosted?.();
-  }, [body, matchId, userId, attachments, isQa, severity, onPosted, ensure]);
+  }, [title, body, matchId, userId, attachments, isQa, severity, onPosted, ensure, aiEnabled]);
 
   const mergeIntoSimilar = useCallback(async () => {
     if (!assist?.similar || !itemId) return;
@@ -485,6 +501,7 @@ export function FeedbackForm({
   }, [assist, qIndex, answer, itemId, onPosted]);
 
   const reset = useCallback(() => {
+    setTitle("");
     setBody("");
     setSeverity("");
     setMatchId("");
@@ -511,13 +528,16 @@ export function FeedbackForm({
 
   // isQa short-circuits the assist's answer: 101 forces a QA row private in
   // the database whatever the model decided, so "Posted" would be a lie.
+  const splitPosts = (assist?.posts ?? []).length > 1 ? assist?.posts ?? [] : [];
   const confirmationLine = merged
     ? `Vote added to "${assist?.similar?.title}".`
     : assist === null
       ? "Sent."
       : isQa || assist.visibility === "private"
         ? "Sent to us."
-        : "Posted — others can upvote it.";
+        : splitPosts.length > 0
+          ? `Posted as ${splitPosts.length} separate posts, so each can be voted on.`
+          : "Posted. Others can upvote it.";
 
   return (
     <div>
@@ -538,6 +558,21 @@ export function FeedbackForm({
             </span>
             <p className="font-medium text-zinc-100">{confirmationLine}</p>
           </div>
+
+          {splitPosts.length > 0 && !isQa && assist?.visibility !== "private" && (
+            <ul className="mt-3 space-y-1.5 pl-11">
+              {splitPosts.map((p) => (
+                <li key={p.id}>
+                  <Link
+                    href={`/feedback/${p.id}`}
+                    className="text-sm text-zinc-300 underline-offset-4 hover:text-white hover:underline"
+                  >
+                    {p.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
 
           {showSimilar && assist?.similar && (
             <div className="mt-4 rounded-xl border border-cyan-glow/30 bg-cyan-glow/5 px-4 py-3">
@@ -615,7 +650,7 @@ export function FeedbackForm({
           )}
 
           <div className="mt-4 flex items-center gap-4">
-            {itemId && !merged && !(isQa || assist?.visibility === "private") && (
+            {itemId && !merged && splitPosts.length === 0 && !(isQa || assist?.visibility === "private") && (
               <Link
                 href={`/feedback/${itemId}`}
                 className="text-sm font-medium text-cyan-glow transition-colors hover:text-white"
@@ -660,6 +695,16 @@ export function FeedbackForm({
               <span className="text-sm text-zinc-400">Transcribing…</span>
             </div>
           ) : (
+            <>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={80}
+              autoFocus={autoFocus}
+              aria-label="Title"
+              placeholder="Title"
+              className="mb-2 w-full rounded-xl border border-edge bg-surface-2/60 px-4 py-3 text-sm font-medium text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/50"
+            />
             <textarea
               ref={textareaRef}
               value={body}
@@ -668,10 +713,11 @@ export function FeedbackForm({
                 autoGrow();
               }}
               rows={3}
-              autoFocus={autoFocus}
-              placeholder="A bug, an idea, anything."
+              aria-label="Details"
+              placeholder="Details. One idea per post, so others can vote on each."
               className="w-full resize-none rounded-xl border border-edge bg-surface-2/60 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/50"
             />
+            </>
           )}
 
           {matches.length > 0 && (
@@ -788,7 +834,7 @@ export function FeedbackForm({
             />
             <button
               type="button"
-              disabled={phase === "sending" || uploading || !body.trim()}
+              disabled={phase === "sending" || uploading || !(body.trim() || title.trim())}
               onClick={() => void send()}
               className="glow-cta rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-50"
             >

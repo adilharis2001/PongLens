@@ -12,6 +12,10 @@ struct FeedbackItem: Decodable, Identifiable, Hashable {
     let id: UUID
     let userId: UUID
     let title: String
+    /// One sentence written by the tidy step (2026-09-22). Nil on posts it
+    /// never reached; `lead` falls back to the body.
+    var summary: String? = nil
+    /// The author's own words, never rewritten.
     let body: String
     let type: String
     let status: String
@@ -28,7 +32,7 @@ struct FeedbackItem: Decodable, Identifiable, Hashable {
     let officialReplyAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, body, type, status, voted, hidden
+        case id, title, summary, body, type, status, voted, hidden
         case userId = "user_id"
         case voteCount = "vote_count"
         case createdAt = "created_at"
@@ -42,6 +46,24 @@ struct FeedbackItem: Decodable, Identifiable, Hashable {
 
     var isDone: Bool { status == "done" || status == "declined" }
     var isHidden: Bool { hidden == true }
+
+    /// What a row shows under its title: the summary, or the author's
+    /// words when there is none. Empty when it would repeat the title.
+    /// Same rule as `itemLead` in the web's boardShared.tsx.
+    var lead: String {
+        let s = (summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let lead = s.isEmpty ? body.trimmingCharacters(in: .whitespacesAndNewlines) : s
+        return lead == title.trimmingCharacters(in: .whitespacesAndNewlines) ? "" : lead
+    }
+
+    /// The author's words, shown under the summary on the post's page when
+    /// they add something. Same rule as `itemOriginal` on the web.
+    var original: String {
+        let s = (summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return "" }
+        let b = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return b == title.trimmingCharacters(in: .whitespacesAndNewlines) || b == s ? "" : b
+    }
 }
 
 /// One comment under a post, from `feedback_thread`.
@@ -103,9 +125,16 @@ struct FeedbackAssist: Decodable {
         let id: UUID
         let title: String
     }
+    /// What the message became on the board, in order; more than one when
+    /// it asked for several separate things.
+    struct Post: Decodable, Hashable {
+        let id: UUID
+        let title: String
+    }
     let questions: [String]?
     let similar: Similar?
     let visibility: String?
+    var posts: [Post]? = nil
 }
 
 // MARK: - Roadmap

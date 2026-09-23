@@ -172,12 +172,31 @@ struct FeedbackThreadScreen: View {
                 }
             }
 
-            if !item.body.isEmpty, item.body != item.title {
-                Text(item.body)
+            if !item.lead.isEmpty {
+                Text(item.lead)
                     .font(.plBody)
                     .foregroundStyle(PL.text200)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !item.original.isEmpty {
+                HStack(alignment: .top, spacing: 10) {
+                    Rectangle()
+                        .fill(PL.edge)
+                        .frame(width: 2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Original message")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                        Text(item.original)
+                            .font(.plBody)
+                            .foregroundStyle(PL.text400)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             if let pinned = comments.last(where: \.official) {

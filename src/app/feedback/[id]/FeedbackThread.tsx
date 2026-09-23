@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import {
   Avatar,
   CHIP,
+  itemLead,
+  itemOriginal,
   OfficialBadge,
   OfficialReply,
   SEVERITY_CHIP,
@@ -235,10 +237,19 @@ export function FeedbackThread({
           </div>
         </div>
 
-        {item.body.trim() && item.body.trim() !== item.title.trim() && (
+        {itemLead(item) && (
           <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">
-            {item.body}
+            {itemLead(item)}
           </p>
+        )}
+
+        {itemOriginal(item) && (
+          <div className="mt-4 border-l-2 border-edge pl-3">
+            <p className="text-xs font-medium text-zinc-500">Original message</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">
+              {itemOriginal(item)}
+            </p>
+          </div>
         )}
 
         {Array.isArray(item.qa) && item.qa.length > 0 && (
@@ -318,6 +329,8 @@ export function FeedbackThread({
             </select>
           </div>
         )}
+
+        {isAdmin && <AdminWording item={item} onSaved={() => void loadItem()} />}
       </article>
 
       {/* The thread */}
@@ -537,5 +550,90 @@ function CommentRow({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * The admin rewrites a post's title and one-line description by hand. It
+ * is how a post from an account without AI features gets tidied: its words
+ * never go to OpenAI, so a person does it. The author's own text stays as
+ * the body and shows under "Original message".
+ */
+function AdminWording({ item, onSaved }: { item: BoardItem; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(item.title);
+  const [summary, setSummary] = useState(item.summary ?? "");
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setTitle(item.title);
+          setSummary(item.summary ?? "");
+          setOpen(true);
+        }}
+        className="mt-3 rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+      >
+        Edit title and description
+      </button>
+    );
+  }
+
+  const save = async () => {
+    setSaving(true);
+    setFailed(false);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("feedback_items")
+      .update({ title: title.trim().slice(0, 120), summary: summary.trim().slice(0, 400) || null })
+      .eq("id", item.id);
+    setSaving(false);
+    if (error) {
+      setFailed(true);
+      return;
+    }
+    setOpen(false);
+    onSaved();
+  };
+
+  return (
+    <div className="mt-4 space-y-2">
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        aria-label="Title"
+        placeholder="Title"
+        className="w-full rounded-xl border border-edge bg-surface-2/60 px-4 py-2.5 text-sm font-medium text-zinc-100 outline-none focus:border-cyan-glow/50"
+      />
+      <textarea
+        value={summary}
+        onChange={(e) => setSummary(e.target.value)}
+        rows={2}
+        aria-label="Description"
+        placeholder="One sentence"
+        className="w-full resize-y rounded-xl border border-edge bg-surface-2/60 px-4 py-2.5 text-sm text-zinc-200 outline-none focus:border-cyan-glow/50"
+      />
+      {failed && <p className="text-sm text-red-400">Could not save. Try again.</p>}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={saving || !title.trim()}
+          className="rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 hover:text-white"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }

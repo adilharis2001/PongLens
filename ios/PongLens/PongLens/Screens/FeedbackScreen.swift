@@ -232,8 +232,8 @@ struct FeedbackScreen: View {
                     .font(.plRowTitle)
                     .foregroundStyle(PL.text100)
                     .fixedSize(horizontal: false, vertical: true)
-                if !item.body.isEmpty, item.body != item.title {
-                    Text(item.body)
+                if !item.lead.isEmpty {
+                    Text(item.lead)
                         .font(.plBody)
                         .foregroundStyle(PL.text400)
                         .lineLimit(3)
@@ -308,11 +308,15 @@ struct FeedbackScreen: View {
             let currentQuestion: String? =
                 (!merged && !showSimilar && state.questionIndex < questions.count)
                 ? questions[state.questionIndex] : nil
+            let split = (state.assist?.posts ?? []).count > 1 && !isPrivate
+                ? state.assist?.posts ?? [] : []
             let line: String = merged
                 ? "Vote added to “\(similar?.title ?? "that post")”."
                 : state.assist == nil
                     ? "Sent."
-                    : isPrivate ? "Sent to us." : "Posted. Others can upvote it now."
+                    : isPrivate ? "Sent to us."
+                    : !split.isEmpty ? "Posted as \(split.count) separate posts, so each can be voted on."
+                    : "Posted. Others can upvote it now."
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
@@ -385,7 +389,24 @@ struct FeedbackScreen: View {
                     }
                 }
 
-                if !merged, !isPrivate {
+                if !split.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(split, id: \.id) { post in
+                            NavigationLink(value: "feedback-item:\(post.id.uuidString.lowercased())") {
+                                HStack(spacing: 3) {
+                                    Text(post.title)
+                                        .multilineTextAlignment(.leading)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(PL.cyan)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                } else if !merged, !isPrivate {
                     NavigationLink(value: "feedback-item:\(state.itemId.uuidString.lowercased())") {
                         HStack(spacing: 3) {
                             Text("Open your post")
@@ -410,9 +431,17 @@ struct FeedbackScreen: View {
             let itemId: String
             let body: String
         }
-        // The polish is OpenAI's: permission first. The post is already
-        // sent either way; declining leaves the card saying "Sent."
-        guard await AiConsent.shared.ensure() else { return }
+        // The polish is OpenAI's, so only for an account that allowed AI
+        // features. Switched off: never asked again, the post stands as
+        // written. Never answered: the sheet once per device, because "Not
+        // now" writes nothing and would otherwise reappear on every post.
+        // Same rule as mayTidyFeedback on the web.
+        guard await Self.mayTidy() else {
+            if posted?.itemId == itemId {
+                posted?.assist = FeedbackAssist(questions: [], similar: nil, visibility: "board")
+            }
+            return
+        }
         let result: FeedbackAssist? = try? await API.post(
             "api/feedback/assist",
             Req(itemId: itemId.uuidString.lowercased(), body: body)
@@ -421,6 +450,20 @@ struct FeedbackScreen: View {
         posted?.assist = result ?? FeedbackAssist(questions: [], similar: nil, visibility: "board")
         // The title and type may have changed under the post.
         await load()
+    }
+
+    private static let askedKey = "feedback.aiAsked"
+
+    @MainActor
+    private static func mayTidy() async -> Bool {
+        switch AiConsent.shared.enabled {
+        case true?: return true
+        case false?: return false
+        case nil:
+            if UserDefaults.standard.bool(forKey: askedKey) { return false }
+            UserDefaults.standard.set(true, forKey: askedKey)
+            return await AiConsent.shared.ensure()
+        }
     }
 
     private func mergeIntoSimilar(_ similar: FeedbackAssist.Similar) async {
@@ -577,6 +620,7 @@ private struct FeedbackComposer: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
 
+    @State private var title_ = ""
     @State private var body_ = ""
     @State private var pickedMatch: UUID?
     @State private var sending = false
@@ -586,13 +630,22 @@ private struct FeedbackComposer: View {
         PLSheetScaffold(
             title: "New feedback",
             doneLabel: sending ? "Sending…" : "Send",
-            doneDisabled: sending || body_.trimmingCharacters(in: .whitespaces).isEmpty,
+            doneDisabled: sending
+                || (body_.trimmingCharacters(in: .whitespaces).isEmpty
+                    && title_.trimmingCharacters(in: .whitespaces).isEmpty),
             onDone: { Task { await send() } }
         ) {
             Form {
                 Section {
-                    TextField("A bug, an idea, anything.", text: $body_, axis: .vertical)
-                        .lineLimit(5...14)
+                    TextField("Title", text: $title_)
+                        .font(.plRowTitle)
+                        .onChange(of: title_) { _, new in
+                            if new.count > 80 { title_ = String(new.prefix(80)) }
+                        }
+                    TextField("Details", text: $body_, axis: .vertical)
+                        .lineLimit(4...14)
+                } footer: {
+                    Text("One idea per post, so others can vote on each.")
                 }
 
                 Section {
@@ -626,7 +679,11 @@ private struct FeedbackComposer: View {
 
     private func send() async {
         guard let uid = app.userId else { return }
-        let trimmed = body_.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Title and details go up as typed. A post with no title takes the
+        // first words of its details, as the single box always did.
+        let typedTitle = title_.trimmingCharacters(in: .whitespacesAndNewlines)
+        let details = body_.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = details.isEmpty ? typedTitle : details
         guard !trimmed.isEmpty else { return }
         sending = true
         errorMessage = nil
@@ -637,7 +694,9 @@ private struct FeedbackComposer: View {
             let title: String
             let attachments: [String]
         }
-        let title = trimmed.split(separator: " ").prefix(8).joined(separator: " ")
+        let title = typedTitle.isEmpty
+            ? trimmed.split(separator: " ").prefix(8).joined(separator: " ")
+            : String(typedTitle.prefix(120))
         do {
             struct IdRow: Decodable { let id: UUID }
             let row: IdRow = try await supa
