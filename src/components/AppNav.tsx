@@ -403,17 +403,25 @@ export function AppNav({
     <>
       {/* Desktop header */}
       <header className="sticky top-0 z-50 hidden border-b border-edge/70 bg-ink/80 backdrop-blur-md md:block">
+        {/* The bar is wider than the page column on purpose (Adil,
+            2026-09-22): at the column's width the logo, five links and the
+            account controls were packed into 900px of a 1920px screen.
+            Three groups, spread apart: brand, destinations, account. The
+            outer columns share the spare width equally, so the links sit in
+            the true centre whatever the two sides measure. */}
         <div
-          className={`mx-auto flex h-16 items-center justify-between px-6 ${
-            wide ? "max-w-6xl" : "max-w-4xl"
+          className={`mx-auto grid h-16 grid-cols-[1fr_auto_1fr] items-center gap-3 px-6 lg:gap-6 ${
+            wide ? "max-w-7xl" : "max-w-6xl"
           }`}
         >
           {/* The logo goes to the public site, the way a logo does
               everywhere else on the web. Home is the Home tab; pointing the
               brand at /dashboard made it a no-op on the page most people
               click it from. Guarded like every other link in this bar. */}
-          <Logo href="/" onClick={guard} />
-          <nav className="flex items-center gap-2" aria-label="Main">
+          <span className="justify-self-start">
+            <Logo href="/" onClick={guard} />
+          </span>
+          <nav className="flex items-center gap-0.5 lg:gap-3" aria-label="Main">
             {tabs.map((t, i) => {
               // Desktop has its own Upload item; activeTab no longer
               // claims /upload for Matches, so this is just activeTab.
@@ -424,7 +432,7 @@ export function AppNav({
                   onClick={guard}
                   href={t.href}
                   aria-current={active ? "page" : undefined}
-                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                  className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors lg:px-4 ${
                     active
                       ? "bg-surface-2 text-white"
                       : "text-zinc-400 hover:text-white"
@@ -442,7 +450,7 @@ export function AppNav({
                     onClick={guard}
                     href="/upload"
                     aria-current={pathname === "/upload" ? "page" : undefined}
-                    className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors lg:px-4 ${
                       pathname === "/upload"
                         ? "bg-surface-2 text-white"
                         : "text-zinc-400 hover:text-white"
@@ -454,14 +462,13 @@ export function AppNav({
                 </Fragment>
               );
             })}
-            {/* peripheral cluster: a hairline and some air keep the bell
-                and avatar from crowding the destination pills */}
-            <span className="ml-3 flex items-center gap-2.5 border-l border-edge/60 pl-4">
-              {sideSwitch}
-              <NotificationBell />
-              {avatarLink}
-            </span>
           </nav>
+          {/* account cluster, on its own at the right edge */}
+          <span className="flex items-center gap-2 justify-self-end lg:gap-4">
+            {sideSwitch}
+            <NotificationBell />
+            {avatarLink}
+          </span>
         </div>
       </header>
 
