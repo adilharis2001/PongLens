@@ -45,6 +45,6 @@ Every study point has a separate frozen experiment record, with a last-bounce su
 | Phone | No page overflow; new action buttons 327×44 pixels |
 | Not verified in local form preview | Media playback disabled; native iOS unaffected |
 | Database | Import committed 479 rows; exact label/history digest and previous suggestions unchanged; no migration needed |
-| UI release | Prepared; awaiting required screenshot approval |
+| UI release | Owner approved publishing on 2026-09-23; admin-only screenshot approval gate removed by explicit instruction |
 
 Private inputs, predictions, import verification and review previews remain outside the public repository. Do not treat the model's proposals or assisted confirmations as independent blind ground truth in later accuracy evaluations.

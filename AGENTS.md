@@ -105,7 +105,10 @@ component appears close enough.
 5. Render every changed state on every affected surface. For web, verify
    desktop and 393×660 mobile. For native iOS, use the simulator; a web
    screenshot does not count as native verification.
-6. Show Adil screenshots of the rendered change and obtain approval before
+6. Admin-only UI, including research pages restricted to admins, does not
+   require screenshot approval before publishing. Continue the rendered
+   desktop/mobile checks and visual comparison above. For player-, coach- or
+   public-facing UI, show Adil screenshots and obtain approval before
    publishing web UI or uploading an iOS build, unless he explicitly waives
    screenshot review for that change.
 7. Tests that search source code for a style or component name do not prove

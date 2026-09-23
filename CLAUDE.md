@@ -403,6 +403,12 @@ explaining what the section would contain.
 
 ## Design and layout
 
+**Admin-only UI does not need screenshot approval before publishing.** This
+includes research pages restricted to admins, even outside `/admin`. Adil
+removed that approval requirement on 2026-09-23. Continue visual-reference,
+desktop/mobile rendering and verification checks; player-, coach- and
+public-facing UI retain their screenshot approval gate.
+
 ### Approved application baseline (2026-09-05)
 
 Adil approved the flattened inline allowance-request flow as the existing
