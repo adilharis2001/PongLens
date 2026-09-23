@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Avatar,
@@ -116,23 +116,20 @@ function Row({
 }
 
 export function FeedbackBoard({
-  isAdmin,
   isQa = false,
   userId,
   refreshKey,
 }: {
-  isAdmin: boolean;
+  isAdmin?: boolean;
   /**
-   * QA role (092): shows the Mine filter for tracking own reports, and
-   * (101) opens the board already on it, since QA reports never appear in
-   * anyone else's list.
+   * QA role (092): the list reads newest first. The Mine and QA filter
+   * pills that used to sit above the list were removed on 2026-09-22;
+   * testers track their reports on their own QA dashboard now.
    */
   isQa?: boolean;
   userId?: string;
   refreshKey: number;
 }) {
-  const [mine, setMine] = useState(isQa);
-  const [qaOnly, setQaOnly] = useState(false);
   const [items, setItems] = useState<BoardItem[] | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
 
@@ -182,36 +179,13 @@ export function FeedbackBoard({
     );
   }, []);
 
-  const mineToggle = isQa && userId ? mine : null;
-  // The admin's counterpart to Mine. QA reports carry no votes, so under
-  // the vote ranking they sit below every player request forever; this
-  // is the way to pull the tester's list to the front.
-  const qaToggle = isAdmin ? qaOnly : null;
-
-  const scoped = useMemo(
-    () =>
-      (items ?? [])
-        .filter((i) => (mineToggle === true ? i.user_id === userId : true))
-        .filter((i) => (qaToggle === true ? i.hidden === true : true)),
-    [items, mineToggle, qaToggle, userId]
-  );
+  const scoped = items ?? [];
   const active = scoped.filter((i) => i.status !== "done" && i.status !== "declined");
   const finished = scoped.filter((i) => i.status === "done" || i.status === "declined");
-
-  const toggles =
-    mineToggle !== null || qaToggle !== null ? (
-      <RoleToggles
-        mine={mineToggle}
-        setMine={setMine}
-        qaOnly={qaToggle}
-        setQaOnly={setQaOnly}
-      />
-    ) : null;
 
   if (items === null) {
     return (
       <div>
-        {toggles}
         <p className="mt-2 text-sm text-zinc-600">Loading…</p>
       </div>
     );
@@ -219,8 +193,6 @@ export function FeedbackBoard({
 
   return (
     <div>
-      {toggles}
-
       {scoped.length === 0 ? (
         <p className="mt-2 text-sm text-zinc-500">Nothing yet. You go first.</p>
       ) : (
@@ -269,46 +241,3 @@ export function FeedbackBoard({
   );
 }
 
-/** Mine (QA) and QA (admin): the two role filters, shown only to those roles. */
-function RoleToggles({
-  mine,
-  setMine,
-  qaOnly,
-  setQaOnly,
-}: {
-  mine: boolean | null;
-  setMine: (v: boolean) => void;
-  qaOnly: boolean | null;
-  setQaOnly: (v: boolean) => void;
-}) {
-  const pill = (on: boolean) =>
-    `rounded-full border px-3.5 py-1 text-xs font-semibold transition-colors ${
-      on
-        ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
-        : "border-edge text-zinc-500 hover:text-zinc-300"
-    }`;
-  return (
-    <div className="mb-3 flex items-center justify-end gap-2">
-      {qaOnly !== null && (
-        <button
-          type="button"
-          onClick={() => setQaOnly(!qaOnly)}
-          aria-pressed={qaOnly}
-          className={pill(qaOnly)}
-        >
-          QA
-        </button>
-      )}
-      {mine !== null && (
-        <button
-          type="button"
-          onClick={() => setMine(!mine)}
-          aria-pressed={mine}
-          className={pill(mine)}
-        >
-          Mine
-        </button>
-      )}
-    </div>
-  );
-}
