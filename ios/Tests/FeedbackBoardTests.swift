@@ -25,6 +25,37 @@ private func roadmap(_ title: String, _ stage: String, position: Int, shipped: S
 func runFeedbackBoardChecks() {
     print("\n— feedback board —")
 
+    // Summary and original message (2026-09-22): same rules as itemLead /
+    // itemOriginal on the web.
+    func post(title: String, summary: String?, body: String) -> FeedbackItem {
+        var i = item("open")
+        i = FeedbackItem(
+            id: i.id, userId: i.userId, title: title, summary: summary, body: body,
+            type: i.type, status: i.status, voteCount: i.voteCount, createdAt: i.createdAt,
+            authorName: i.authorName, authorAvatar: i.authorAvatar, voted: i.voted,
+            hidden: i.hidden, commentCount: i.commentCount, lastActivityAt: i.lastActivityAt,
+            officialReply: i.officialReply, officialReplyAt: i.officialReplyAt
+        )
+        return i
+    }
+    let tidied = post(title: "Undo a deleted point", summary: "Add undo.", body: "i deleted smth, no undo??")
+    check(tidied.lead == "Add undo." && tidied.original == "i deleted smth, no undo??",
+          "a tidied post leads with its summary and keeps the author's words")
+    let raw = post(title: "couple things", summary: nil, body: "the starred page")
+    check(raw.lead == "the starred page" && raw.original.isEmpty,
+          "an untidied post shows its own words and no original block")
+    check(post(title: "Title only", summary: nil, body: "Title only").lead.isEmpty,
+          "a title-only post repeats nothing under its title")
+    check(post(title: "t", summary: "Same.", body: "Same.").original.isEmpty,
+          "a seeded post whose body is its summary shows no original block")
+    let withPosts = try! JSONDecoder().decode(FeedbackAssist.self, from: Data("""
+    {"questions":[],"similar":null,"visibility":"board",
+     "posts":[{"id":"\(UUID().uuidString.lowercased())","title":"A"},{"id":"\(UUID().uuidString.lowercased())","title":"B"}]}
+    """.utf8))
+    check(withPosts.posts?.map(\.title) == ["A", "B"], "a split tidy decodes both posts in order")
+    let older = try! JSONDecoder().decode(FeedbackAssist.self, from: Data(#"{"questions":[],"similar":null,"visibility":"board"}"#.utf8))
+    check(older.posts == nil, "a reply without posts still decodes")
+
     let decoded = item("open", hidden: true)
     check(decoded.isHidden && decoded.commentCount == 2, "a board row decodes its thread fields")
     check(item("declined").isDone && item("done").isDone && !item("planned").isDone,

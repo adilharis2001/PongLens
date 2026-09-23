@@ -11,6 +11,7 @@ const SAMPLES = [
   "Very difficult to choose what side you are on",
   "on the website login it automatically logged you out every time you quit the tab and there's no option for a password so you always have to have it send you a code",
   "我的比赛上传了两个小时还没处理好，可以帮我看看吗？",
+  "can the journal have a search bar. also the coach invite link should work in whatsapp preview",
   "can u make the heatmap show where i lose points not just serves. also dark mode is hard to read in sunlight",
 ];
 for (const body of SAMPLES) {

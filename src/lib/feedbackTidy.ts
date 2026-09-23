@@ -28,8 +28,7 @@ const APP_CONTEXT = `PongLens: match analysis for table tennis players. Users up
 - serve rotation ("Who served first?") decides who served each point
 - placement maps showing where serves landed
 - coach sharing, public share links, starred points and highlight reels
-- account page: storage, processing minutes, share links
-There is a website (desktop and phone browsers) and an iPhone app.`;
+- account page: storage, processing minutes, share links`;
 
 export const TIDY_SYSTEM_PROMPT = `You prepare player feedback for PongLens's public feedback board, where other players read and upvote it.
 
