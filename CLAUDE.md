@@ -207,19 +207,36 @@ and if a shadow disagrees with what the Mac published, stop — do not reason it
 away as platform variance. On this footage the two platforms agreed to half a
 pixel, so a real disagreement is a real defect.
 
-**Current pairing (2026-09-22):** Mac main/fast and the health monitor run
-`112a1e25b66304f9f76fed1a8a1f75ec822491a54297ffe740516ee2af62afee`
-(source `f78a93f7`): the starred-selection video (`process_selection_reel`)
-and `render_story` writing the source frame rate instead of a fixed 25 fps.
-Everything that decides what a match becomes is identical to the release
-before it (same runtime, models, settings; all smoke modes passed). The
-immediate rollback is `e2eb55a7…` (source `f28fa91a`), still staged, with its
-launchers backed up under `launcher-backups/20260922-selection-release/`. The
-registered twin is still `cd82d589…`, built from `e2eb55a7`, so the dispatcher
-reports `release_mismatch` until the twin is rebuilt from `112a1e25`;
-`cloud_mode` is `disabled`, so nothing is waiting on it. The hand lane still
-runs `07c5823c…` — it has no detector and renders nothing, so neither change
-touches it.
+**Current pairing (2026-09-23, after the Homebrew rebuild):** Mac main/fast
+and the health monitor run
+`a8b089021d264ef68c90d42735b1f128dd3a254aee8e0f5e65d257137cf516c9`, the hand
+lane runs
+`18c66c589723c4c55ac00bf52f9cebab5d473a6278d833cca790e8202ff95471`. They are
+the same code as `112a1e25` (source `f78a93f7`: starred-selection video,
+source-frame-rate `render_story`) and `07c5823c` (source `762ea2c0`),
+rebuilt because a `brew upgrade node` at 20:07 EDT on 2026-09-22 upgraded
+~30 Homebrew libraries and cleaned out the old kegs, so every older package
+refuses to start ("Missing dependency: …/xz/5.8.3/…"). Payload, models and
+settings are byte-identical; only runtime anchors moved. The runnable rollback
+is `a30742f612ffb7db8e51422b5a42c0ef484d540493b0cc1a2b17e0de5b711aee`, the
+same rebuild of `e2eb55a7`'s source `f28fa91a`, staged with launchers in
+`~/Library/Caches/PongLens/brew-rebuild-20260922/plists-rollback-a30742f6/`.
+Do NOT activate `112a1e25`, `e2eb55a7` or anything older: they cannot run.
+The same upgrade broke ffmpeg 8.1.2_1, which links `libx265.216` through a
+hand-made shim into `Cellar/x265/4.2`; that dylib was restored from the
+official x265 4.2 bottle. `openssl@3`, `sqlite`, `xz`, `x265` and `ffmpeg`
+are pinned. **Never run `brew upgrade`, `brew install` or `brew cleanup` on
+the Mac Studio** without first checking `brew deps` against the live
+manifest's `runtime` anchors: it stops every lane. Ops record, checks and
+launcher backups: `~/Library/Caches/PongLens/brew-rebuild-20260922/`.
+The cloud twin is `bb39d41fce2d…` (pipeline `53910535…`), built from
+`a8b08902`, deployed and registered 2026-09-23 10:19 UTC; the dispatcher
+reports `release_match = true`. Shadow replay of a 90 s upload
+(`fcb21bbc`): 7 of 8 Mac points matched, 7/7 same winner and reason, within
+the accepted T4 tolerance. **The Linux image cannot decode AV1**: a 47 s AV1
+upload (`fa6c7e96`) logged "Get current frame error" on every frame and failed
+in points, so the cloud cannot yet back up YouTube-style AV1 imports.
+`cloud_mode` is `disabled` (Off).
 
 **The code is built so a missed update is visible rather than silent.** An
 unrecognised kind or stage renders as its own raw name with a marker
