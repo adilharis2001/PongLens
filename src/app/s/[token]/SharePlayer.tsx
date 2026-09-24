@@ -180,7 +180,7 @@ export function SharePlayer({
             player's own now — they have to turn with the rotated
             landscape box, and chrome drawn out here does not. */}
         {full && nav && nav.total > 1 && (
-          <span className="pointer-events-none absolute inset-x-0 top-3 z-10 mx-auto w-fit rounded-full border border-edge bg-ink/70 px-3 py-1 text-[11px] font-semibold tabular-nums text-zinc-300 backdrop-blur">
+          <span className="pointer-events-none absolute inset-x-0 top-3 z-10 mx-auto w-fit rounded-full border border-edge bg-ink/70 px-3 py-1 text-[11px] font-semibold tabular-nums text-zinc-300">
             {nav.index + 1} / {nav.total}
           </span>
         )}
@@ -195,7 +195,7 @@ export function SharePlayer({
         {full && (
           <Link
             href="/?from=share"
-            className="absolute bottom-14 left-3 z-10 flex w-fit items-center gap-1.5 rounded-full bg-ink/50 px-2.5 py-1 text-[11px] font-semibold text-zinc-400/90 backdrop-blur-sm transition-colors hover:bg-ink/80 hover:text-white"
+            className="absolute bottom-14 left-3 z-10 flex w-fit items-center gap-1.5 rounded-full bg-ink/70 px-2.5 py-1 text-[11px] font-semibold text-zinc-400/90 transition-colors hover:bg-ink/80 hover:text-white"
           >
             <span className="block h-3 w-3 rounded-full border-[1.5px] border-cyan-glow/80" />
             PongLens

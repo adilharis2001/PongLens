@@ -637,7 +637,7 @@ export function PointDetail({
               type="button"
               onClick={() => setTagOpen(true)}
               aria-label="Tag this point"
-              className={`rounded-full bg-ink/60 p-1.5 backdrop-blur-sm transition-colors ${
+              className={`rounded-full bg-ink/60 p-1.5 transition-colors ${
                 tags.length > 0
                   ? "text-cyan-glow"
                   : "text-zinc-300 hover:text-white"
@@ -651,7 +651,7 @@ export function PointDetail({
                 onClick={onToggleStar}
                 aria-pressed={point.starred}
                 aria-label={point.starred ? "Remove star" : "Star this point"}
-                className={`rounded-full bg-ink/60 p-1.5 backdrop-blur-sm transition-colors ${
+                className={`rounded-full bg-ink/60 p-1.5 transition-colors ${
                   point.starred
                     ? "text-amber-300"
                     : "text-zinc-300 hover:text-white"
@@ -685,7 +685,7 @@ export function PointDetail({
             type="button"
             onClick={nav.onPrev}
             aria-label="Previous point"
-            className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/55 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+            className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/55 text-zinc-200 transition-colors hover:text-white"
           >
             <svg
               viewBox="0 0 24 24"
@@ -704,7 +704,7 @@ export function PointDetail({
             type="button"
             onClick={nav.onNext}
             aria-label="Next point"
-            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/55 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/55 text-zinc-200 transition-colors hover:text-white"
           >
             <svg
               viewBox="0 0 24 24"

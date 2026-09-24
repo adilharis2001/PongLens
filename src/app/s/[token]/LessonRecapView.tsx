@@ -276,7 +276,7 @@ export function LessonRecapView({
               aria-label="Play the recap"
               className="absolute inset-0 flex items-center justify-center bg-ink/20 transition-colors hover:bg-ink/10"
             >
-              <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-ink/70 backdrop-blur-sm">
+              <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-ink/70">
                 <svg
                   viewBox="0 0 24 24"
                   className="ml-1 h-7 w-7"

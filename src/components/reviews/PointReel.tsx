@@ -553,7 +553,7 @@ function ReelTakeover({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex flex-col bg-ink/97 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex flex-col bg-ink/97"
       onPointerDown={(e) => {
         if (playerBox.current?.contains(e.target as Node)) return;
         drag.current = { x: e.clientX, y: e.clientY };

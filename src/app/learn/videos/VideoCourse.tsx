@@ -504,7 +504,7 @@ function AudienceVideoCourse({
           <Link
             href={learnHref}
             aria-label="Back to how-to guides"
-            className="pointer-events-auto absolute left-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition-colors hover:text-cyan-glow"
+            className="pointer-events-auto absolute left-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:text-cyan-glow"
           >
             <svg
               viewBox="0 0 24 24"
@@ -524,7 +524,7 @@ function AudienceVideoCourse({
               activeWorkspace={activeWorkspace}
               canSwitch={canSwitch}
               basePath="/learn/videos"
-              className="mt-0 border-white/15 bg-black/50 backdrop-blur"
+              className="mt-0 border-white/15 bg-black/70"
             />
           </div>
 

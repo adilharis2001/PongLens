@@ -94,7 +94,7 @@ export function OriginalVideoButton({
         title="Watch the original upload, uncut"
         className={
           (variant === "overlay"
-            ? "inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-ink/70 px-3 py-1.5 text-xs font-semibold text-zinc-100 backdrop-blur transition-colors hover:border-cyan-glow/60 hover:text-white disabled:opacity-60"
+            ? "inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-ink/70 px-3 py-1.5 text-xs font-semibold text-zinc-100 transition-colors hover:border-cyan-glow/60 hover:text-white disabled:opacity-60"
             : "inline-flex items-center gap-1.5 rounded-full border border-edge px-3.5 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-60") +
           (className ? ` ${className}` : "")
         }

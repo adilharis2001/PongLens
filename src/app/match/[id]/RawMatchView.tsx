@@ -579,7 +579,7 @@ export function RawMatchView({
                       onClick={() => setSettingsOpen(false)}
                       className="fixed inset-0 z-10 cursor-default"
                     />
-                    <div className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-2xl border border-edge/80 bg-ink/95 py-1.5 shadow-xl shadow-black/50 backdrop-blur-xl">
+                    <div className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-2xl border border-edge/80 bg-ink/95 py-1.5 shadow-xl shadow-black/50">
                       <button
                         type="button"
                         onClick={() => {

@@ -413,7 +413,7 @@ function CutPlayer({
             looks 2px short, which is an invitation to move this and lose
             the clearance. */}
         {current && scoreAfter.has(current.id) && (
-          <div className="pointer-events-none absolute bottom-14 left-2 flex items-center gap-1.5 rounded-full bg-ink/60 px-2.5 py-1 backdrop-blur-sm">
+          <div className="pointer-events-none absolute bottom-14 left-2 flex items-center gap-1.5 rounded-full bg-ink/60 px-2.5 py-1">
             <span className="text-sm font-semibold tabular-nums leading-none">
               <span className="text-cyan-glow">
                 {scoreAfter.get(current.id)!.you}

@@ -1774,7 +1774,7 @@ export function MarkPoints({
       const base = picture.chromeFloor + 6;
       const baseRight = picture.chromeFloor + 34;
       const tile =
-        "pointer-events-auto rounded-xl border font-bold backdrop-blur-sm transition-all disabled:opacity-30 active:scale-[0.98]";
+        "pointer-events-auto rounded-xl border font-bold transition-all disabled:opacity-30 active:scale-[0.98]";
       return (
         <div className="pointer-events-none absolute inset-0 z-10">
           <div className="absolute left-1 top-1">{ticker}</div>
@@ -2008,7 +2008,7 @@ export function MarkPoints({
       // Round at the picture's mid-height; a short pill along the top in
       // landscape, where the chip strip starts 38px down and a 40px
       // circle would run into it.
-      const skip = `pointer-events-auto flex items-center justify-center rounded-full border border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-100 backdrop-blur-sm transition-colors active:bg-ink/80 ${
+      const skip = `pointer-events-auto flex items-center justify-center rounded-full border border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-100 transition-colors active:bg-ink/80 ${
         overlayPad ? "h-8 w-12" : "h-10 w-10"
       }`;
       const midY = picture.top + picture.height / 2 - 20;
@@ -2051,7 +2051,7 @@ export function MarkPoints({
                 onClick={() => playApi.current?.play()}
                 data-pad-play="1"
                 aria-label="Play"
-                className="pointer-events-auto absolute flex items-center justify-center rounded-full border border-white/15 bg-ink/60 backdrop-blur-sm transition-colors active:bg-ink/80"
+                className="pointer-events-auto absolute flex items-center justify-center rounded-full border border-white/15 bg-ink/60 transition-colors active:bg-ink/80"
                 style={{
                   left: picture.left + picture.width / 2 - 24,
                   top: picture.top + picture.height / 2 - 24,
@@ -2214,7 +2214,7 @@ export function MarkPoints({
             <div
               ref={padCardRef}
               {...padDragHandlers}
-              className="pointer-events-auto absolute flex max-h-[calc(100%-2rem)] flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50 backdrop-blur-md"
+              className="pointer-events-auto absolute flex max-h-[calc(100%-2rem)] flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50"
               style={{
                 width: PAD_WIDTH,
                 ...(padPos

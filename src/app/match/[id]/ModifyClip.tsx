@@ -827,7 +827,7 @@ export function ModifyClip({
               className="absolute inset-0 flex items-center justify-center"
             >
               {paused && (
-                <span className="rounded-full bg-ink/60 p-3 backdrop-blur-sm">
+                <span className="rounded-full bg-ink/60 p-3">
                   <svg
                     viewBox="0 0 24 24"
                     className="h-7 w-7 text-white"

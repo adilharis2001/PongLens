@@ -494,7 +494,9 @@ trimming margins is how a video ended up 53% of screen width.
   times every ten seconds (2026-09-24, 48 to 60 dropped frames in 12 s,
   against 2 with the blur gone). The iPhone and Safari never show it, so it
   looks like a desktop-only layout bug. Use a solid translucent fill
-  (`bg-ink/70` and up). Measure with `requestVideoFrameCallback` over three
+  (`bg-ink/70` and up). Hidden ones count too: two glass buttons in the
+  point panel UNDER the full-screen player kept it stuttering after every
+  visible control was fixed. Measure with `requestVideoFrameCallback` over three
   runs, never one: a single run once pinned it on the nav bar and shipped a
   fix that did nothing.
 
