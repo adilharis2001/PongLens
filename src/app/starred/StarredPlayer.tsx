@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
+import { useCoverAppNav } from "@/lib/useCoverAppNav";
 import { clipUrlFor, forgetClipUrl } from "./clipUrls";
 import type { StarredPointRow } from "./starred";
 
@@ -93,7 +94,8 @@ export function StarredPlayer({
     return () => window.removeEventListener("keydown", onKey);
   }, [go, index, onClose]);
 
-  // The page behind must not scroll under the takeover.
+  // The page behind must not scroll under the takeover, and its nav bars
+  // stop painting (their blur under the video stuttered desktop Chrome).
   useEffect(() => {
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -101,6 +103,7 @@ export function StarredPlayer({
       document.body.style.overflow = previous;
     };
   }, []);
+  useCoverAppNav(true);
 
   if (!row) return null;
 

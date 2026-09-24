@@ -26,6 +26,14 @@ body {
   background-color: rgba(34, 211, 238, 0.35);
 }
 
+/* A full-screen video is up (useCoverAppNav): the navigation bars behind it
+   stop painting. Their blur, recomputed under the playing video for every
+   frame, froze Chrome on a Mac for ~0.2 s at a time. `visibility` keeps
+   their space, so nothing moves behind the video either. */
+html[data-video-cover] [data-app-nav] {
+  visibility: hidden;
+}
+
 /* Visible keyboard focus for every interactive element. Text fields are
    excluded: they match :focus-visible even on tap (editable elements
    always do), which stacked this loud ring on top of their own designed

@@ -86,6 +86,7 @@ import {
   type ScorerCommandReceipt,
   type ScorerCommandResult,
 } from "./scorerState";
+import { useCoverAppNav } from "@/lib/useCoverAppNav";
 
 /**
  * The Player: ONE takeover playback surface that owns the ONLY
@@ -3031,6 +3032,9 @@ export const Player = forwardRef<
       document.body.style.overflow = prev;
     };
   }, [open]);
+  // And stop painting the nav bars behind it: their blur under the playing
+  // video is what made desktop Chrome stutter.
+  useCoverAppNav(open);
 
   const openWatch = useCallback(
     (seekT?: number) => {

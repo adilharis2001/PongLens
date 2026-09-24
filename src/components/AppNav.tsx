@@ -402,7 +402,7 @@ export function AppNav({
   return (
     <>
       {/* Desktop header */}
-      <header className="sticky top-0 z-50 hidden border-b border-edge/70 bg-ink/80 backdrop-blur-md md:block">
+      <header data-app-nav className="sticky top-0 z-50 hidden border-b border-edge/70 bg-ink/80 backdrop-blur-md md:block">
         {/* The bar is wider than the page column on purpose (Adil,
             2026-09-22): at the column's width the logo, five links and the
             account controls were packed into 900px of a 1920px screen.
@@ -473,7 +473,7 @@ export function AppNav({
       </header>
 
       {/* Mobile top bar: brand + peripheral checks */}
-      <header className="sticky top-0 z-50 border-b border-edge/70 bg-ink/80 backdrop-blur-md md:hidden">
+      <header data-app-nav className="sticky top-0 z-50 border-b border-edge/70 bg-ink/80 backdrop-blur-md md:hidden">
         <div className="flex h-14 items-center justify-between px-5">
           <Logo href="/" onClick={guard} />
           <div className="flex items-center gap-3">
@@ -486,6 +486,7 @@ export function AppNav({
 
       {/* Mobile bottom bar */}
       <nav
+        data-app-nav
         aria-label="Main"
         className="fixed inset-x-0 bottom-0 z-50 border-t border-edge/70 bg-ink/90 backdrop-blur-md md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
