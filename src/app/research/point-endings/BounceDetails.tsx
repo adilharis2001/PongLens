@@ -44,7 +44,6 @@ export function BounceDetails({openRequest=0,value,suggestion,suggestionReview,o
   </button>
   {!open&&(review.events.length>0||review.lastBounce)&&<p className="text-xs text-zinc-500">{review.events.length} annotation{review.events.length===1?'':'s'}{review.lastBounce?` · Last rally bounce: ${bounceName(review.lastBounce,review,start)}`:''}</p>}
   {open&&<div id="bounce-details" className="space-y-3 pt-2">
-   <p className="text-xs text-zinc-400">Skip any of these. Changes save automatically. To add a missed bounce, pause at the bounce frame.</p>
    <button type="button" className={button} disabled={!ready||!evidence||review.events.length>=200} onClick={()=>{
     const rawTime=bounceFrameTime(currentTime(),start,end);onSeek(rawTime);
     const event:BounceAnnotation={id:`added:${crypto.randomUUID()}`,rawTime,kind:'table',side:null};
@@ -71,6 +70,7 @@ export function BounceDetails({openRequest=0,value,suggestion,suggestionReview,o
      </label>
     </div>
     {eventSuggestion&&<SuggestionHint state={eventState} detail={eventSuggestion.detail} onConfirm={()=>onReviewSuggestion?.([`event:${selected}`])}/>}
+    <details className="text-xs text-zinc-400"><summary className="min-h-11 cursor-pointer py-3 text-zinc-300">Event type help</summary><div className="space-y-2 pb-2">
     {kind==='table'&&<p className="text-xs text-zinc-400">Use Table bounce for a real bounce on the playing table during the point, including the serve. Serve bounce is optional detail.</p>}
     {kind==='serve'&&<p className="text-xs text-zinc-400">Either actual table bounce of the serve: first on the server’s side, then on the receiver’s side. These may not be the first two detected markers.</p>}
     {kind==='rally'&&<p className="text-xs text-zinc-400">A table bounce during play after the serve. You can use Table bounce for this; there is no need to relabel older answers.</p>}
@@ -82,6 +82,7 @@ export function BounceDetails({openRequest=0,value,suggestion,suggestionReview,o
     {kind==='ceiling'&&<p className="text-xs text-zinc-400">The ball contacted the ceiling or an overhead object. Later table bounces are non-rally bounces.</p>}
     {kind==='other_non_bounce'&&<p className="text-xs text-zinc-400">A false bounce detection that does not fit another category. Add details in the optional note if helpful.</p>}
     {kind==='non_playing'&&<p className="text-xs text-zinc-400">Earlier label. Choose a more specific event type when you can identify what happened.</p>}
+    </div></details>
     <label className={`flex min-h-11 items-center gap-3 text-sm ${isRallyBounce(kind)?'text-zinc-300':'text-zinc-500'}`}>
      <input type="checkbox" className="h-5 w-5 shrink-0 accent-cyan-400" checked={displayed.lastBounce===selected} disabled={!isRallyBounce(kind)} onChange={e=>{if(!e.target.checked&&lastState==='pending'){onReviewSuggestion?.(['lastBounce'],true);return;}onChange({...review,lastBounce:e.target.checked?selected:null});}}/>
      Last playable table bounce
