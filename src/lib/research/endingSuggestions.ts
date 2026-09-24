@@ -1,5 +1,9 @@
 import {BOUNCE_KINDS,ENDING_REASONS,EMPTY_BOUNCE_REVIEW,isRallyBounce,updateBounce,type BounceAnnotation,type BounceKind,type EndingLabel,type EndingReason} from './pointEndings.ts';
-export const SUGGESTION_RUN_ID='contact-review-20260922-v1';
+const LEGACY_SUGGESTION_RUN_ID='contact-review-20260922-v1';
+export const SUGGESTION_RUN_ID='paddle-contact-20260924-v1';
+const knownRun=(id:string)=>id===SUGGESTION_RUN_ID||id===LEGACY_SUGGESTION_RUN_ID;
+// The new run only appends paddle proposals; existing reviews remain authoritative.
+const carriesReview=(saved:string|undefined,current:string)=>saved===current||(saved===LEGACY_SUGGESTION_RUN_ID&&current===SUGGESTION_RUN_ID);
 type Guess<T>={value:T|null;confidence:'tentative'|'uncertain';detail:string};
 export type SuggestedEvent={id:string;kind:BounceKind|null;side:'near'|'far'|null;confidence:'tentative'|'uncertain';detail:string};
 export type EndingSuggestion={version:1;runId:string;reason:Guess<EndingReason>;lastRallyContact:Guess<'near'|'far'>;lastBounce:Guess<string>;events:SuggestedEvent[]};
@@ -9,7 +13,7 @@ export function validSuggestion(value:unknown,count:number):value is EndingSugge
  if(!value||typeof value!=='object')return false;
  const x=value as EndingSuggestion;
  const common=(g:unknown)=>!!g&&typeof g==='object'&&['tentative','uncertain'].includes((g as Guess<unknown>).confidence)&&typeof (g as Guess<unknown>).detail==='string'&&(g as Guess<unknown>).detail.length<=240;
- if(x.version!==1||x.runId!==SUGGESTION_RUN_ID||!common(x.reason)||!common(x.lastRallyContact)||!common(x.lastBounce)||!Array.isArray(x.events)||x.events.length>200)return false;
+ if(x.version!==1||!knownRun(x.runId)||!common(x.reason)||!common(x.lastRallyContact)||!common(x.lastBounce)||!Array.isArray(x.events)||x.events.length>200)return false;
  if(x.reason.value!==null&&!ENDING_REASONS.some(([k])=>k===x.reason.value&&k!=='custom'))return false;
  if(![null,'near','far'].includes(x.lastRallyContact.value))return false;
  if(x.lastBounce.value!==null&&!eventId(x.lastBounce.value,count))return false;
@@ -29,7 +33,7 @@ function answer(label:EndingLabel,key:string):unknown {
  if(key==='lastBounce')return label.bounceReview?.lastBounce??null;
  const e=label.bounceReview?.events.find(e=>`event:${e.id}`===key);return e?{id:e.id,kind:e.kind,side:e.side}:null;
 }
-function reviewed(label:EndingLabel,s:EndingSuggestion,key:string) {return label.suggestionReview?.runId===s.runId&&label.suggestionReview.fields.includes(key);}
+function reviewed(label:EndingLabel,s:EndingSuggestion,key:string) {return carriesReview(label.suggestionReview?.runId,s.runId)&&!!label.suggestionReview?.fields.includes(key);}
 export function suggestionState(label:EndingLabel,s:EndingSuggestion,key:string):SuggestionState {
  const own=answer(label,key),guess=proposed(s,key);
  if(own===null&&conflictsWithLast(label,s,key))return 'uncertain';
@@ -50,7 +54,7 @@ export function pendingSuggestionKeys(label:EndingLabel,s?:EndingSuggestion) {
 }
 function withReviewed(label:EndingLabel,s:EndingSuggestion,keys:string[]):EndingLabel {
  if(!keys.length)return label;
- const old=label.suggestionReview?.runId===s.runId?label.suggestionReview.fields:[];
+ const old=carriesReview(label.suggestionReview?.runId,s.runId)?label.suggestionReview?.fields??[]:[];
  return {...label,suggestionReview:{runId:s.runId,fields:Array.from(new Set([...old,...keys])).sort()}};
 }
 /** Merge only explicit confirmations. Merely displaying a suggestion never writes it. */

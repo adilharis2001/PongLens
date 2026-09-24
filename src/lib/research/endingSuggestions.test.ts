@@ -24,3 +24,23 @@ test('a pending non-rally category cannot clear a saved human last-bounce mark',
  assert.equal(displayLabel(label,s).bounceReview?.lastBounce,'detected:0');
  assert.equal(confirmSuggestions(label,s).bounceReview?.lastBounce,'detected:0');
 });
+
+const paddleRun:EndingSuggestion={...suggestion,runId:'paddle-contact-20260924-v1',events:[suggestion.events[0],{id:'detected:1',kind:'paddle',side:null,confidence:'tentative',detail:'Paddle-contact overlap.'}]};
+test('new paddle run validates while keeping legacy payloads valid',()=>{assert.equal(validSuggestion(paddleRun,2),true);assert.equal(validSuggestion(suggestion,2),true);assert.equal(validSuggestion({...paddleRun,runId:'unknown'},2),false);});
+test('upgrading paddle suggestions preserves dismissed fields and saved answers',()=>{
+ const dismissed=confirmSuggestions(EMPTY_LABEL,suggestion,['reason'],true);
+ assert.equal(suggestionState(dismissed,paddleRun,'reason'),'dismissed');
+ const next=confirmSuggestions(dismissed,paddleRun,['event:detected:1']);
+ assert.equal(next.reason,null);assert.equal(next.suggestionReview?.runId,paddleRun.runId);
+ assert.deepEqual(next.suggestionReview?.fields,['event:detected:1','reason']);
+ assert.equal(next.bounceReview?.events[0].kind,'paddle');assert.equal(suggestionState(next,paddleRun,'event:detected:1'),'accepted');
+});
+test('new paddle suggestions do not replace a human table label or last bounce',()=>{
+ const saved={...EMPTY_LABEL,bounceReview:{version:1 as const,events:[{id:'detected:1',kind:'serve' as const,side:'near' as const}],lastBounce:'detected:1'}};
+ const result=confirmSuggestions(saved,paddleRun,['event:detected:1']);assert.deepEqual(result,saved);
+});
+test('correcting a new paddle suggestion preserves dismissal of older fields',()=>{
+ const before=confirmSuggestions(EMPTY_LABEL,suggestion,['reason'],true);
+ const after=reviewChangedFields(before,{...before,bounceReview:{version:1,events:[{id:'detected:1',kind:'floor',side:null}],lastBounce:null}},paddleRun);
+ assert.equal(suggestionState(after,paddleRun,'event:detected:1'),'corrected');assert.equal(suggestionState(after,paddleRun,'reason'),'dismissed');
+});
