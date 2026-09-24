@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { SectionLabel } from "../../CoachHub";
 import { LessonVideosSection } from "../../LessonVideosSection";
-import { FabButton } from "@/components/Fab";
+import { CreateAction, TitleRow } from "@/components/Fab";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -701,34 +701,37 @@ export function StudentView({
         ← Students
       </Link>
 
-      {/* Who, and whether they are on PongLens. No button up here: New
-          entry floats at the bottom corner like every other create action
-          in the app (Adil, 2026-09-14), and the invite is not a button
-          either — for a student who is not on PongLens yet it is the open
+      {/* Who, and whether they are on PongLens. New entry is the one
+          action, placed like every other create action in the app: at the
+          far end of the title on a desktop, floating in the bottom corner
+          on a phone (Adil, 2026-09-14 and 2026-09-24). The invite is not a
+          button — for a student who is not on PongLens yet it is the open
           panel directly beneath, so a control for it would be a duplicate
           (Adil, 2026-09-05). */}
-      <div className="mt-4 min-w-0">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-          {student.display_name}
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          {student.player_id ? "On PongLens" : "Not on PongLens yet"}
-        </p>
-      </div>
+      <TitleRow className="mt-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            {student.display_name}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            {student.player_id ? "On PongLens" : "Not on PongLens yet"}
+          </p>
+        </div>
 
-      {/* The composer opens under the header, which from further down the
-          page is a screen above; go to it. Gone while the composer is up:
-          it would float over Save entry, offering the thing already
-          open (the Journal's editor covers its button the same way). */}
-      {!composerOpen && (
-        <FabButton
-          label="New entry"
-          onClick={() => {
-            setComposerOpen(true);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-        />
-      )}
+        {/* The composer opens under the header, which from further down
+            the page is a screen above; go to it. Gone while the composer
+            is up: it would offer the thing already open (the Journal's
+            editor covers its button the same way). */}
+        {!composerOpen && (
+          <CreateAction
+            label="New entry"
+            onClick={() => {
+              setComposerOpen(true);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
+        )}
+      </TitleRow>
 
       {notice && <p className="mt-3 text-sm text-cyan-glow">{notice}</p>}
 

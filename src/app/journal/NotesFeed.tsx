@@ -18,7 +18,7 @@ import { WorkingOn } from "./WorkingOn";
 import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
 import { TagGlyph } from "@/app/match/[id]/Tags";
-import { FabButton } from "@/components/Fab";
+import { CreateAction, TitleRow } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
 import { NoteEditor } from "./NoteEditor";
@@ -185,6 +185,7 @@ const FEED_CAP = 30;
  * pins the cues currently being fixed.
  */
 export function NotesFeed({
+  heading,
   userId,
   accountName,
   initialMatch = null,
@@ -192,6 +193,8 @@ export function NotesFeed({
   initialSection = null,
   initialRecollectEnabled = true,
 }: {
+  /** The page title, from the server page; New entry sits at its far end. */
+  heading: React.ReactNode;
   userId: string;
   /** Viewer's account first name — feeds neutral-match title detection. */
   accountName: string | null;
@@ -864,7 +867,11 @@ export function NotesFeed({
       {/* Every section of the journal is the same page with a different
           list in it, Recollect included, so the chrome around the list does
           not come and go with the tab. */}
-      <FabButton label="New" onClick={() => setComposeOpen(true)} />
+      <TitleRow>
+        {heading}
+        <CreateAction label="New entry" onClick={() => setComposeOpen(true)} />
+      </TitleRow>
+      <div className="mt-6">
       <JournalEditor
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
@@ -1206,18 +1213,9 @@ export function NotesFeed({
             Notes from your matches collect here on their own. Add a note
             of your own. Type it, speak it, or paste it.
           </p>
-          {/* The floating New sits in a far corner on a wide screen; the
-              empty state offers the same action where the eye already is,
-              the way Matches offers its first upload (Adil, 2026-09-02).
-              On a phone the floating button is right under the thumb and
-              overlaps this card, so there it stays the only one. */}
-          <button
-            type="button"
-            onClick={() => setComposeOpen(true)}
-            className="glow-cta mx-auto mt-5 hidden rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink md:block"
-          >
-            New entry
-          </button>
+          {/* No button of its own: New entry is beside the title on a
+              desktop and under the thumb on a phone, and a second copy
+              here overlapped the card on a phone (Adil, 2026-09-02). */}
         </div>
       ) : section === "matches" ? (
         <>
@@ -1309,6 +1307,7 @@ export function NotesFeed({
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

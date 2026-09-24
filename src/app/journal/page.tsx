@@ -59,18 +59,18 @@ export default async function ImprovePage({
 
   return (
     <AppShell avatarUrl={avatarUrl} hasFab>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Journal</h1>
-      <div className="mt-6">
-        <NotesFeed
+      <NotesFeed
+        heading={
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Journal</h1>
+        }
         initialEntry={entry ?? null}
-          userId={user.id}
-          accountName={accountName}
-          initialMatch={match ?? null}
-          initialRecollectEnabled={
-            recollectGloballyEnabled && recollectPreference?.enabled !== false
-          }
-        />
-      </div>
+        userId={user.id}
+        accountName={accountName}
+        initialMatch={match ?? null}
+        initialRecollectEnabled={
+          recollectGloballyEnabled && recollectPreference?.enabled !== false
+        }
+      />
     </AppShell>
   );
 }

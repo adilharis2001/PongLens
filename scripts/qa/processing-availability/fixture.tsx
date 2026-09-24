@@ -37,7 +37,7 @@ function Preview() {
     </aside>
     <main key={`${screen}-${revision}`} className="mx-auto max-w-3xl px-4 py-6 sm:px-6" aria-label="Application preview">
       {screen === "match" ? <RawMatchView match={match() as unknown as Match} rawUrl={null} isOwner commerceEnabled minutesBalance={300} initialJob={job()} handCutEnabled initialNotes={[]} noteAuthors={[]} userId={owner} />
-        : screen === "home" ? <HomeOverview userId={owner} accountName="Player" firstStepsDismissed />
+        : screen === "home" ? <HomeOverview heading={<h1 className="text-2xl font-bold tracking-tight">Hey Player</h1>} userId={owner} accountName="Player" firstStepsDismissed />
           : screen === "library" ? <MatchLibrary userId={owner} accountName="Player" />
           : screen === "admin" ? <ProcessingSection />
           : screen === "clip" ? <MatchView match={{ ...match(), status: "ready" } as unknown as Match} initialPoints={[]} initialNotes={[]} userId={owner} accountName="Player" ownerName={null} strictness="normal" noteAuthors={[]} initialTags={[]} initialPointTags={[]} />

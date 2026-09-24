@@ -54,21 +54,23 @@ export default async function DashboardPage() {
 
   return (
     <AppShell avatarUrl={avatarUrl} hasFab>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-        Hey {firstName} 👋
-      </h1>
-
-      <div className="mt-8">
-        {playerSetupPending && <PlayerSetupCard userId={user.id} />}
-        <HomeOverview
-          userId={user.id}
-          accountName={accountName}
-          firstStepsDismissed={Boolean(
-            user.user_metadata?.first_steps_dismissed
-          )}
-          commerceEnabled={await getCommerceEnabled()}
-        />
-      </div>
+      {/* The overview owns the title row: Upload sits at its far end on a
+          desktop, and only once there is a library to add to, which the
+          overview is the one to know. */}
+      <HomeOverview
+        heading={
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            Hey {firstName} 👋
+          </h1>
+        }
+        lead={playerSetupPending ? <PlayerSetupCard userId={user.id} /> : null}
+        userId={user.id}
+        accountName={accountName}
+        firstStepsDismissed={Boolean(
+          user.user_metadata?.first_steps_dismissed
+        )}
+        commerceEnabled={await getCommerceEnabled()}
+      />
     </AppShell>
   );
 }

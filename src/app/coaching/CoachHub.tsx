@@ -298,9 +298,15 @@ export function CoachHub({
     ? studentOrders
     : studentOrders.filter((o) => isOpenOrder(o.status));
 
+  const title = (
+    <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Coaching</h1>
+  );
+
   return (
     <>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Coaching</h1>
+      {/* On the coaching side the title stands alone. On the playing side
+          PlayerCoaching sets it, with New lesson at the far end. */}
+      {coachWorkspace && title}
 
       {/* ---- the coaching side ---- */}
 
@@ -353,6 +359,7 @@ export function CoachHub({
           on a match, the reviews you bought, and the list of coaches. */}
       {showPlayer && (
         <PlayerCoaching
+          title={title}
           userId={userId}
           coachNotes={coachNotes}
           studentOrders={boughtOrders}

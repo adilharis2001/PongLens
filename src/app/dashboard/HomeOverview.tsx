@@ -10,7 +10,7 @@ import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CameraGuide } from "@/components/CameraGuide";
-import { UploadFab } from "@/components/Fab";
+import { TitleRow, UploadAction } from "@/components/Fab";
 import { createClient } from "@/lib/supabase/client";
 import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
@@ -73,11 +73,17 @@ const RECENT_COUNT = 3;
  * it. Match management (search, filters, delete) lives in the library.
  */
 export function HomeOverview({
+  heading,
+  lead = null,
   userId,
   accountName,
   firstStepsDismissed = false,
   commerceEnabled = false,
 }: {
+  /** The page title, rendered by the server page; Upload joins it here. */
+  heading: React.ReactNode;
+  /** Anything the page wants above the overview, under the title. */
+  lead?: React.ReactNode;
   userId: string;
   /** Viewer's account first name — feeds neutral-match title detection. */
   accountName: string | null;
@@ -433,16 +439,21 @@ export function HomeOverview({
 
   return (
     <>
-    {/* Not on the empty state. The hero there already carries a full
-        "Upload a match" button, so a second floating one is a duplicate
-        — and on a short screen it sat on top of the camera row. It comes
-        back the moment there is a library to float above.
+    <TitleRow>
+      {heading}
+      {/* Not on the empty state. The hero there already carries a full
+          "Upload a match" button, so a second one is a duplicate — and on
+          a short phone the floating one sat on top of the camera row. It
+          comes back the moment there is a library to add to.
 
-        Outside the space-y stack, never inside it: Tailwind 4's space-y
-        puts its gap as a bottom margin on every child but the last, and a
-        fixed button with a 40px bottom margin floats 40px above the
-        corner the Matches button sits in (Adil, 2026-09-22). */}
-    {!isEmpty && <UploadFab />}
+          In the title row, never inside the space-y stack: Tailwind 4's
+          space-y puts its gap as a bottom margin on every child but the
+          last, and a fixed button with a 40px bottom margin floats 40px
+          above the corner the Matches button sits in (Adil, 2026-09-22). */}
+      {!isEmpty && <UploadAction />}
+    </TitleRow>
+    <div className="mt-8">
+    {lead}
     <div className="space-y-10">
       {/* Next action */}
       {loading ? (
@@ -1055,6 +1066,7 @@ export function HomeOverview({
       />
 
       {commerceEnabled && <BalancesCard />}
+    </div>
     </div>
     </>
   );

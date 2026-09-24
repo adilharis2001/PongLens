@@ -17,10 +17,13 @@ export async function AppShell({
   avatarUrl: string | null;
   wide?: boolean;
   /**
-   * This page floats an action over its content (Home, Matches, Journal).
-   * The base padding only ever cleared the fixed nav bar, so the button
-   * sat on top of whatever ended up last — a library card's title, a
-   * checklist row. Only the pages that float one pay for the extra.
+   * This page floats an action over its content on a phone (Home,
+   * Matches, Journal, Coaching). The base padding only ever cleared the
+   * fixed nav bar, so the button sat on top of whatever ended up last — a
+   * library card's title, a checklist row. Only the pages that float one
+   * pay for the extra, and only until lg: on a desktop the action sits in
+   * the title row instead (Fab.tsx), except Feedback, which floats until
+   * its composer column appears at lg.
    */
   hasFab?: boolean;
   children: React.ReactNode;
@@ -31,7 +34,7 @@ export async function AppShell({
       <AppNav avatarUrl={avatarUrl} wide={wide} remembered={workspace} />
       <main
         className={`bg-arena flex-1 ${
-          hasFab ? "pb-48 md:pb-32" : "pb-32 md:pb-16"
+          hasFab ? "pb-48 md:pb-32 lg:pb-16" : "pb-32 md:pb-16"
         }`}
       >
         <div

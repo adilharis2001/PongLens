@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
-import { UploadFab } from "@/components/Fab";
+import { TitleRow, UploadAction } from "@/components/Fab";
 import { MatchLibrary } from "./MatchLibrary";
 
 export const metadata: Metadata = {
@@ -37,11 +37,13 @@ export default async function MatchesPage() {
 
   return (
     <AppShell avatarUrl={avatarUrl} hasFab>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Matches</h1>
+      <TitleRow>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Matches</h1>
+        <UploadAction />
+      </TitleRow>
       <div className="mt-6">
         <MatchLibrary userId={user.id} accountName={accountName} />
       </div>
-      <UploadFab />
     </AppShell>
   );
 }

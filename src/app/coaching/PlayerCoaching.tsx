@@ -8,7 +8,7 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
-import { FabButton } from "@/components/Fab";
+import { CreateAction, TitleRow } from "@/components/Fab";
 import { LessonCard } from "@/app/journal/LessonCard";
 import { JournalEditor } from "@/app/journal/JournalEditor";
 import { NoteEditor } from "@/app/journal/NoteEditor";
@@ -93,10 +93,13 @@ const FEED_CAP = 30;
  * is the same content read by coach instead of by date.
  */
 export function PlayerCoaching({
+  title,
   userId,
   coachNotes,
   studentOrders,
 }: {
+  /** The page title, from the hub; New lesson sits at its far end. */
+  title: React.ReactNode;
   userId: string;
   /** Notes a coach left on YOUR matches, from note_feed, filtered server
    *  side to your own matches written by somebody else. */
@@ -419,6 +422,11 @@ export function PlayerCoaching({
 
   return (
     <>
+      <TitleRow>
+        {title}
+        <CreateAction label="New lesson" onClick={() => setChooserOpen(true)} />
+      </TitleRow>
+
       {/* The chips sit directly under the title so both they and the coach
           card they reveal are above the fold on a 393px phone. */}
       {!noCoaches && (
@@ -553,8 +561,6 @@ export function PlayerCoaching({
           )}
         </>
       )}
-
-      <FabButton label="New lesson" onClick={() => setChooserOpen(true)} />
 
       <NewLessonSheet
         open={chooserOpen}
