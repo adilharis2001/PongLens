@@ -84,7 +84,7 @@ export function SpeedMenu({
           <div
             role="menu"
             aria-label="Playback speed"
-            className={`ks-fade absolute right-0 z-50 overflow-hidden rounded-xl border border-edge bg-ink/95 shadow-lg shadow-black/60 backdrop-blur-md ${
+            className={`ks-fade absolute right-0 z-50 overflow-hidden rounded-xl border border-edge bg-ink/95 shadow-lg shadow-black/60 ${
               drop === "down" ? "top-full mt-2" : "bottom-full mb-2"
             }`}
           >

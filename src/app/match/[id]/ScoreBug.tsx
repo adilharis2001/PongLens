@@ -132,7 +132,7 @@ export function ScoreBug({
       // whenever the styling does.
       data-scorebug=""
       style={{ ...style, paddingTop: u * 0.2, paddingBottom: u * 0.2 }}
-      className={`pointer-events-none overflow-hidden rounded-md border border-white/10 bg-ink/85 shadow-lg shadow-black/40 backdrop-blur-sm ${className ?? ""}`}
+      className={`pointer-events-none overflow-hidden rounded-md border border-white/10 bg-ink/85 shadow-lg shadow-black/40 ${className ?? ""}`}
     >
       {/* grid-flow-col over two rows: every column is one game, filled top
           (you) then bottom (them) — the same order the cells are written. */}

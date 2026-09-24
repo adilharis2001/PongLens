@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
-import { useCoverAppNav } from "@/lib/useCoverAppNav";
 import { clipUrlFor, forgetClipUrl } from "./clipUrls";
 import type { StarredPointRow } from "./starred";
 
@@ -30,7 +29,7 @@ import type { StarredPointRow } from "./starred";
 
 /** The match player's corner-button style. */
 const CORNER =
-  "flex h-9 w-9 items-center justify-center rounded-full border border-edge bg-ink/70 text-zinc-300 backdrop-blur transition-colors hover:text-white disabled:opacity-30 disabled:hover:text-zinc-300";
+  "flex h-9 w-9 items-center justify-center rounded-full border border-edge bg-ink/70 text-zinc-300 transition-colors hover:text-white disabled:opacity-30 disabled:hover:text-zinc-300";
 
 export function StarredPlayer({
   rows,
@@ -94,8 +93,7 @@ export function StarredPlayer({
     return () => window.removeEventListener("keydown", onKey);
   }, [go, index, onClose]);
 
-  // The page behind must not scroll under the takeover, and its nav bars
-  // stop painting (their blur under the video stuttered desktop Chrome).
+  // The page behind must not scroll under the takeover.
   useEffect(() => {
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -103,7 +101,6 @@ export function StarredPlayer({
       document.body.style.overflow = previous;
     };
   }, []);
-  useCoverAppNav(true);
 
   if (!row) return null;
 

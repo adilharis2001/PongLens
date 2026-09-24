@@ -488,6 +488,15 @@ trimming margins is how a video ended up 53% of screen width.
   idle state; hand over to native controls on play.
 - **Anything overlaid on a video must clear out while it plays.** The native
   scrubber lives along the bottom edge, where a chapter strip wants to be.
+- **Nothing that floats over a playing video gets `backdrop-blur`.** Chrome
+  on a Mac re-blurs beneath each control for every video frame; with the
+  match player's fourteen glass controls, 1080p60 froze for ~0.2 s several
+  times every ten seconds (2026-09-24, 48 to 60 dropped frames in 12 s,
+  against 2 with the blur gone). The iPhone and Safari never show it, so it
+  looks like a desktop-only layout bug. Use a solid translucent fill
+  (`bg-ink/70` and up). Measure with `requestVideoFrameCallback` over three
+  runs, never one: a single run once pinned it on the nav bar and shipped a
+  fix that did nothing.
 
 ### Traps specific to this codebase
 

@@ -86,7 +86,6 @@ import {
   type ScorerCommandReceipt,
   type ScorerCommandResult,
 } from "./scorerState";
-import { useCoverAppNav } from "@/lib/useCoverAppNav";
 
 /**
  * The Player: ONE takeover playback surface that owns the ONLY
@@ -3032,9 +3031,6 @@ export const Player = forwardRef<
       document.body.style.overflow = prev;
     };
   }, [open]);
-  // And stop painting the nav bars behind it: their blur under the playing
-  // video is what made desktop Chrome stutter.
-  useCoverAppNav(open);
 
   const openWatch = useCallback(
     (seekT?: number) => {
@@ -6213,7 +6209,13 @@ export const Player = forwardRef<
               onContextMenu={(e) => e.preventDefault()}
             />
 
-            {/* flank chevrons: prev/next point, same treatment as the
+            {/* No backdrop blur on anything floating over the playing
+                picture, here or in ClipPlayer: Chrome on a Mac re-blurs
+                under each control for every video frame and froze 1080p60
+                playback for ~0.2 s several times every ten seconds
+                (2026-09-24). A solid translucent fill looks the same.
+
+                flank chevrons: prev/next point, same treatment as the
                 point detail view. Sized exactly to their circles so they
                 never eat taps meant for the pause surface, and vertically
                 centered clear of the hold-2x pill (top) and chrome
@@ -6227,7 +6229,7 @@ export const Player = forwardRef<
                     type="button"
                     onClick={() => doubleTapSeek(false)}
                     aria-label="Previous point"
-                    className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+                    className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 transition-colors hover:text-white"
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -6250,7 +6252,7 @@ export const Player = forwardRef<
                     type="button"
                     onClick={() => doubleTapSeek(true)}
                     aria-label="Next point"
-                    className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+                    className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 transition-colors hover:text-white"
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -6300,7 +6302,7 @@ export const Player = forwardRef<
                 // landscape phone or a desktop window a full-bleed strip is
                 // a banner across the match. On a portrait phone the cap is
                 // wider than the screen, so it still fills the margin.
-                className="absolute left-3 top-14 z-10 flex w-[calc(100%-1.5rem)] max-w-sm items-stretch gap-2.5 rounded-lg border border-white/10 bg-ink/85 p-2.5 text-left shadow-lg shadow-black/40 backdrop-blur-sm transition-colors hover:border-white/20"
+                className="absolute left-3 top-14 z-10 flex w-[calc(100%-1.5rem)] max-w-sm items-stretch gap-2.5 rounded-lg border border-white/10 bg-ink/85 p-2.5 text-left shadow-lg shadow-black/40 transition-colors hover:border-white/20"
               >
                 <span
                   className={`w-[3px] shrink-0 rounded-sm ${
@@ -6407,7 +6409,7 @@ export const Player = forwardRef<
               >
                 <span
                   key={flash.key}
-                  className="ks-fade rounded-full border border-cyan-glow/60 bg-cyan-glow/15 px-4 py-2 text-sm font-semibold tabular-nums text-cyan-glow backdrop-blur-sm"
+                  className="ks-fade rounded-full border border-cyan-glow/60 bg-ink/85 px-4 py-2 text-sm font-semibold tabular-nums text-cyan-glow"
                 >
                   {flash.label}
                 </span>
@@ -6423,7 +6425,7 @@ export const Player = forwardRef<
                   top: mode === "score" && padOverlay ? 96 : 56,
                 }}
               >
-                <span className="ks-fade rounded-full border border-edge bg-ink/85 px-4 py-2 text-center text-[13px] font-medium text-zinc-200 backdrop-blur">
+                <span className="ks-fade rounded-full border border-edge bg-ink/85 px-4 py-2 text-center text-[13px] font-medium text-zinc-200">
                   {hint === "dtap"
                     ? "Double tap the sides for the next or last point, the middle to see it again"
                     : "Hold the video for speed: right is 2x, left is slow"}
@@ -6443,7 +6445,7 @@ export const Player = forwardRef<
                     mode === "score" ? (padOverlay ? 96 : 56) : 12,
                 }}
               >
-                <span className="ks-fade rounded-full border border-edge bg-ink/85 px-3 py-1 text-xs font-semibold tabular-nums text-zinc-200 backdrop-blur">
+                <span className="ks-fade rounded-full border border-edge bg-ink/85 px-3 py-1 text-xs font-semibold tabular-nums text-zinc-200">
                   {holdRate}x {holdRate < 1 ? "◀▶" : "▶▶"}
                 </span>
               </div>
@@ -6462,7 +6464,7 @@ export const Player = forwardRef<
             {/* resume / info toast */}
             {toast && (
               <div className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center">
-                <p className="ks-fade rounded-full border border-edge bg-ink/85 px-4 py-1.5 text-xs text-zinc-300 backdrop-blur">
+                <p className="ks-fade rounded-full border border-edge bg-ink/85 px-4 py-1.5 text-xs text-zinc-300">
                   {toast}
                 </p>
               </div>
@@ -6491,14 +6493,14 @@ export const Player = forwardRef<
                     pauseBoth();
                     highlightDownloadRef.current?.();
                   }}
-                  className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3.5 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10"
+                  className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3.5 py-1.5 text-xs font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/10"
                 >
                   Download
                 </button>
               ) : (
                 <GesturesButton
                   mode={mode === "score" ? "score" : "watch"}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/70 text-sm font-semibold text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/70 text-sm font-semibold text-zinc-300 transition-colors hover:text-white"
                 />
               )}
               {/* Watch-mode review controls. Reviewing footage is a
@@ -6518,7 +6520,7 @@ export const Player = forwardRef<
                     onClick={replayRally}
                     aria-label="Replay this point"
                     title="Replay this point"
-                    className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                    className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 transition-colors hover:text-white"
                   >
                     <ReplayIcon className="h-4 w-4" />
                   </button>
@@ -6531,7 +6533,7 @@ export const Player = forwardRef<
                     // This row is the chrome across the TOP of the video:
                     // upward is off the screen.
                     drop="down"
-                    className="shrink-0 rounded-full border border-edge bg-ink/70 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums text-zinc-200 backdrop-blur"
+                    className="shrink-0 rounded-full border border-edge bg-ink/70 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums text-zinc-200"
                   />
                   {/* Star, same as the pad's: the one point you want in the
                       export. Watching is when you notice it. */}
@@ -6547,7 +6549,7 @@ export const Player = forwardRef<
                         starTarget?.starred ? "Remove star" : "Star this point"
                       }
                       aria-pressed={!!starTarget?.starred}
-                      className={`rounded-full border p-2 backdrop-blur transition-colors disabled:opacity-40 ${
+                      className={`rounded-full border p-2 transition-colors disabled:opacity-40 ${
                         starTarget?.starred
                           ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
                           : "border-edge bg-ink/70 text-zinc-300 hover:text-white"
@@ -6575,7 +6577,7 @@ export const Player = forwardRef<
                     }}
                     aria-label="Jump to a point"
                     title="Jump to a point"
-                    className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                    className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 transition-colors hover:text-white"
                   >
                     {/* Every point at once, which is what the sheet shows.
                         A list glyph reads as "menu", and the pad's
@@ -6601,7 +6603,7 @@ export const Player = forwardRef<
                     onClick={openNoteSheet}
                     aria-label="Add a note on this point"
                     title="Add a note on this point"
-                    className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                    className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 transition-colors hover:text-white"
                   >
                     {/* A note: a page with a turned-up corner and writing on
                         it. Not a pencil (over a match that promises you can
@@ -6628,7 +6630,7 @@ export const Player = forwardRef<
                       // Wrapped: openScore's first argument is a point id,
                       // and onClick would hand it the MouseEvent.
                       onClick={() => openScore()}
-                      className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10 sm:px-3.5"
+                      className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3 py-1.5 text-xs font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/10 sm:px-3.5"
                     >
                       Score the Match
                     </button>
@@ -6639,7 +6641,7 @@ export const Player = forwardRef<
                 type="button"
                 onClick={exit}
                 aria-label="Close player"
-                className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                className="rounded-full border border-edge bg-ink/70 p-2 text-zinc-300 transition-colors hover:text-white"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -6879,7 +6881,7 @@ export const Player = forwardRef<
               ? // The floating card. z-10 keeps parity with the rail: over
                 // the video chrome by DOM order, still under every sheet
                 // (game break, note, setup) that renders after it.
-                "absolute z-10 flex flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50 backdrop-blur-md"
+                "absolute z-10 flex flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50"
               : padOverlay
                 ? // Phone landscape (real rotation or the fake one): the
                   // pad dissolves into EDGE BANDS over a full-bleed video —
@@ -8033,7 +8035,7 @@ export const Player = forwardRef<
             // pointer-events-auto: in the edge layout the pad container is
             // a tap-pass-through layer, and the sheet inherited it — every
             // Why option (and Skip) read as dead on a landscape phone.
-            <div className="ks-fade pointer-events-auto absolute inset-0 z-20 flex flex-col justify-end bg-ink/80 backdrop-blur-sm">
+            <div className="ks-fade pointer-events-auto absolute inset-0 z-20 flex flex-col justify-end bg-ink/80">
               <button
                 type="button"
                 aria-label="Back without saying why"

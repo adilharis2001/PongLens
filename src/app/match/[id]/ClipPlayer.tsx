@@ -1229,7 +1229,7 @@ export function ClipPlayer({
           aria-label="Play"
           className="absolute inset-0 flex items-center justify-center"
         >
-          <span className="ks-fade rounded-full bg-ink/60 p-3.5 backdrop-blur-sm">
+          <span className="ks-fade rounded-full bg-ink/60 p-3.5">
             <svg
               viewBox="0 0 24 24"
               className="h-7 w-7 text-white"
@@ -1247,13 +1247,13 @@ export function ClipPlayer({
           data-nozoom
           onClick={() => resetZoom(true)}
           aria-label="Reset zoom"
-          className="absolute left-2 top-2 rounded-full bg-ink/60 px-2.5 py-1 text-[11px] font-semibold leading-none text-zinc-300 backdrop-blur-sm"
+          className="absolute left-2 top-2 rounded-full bg-ink/60 px-2.5 py-1 text-[11px] font-semibold leading-none text-zinc-300"
         >
           1x
         </button>
       )}
       {holdRate !== null && (
-        <span className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums leading-none text-zinc-200 backdrop-blur-sm">
+        <span className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full bg-ink/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums leading-none text-zinc-200">
           {holdRate}x
         </span>
       )}
@@ -1274,7 +1274,7 @@ export function ClipPlayer({
             aria-hidden="true"
             className="ks-fade pointer-events-none absolute inset-x-0 top-12 z-10 flex justify-center px-6"
           >
-            <span className="rounded-full border border-edge bg-ink/85 px-4 py-2 text-center text-[13px] font-medium leading-snug text-zinc-200 backdrop-blur">
+            <span className="rounded-full border border-edge bg-ink/85 px-4 py-2 text-center text-[13px] font-medium leading-snug text-zinc-200">
               Double tap the sides for the next or last point, the middle to
               see it again
             </span>
@@ -1285,16 +1285,16 @@ export function ClipPlayer({
             className="ks-fade pointer-events-none absolute inset-0"
           >
             <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between px-5">
-              <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm">
+              <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100">
                 <SeekChevrons dir="back" />
                 10s
               </span>
-              <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm">
+              <span className="flex items-center gap-1 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100">
                 10s
                 <SeekChevrons dir="fwd" />
               </span>
             </div>
-            <span className="absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink/70 px-3 py-1.5 text-xs leading-none text-zinc-200 backdrop-blur-sm">
+            <span className="absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink/70 px-3 py-1.5 text-xs leading-none text-zinc-200">
               Double-tap to skip
             </span>
           </div>
@@ -1303,7 +1303,7 @@ export function ClipPlayer({
           dropped gesture; the flash is the acknowledgement. */}
       {seekHint && (
         <span
-          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 backdrop-blur-sm ${
+          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full bg-ink/70 px-3 py-1.5 text-xs font-semibold leading-none text-zinc-100 ${
             seekHint === "fwd" ? "right-6" : "left-6"
           }`}
         >
@@ -1323,7 +1323,7 @@ export function ClipPlayer({
             data-noswipe
             onClick={() => onStepPointRef.current?.(-1)}
             aria-label="Previous point"
-            className={`absolute left-2 top-1/2 h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white ${
+            className={`absolute left-2 top-1/2 h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 transition-colors hover:text-white ${
               quietChrome ? "hidden sm:flex" : "flex"
             }`}
           >
@@ -1344,7 +1344,7 @@ export function ClipPlayer({
             data-noswipe
             onClick={() => onStepPointRef.current?.(1)}
             aria-label="Next point"
-            className={`absolute right-2 top-1/2 h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white ${
+            className={`absolute right-2 top-1/2 h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 transition-colors hover:text-white ${
               quietChrome ? "hidden sm:flex" : "flex"
             }`}
           >
@@ -1368,7 +1368,7 @@ export function ClipPlayer({
       {onStepPoint && (
         <GesturesButton
           mode="watch"
-          className={`absolute left-2 top-2 z-10 h-8 w-8 items-center justify-center rounded-full bg-ink/60 text-[13px] font-semibold text-zinc-300 backdrop-blur-sm transition-colors hover:text-white ${
+          className={`absolute left-2 top-2 z-10 h-8 w-8 items-center justify-center rounded-full bg-ink/60 text-[13px] font-semibold text-zinc-300 transition-colors hover:text-white ${
             quietChrome ? "hidden sm:flex" : "flex"
           }`}
         />
@@ -1385,7 +1385,7 @@ export function ClipPlayer({
           setMuted(v.muted);
         }}
         aria-label={muted ? "Unmute" : "Mute"}
-        className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm ${
+        className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 ${
           quietChrome ? "hidden sm:block" : ""
         }`}
       >
@@ -1422,7 +1422,7 @@ export function ClipPlayer({
           data-noswipe
           onClick={onClose}
           aria-label="Close"
-          className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white"
+          className="rounded-full bg-ink/60 p-1.5 text-zinc-300 transition-colors hover:text-white"
         >
           <svg
             viewBox="0 0 24 24"
@@ -1453,7 +1453,7 @@ export function ClipPlayer({
             onClick={onReplay}
             aria-label="Replay this point"
             title="Replay this point"
-            className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white ${
+            className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 transition-colors hover:text-white ${
               quietChrome ? "hidden sm:block" : ""
             }`}
           >
@@ -1470,7 +1470,7 @@ export function ClipPlayer({
         <SpeedMenu
           value={speed}
           onChange={setSpeed}
-          className={`rounded-full bg-ink/60 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums leading-none text-zinc-300 backdrop-blur-sm ${
+          className={`rounded-full bg-ink/60 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums leading-none text-zinc-300 ${
             quietChrome ? "hidden sm:block" : ""
           }`}
         />
@@ -1480,7 +1480,7 @@ export function ClipPlayer({
           disabled={zoomScale <= 1.001}
           aria-label="Zoom out"
           title="Zoom out"
-          className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white disabled:opacity-30 ${
+          className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 transition-colors hover:text-white disabled:opacity-30 ${
             quietChrome ? "hidden sm:block" : ""
           }`}
         >
@@ -1503,7 +1503,7 @@ export function ClipPlayer({
           disabled={zoomScale >= MAX_ZOOM - 0.001}
           aria-label="Zoom in"
           title="Zoom in"
-          className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white disabled:opacity-30 ${
+          className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 transition-colors hover:text-white disabled:opacity-30 ${
             quietChrome ? "hidden sm:block" : ""
           }`}
         >
@@ -1530,7 +1530,7 @@ export function ClipPlayer({
             onClick={fs.toggle}
             aria-label={fs.active ? "Exit full screen" : "Full screen"}
             title={fs.active ? "Exit full screen" : "Full screen"}
-            className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white"
+            className="rounded-full bg-ink/60 p-1.5 text-zinc-300 transition-colors hover:text-white"
           >
             <svg
               viewBox="0 0 24 24"
