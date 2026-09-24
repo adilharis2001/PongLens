@@ -108,7 +108,7 @@ export function normalizeEndingLabel(label:EndingLabel,existing?:EndingLabel):En
  const suggestionReview=label.suggestionReview??existing?.suggestionReview;
  // Omission from older clients preserves the answer; explicit null clears it.
  const lastRallyContact=label.lastRallyContact===undefined?existing?.lastRallyContact:label.lastRallyContact;
- return {...(rallyReview?{rallyReview:{runId:rallyReview.runId,reviewed:true as const}}:{}),reason:label.reason,custom:label.custom.trim(),note:label.note,...(suggestionReview?{suggestionReview:{runId:suggestionReview.runId,fields:[...suggestionReview.fields].sort()}}:{}),...(lastRallyContact?{lastRallyContact}:{}),...(review?{bounceReview:{
+ return {...(rallyReview?{rallyReview:{runId:rallyReview.runId,reviewed:true as const,...(rallyReview.outcome?{outcome:rallyReview.outcome}:{})}}:{}),reason:label.reason,custom:label.custom.trim(),note:label.note,...(suggestionReview?{suggestionReview:{runId:suggestionReview.runId,fields:[...suggestionReview.fields].sort()}}:{}),...(lastRallyContact?{lastRallyContact}:{}),...(review?{bounceReview:{
   version:1 as const,lastBounce:review.lastBounce,events:review.events.map(e=>({id:e.id,kind:e.kind,side:e.side,...(e.rawTime!==undefined?{rawTime:e.rawTime}:{})})).sort((a,b)=>a.id.localeCompare(b.id))
  }}:{})};
 }

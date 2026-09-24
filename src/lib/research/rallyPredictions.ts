@@ -1,14 +1,17 @@
 import {EMPTY_BOUNCE_REVIEW,isRallyBounce,type EndingLabel,type EndingSource} from './pointEndings.ts';
 import type {EndingSuggestion} from './endingSuggestions.ts';
-export const RALLY_RUN_ID='rally-review-20260923-v1';
-export type RallyReview={runId:string;reviewed:true};
-export type RallyPrediction={version:1;runId:string;lastBounce:{id:string;rawTime:number;side:'near'|'far';origin:'detected'|'trajectory';agreement:number}|null;winner:{side:'near'|'far'|null;score:number|null;threshold:number|null};baselineWinner:'near'|'far'|null};
+export const LEGACY_RALLY_RUN_ID='rally-review-20260923-v1';
+export const RALLY_RUN_ID='pose-last-bounce-20260924-v1';
+export type RallyReview={runId:string;reviewed:true;outcome?:'kept'|'no_live_bounce'|'uncertain'};
+export type BounceRanking={method:'ball_pose'|'ball_only'|'unavailable';margin:number|null;poseCoverage:number;candidateCount:number;reason:'available'|'missing_pose'|'sparse_pose'|'no_candidates'};
+export type RallyPrediction={version:1|2;ranking?:BounceRanking;runId:string;lastBounce:{id:string;rawTime:number;side:'near'|'far';origin:'detected'|'trajectory';agreement:number}|null;winner:{side:'near'|'far'|null;score:number|null;threshold:number|null};baselineWinner:'near'|'far'|null};
 const side=(x:unknown)=>x===null||x==='near'||x==='far';
 const unit=(x:unknown)=>typeof x==='number'&&Number.isFinite(x)&&x>=0&&x<=1;
 export function validRallyPrediction(value:unknown,count:number,source:Pick<EndingSource,'start'|'end'>):value is RallyPrediction {
  if(!value||typeof value!=='object')return false;
  const x=value as RallyPrediction,w=x.winner,b=x.lastBounce;
- if(x.version!==1||x.runId!==RALLY_RUN_ID||!side(x.baselineWinner)||!w||!side(w.side))return false;
+ if(!((x.version===1&&x.runId===LEGACY_RALLY_RUN_ID)||(x.version===2&&x.runId===RALLY_RUN_ID))||!side(x.baselineWinner)||!w||!side(w.side))return false;
+ if(x.version===2&&!validRanking(x.ranking,b!==null))return false;
  if(w.score!==null&&(!unit(w.score)||w.score<.5))return false;
  if(w.threshold!==null&&(!unit(w.threshold)||w.threshold<.5))return false;
  if(w.side!==null&&(w.score===null||w.threshold===null||w.score<w.threshold))return false;
@@ -19,7 +22,7 @@ export function validRallyPrediction(value:unknown,count:number,source:Pick<Endi
 }
 export function validRallyReview(value:unknown):value is RallyReview {
  if(!value||typeof value!=='object')return false;
- const x=value as RallyReview;return x.runId===RALLY_RUN_ID&&x.reviewed===true;
+ const x=value as RallyReview;return [RALLY_RUN_ID,LEGACY_RALLY_RUN_ID].includes(x.runId)&&x.reviewed===true&&(x.outcome===undefined||['kept','no_live_bounce','uncertain'].includes(x.outcome));
 }
 export function rallyPending(label:EndingLabel,p?:RallyPrediction){return !!p&&label.rallyReview?.runId!==p.runId;}
 export function canConfirmRallyBounce(label:EndingLabel,p:RallyPrediction){
@@ -35,9 +38,23 @@ export function confirmRallyBounce(label:EndingLabel,p:RallyPrediction):EndingLa
 }
 export function reviewRallyBounce(before:EndingLabel,after:EndingLabel,p?:RallyPrediction):EndingLabel {
  if(!p||(before.bounceReview?.lastBounce??null)===(after.bounceReview?.lastBounce??null))return after;
+ if(!after.bounceReview?.lastBounce&&after.rallyReview?.runId===p.runId&&after.rallyReview!==before.rallyReview&&['no_live_bounce','uncertain'].includes(after.rallyReview.outcome??''))return after;
  return {...after,rallyReview:{runId:p.runId,reviewed:true}};
+}
+export function finishRallyReview(label:EndingLabel,p:RallyPrediction,outcome:NonNullable<RallyReview['outcome']>):EndingLabel {
+ return {...label,...(outcome!=='kept'&&label.bounceReview?{bounceReview:{...label.bounceReview,lastBounce:null}}:{}),rallyReview:{runId:p.runId,reviewed:true,outcome}};
+}
+function validRanking(r:BounceRanking|undefined,hasBounce:boolean){
+ if(!r||!unit(r.poseCoverage)||!Number.isSafeInteger(r.candidateCount)||r.candidateCount<0)return false;
+ if(r.margin!==null&&(!Number.isFinite(r.margin)||r.margin<0))return false;
+ if(r.candidateCount<2&&r.margin!==null)return false;
+ if(r.candidateCount>=2&&r.margin===null)return false;
+ if(!hasBounce)return r.method==='unavailable'&&r.reason==='no_candidates'&&r.candidateCount===0&&r.poseCoverage===0;
+ if(r.candidateCount===0)return false;
+ if(r.method==='ball_pose')return r.reason==='available'&&r.poseCoverage>=.6;
+ return r.method==='ball_only'&&((r.reason==='missing_pose'&&r.poseCoverage===0)||(r.reason==='sparse_pose'&&r.poseCoverage>0&&r.poseCoverage<.6));
 }
 /** Older category suggestions remain available, but only one last-bounce experiment is displayed. */
 export function withoutLegacyLastBounce(s:EndingSuggestion|undefined,p?:RallyPrediction):EndingSuggestion|undefined {
- return s&&p?{...s,lastBounce:{value:null,confidence:'uncertain',detail:'See the trajectory experiment below.'}}:s;
+ return s&&p?{...s,lastBounce:{value:null,confidence:'uncertain',detail:'See the last-bounce experiment below.'}}:s;
 }

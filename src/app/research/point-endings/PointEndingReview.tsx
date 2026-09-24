@@ -5,7 +5,7 @@ import {useEffect,useMemo,useRef,useState} from 'react';
 import {clock,BOUNCE_KINDS,EMPTY_BOUNCE_REVIEW,sameEndingLabel,ENDING_REASONS,frameStep,nextUnlabeled,reasonText,savedLabel,validEndingLabel,type EndingLabel,type EndingRow} from '@/lib/research/pointEndings';
 import {confirmSuggestions,displayLabel,pendingSuggestionKeys,reviewChangedFields,suggestionState} from '@/lib/research/endingSuggestions';
 import {RallyPredictionReview} from './RallyPredictionReview';
-import {confirmRallyBounce,rallyPending,reviewRallyBounce,withoutLegacyLastBounce} from '@/lib/research/rallyPredictions';
+import {finishRallyReview,confirmRallyBounce,rallyPending,reviewRallyBounce,withoutLegacyLastBounce} from '@/lib/research/rallyPredictions';
 import {SuggestionHint} from './SuggestionHint';
 import {EndingSaveQueue} from '@/lib/research/endingSaveQueue';
 import type {EndingEvidence} from '@/lib/research/endingEvidence';
@@ -157,6 +157,17 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
      {suggestedPoints>0&&<span className="text-amber-200">{suggestedPoints} with suggestions to review</span>}
      <span className={unfinishedSaves?'text-amber-200':'text-zinc-500'}>{unfinishedSaves?`${unfinishedSaves} answer${unfinishedSaves===1?'':'s'} not yet saved`:'All answers saved'}</span>
    </div>
+   {rows.some(r=>r.rallyPrediction?.version===2)&&<details className="mt-3 text-sm text-zinc-400">
+    <summary className="min-h-11 cursor-pointer py-3">Pose experiment results and review priorities</summary>
+    <div className="max-w-2xl space-y-3 pb-3">
+     <table className="w-full text-left text-xs sm:text-sm"><caption className="pb-2 text-left">Agreement with 50 existing last-bounce marks; each recording excluded from its model’s training</caption><thead><tr><th className="py-2 pr-3 font-medium">Match</th><th className="py-2 pr-3 font-medium">Ball path</th><th className="py-2 font-medium">Ball + pose</th></tr></thead><tbody>
+      {[['Lester','8 / 18','11 / 18'],['Prabhas','8 / 17','10 / 17'],['Yu Yu Lin','12 / 15','11 / 15'],['Total','28 / 50','32 / 50']].map(r=><tr key={r[0]} className="border-t border-edge">{r.map((v,i)=><td key={i} className="py-2 pr-3 tabular-nums">{v}</td>)}</tr>)}
+     </tbody></table>
+     <p>{rows.filter(r=>r.rallyPrediction?.ranking?.method==='ball_pose').length} points use pose; {rows.filter(r=>r.rallyPrediction?.ranking?.method==='ball_only').length} use ball evidence only.</p>
+     <p>Start with unmarked Julian points to test a new match, then unmarked Lester and Yu Yu Lin points. Check the suggested last bounce; you do not need to label every other bounce.</p>
+     <p>These results compare against your earlier marks, whose definitions may vary. New corrections will measure how well this works across the corpus; the ranking margin is not a calibrated accuracy score.</p>
+    </div>
+   </details>}
    {exitBlocked&&unfinishedSaves>0&&<p role="alert" className="mt-3 text-sm text-amber-200">Wait for your answers to save, or retry an unsaved answer before leaving.</p>}
    <div className="mt-4 flex flex-wrap gap-2" aria-label="Matches">
      {[['all','All matches'],...matches].map(([id,name])=><button key={id} onClick={()=>selectMatch(id)} aria-pressed={matchId===id} className={`rounded-full border px-3 py-1.5 text-sm ${matchId===id?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400 hover:border-zinc-500'}`}>{name}{id!=='all'&&<span className="ml-2 text-xs text-zinc-500">{rows.filter(r=>r.match_id===id&&savedLabel(r.label)).length}/{rows.filter(r=>r.match_id===id).length}</span>}</button>)}
@@ -203,7 +214,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
        <div className="space-y-4 rounded-xl border border-edge bg-surface-1 p-4">
          <div><h2 className="text-sm font-medium text-white">{point.source.matchName} · Point {point.source.number}</h2><p className="mt-1 text-xs text-zinc-500">Game {point.source.game} · Score before {point.source.scoreBefore.join('–')}</p></div>
          <div className="text-xs text-zinc-400"><p>Saved winner: {point.source.winner}</p>{point.source.server&&<p className="mt-1">Server: {point.source.server}</p>}<p className="mt-1">{point.source.tap===null?'No saved end tap':`Saved end tap: ${clock(point.source.tap-point.source.rawOffset)}`}</p></div>
-         {point.rallyPrediction&&<RallyPredictionReview prediction={point.rallyPrediction} label={point.label} start={start} ready={ready} onSeek={()=>{const b=point.rallyPrediction?.lastBounce;if(b){seek(b.rawTime);if(b.origin==='detected')setBounceSelection({pointId:point.id,id:b.id});}}} onConfirm={()=>{const p=pointRef.current;if(p?.rallyPrediction)change(confirmRallyBounce(p.label,p.rallyPrediction));}} onKeep={()=>change({rallyReview:{runId:point.rallyPrediction!.runId,reviewed:true}})} onCorrect={()=>{const b=point.rallyPrediction?.lastBounce;setBounceSelection({pointId:point.id,id:b?.origin==='detected'?b.id:evidence?.bounces.length?'detected:0':''});setBounceOpenRequest(n=>n+1);document.getElementById('bounce-details-toggle')?.scrollIntoView({block:'center',behavior:'smooth'});}}/>}
+         {point.rallyPrediction&&<RallyPredictionReview prediction={point.rallyPrediction} label={point.label} start={start} ready={ready} onSeek={()=>{const b=point.rallyPrediction?.lastBounce;if(b){seek(b.rawTime);if(b.origin==='detected')setBounceSelection({pointId:point.id,id:b.id});}}} onConfirm={()=>{const p=pointRef.current;if(p?.rallyPrediction)change(confirmRallyBounce(p.label,p.rallyPrediction));}} onKeep={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'kept'))} onNoBounce={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'no_live_bounce'))} onUncertain={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'uncertain'))} onCorrect={()=>{const b=point.rallyPrediction?.lastBounce;setBounceSelection({pointId:point.id,id:b?.origin==='detected'?b.id:evidence?.bounces.length?'detected:0':''});setBounceOpenRequest(n=>n+1);document.getElementById('bounce-details-toggle')?.scrollIntoView({block:'center',behavior:'smooth'});}}/>}
          <label className="block text-sm text-zinc-300" htmlFor="ending-reason">How did the point end?</label>
          <select id="ending-reason" className={`${field} ${pending.includes('reason')?'border-amber-400/50 text-amber-100':''}`} value={customSelected?`custom:${point.label.custom}`:shown?.reason??''} onChange={e=>{const value=e.target.value;if(!value&&point.suggestion&&suggestionState(point.label,point.suggestion,'reason')==='pending'){confirm(['reason'],true);return;}if(value.startsWith('custom:'))change({reason:'custom',custom:value.slice(7)});else change({reason:(value||null) as EndingLabel['reason'],custom:''});}}>
            <option value="">Choose a reason</option>

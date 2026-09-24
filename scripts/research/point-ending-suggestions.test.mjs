@@ -63,7 +63,7 @@ test('new trajectory review confirms only its last bounce and preserves human an
  const previousFetch=globalThis.fetch;
  const source={matchName:'Test match',slug:'test',number:1,game:1,scoreBefore:[0,0],winner:'Near',server:'Near',start:0,end:20,tap:18,fps:30,rawOffset:0,sourceHash:'test',imported:false};
  const legacy={version:1,runId:'contact-review-20260922-v1',reason:{value:null,confidence:'uncertain',detail:''},lastRallyContact:{value:null,confidence:'uncertain',detail:''},lastBounce:{value:null,confidence:'uncertain',detail:''},events:[{id:'detected:0',kind:'floor',side:null,confidence:'tentative',detail:'Old floor suggestion'}]};
- const rallyPrediction={version:1,runId:'rally-review-20260923-v1',lastBounce:{id:'detected:0',rawTime:5,side:'far',origin:'detected',agreement:.6},winner:{side:'near',score:.85,threshold:.8},baselineWinner:null};
+ const rallyPrediction={version:2,ranking:{method:'ball_pose',margin:.3,poseCoverage:.8,candidateCount:2,reason:'available'},runId:'pose-last-bounce-20260924-v1',lastBounce:{id:'detected:0',rawTime:5,side:'far',origin:'detected',agreement:.6},winner:{side:'near',score:.85,threshold:.8},baselineWinner:null};
  const rows=[{id:'p0',match_id:'m0',sequence:0,revision:0,source,label:{reason:null,custom:'',note:'preserve me'},rallyPrediction,suggestion:legacy},{id:'p1',match_id:'m0',sequence:1,revision:0,source:{...source,number:2},label:{reason:'net',custom:'',note:'human',bounceReview:{version:1,events:[],lastBounce:'detected:1'}},rallyPrediction}];
  const sent=[];
  globalThis.fetch=async(url,init)=>{
@@ -74,9 +74,9 @@ test('new trajectory review confirms only its last bounce and preserves human an
  const root=createRoot(document.getElementById('root'));const button=t=>[...document.querySelectorAll('button')].find(b=>b.textContent===t);
  try{
   await act(async()=>root.render(React.createElement(PointEndingReview,{initialRows:structuredClone(rows),initialCustom:[]})));
-  assert.equal(sent.length,0);assert.match(document.body.textContent,/85.0 \/ 100/);
+  assert.equal(sent.length,0);assert.match(document.body.textContent,/85.0 \/ 100/);assert.match(document.body.textContent,/Ball path \+ body pose/);assert.match(document.body.textContent,/Ranking margin: 0.30/);
   await act(async()=>button('Confirm last bounce').click());
-  assert.equal(sent.at(-1).label.bounceReview.lastBounce,'detected:0');assert.equal(sent.at(-1).label.reason,null);assert.equal(sent.at(-1).label.note,'preserve me');assert.equal(sent.at(-1).label.rallyReview.runId,'rally-review-20260923-v1');
+  assert.equal(sent.at(-1).label.bounceReview.lastBounce,'detected:0');assert.equal(sent.at(-1).label.reason,null);assert.equal(sent.at(-1).label.note,'preserve me');assert.equal(sent.at(-1).label.rallyReview.runId,'pose-last-bounce-20260924-v1');
   await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Bounce details')).click());
   const bounceSelect=[...document.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.value==='detected:0'));
   await act(async()=>{bounceSelect.value='detected:0';bounceSelect.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
@@ -84,5 +84,9 @@ test('new trajectory review confirms only its last bounce and preserves human an
   await act(async()=>button('Next point to review').click());assert.match(document.querySelector('h2').textContent,/Point 2/);assert.equal(button('Confirm last bounce'),undefined);
   await act(async()=>button('Keep my last-bounce mark').click());assert.equal(sent.at(-1).label.bounceReview.lastBounce,'detected:1');assert.equal(sent.at(-1).label.reason,'net');assert.equal(sent.at(-1).label.note,'human');
   await act(async()=>button('Previous point').click());assert.match(document.body.textContent,/Confirmed suggestion/);
+  await act(async()=>button('Clear my mark: no live table bounce').click());assert.equal(sent.at(-1).label.bounceReview.lastBounce,null);assert.equal(sent.at(-1).label.rallyReview.outcome,'no_live_bounce');assert.equal(sent.at(-1).label.note,'preserve me');assert.match(document.body.textContent,/Reviewed: no live table bounce/);
+  await act(async()=>button('Cannot tell from this footage').click());assert.equal(sent.at(-1).label.rallyReview.outcome,'uncertain');assert.match(document.body.textContent,/Reviewed: cannot tell/);
+  await act(async()=>button('No live table bounce occurred').click());assert.equal(sent.at(-1).label.rallyReview.outcome,'no_live_bounce');
+
  }finally{await act(async()=>root.unmount());dom.window.close();Object.assign(globalThis,old);globalThis.fetch=previousFetch;}
 });

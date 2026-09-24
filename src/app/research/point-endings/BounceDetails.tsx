@@ -1,4 +1,5 @@
 'use client';
+import {LastBounceGuide} from './LastBounceGuide';
 
 import {useEffect,useState} from 'react';
 import {displayLabel,suggestionState,type EndingSuggestion} from '@/lib/research/endingSuggestions';
@@ -83,8 +84,9 @@ export function BounceDetails({openRequest=0,value,suggestion,suggestionReview,o
     {kind==='non_playing'&&<p className="text-xs text-zinc-400">Earlier label. Choose a more specific event type when you can identify what happened.</p>}
     <label className={`flex min-h-11 items-center gap-3 text-sm ${isRallyBounce(kind)?'text-zinc-300':'text-zinc-500'}`}>
      <input type="checkbox" className="h-5 w-5 shrink-0 accent-cyan-400" checked={displayed.lastBounce===selected} disabled={!isRallyBounce(kind)} onChange={e=>{if(!e.target.checked&&lastState==='pending'){onReviewSuggestion?.(['lastBounce'],true);return;}onChange({...review,lastBounce:e.target.checked?selected:null});}}/>
-     Last bounce of the rally
+     Last playable table bounce
     </label>
+    <LastBounceGuide/>
     {suggestion?.lastBounce.value===selected&&<SuggestionHint state={lastState} detail={suggestion.lastBounce.detail} onConfirm={()=>onReviewSuggestion?.(['lastBounce'])}/>}
     {!isRallyBounce(kind)&&<p className="text-xs text-zinc-500">Only a serve or rally table bounce can be the last rally bounce.</p>}
     {review.lastBounce&&<p className="text-xs text-cyan-100">Last rally bounce: {bounceName(review.lastBounce,review,start)}</p>}
