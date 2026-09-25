@@ -150,6 +150,23 @@ func runScoredCardsChecks() {
     check(game1?.gate.scored == 10 && game1?.pointLength.considered == 1, "a game filter narrows the cards but never the gate")
 
     runHandCutPointLengthChecks()
+    runAnalysisToolRowChecks()
+}
+
+/// The Tools row for the analysis section, by the web's rule (MatchView:
+/// `scored || placementMappedPoints > 0`). QA 2026-09-25: a hand-cut
+/// practice match had the row and an empty section under it.
+private func runAnalysisToolRowChecks() {
+    check(AnalysisToolRow.shown(scoredType: true, mappedPoints: 0), "a match that keeps a score has the row")
+    check(!AnalysisToolRow.shown(scoredType: false, mappedPoints: 0),
+          "a practice with nothing mapped has no row, whatever the analysis status")
+    check(AnalysisToolRow.shown(scoredType: false, mappedPoints: 4), "a practice with mapped points has it")
+    eq(AnalysisToolRow.unscoredTrailing(mappedPoints: 4), "4 points mapped", "and says how many, as the web does")
+    let unplaced = (0..<5).compactMap { decodePoint(pointJSON(id: uuid(700 + $0), winner: nil)) }
+    eq(mappedPointCount(unplaced, userSide: "near", gameIndexByPoint: [:], serving: [:], servesOnly: true), 0,
+       "points with no placement map nothing")
+    eq(mappedPointCount(unplaced, userSide: nil, gameIndexByPoint: [:], serving: [:], servesOnly: false), 0,
+       "and nothing is mapped without an end")
 }
 
 /// Hand cuts (cut_source = "manual"): the owner's marks are the point. The

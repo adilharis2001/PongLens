@@ -10,6 +10,8 @@ func runCutAgainChecks() {
     print("\n— cut again: More options, the choice, the refusals —")
     runRecutOptionsDecodeChecks()
     runMoreOptionsPlanChecks()
+    runSameMarksChecks()
+    runCutWayChecks()
     runRecutChoiceChecks()
     runRecutRefusalChecks()
     runProcessChargeChecks()
@@ -68,12 +70,64 @@ private func runMoreOptionsPlanChecks() {
                             handCutEnabled: true, jobRunning: false),
        MoreOptionsPlan(), "not ready: no rows and no line")
 
-    eq(MoreOptionsPlan.markingTrailing(markedCount: 12, draftOpen: true), "12 marked",
-       "an unsent draft trails its count")
-    eq(MoreOptionsPlan.markingTrailing(markedCount: 12, draftOpen: false), nil,
-       "a submitted draft is the live cut, not a draft")
-    eq(MoreOptionsPlan.markingTrailing(markedCount: 0, draftOpen: true), nil,
-       "an empty draft trails nothing")
+    func trailing(_ n: Int, submitted: Bool = false, prefilled: Bool = false) -> String? {
+        MoreOptionsPlan.markingTrailing(draftCount: MoreOptionsPlan.draftCount(
+            markedCount: n, submitted: submitted, prefilled: prefilled))
+    }
+    eq(trailing(12), "12 marked", "an unsent draft trails its count")
+    eq(trailing(12, submitted: true), nil, "a submitted draft is the live cut, not a draft")
+    eq(trailing(0), nil, "an empty draft trails nothing")
+    // QA 2026-09-25, match 5e432cde: opening the marker and closing it
+    // again read "3 marked" and "Keep marking".
+    eq(trailing(3, prefilled: true), nil,
+       "a prefilled draft is the live cut's points, not marks the player made")
+    eq(MoreOptionsPlan.draftCount(markedCount: 3, submitted: false, prefilled: true), 0,
+       "so the button reads Start marking")
+    eq(MoreOptionsPlan.draftCount(markedCount: 4, submitted: false, prefilled: false), 4,
+       "once a mark changes, the draft is the player's")
+}
+
+/// HandCut.sameMarks is the database's _marks_signature (20260925133555):
+/// what decides that a prefilled draft has become the player's own.
+private func runSameMarksChecks() {
+    func mark(_ id: String, _ t0: Double, _ t1: Double?, _ w: Winner? = nil, isLet: Bool = false,
+              starred: Bool = false) -> HandCutMark {
+        HandCutMark(id: id, t0: t0, t1: t1, winner: w, isLet: isLet, starred: starred,
+                    tap: t0 + 0.6, rate: 1)
+    }
+    let base = [mark("a", 10, 14, .user), mark("b", 20, 25), mark("c", 30, 33, isLet: true)]
+    check(HandCut.sameMarks(base, base), "the same marks are the same")
+    check(HandCut.sameMarks(base, [mark("x", 10.001, 14.004, .user), mark("y", 20, 25),
+                                   mark("z", 30, 33, isLet: true)]),
+          "ids and a thousandth of a second do not count")
+    check(HandCut.sameMarks(base, [base[2], base[0], base[1]]), "order is start order")
+    check(HandCut.sameMarks(base, [mark("a", 10, 14, .user, starred: true), base[1], base[2]]),
+          "a star is not a change to the cut")
+    check(!HandCut.sameMarks(base, [mark("a", 10, 14, .opponent), base[1], base[2]]),
+          "a changed answer is a change")
+    check(!HandCut.sameMarks(base, [mark("a", 10, 14.5, .user), base[1], base[2]]),
+          "a moved end is a change")
+    check(!HandCut.sameMarks(base, [base[0], base[1]]), "a removed point is a change")
+    check(!HandCut.sameMarks(base, base + [mark("d", 40, nil)]), "an open rally is a change")
+    check(!HandCut.sameMarks(base, [base[0], base[1], mark("c", 30, 33)]), "an unskipped let is a change")
+}
+
+/// QA 2026-09-25: both rows open at once put two cyan primaries on screen.
+private func runCutWayChecks() {
+    var ways = CutWayAccordion()
+    eq(ways.open, nil, "both rows start closed")
+    ways.toggle(.automatic)
+    eq(ways.open, .automatic, "a tap opens a row")
+    ways.toggle(.byHand)
+    eq(ways.open, .byHand, "opening the other row closes the first")
+    check(!ways.isOpen(.automatic), "so only one is ever open")
+    ways.toggle(.byHand)
+    eq(ways.open, nil, "a second tap closes it")
+    ways.set(.automatic, open: true)
+    ways.set(.byHand, open: false)
+    eq(ways.open, .automatic, "closing a row that is not open leaves the other alone")
+    ways.set(.byHand, open: true)
+    eq(ways.open, .byHand, "setting one open closes the other")
 }
 
 private func runRecutChoiceChecks() {
@@ -260,7 +314,8 @@ private func runMarkerCopyChecks() {
 /// The portrait pad fills its height in every state.
 private func runPortraitPadChecks() {
     let gap = MarkPortraitPad.gap, pad = MarkPortraitPad.padding, row = MarkPortraitPad.rowH
-    for height in [320.0, 398.0, 451.0] {
+    // 620 is a Pro Max's pad, where the old 320 ceiling left a band.
+    for height in [320.0, 398.0, 451.0, 620.0] {
         // The pass, as the marker has always split it.
         let scoring = MarkPortraitPad.pass(height: height, refusal: false, answers: true)
         let used = 2 * pad + scoring.pair + gap + scoring.answers + gap + row + gap + row
@@ -283,9 +338,9 @@ private func runPortraitPadChecks() {
         near(again.secondary, min(MarkPortraitPad.secondaryMax, scoring.answers),
              "the gate's secondary takes the answers' share at \(height)")
 
-        // One button takes both shares, up to its ceiling.
+        // One button takes both shares, all the way down to the footer.
         let one = MarkPortraitPad.gate(height: height, refusal: false, buttons: 1, startAgain: false)
-        near(one.primary, min(MarkPortraitPad.singleMax, height - 2 * pad - row - gap),
+        near(one.primary, height - 2 * pad - row - gap,
              "a single gate button fills the pad at \(height)")
     }
     let refused = MarkPortraitPad.gate(height: 398, refusal: true, buttons: 1, startAgain: false)

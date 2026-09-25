@@ -777,10 +777,12 @@ struct MatchDetailScreen: View {
     /// Mark the points yourself: this match's draft, and whether the
     /// account may hand cut at all.
     @State private var handCut = HandCutDraftStore()
-    /// "Automatically" is open inside Break it into points.
-    @State private var autoOpen = false
-    /// "Mark the points yourself" is open beside it, the same way.
-    @State private var markOpen = false
+    /// Which of "Automatically" and "Mark the points yourself" is open
+    /// inside Break it into points: one at a time, so there is one cyan
+    /// primary on the card.
+    @State private var ways = CutWayAccordion()
+    private var autoOpen: Bool { ways.isOpen(.automatic) }
+    private var markOpen: Bool { ways.isOpen(.byHand) }
     /// The Score switch on that row, once the player has flipped it. Nil
     /// means untouched: the marker opens as the draft (or its default) says.
     @State private var markModeChoice: HandCutMode?
@@ -986,12 +988,21 @@ struct MatchDetailScreen: View {
         return result
     }
 
-    /// The aggregate exists once placement ran or any point carries data.
-    /// A coach sees it too (Adil, 2026-09-02): the maps are what a share
-    /// link shows, and generation still lives in the owner's Tools.
-    private var showPlacementAggregate: Bool {
-        current.placementStatus == "ready"
-            || model.visible.contains { $0.placement != nil }
+    /// Points the maps can draw, for the Tools row of a match that keeps no
+    /// score (the web's placementMappedPoints).
+    private var mappedPoints: Int {
+        mappedPointCount(
+            model.visible, userSide: current.userSide, gameIndexByPoint: gameIndexByPoint,
+            serving: serving, servesOnly: app.placementServesOnly
+        )
+    }
+
+    /// A Tools row's jump to a section, landing its heading just below the
+    /// floating title bar whether or not the bar is showing yet.
+    private func scrollToSection(_ id: String, proxy: ScrollViewProxy) {
+        withAnimation {
+            proxy.scrollTo(scrolledPastHeader ? id : FloatingBar.underBarId(id), anchor: .top)
+        }
     }
 
     /// First visible point of each game, for the checkpoint chips.
@@ -1095,13 +1106,13 @@ struct MatchDetailScreen: View {
                                         }
                                     },
                                     onScrollToNotes: {
-                                        withAnimation { proxy.scrollTo("overall-notes", anchor: .top) }
+                                        scrollToSection("overall-notes", proxy: proxy)
                                     },
                                     onScrollToAnalysis: {
-                                        withAnimation { proxy.scrollTo("match-analysis", anchor: .top) }
+                                        scrollToSection("match-analysis", proxy: proxy)
                                     },
                                     onScrollToPlacement: {
-                                        withAnimation { proxy.scrollTo("match-analysis", anchor: .top) }
+                                        scrollToSection("match-analysis", proxy: proxy)
                                     },
                                     onRowChanged: {
                                         // The Tools rows render from this
@@ -1114,7 +1125,8 @@ struct MatchDetailScreen: View {
                                         }
                                     },
                                     sampleViewer: sampleViewer,
-                                    moreOptions: moreOptionsHooks
+                                    moreOptions: moreOptionsHooks,
+                                    mappedPoints: mappedPoints
                                 )
                             }
                             pointsSection(proxy: proxy)
@@ -1711,7 +1723,8 @@ struct MatchDetailScreen: View {
         } else if model.jobRunning || current.status == .processing {
             MatchProcessingCard(
                 notice: processingAvailabilityNotice,
-                stageLabel: model.processingFeedback?.stageLabel,
+                stageLabel: MatchProcessingFeedback.runningLabel(
+                    model.processingFeedback, jobKind: model.job?.kind, jobStatus: model.job?.status),
                 warning: model.processingFeedback?.cameraWarning(trimStart: trimStart, trimEnd: trimEnd ?? .infinity),
                 progress: model.job?.progress,
                 // A hand cut ends in the same ready email as an automatic cut.
@@ -1746,7 +1759,7 @@ struct MatchDetailScreen: View {
                 sourceGone: sourceGone,
                 onEditDetails: { detailsOpen = true },
                 onScrollToNotes: {
-                    withAnimation { proxy.scrollTo("overall-notes", anchor: .top) }
+                    scrollToSection("overall-notes", proxy: proxy)
                 }
             )
         }
@@ -1916,7 +1929,7 @@ struct MatchDetailScreen: View {
             trailing: minutesCharge.map { "\($0) min" },
             open: autoOpen
         ) {
-            withAnimation(.easeOut(duration: 0.22)) { autoOpen.toggle() }
+            withAnimation(.easeOut(duration: 0.22)) { ways.toggle(.automatic) }
         }
     }
 
@@ -1924,14 +1937,13 @@ struct MatchDetailScreen: View {
     /// that starts marking sit under it, never a jump straight into the
     /// marker.
     private var markRow: some View {
-        let count = handCut.markedCount
-        return AccordionHeaderRow(
+        AccordionHeaderRow(
             title: "Mark the points yourself",
             detail: "You mark where each point starts and ends.",
-            trailing: count > 0 ? "\(count) marked" : nil,
+            trailing: MoreOptionsPlan.markingTrailing(draftCount: handCut.rawDraftCount),
             open: markOpen
         ) {
-            withAnimation(.easeOut(duration: 0.22)) { markOpen.toggle() }
+            withAnimation(.easeOut(duration: 0.22)) { ways.toggle(.byHand) }
         }
         .disabled(!hasOriginal)
         .opacity(hasOriginal ? 1 : 0.4)
@@ -1957,7 +1969,7 @@ struct MatchDetailScreen: View {
             practice: markPractice,
             mode: markMode,
             onMode: { markModeChoice = $0 },
-            resuming: handCut.markedCount > 0,
+            resuming: handCut.rawDraftCount > 0,
             opening: openingMarker,
             enabled: hasOriginal,
             onStart: { Task { await openMarker() } }
@@ -2157,18 +2169,15 @@ struct MatchDetailScreen: View {
 
     /// The ordinary processing card, for the cut replacing this one.
     private func recutProgress(_ cutAgain: CutAgainModel) -> some View {
-        let kind = cutAgain.feedback?.jobKind
-        return MatchProcessingCard(
-            notice: nil,
-            stageLabel: cutAgain.feedback?.stageLabel,
+        MatchProcessingCard(
+            notice: cutAgain.serviceNotice,
+            stageLabel: cutAgain.runningLabel,
             warning: nil,
             progress: cutAgain.job?.progress,
             sendsReadyEmail: true,
             estimate: cutAgain.feedback?.estimate,
-            jobStatus: cutAgain.feedback?.jobStatus,
-            serviceState: ProcessingServiceStore.shared.state(
-                for: processingServiceLane(kind: kind, clipLane: ProcessingServiceStore.shared.clipLane)
-            ).rawValue
+            jobStatus: cutAgain.feedback?.jobStatus ?? cutAgain.job?.status,
+            serviceState: cutAgain.serviceState
         )
     }
 
@@ -2264,65 +2273,63 @@ struct MatchDetailScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .plCard()
         }
-        .id("overall-notes")
+        .floatingBarScrollTarget("overall-notes")
     }
 
     // MARK: - Match analysis
 
+    /// Absent altogether, heading too, when the deck has nothing to show.
     private func analysisSection(coachView: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeading("Match analysis")
-            AnalysisCards(
-                bundle: MatchAnalysisBundle(match: current, model: model, score: score),
-                coachView: coachView,
-                neutralLabels: sampleLabels,
-                video: VideoCardsInput(
-                    match: current,
-                    points: model.visible,
-                    userSide: current.userSide,
-                    gameIndexByPoint: gameIndexByPoint,
-                    serving: serving,
-                    pad: pad,
-                    // Nobody is named on the sample: the cards and maps read
-                    // Player 1 and Player 2, the uploader's own side first.
-                    opponentLabel: sampleLabels?.them ?? (current.opponentName ?? "Them"),
-                    servesOnly: app.placementServesOnly,
-                    scoredType: tracksServe,
-                    showMaps: showPlacementAggregate,
-                    placementTrusted: current.placementStatus == "ready",
-                    onScore: isOwner && tracksServe
-                        ? {
-                            if let url = model.videoURL {
-                                playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
-                            }
+        AnalysisCards(
+            bundle: MatchAnalysisBundle(match: current, model: model, score: score),
+            coachView: coachView,
+            neutralLabels: sampleLabels,
+            video: VideoCardsInput(
+                match: current,
+                points: model.visible,
+                userSide: current.userSide,
+                gameIndexByPoint: gameIndexByPoint,
+                serving: serving,
+                pad: pad,
+                // Nobody is named on the sample: the cards and maps read
+                // Player 1 and Player 2, the uploader's own side first.
+                opponentLabel: sampleLabels?.them ?? (current.opponentName ?? "Them"),
+                servesOnly: app.placementServesOnly,
+                scoredType: tracksServe,
+                placementTrusted: current.placementStatus == "ready",
+                onScore: isOwner && tracksServe
+                    ? {
+                        if let url = model.videoURL {
+                            playerRequest = PlayerRequest(url: url, startAt: nil, mode: .score)
                         }
-                        : nil,
-                    onPlacementChanged: {
-                        Task { await refreshMatch(refreshLibrary: true) }
-                    },
-                    videoURL: model.videoURL,
-                    onOpenPoint: { point in
-                        guard let i = model.visible.firstIndex(where: { $0.id == point.id }) else { return }
-                        pointSheetIndex = i
-                        // The zone sheet is dismissing; the point sheet
-                        // presents once it is gone, as the pad does.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                            pointSheetOpen = true
-                        }
-                    },
-                    // The same write the pad's first-server sheet makes, then
-                    // the row is read again so the rotation and the card follow.
-                    onSetFirstServer: isOwner
-                        ? { value in
-                            let saved = await model.setFirstServer(matchId: current.id, value: value)
-                            if saved { await refreshMatch(refreshLibrary: true) }
-                            return saved
-                        }
-                        : nil
-                )
-            )
-        }
-        .id("match-analysis")
+                    }
+                    : nil,
+                onPlacementChanged: {
+                    Task { await refreshMatch(refreshLibrary: true) }
+                },
+                videoURL: model.videoURL,
+                onOpenPoint: { point in
+                    guard let i = model.visible.firstIndex(where: { $0.id == point.id }) else { return }
+                    pointSheetIndex = i
+                    // The zone sheet is dismissing; the point sheet
+                    // presents once it is gone, as the pad does.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        pointSheetOpen = true
+                    }
+                },
+                // The same write the pad's first-server sheet makes, then
+                // the row is read again so the rotation and the card follow.
+                onSetFirstServer: isOwner
+                    ? { value in
+                        let saved = await model.setFirstServer(matchId: current.id, value: value)
+                        if saved { await refreshMatch(refreshLibrary: true) }
+                        return saved
+                    }
+                    : nil
+            ),
+            heading: "Match analysis",
+            anchor: "match-analysis"
+        )
     }
 
     // MARK: - Points

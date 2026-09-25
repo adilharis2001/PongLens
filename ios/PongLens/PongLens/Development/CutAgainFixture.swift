@@ -12,7 +12,7 @@ import UIKit
 ///     --dev-ca-marker <state>          fresh | choice | review | scoring | marking |
 ///                                      open | held | selected | adjusting
 ///     --dev-ca-options <variant>       normal | notes | coach | auto-replace |
-///                                      processing | no-source | support
+///                                      processing | queued | no-source | support
 ///     --dev-ca-sheet                   tools: More options already open
 ///     --dev-ca-accordion <auto|mark>   tools: that row open
 ///     --dev-ca-draft                   tools: an unsent draft of 7 marks
@@ -69,7 +69,7 @@ enum CutAgainFixture {
         case "notes": RecutOptions(available: true, hasMatchNotes: true, cutSource: "automatic")
         case "coach": RecutOptions(available: true, replaceByHand: false, hasCoachReview: true, cutSource: "automatic")
         case "auto-replace": RecutOptions(available: true, replaceAutomatic: true, hasMatchNotes: true, cutSource: "automatic")
-        case "processing": RecutOptions(available: false, reason: "processing")
+        case "processing", "queued": RecutOptions(available: false, reason: "processing")
         case "no-source": RecutOptions(available: false, reason: "no_source")
         case "support": RecutOptions(available: false, reason: "support_request")
         default: RecutOptions(available: true, cutSource: "automatic")
@@ -89,12 +89,29 @@ enum CutAgainFixture {
         )
     }
 
+    /// A Replace waiting its turn: queued, no worker on it yet.
+    static var queuedFeedback: MatchProcessingFeedback {
+        let object: [String: Any] = [
+            "match_id": matchID.uuidString, "job_id": jobID.uuidString, "job_kind": "hand_cut",
+            "job_status": "queued", "worker_state": "missing", "lane": "hand",
+        ]
+        return try! JSONDecoder().decode(
+            MatchProcessingFeedback.self, from: JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
     /// Answers every call from memory. Nothing that would write succeeds.
     static func client(_ variant: String) -> CutAgainClient {
         CutAgainClient(
             options: { _ in options(variant) },
-            feedback: { _ in variant == "processing" ? runningFeedback : nil },
-            job: { _ in MatchJob(id: jobID, status: "processing", progress: 46, userMessage: nil, kind: "hand_cut") },
+            feedback: { _ in
+                variant == "processing" ? runningFeedback : variant == "queued" ? queuedFeedback : nil
+            },
+            job: { _ in
+                variant == "queued"
+                    ? MatchJob(id: jobID, status: "queued", progress: 0, userMessage: nil, kind: "hand_cut")
+                    : MatchJob(id: jobID, status: "processing", progress: 46, userMessage: nil, kind: "hand_cut")
+            },
             minutes: { 240 },
             startRecut: { _, _ in StartRecutReply(marks: nil, mode: "score", updatedAt: nil) },
             claimHandRecut: { _, _, _ in throw CutAgainServerError(message: "fixture_no_writes") },
@@ -285,13 +302,14 @@ struct CutAgainFixtureView: View {
                             // What the match page shows above Tools while a
                             // Replace runs (MatchDetailScreen.recutProgress).
                             MatchProcessingCard(
-                                notice: nil,
-                                stageLabel: cutAgain.feedback?.stageLabel,
+                                notice: cutAgain.serviceNotice,
+                                stageLabel: cutAgain.runningLabel,
                                 warning: nil,
                                 progress: cutAgain.job?.progress,
                                 sendsReadyEmail: true,
                                 estimate: cutAgain.feedback?.estimate,
-                                jobStatus: cutAgain.feedback?.jobStatus
+                                jobStatus: cutAgain.feedback?.jobStatus ?? cutAgain.job?.status,
+                                serviceState: cutAgain.serviceState
                             )
                         }
                     }

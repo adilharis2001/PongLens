@@ -283,4 +283,29 @@ func runProcessingFeedbackChecks() {
         """)
         eq(taken?.stageLabel, Optional("Waiting to prepare clips"), "handed over, waiting, the same")
     }
+
+    // QA 2026-09-25: a Replace waiting its turn read "Processing" in More
+    // options while an unprocessed hand cut in the same state read
+    // "Waiting to prepare clips". Both read runningLabel now.
+    suite("a running cut reads the same on every screen") {
+        let queued = decodeProcessingFeedback("""
+        {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"queued","job_kind":"hand_cut","worker_state":"missing","lane":"hand"}
+        """)
+        eq(MatchProcessingFeedback.runningLabel(queued, jobKind: "hand_cut", jobStatus: "queued"),
+           Optional("Waiting to prepare clips"), "a queued re-cut waits in the hand cut's words")
+        let stale = decodeProcessingFeedback("""
+        {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"done","job_kind":"hand_cut"}
+        """)
+        eq(MatchProcessingFeedback.runningLabel(stale, jobKind: "hand_cut", jobStatus: "queued"),
+           Optional("Waiting to prepare clips"), "feedback still on the last job: the claimed job's words")
+        eq(MatchProcessingFeedback.runningLabel(nil, jobKind: "deadspace_cut", jobStatus: "queued"),
+           Optional("Waiting to process"), "an automatic cut waits in its own words")
+        eq(MatchProcessingFeedback.runningLabel(nil, jobKind: "hand_cut", jobStatus: "processing"),
+           nil, "a running job with no feedback leaves the card's own word")
+        let cutting = decodeProcessingFeedback("""
+        {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"processing","job_kind":"hand_cut","worker_state":"fresh","stage":"cut","lane":"hand"}
+        """)
+        eq(MatchProcessingFeedback.runningLabel(cutting, jobKind: "hand_cut", jobStatus: "queued"),
+           Optional("Cutting the video"), "live feedback wins over a job row read earlier")
+    }
 }

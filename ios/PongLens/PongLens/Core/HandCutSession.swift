@@ -67,9 +67,22 @@ final class HandCutDraftStore {
     /// The server's row was handed to a cut (`submitted_at` set): its marks
     /// are the cut that is live, not a draft waiting to be sent.
     private(set) var isSubmitted = false
-    /// Marks still waiting to be sent, for "{N} marked" on a processed
-    /// match, where a submitted draft is the live cut.
-    var openDraftCount: Int { isSubmitted ? 0 : markedCount }
+    /// The draft is still the live cut's points exactly as start_recut
+    /// wrote them for the marker to open on (`prefilled`, 20260925133555).
+    /// The marker still opens on them; nothing counts them as marked. The
+    /// server clears the flag once a save really changes the marks, and so
+    /// does the phone the moment a mark changes, before that save lands.
+    private(set) var prefilled = false
+    /// Marks still waiting to be sent, for "{N} marked" and "Keep marking"
+    /// on a processed match, where a submitted draft is the live cut.
+    var openDraftCount: Int {
+        MoreOptionsPlan.draftCount(markedCount: markedCount, submitted: isSubmitted, prefilled: prefilled)
+    }
+    /// The same on an unprocessed match, where a failed cut's marks still
+    /// count however the row was left.
+    var rawDraftCount: Int {
+        MoreOptionsPlan.draftCount(markedCount: markedCount, submitted: false, prefilled: prefilled)
+    }
 
     /// The web's words for a conflict found mid-session.
     static let newerDraft = "Marked on another device. Reopen to see the latest."
@@ -83,19 +96,28 @@ final class HandCutDraftStore {
     @ObservationIgnored private var serverStamp: String?
     /// Local changes the server has not got.
     @ObservationIgnored private var dirty = false
+    /// The marks as prefilled, to tell a real change from none.
+    @ObservationIgnored private var prefillMarks: [HandCutMark]?
     @ObservationIgnored private var debounce: Task<Void, Never>?
     @ObservationIgnored private var saving: Task<Void, Never>?
 
     static let saveDebounce: Duration = .milliseconds(1500)
 
+    /// Every read and write selects the whole row (`*`) and decodes
+    /// `prefilled` as optional, so a schema without the column still reads
+    /// and saves, as a draft that was never prefilled.
     private nonisolated struct Row: Decodable {
         let marks: HandCutJSON?
         let mode: String?
         let updated_at: String?
         let submitted_at: String?
+        let prefilled: Bool?
     }
 
-    private nonisolated struct Stamped: Decodable { let updated_at: String }
+    private nonisolated struct Stamped: Decodable {
+        let updated_at: String
+        let prefilled: Bool?
+    }
 
     /// Read both copies and decide which one is the draft.
     func load(matchId: UUID, userId: UUID) async {
@@ -133,10 +155,11 @@ final class HandCutDraftStore {
         }
         let serverMarks = HandCut.normalizeMarks(row?.marks)
         let serverMode = row?.mode.flatMap(HandCutMode.init(rawValue:))
+        let serverPrefilled = row?.prefilled == true && row?.submitted_at == nil
         let local = HandCutMirror.read(matchId: matchId, userId: userId)
 
         guard let local, local.dirty else {
-            adopt(serverMarks, serverMode, stamp: row?.updated_at)
+            adopt(serverMarks, serverMode, stamp: row?.updated_at, prefilled: serverPrefilled)
             return
         }
         // Unsent taps. They go up only if the server still holds the draft
@@ -144,11 +167,13 @@ final class HandCutDraftStore {
         let serverSavedSince = row != nil && row?.updated_at != local.serverStamp
         if serverSavedSince {
             let lost = local.marks != serverMarks
-            adopt(serverMarks, serverMode, stamp: row?.updated_at)
+            adopt(serverMarks, serverMode, stamp: row?.updated_at, prefilled: serverPrefilled)
             if lost { notice = Self.replacedNotice }
         } else {
             marks = local.marks
             mode = local.mode
+            // Still the prefill only if the unsent change was the mode alone.
+            setPrefill(serverPrefilled && HandCut.sameMarks(local.marks, serverMarks) ? serverMarks : nil)
             // No row (never saved, or gone): the next save inserts one.
             serverStamp = row?.updated_at
             dirty = true
@@ -157,12 +182,18 @@ final class HandCutDraftStore {
         }
     }
 
-    private func adopt(_ m: [HandCutMark], _ md: HandCutMode?, stamp: String?) {
+    private func adopt(_ m: [HandCutMark], _ md: HandCutMode?, stamp: String?, prefilled pre: Bool) {
         marks = m
         mode = md
         serverStamp = stamp
+        setPrefill(pre ? m : nil)
         dirty = false
         writeMirror()
+    }
+
+    private func setPrefill(_ base: [HandCutMark]?) {
+        prefillMarks = base
+        prefilled = base != nil
     }
 
     /// Every change to the marks or the mode. The phone's copy is written
@@ -177,6 +208,9 @@ final class HandCutDraftStore {
         }
         self.marks = marks
         self.mode = mode
+        // A real change to the marks makes the draft the player's own. The
+        // server decides the same way when the save lands.
+        if let base = prefillMarks, !HandCut.sameMarks(marks, base) { setPrefill(nil) }
         dirty = true
         writeMirror()
         debounce?.cancel()
@@ -206,6 +240,7 @@ final class HandCutDraftStore {
         debounce?.cancel()
         dirty = false
         isSubmitted = true
+        setPrefill(nil)
         if let matchId { HandCutMirror.remove(matchId: matchId) }
     }
 
@@ -221,14 +256,14 @@ final class HandCutDraftStore {
                     .update(HandCutDraftUpdate(marks: sending, mode: sendingMode, updated_at: stamp))
                     .eq("match_id", value: id)
                     .eq("updated_at", value: known)
-                    .select("updated_at")
+                    .select("*")
                     .execute().value
                 // Nothing matched: saved since from elsewhere, sent, or gone.
                 guard let written = rows.first else {
                     await conflict()
                     return
                 }
-                landed(written.updated_at, sent: sending, mode: sendingMode)
+                landed(written, sent: sending, mode: sendingMode)
             } else {
                 do {
                     let written: Stamped = try await supa.from("hand_cut_drafts")
@@ -236,10 +271,10 @@ final class HandCutDraftStore {
                             match_id: id, user_id: userId.uuidString.lowercased(),
                             marks: sending, mode: sendingMode, updated_at: stamp
                         ))
-                        .select("updated_at")
+                        .select("*")
                         .single()
                         .execute().value
-                    landed(written.updated_at, sent: sending, mode: sendingMode)
+                    landed(written, sent: sending, mode: sendingMode)
                 } catch let error as PostgrestError where error.code == "23505" {
                     // The row appeared since this phone last looked.
                     await conflict()
@@ -251,10 +286,13 @@ final class HandCutDraftStore {
         }
     }
 
-    private func landed(_ stamp: String, sent: [HandCutMark], mode sentMode: HandCutMode?) {
-        serverStamp = stamp
+    private func landed(_ written: Stamped, sent: [HandCutMark], mode sentMode: HandCutMode?) {
+        serverStamp = written.updated_at
         // Taps made while the save was in the air are still unsent.
         dirty = !(marks == sent && mode == sentMode)
+        // The server's verdict on the prefill stands for what it was sent;
+        // taps made since keep the phone's own reading.
+        if !dirty { setPrefill(written.prefilled == true ? sent : nil) }
         writeMirror()
     }
 
@@ -268,7 +306,8 @@ final class HandCutDraftStore {
         if let row = try? await fetchRow(matchId) {
             adopt(HandCut.normalizeMarks(row.marks),
                   row.mode.flatMap(HandCutMode.init(rawValue:)),
-                  stamp: row.updated_at)
+                  stamp: row.updated_at,
+                  prefilled: row.prefilled == true && row.submitted_at == nil)
         } else {
             writeMirror()
         }
@@ -276,7 +315,7 @@ final class HandCutDraftStore {
 
     private func fetchRow(_ matchId: UUID) async throws -> Row? {
         let rows: [Row] = try await supa.from("hand_cut_drafts")
-            .select("marks,mode,updated_at,submitted_at")
+            .select("*")
             .eq("match_id", value: matchId.uuidString.lowercased())
             .limit(1)
             .execute().value
@@ -294,9 +333,10 @@ final class HandCutDraftStore {
     #if DEBUG
     /// Simulator fixtures only: a draft held in memory. No match is loaded,
     /// so nothing it holds can reach the server or the phone's copy.
-    func previewDraft(_ marks: [HandCutMark], mode: HandCutMode?) {
+    func previewDraft(_ marks: [HandCutMark], mode: HandCutMode?, prefilled pre: Bool = false) {
         self.marks = marks
         self.mode = mode
+        setPrefill(pre ? marks : nil)
         ready = true
         enabled = true
     }

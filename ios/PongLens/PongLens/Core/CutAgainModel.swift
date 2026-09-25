@@ -192,8 +192,16 @@ final class CutAgainModel {
     var trimEnd: Double?
     var strictness = "normal"
     var autoChoice: RecutChoiceState?
-    var autoOpen = false
-    var markOpen = false
+    /// Which of the two rows is open: at most one.
+    var ways = CutWayAccordion()
+    var autoOpen: Bool {
+        get { ways.isOpen(.automatic) }
+        set { ways.set(.automatic, open: newValue) }
+    }
+    var markOpen: Bool {
+        get { ways.isOpen(.byHand) }
+        set { ways.set(.byHand, open: newValue) }
+    }
     /// The switch on Mark the points yourself, once flipped.
     var markModeChoice: HandCutMode?
     private(set) var busy = false
@@ -213,6 +221,31 @@ final class CutAgainModel {
     var jobRunning: Bool {
         guard let feedback, feedback.jobKind != "content_check" else { return false }
         return feedback.jobStatus == "queued" || feedback.jobStatus == "processing"
+    }
+
+    /// What the running cut is doing, in the unprocessed page's words
+    /// (MatchProcessingFeedback.runningLabel).
+    var runningLabel: String? {
+        MatchProcessingFeedback.runningLabel(feedback, jobKind: job?.kind, jobStatus: job?.status)
+    }
+
+    /// The lane the running cut waits on.
+    private var lane: ProcessingServiceLane {
+        feedback?.lane.flatMap(ProcessingServiceLane.init(rawValue:))
+            ?? processingServiceLane(kind: feedback?.jobKind ?? job?.kind,
+                                     clipLane: ProcessingServiceStore.shared.clipLane)
+    }
+
+    /// That lane is paused or down: said in place of the stage, as on the
+    /// unprocessed page. None while the owner's phone is doing the cut.
+    var serviceNotice: ProcessingAvailabilityNotice? {
+        guard jobRunning, feedback?.onDevice != true else { return nil }
+        return ProcessingServiceStore.shared.notice(
+            lane: lane, context: processingContext(kind: feedback?.jobKind ?? job?.kind))
+    }
+
+    var serviceState: String {
+        ProcessingServiceStore.shared.state(for: lane).rawValue
     }
 
     func plan(handCutEnabled: Bool) -> MoreOptionsPlan {
