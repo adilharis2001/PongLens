@@ -23,10 +23,12 @@ import UIKit
 final class HandCutBenchmark {
     static let shared = HandCutBenchmark()
 
-    /// Continued processing identifiers use wildcard notation: the
-    /// Info.plist entry (BGTaskSchedulerPermittedIdentifiers) and the
-    /// registration are this prefix plus ".*"; each submission adds its
-    /// own suffix.
+    /// Continued processing identifiers use wildcard notation in the
+    /// Info.plist (BGTaskSchedulerPermittedIdentifiers holds this prefix
+    /// plus ".*"). Each submission gets its own suffix and registers that
+    /// concrete identifier just before it is submitted: registering the
+    /// wildcard itself is rejected ("not advertised in the application's
+    /// Info.plist"), measured on the iOS 26.5 simulator on 2026-09-24.
     static let taskPrefix = "com.ponglens.PongLens.handcut"
     static let taskWildcard = taskPrefix + ".*"
 
@@ -139,8 +141,9 @@ final class HandCutBenchmark {
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var backgroundSince: Date?
     @ObservationIgnored private var importProgress: Progress?
-    @ObservationIgnored private static var registrationAttempted = false
-    @ObservationIgnored private static var registered = false
+    /// Registering the same identifier twice kills the app, so each one
+    /// is registered once and never reused.
+    @ObservationIgnored private static var registeredIdentifiers: Set<String> = []
 
     var exportURL: URL { Self.exportFile }
 
@@ -265,6 +268,31 @@ final class HandCutBenchmark {
         }
     }
 
+    #if DEBUG && targetEnvironment(simulator)
+    /// Simulator QA only: take the source from a host path instead of the
+    /// picker (`--dev-cutting-source <path>`), and optionally start a run
+    /// (`--dev-cutting-foreground`, `--dev-cutting-background`), so the
+    /// screen and the encoder can be run without tapping through Photos.
+    func devAutostart() async {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "--dev-cutting-source"), args.indices.contains(i + 1),
+              source == nil, !running, !importing else { return }
+        let original = URL(fileURLWithPath: args[i + 1])
+        try? FileManager.default.createDirectory(at: Self.scratch, withIntermediateDirectories: true)
+        let copy = Self.scratch.appendingPathComponent("source-\(UUID().uuidString).\(original.pathExtension)")
+        do {
+            try FileManager.default.copyItem(at: original, to: copy)
+        } catch {
+            message = HandCutEncoder.describe(error)
+            return
+        }
+        importing = true
+        await finishImport(copy, name: original.lastPathComponent, failure: nil)
+        if args.contains("--dev-cutting-foreground") { runForeground() }
+        if args.contains("--dev-cutting-background") { await runInBackground() }
+    }
+    #endif
+
     func cancelImport() {
         importProgress?.cancel()
         importing = false
@@ -291,14 +319,15 @@ final class HandCutBenchmark {
     func runInBackground() async {
         guard !running, let source else { return }
         message = nil
-        guard registerIfNeeded() else {
+        let suffix = UUID().uuidString.prefix(8).lowercased()
+        let identifier = "\(Self.taskPrefix).bench-\(suffix)"
+        guard register(identifier) else {
             recordRefusal(source: source,
-                          error: "The task handler could not be registered: \(Self.taskWildcard) is missing from BGTaskSchedulerPermittedIdentifiers in the built Info.plist.")
+                          error: "The task handler for \(identifier) was not registered: iOS did not match it to \(Self.taskWildcard) in BGTaskSchedulerPermittedIdentifiers.")
             return
         }
-        let suffix = UUID().uuidString.prefix(8).lowercased()
         let request = BGContinuedProcessingTaskRequest(
-            identifier: "\(Self.taskPrefix).bench-\(suffix)",
+            identifier: identifier,
             title: "Cutting speed test", subtitle: "Starting")
         request.strategy = .fail
         awaitingBackgroundTask = true
@@ -310,7 +339,7 @@ final class HandCutBenchmark {
             }
         } catch {
             awaitingBackgroundTask = false
-            recordRefusal(source: source, error: HandCutEncoder.describe(error))
+            recordRefusal(source: source, error: Self.describeSubmission(error))
         }
     }
 
@@ -329,18 +358,16 @@ final class HandCutBenchmark {
         persist()
     }
 
-    /// Wildcard registration, once per process: registering the same
-    /// identifier twice kills the app.
-    private func registerIfNeeded() -> Bool {
-        if Self.registrationAttempted { return Self.registered }
-        Self.registrationAttempted = true
-        Self.registered = BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: Self.taskWildcard, using: nil
-        ) { task in
+    /// Continued processing tasks may be registered after launch, one
+    /// concrete identifier at a time.
+    private func register(_ identifier: String) -> Bool {
+        guard !Self.registeredIdentifiers.contains(identifier) else { return false }
+        let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
             let box = TaskBox(task: task)
             Task { @MainActor in HandCutBenchmark.shared.backgroundTaskStarted(box) }
         }
-        return Self.registered
+        if ok { Self.registeredIdentifiers.insert(identifier) }
+        return ok
     }
 
     private func backgroundTaskStarted(_ box: TaskBox) {
@@ -526,37 +553,47 @@ final class HandCutBenchmark {
         bgTask?.progress.completedUnitCount = Int64(progress * 1000)
     }
 
+    /// Seconds since the current run started. Always read into a local
+    /// BEFORE writing to `current`: an optional-chained write evaluates its
+    /// right-hand side inside the write, so `current?.x = elapsed` reads
+    /// `current` while it is being modified and traps (Swift exclusivity).
     private var elapsed: Double {
         current.map { Date().timeIntervalSince($0.startedAt) } ?? 0
     }
 
     private func beginOutput(id: String, label: String, media: Double) {
-        current?.outputs.append(Output(
+        let output = Output(
             id: id, label: label, mediaSeconds: media, startedAt: elapsed,
-            appStateAtStart: Self.appStateName(UIApplication.shared.applicationState)))
+            appStateAtStart: Self.appStateName(UIApplication.shared.applicationState))
+        current?.outputs.append(output)
+        // So a run the system kills mid-file still says which file it was on.
+        persist()
     }
 
     private func finishOutput(id: String, file: HandCutFileOutput) {
-        guard let i = current?.outputs.firstIndex(where: { $0.id == id }) else { return }
+        guard var run = current, let i = run.outputs.firstIndex(where: { $0.id == id }) else { return }
         let state = UIApplication.shared.applicationState
-        current?.outputs[i].finishedAt = elapsed
-        current?.outputs[i].appStateAtFinish = Self.appStateName(state)
-        current?.outputs[i].wallSeconds = file.wallSeconds
-        current?.outputs[i].bytes = file.bytes
-        current?.outputs[i].width = file.width
-        current?.outputs[i].height = file.height
-        if state == .background { current?.outputsFinishedInBackground += 1 }
+        run.outputs[i].finishedAt = Date().timeIntervalSince(run.startedAt)
+        run.outputs[i].appStateAtFinish = Self.appStateName(state)
+        run.outputs[i].wallSeconds = file.wallSeconds
+        run.outputs[i].bytes = file.bytes
+        run.outputs[i].width = file.width
+        run.outputs[i].height = file.height
+        if state == .background { run.outputsFinishedInBackground += 1 }
+        current = run
     }
 
     private func failOutput(id: String, error: String) {
-        guard let i = current?.outputs.firstIndex(where: { $0.id == id }) else { return }
-        current?.outputs[i].finishedAt = elapsed
-        current?.outputs[i].appStateAtFinish = Self.appStateName(UIApplication.shared.applicationState)
-        current?.outputs[i].error = error
+        guard var run = current, let i = run.outputs.firstIndex(where: { $0.id == id }) else { return }
+        run.outputs[i].finishedAt = Date().timeIntervalSince(run.startedAt)
+        run.outputs[i].appStateAtFinish = Self.appStateName(UIApplication.shared.applicationState)
+        run.outputs[i].error = error
+        current = run
     }
 
     private func event(_ kind: String, _ detail: String) {
-        current?.events.append(Event(at: elapsed, kind: kind, detail: detail))
+        let entry = Event(at: elapsed, kind: kind, detail: detail)
+        current?.events.append(entry)
     }
 
     // MARK: - What the phone is doing meanwhile
@@ -610,6 +647,21 @@ final class HandCutBenchmark {
     }
 
     // MARK: - Names
+
+    /// The scheduler's four refusals in words, with the raw code kept.
+    static func describeSubmission(_ error: Error) -> String {
+        let ns = error as NSError
+        guard ns.domain == BGTaskScheduler.errorDomain else { return HandCutEncoder.describe(error) }
+        let why: String
+        switch ns.code {
+        case 1: why = "Unavailable: a simulator, or Background App Refresh is off for PongLens"
+        case 2: why = "Too many pending task requests"
+        case 3: why = "Not permitted: identifier, resources, or background launches denied"
+        case 4: why = "Not eligible to run right now: the system is under load"
+        default: why = ns.localizedDescription
+        }
+        return "\(why) (BGTaskScheduler error \(ns.code))"
+    }
 
     static func thermalName(_ state: ProcessInfo.ThermalState) -> String {
         switch state {

@@ -13,7 +13,10 @@ struct HandCutBenchmarkScreen: View {
             Form {
                 header
                 sourceSection
-                if bench.source != nil { runSection }
+                if bench.source != nil {
+                    runSection
+                    if !bench.running { runButtons }
+                }
                 resultsSections
             }
             .scrollContentBackground(.hidden)
@@ -27,6 +30,9 @@ struct HandCutBenchmarkScreen: View {
             }
             .ignoresSafeArea()
         }
+        #if DEBUG && targetEnvironment(simulator)
+        .task { await bench.devAutostart() }
+        #endif
         .onDisappear {
             // The scratch copy of the source goes with the screen, unless a
             // run is still reading it.
@@ -123,24 +129,30 @@ struct HandCutBenchmarkScreen: View {
                     .buttonStyle(PLSoftDestructiveButtonStyle())
             } else if bench.awaitingBackgroundTask {
                 Text("Waiting for iOS to start the task").font(.plBody).foregroundStyle(PL.text300)
-            } else {
-                VStack(spacing: 10) {
-                    Button {
-                        bench.runForeground()
-                    } label: {
-                        Text("Run in the foreground").frame(maxWidth: .infinity, minHeight: 20)
-                    }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    Button {
-                        Task { await bench.runInBackground() }
-                    } label: {
-                        Text("Run in the background").frame(maxWidth: .infinity, minHeight: 28)
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
             }
+        }
+    }
+
+    /// Full width and stacked, like every form action on a phone; their
+    /// own clear section so the card above keeps its shape.
+    private var runButtons: some View {
+        Section {
+            VStack(spacing: 10) {
+                Button {
+                    bench.runForeground()
+                } label: {
+                    Text("Run in the foreground").frame(maxWidth: .infinity, minHeight: 20)
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                Button {
+                    Task { await bench.runInBackground() }
+                } label: {
+                    Text("Run in the background").frame(maxWidth: .infinity, minHeight: 28)
+                }
+                .buttonStyle(PLSecondaryButtonStyle())
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
         }
     }
 
