@@ -364,8 +364,11 @@ private struct CutAgainSections: View {
             recheckMinutes: { try await model.recheckMinutes() },
             onProcess: {
                 Task {
-                    let opening = await model.processAutomatically(durationS: match.durationS)
-                    if model.error == nil { close(opening) }
+                    switch await model.processAutomatically(durationS: match.durationS) {
+                    case .replacing: close(nil)
+                    case .opened(let id): close(id)
+                    case .stayed: break
+                    }
                 }
             },
             again: true,

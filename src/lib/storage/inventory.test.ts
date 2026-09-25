@@ -4,8 +4,10 @@ import { test } from "node:test";
 import {
   classifyKey,
   reelReferences,
+  retiredMediaKeys,
   summarize,
   type BucketObject,
+  type RetiredVersion,
 } from "./inventory.ts";
 
 const A = "a2e61027-2ee9-4026-a058-dc07441ee633";
@@ -119,4 +121,59 @@ test("summarize totals per account, with reels routed to their owner and the res
   );
   assert.equal(inv.totalBytes, 2078);
   assert.equal(inv.totalObjects, 9);
+});
+
+
+test("a replaced cut's files count against nobody (Cut again, 2026-09-25)", () => {
+  const OLD = "77777777-7777-4777-8777-777777777777";
+  const LIVE = "88888888-8888-4888-8888-888888888888";
+  const FAILED = "99999999-9999-4999-8999-999999999999";
+  const media = (key: string, size = 10): BucketObject => ({ bucket: "ponglens-media", key, size });
+  const objects: BucketObject[] = [
+    media(`results/${A}/oldjob.mp4`, 500),
+    media(`points/${A}/${M}/01.mp4`),
+    media(`points/${A}/${M}/match.json`),
+    media(`points/${A}/${M}/01-deadbeef.mp4`), // a phone's reclip of a live point
+    media(`points/${A}/${M}/versions/${OLD}/03.mp4`),
+    media(`points/${A}/${M}/versions/${LIVE}/01.mp4`),
+    media(`results/${A}/${M}/versions/${LIVE}.mp4`, 400),
+    media(`results/${A}/${M}/versions/${FAILED}.mp4`, 300),
+    media(`points/${A}/${M}/versions/${FAILED}/01.mp4`),
+    { bucket: "ponglens-raw", key: `${A}/${M}.mov`, size: 1000 },
+  ];
+  const versions: RetiredVersion[] = [
+    { version_id: OLD, match_id: M, user_id: A,
+      cut_path: `r2://ponglens-media/results/${A}/oldjob.mp4`, first_cut: true },
+    { version_id: FAILED, match_id: M, user_id: A,
+      cut_path: `r2://ponglens-media/results/${A}/${M}/versions/${FAILED}.mp4`, first_cut: false },
+  ];
+  const candidates = retiredMediaKeys(objects, versions);
+  assert.deepEqual(new Set(candidates), new Set([
+    `results/${A}/oldjob.mp4`,
+    `points/${A}/${M}/01.mp4`,
+    `points/${A}/${M}/match.json`,
+    `points/${A}/${M}/01-deadbeef.mp4`,
+    `points/${A}/${M}/versions/${OLD}/03.mp4`,
+    `results/${A}/${M}/versions/${FAILED}.mp4`,
+    `points/${A}/${M}/versions/${FAILED}/01.mp4`,
+  ]));
+  // Never the live cut, its folder or the original.
+  for (const key of candidates) {
+    assert.ok(!key.includes(LIVE), key);
+    assert.ok(!key.endsWith(".mov"), key);
+  }
+  // The caller takes out what is still in use (here the phone's reclip).
+  const retired = new Set(candidates.filter((k) => !k.endsWith("01-deadbeef.mp4")));
+  const inv = summarize(objects, { matchOwner: new Map(), tagOwner: new Map() }, 12, retired);
+  assert.equal(inv.retiredObjects, 6);
+  assert.equal(inv.retiredBytes, 500 + 10 + 10 + 10 + 300 + 10);
+  const owner = inv.accounts.get(A);
+  assert.ok(owner);
+  // Counted for the player: the live cut and clip, the phone's reclip, the original.
+  assert.equal(owner.bytes, 400 + 10 + 10 + 1000);
+  assert.equal(inv.totalBytes, 400 + 10 + 10 + 1000 + inv.retiredBytes);
+  // Without a retired set nothing changes.
+  const plain = summarize(objects, { matchOwner: new Map(), tagOwner: new Map() });
+  assert.equal(plain.retiredBytes, 0);
+  assert.equal(plain.accounts.get(A)?.bytes, inv.totalBytes);
 });

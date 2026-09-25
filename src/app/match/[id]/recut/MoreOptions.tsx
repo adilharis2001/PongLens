@@ -27,7 +27,8 @@
  * is live. Keep makes a new match and opens it.
  *
  * The database calls are the contract's (2026-09-25-cut-again-contract.md):
- * recut_options, start_recut, claim_hand_recut, copy_match_for_recut.
+ * recut_options, start_recut, claim_hand_recut, copy_match_for_recut, and
+ * claim_auto_recut for Replace under Automatically (phase 2).
  * Until they exist, recut_options fails, and the sheet offers only Report
  * a problem: nothing here can start a cut the database cannot take.
  *
@@ -66,6 +67,7 @@ import { userFirstServerUpdate } from "../matchStructure";
 import { useHandCutDraft } from "../useHandCutDraft";
 import { RecutChoice } from "./RecutChoice";
 import {
+  autoRecutClaimError,
   moreOptionsView,
   processErrorMessage,
   readCopiedMatchId,
@@ -197,7 +199,14 @@ export function MoreOptions({
   const running = job != null;
   const stageLabel = running ? processingStageLabel(feedback) : null;
   const serviceState = services[feedback?.lane ?? serviceLane(feedback?.job_kind ?? job?.kind)];
-  const availabilityContext = processingContext(feedback?.job_kind ?? job?.kind, true);
+  // A re-cut running here is the player's own Replace (support's never
+  // reaches this feed), and it ends in the ordinary ready email, as a
+  // processed upload does.
+  const runningKind = feedback?.job_kind ?? job?.kind;
+  const availabilityContext = processingContext(
+    runningKind === "match_reprocess" ? "deadspace_cut" : runningKind,
+    true,
+  );
   const serviceNotice = onDevice(feedback) ? null : availabilityNotice(serviceState, availabilityContext);
 
   const view = moreOptionsView({
@@ -273,8 +282,11 @@ export function MoreOptions({
     setAutoError(null);
     try {
       if (autoChoice.selected === "replace") {
-        // Phase 2 (claim_auto_recut). Greyed until recut_options says
-        // replace_automatic, so this runs only once that call exists.
+        // claim_auto_recut (phase 2): the candidate is built beside this cut
+        // and charged as /api/process charges (the same window, strictness
+        // and minutes; it always asks for the detailed analysis, as
+        // request() does). Greyed until recut_options says
+        // replace_automatic.
         const req = quote.request();
         const { data, error } = await createClient().rpc("claim_auto_recut", {
           p_match_id: match.id,
@@ -284,11 +296,17 @@ export function MoreOptions({
           p_strictness: req.strictness,
         });
         if (error) {
-          const refused = recutClaimError(error.message);
+          const refused = autoRecutClaimError(error.message);
           if (refused.code === "coach_review") {
             setAutoPick("keep");
             await loadOptions();
-          } else setAutoError(refused.text);
+          } else {
+            if (refused.code === "insufficient_minutes") quote.setMinutesShort(true);
+            setAutoError(refused.text);
+            if (refused.code !== "insufficient_minutes" && refused.code !== "queue_full") {
+              await loadOptions();
+            }
+          }
           return;
         }
         const claim = readRecutClaim(data);

@@ -227,6 +227,25 @@ private func runRecutRefusalChecks() {
     eq(CutAgainErrors.copy("no_source"), "The original video is no longer stored.", "copy: no original")
     eq(CutAgainErrors.copy("bad_state"), "Something went wrong. Try again.", "copy: anything else")
 
+    // Replace, processed automatically (claim_auto_recut, phase 2): the
+    // contract's codes, then the charge's in the raw page's words; never a
+    // hand cut's sentence. The web's autoRecutClaimError.
+    eq(CutAgainErrors.autoRecut("coach_review"), .coachReview, "auto: coach_review is not an error")
+    for code in ["support_request", "processing", "already_processing"] {
+        eq(CutAgainErrors.autoRecut(code), .message("Something is already running on this match."),
+           "auto: \(code) says something is already running")
+    }
+    eq(CutAgainErrors.autoRecut("no_source"), .message("The original video is no longer stored."),
+       "auto: no_source")
+    eq(CutAgainErrors.autoRecut("insufficient_minutes"), .message("Not enough minutes for this video."),
+       "auto: the charge's sentence for the balance")
+    eq(CutAgainErrors.autoRecut("queue_full"), .message("Your queue is full. Wait for a video to finish."),
+       "auto: the charge's sentence for the queue")
+    for other in ["", "not_enabled", "trim_too_short", "bad_state", "not_processing_yet"] {
+        eq(CutAgainErrors.autoRecut(other), .message("Something went wrong. Try again."),
+           "auto: '\(other)' reads as the raw page's generic sentence")
+    }
+
     // The raw page's claim keeps its words.
     eq(CutAgainErrors.handCut("already_processing"), "Something is already running on this match.",
        "raw hand cut: already_processing unchanged")

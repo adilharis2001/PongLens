@@ -35,6 +35,10 @@ class Cursor:
         self.connection.calls.append((normalized, params))
         if normalized.startswith("update public.jobs set status = 'processing'"):
             self.connection.row = (JOB_ID,)
+        elif normalized.startswith("select v.status"):
+            # auto_recut_status: a support job's version has an issue, so it
+            # is not a player's own Replace.
+            self.connection.row = None
         elif "from public.jobs j" in normalized:
             self.connection.row = {
                 "match_id": MATCH_ID,

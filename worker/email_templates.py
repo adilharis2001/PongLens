@@ -337,6 +337,25 @@ def hand_recut_failed_message(match_url: str) -> EmailMessage:
     )
 
 
+def auto_recut_failed_message(match_url: str) -> EmailMessage:
+    # A match the player asked to process again, replacing it, did not get
+    # its new cut. The match is exactly as it was and the minutes are back,
+    # so the email says those two things and nothing else: no reason, and
+    # never where the cut ran.
+    return EmailMessage(
+        template_id="match.auto-recut-failed", template_version=1,
+        category="match", audience="player",
+        subject="The new cut of your match didn't finish",
+        preheader="Your match hasn't changed, and your minutes are back.",
+        heading="The new cut didn't finish",
+        blocks=[
+            {"type": "paragraph", "text": "Your match hasn't changed. The minutes for the new cut are back in your balance, so you can open the match and process it again."},
+        ],
+        action={"label": "Open your match", "url": match_url},
+        reason="You received this because a match you asked to process again could not finish.",
+    )
+
+
 def export_ready_message(match_url: str) -> EmailMessage:
     return EmailMessage(
         template_id="match.export-ready", template_version=1, category="match", audience="player",
@@ -371,6 +390,7 @@ def worker_outcome_fixtures() -> list[dict[str, Any]]:
         {"id": "match.import-failed", "message": upload_failed_message("youtube", "That video is private or unavailable.")},
         {"id": "match.hand-cut-failed", "message": hand_cut_failed_message("https://www.ponglens.com/match/preview", "The original video could not be read.")},
         {"id": "match.hand-recut-failed", "message": hand_recut_failed_message("https://www.ponglens.com/match/preview")},
+        {"id": "match.auto-recut-failed", "message": auto_recut_failed_message("https://www.ponglens.com/match/preview")},
         {"id": "match.export-ready", "message": export_ready_message("https://www.ponglens.com/match/preview")},
         {"id": "ops.job-failed", "message": admin_job_failure_message("12345678-0000-0000-0000-preview", "decoder stopped at frame 91", "https://www.ponglens.com/admin/uploads/preview")},
     ]

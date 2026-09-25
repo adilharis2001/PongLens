@@ -65,8 +65,8 @@ class EmailRendererTests(unittest.TestCase):
 class WorkerOutcomeCatalogTests(unittest.TestCase):
     def test_every_outcome_fixture_has_a_unique_rendered_identity(self):
         fixtures = worker_outcome_fixtures()
-        self.assertEqual(len(fixtures), 7)
-        self.assertEqual(len({f["message"].template_id for f in fixtures}), 7)
+        self.assertEqual(len(fixtures), 8)
+        self.assertEqual(len({f["message"].template_id for f in fixtures}), 8)
         for fixture in fixtures:
             rendered = render_email(fixture["message"])
             self.assertTrue(rendered.html)

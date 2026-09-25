@@ -145,12 +145,67 @@ export interface Inventory {
   accounts: Map<string, AccountUsage>;
   platformBytes: number;
   platformObjects: number;
+  /** Files of a cut the player replaced (or a re-cut of theirs that
+   *  failed), kept 30 days for support and counted against nobody: they
+   *  stopped counting when the new cut went live (retiredMediaKeys). */
+  retiredBytes: number;
+  retiredObjects: number;
   unattributedBytes: number;
   unattributedObjects: number;
   /** A few examples, so the admin page can name the prefix at fault. */
   unattributed: UnattributedSample[];
   totalBytes: number;
   totalObjects: number;
+}
+
+/** A retired processing version, as public.retired_processing_versions
+ *  returns it. */
+export interface RetiredVersion {
+  version_id: string;
+  match_id: string;
+  user_id: string;
+  cut_path: string | null;
+  /** The match's first cut: it wrote straight into the match's folder. */
+  first_cut: boolean;
+}
+
+const MEDIA_URI = "r2://ponglens-media/";
+const VERSION_FOLDER = /^(points\/[^/]+\/[^/]+\/versions\/[^/]+\/)/;
+const MATCH_FOLDER_FILE = /^(points\/[^/]+\/[^/]+\/)[^/]+$/;
+
+/**
+ * The media keys in a listing that belong to retired versions: a cut the
+ * player replaced with a re-cut of their own, or a re-cut of theirs that
+ * failed (Cut again, 2026-09-25). That is the version's cut video, its own
+ * folder (points/<owner>/<match>/versions/<version>/), and, for a match's
+ * first cut, the files directly in the match's folder. The caller removes
+ * the keys something else still uses (public.media_keys_in_use) before
+ * treating the rest as retired. The worker's retired-version sweep
+ * deletes the same files 30 days on.
+ */
+export function retiredMediaKeys(objects: BucketObject[], versions: RetiredVersion[]): string[] {
+  const cuts = new Set<string>();
+  const folders = new Set<string>();
+  const firstCutFolders = new Set<string>();
+  for (const v of versions) {
+    if (v.cut_path?.startsWith(MEDIA_URI)) cuts.add(v.cut_path.slice(MEDIA_URI.length));
+    folders.add(`points/${v.user_id}/${v.match_id}/versions/${v.version_id}/`);
+    if (v.first_cut) firstCutFolders.add(`points/${v.user_id}/${v.match_id}/`);
+  }
+  const out: string[] = [];
+  for (const o of objects) {
+    if (o.bucket !== "ponglens-media") continue;
+    const version = o.key.match(VERSION_FOLDER);
+    const matchFile = o.key.match(MATCH_FOLDER_FILE);
+    if (
+      cuts.has(o.key) ||
+      (version && folders.has(version[1])) ||
+      (matchFile && firstCutFolders.has(matchFile[1]))
+    ) {
+      out.push(o.key);
+    }
+  }
+  return out;
 }
 
 /** Match and tag ids a listing refers to, so the caller can look up owners. */
@@ -172,11 +227,16 @@ export function summarize(
   objects: BucketObject[],
   owners: { matchOwner: Map<string, string>; tagOwner: Map<string, string> },
   sampleLimit = 12,
+  /** Media keys of retired versions no one uses (retiredMediaKeys minus
+   *  public.media_keys_in_use): counted against nobody. */
+  retired: ReadonlySet<string> = new Set(),
 ): Inventory {
   const inv: Inventory = {
     accounts: new Map(),
     platformBytes: 0,
     platformObjects: 0,
+    retiredBytes: 0,
+    retiredObjects: 0,
     unattributedBytes: 0,
     unattributedObjects: 0,
     unattributed: [],
@@ -200,6 +260,11 @@ export function summarize(
   for (const o of objects) {
     inv.totalBytes += o.size;
     inv.totalObjects += 1;
+    if (o.bucket === "ponglens-media" && retired.has(o.key)) {
+      inv.retiredBytes += o.size;
+      inv.retiredObjects += 1;
+      continue;
+    }
     const c = classifyKey(o.bucket, o.key);
     switch (c.kind) {
       case "owned":

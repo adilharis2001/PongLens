@@ -39,8 +39,16 @@ Existing `hand_cut_drafts` rules apply unchanged: insert when no row is known, c
 | Failure (Replace) | Bell "The new cut didn't finish." with "Your marks are saved." for a hand cut. The match is unchanged |
 | Never | "free", "Mac", "iPhone", "version", explanations of what automatic does to scores |
 
-## Phase 2 (not built yet)
+## Phase 2 (built 2026-09-25, not yet released)
 
-Automatic Replace will be `claim_auto_recut(p_match_id uuid, p_replace boolean, p_trim_start_s numeric, p_trim_end_s numeric, p_strictness text)` returning jsonb `{job_id, match_id}`: charged like `claim_processing`, refunded if it fails, the candidate made live when ready. It arrives with the main/fast release that gives candidates the body-first assembler; until then `recut_auto_replace` stays `off` and `replace_automatic` false.
+Automatic Replace is `claim_auto_recut(p_match_id uuid, p_replace boolean, p_trim_start_s numeric, p_trim_end_s numeric, p_strictness text)` returning jsonb `{job_id, match_id}`: charged like `claim_processing`, refunded if it fails, the candidate made live when ready. It arrives with the main/fast release that gives candidates the body-first assembler; until then `recut_auto_replace` stays `off` and `replace_automatic` false. Migration `20260925200000_cut_again_auto_replace.sql`.
+
+| Where | As built |
+| --- | --- |
+| Replace | A `match_reprocess` job (no support request, options `recut: 'replace'`) on the main lane; `match_id` = this match. `my_match_processing_feedback` names it while it runs, so both apps show the ordinary stages |
+| Keep | Also accepted (`p_replace` false): the copy plus `claim_processing` on it, `match_id` = the new match. Both apps keep using `copy_match_for_recut` + `/api/process` |
+| Refusals | `claim_hand_recut`'s (`already_processing`, `bad_state`, `support_request`, `no_source`, `duration_unknown`, `coach_review` for Replace), then the charge's (`commerce_disabled`, `invalid_input`, `trim_too_short`, `queue_full`, `insufficient_minutes`), and `not_enabled` while the switch does not allow this account. Copy: the contract's for its codes, the raw page's Process sentences for `insufficient_minutes` / `queue_full`, else "Something went wrong. Try again." |
+| Failure | Bell "The new cut didn't finish." (no second line); email "The new cut of your match didn't finish" saying the match is unchanged and the minutes are back |
+| Success | The ordinary "Match ready" bell and ready email |
 
 As built in phase 1 (database half): `docs/research/2026-09-25-cut-again/RELEASE.md`, "Contract notes for web and iOS".
