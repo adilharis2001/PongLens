@@ -172,6 +172,13 @@ struct MainTabView: View {
                 router.openMatchId = nil
                 Task { await replaceTopMatch(id, library: library, path: $path) }
             }
+            // A match page's sheet has closed and asked for a page on top
+            // of the match (Report a problem).
+            .onChange(of: router.openRoute) { _, route in
+                guard let route else { return }
+                router.openRoute = nil
+                path.append(route)
+            }
             .navigationDestination(for: CoachRosterRoute.self) { _ in
                 CoachRosterScreen()
             }
