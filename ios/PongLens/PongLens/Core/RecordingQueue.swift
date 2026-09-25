@@ -13,6 +13,13 @@ import UserNotifications
 // deleted until `complete` succeeds; a permanent failure exports the footage
 // to Photos rather than losing it.
 //
+// Behind app_config.recordings_to_photos (spec 2026-09-24, section 6), a
+// recording made in the app is also saved to Photos the moment recording
+// stops, whatever happens to the upload, and the app never deletes that
+// copy. For accounts that can hand cut, an upload that did not ask for
+// automatic processing leaves the app's own copy in LocalMatchVideos
+// instead of deleting it, so the match can be marked and cut on the phone.
+//
 // Wire protocol: exactly Uploader.swift's (create / sign-part / complete
 // with register / process), but with every part PRE-SLICED to its own file
 // and PRE-SIGNED (part URLs last six hours), so the whole transfer can be
@@ -84,6 +91,13 @@ struct QueuedRecording: Codable, Identifiable, Equatable {
     var savedToPhotos = false
     /// Recordings from one session (a 45-minute roll) share metadata edits.
     var sessionId: UUID
+    /// Made by the in-app camera, as opposed to picked from Photos. Only a
+    /// recording is saved to Photos when it stops: a picked video is
+    /// already there. Optional so manifests written before it decode.
+    var recordedInApp: Bool?
+    /// The file went to LocalMatchVideos at registration instead of being
+    /// deleted. Optional for the same reason.
+    var keptOnDevice: Bool?
 }
 
 @Observable
@@ -104,6 +118,12 @@ final class RecordingQueue: NSObject {
     private var backgroundCompletionHandler: (() -> Void)?
     @ObservationIgnored private var processingRetryTask: Task<Void, Never>?
     private var processingRequestsInFlight: Set<UUID> = []
+    /// The latest Photos save per item, so a failure's save queues behind
+    /// a recording's save instead of racing it.
+    @ObservationIgnored private var photoSaves: [UUID: Task<Bool, Never>] = [:]
+    /// Items whose file is on its way into Photos (waiting on the policy,
+    /// the permission prompt or the copy itself).
+    @ObservationIgnored private var photosSaving: Set<UUID> = []
 
     @ObservationIgnored private lazy var session: URLSession = {
         let config = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
@@ -185,7 +205,7 @@ final class RecordingQueue: NSObject {
     func enqueue(
         fileURL: URL, durationS: Double, sessionId: UUID,
         metadata: RecordingMetadata, processOn: Bool, placementOn: Bool,
-        originalName: String? = nil
+        originalName: String? = nil, recordedInApp: Bool = false
     ) {
         let id = UUID()
         let ext = fileURL.pathExtension.isEmpty ? "mov" : fileURL.pathExtension.lowercased()
@@ -207,9 +227,11 @@ final class RecordingQueue: NSObject {
         item.metadata = metadata
         item.processOn = processOn
         item.placementOn = placementOn
+        item.recordedInApp = recordedInApp
         item.partCount = Int((bytes + Self.partSize - 1) / Self.partSize)
         items.insert(item, at: 0)
         persist()
+        if recordedInApp { saveRecordingToPhotosIfEnabled(id) }
         Task { await prepare(id) }
     }
 
@@ -551,7 +573,11 @@ final class RecordingQueue: NSObject {
         // Unlike best-effort upload progress, this write MUST succeed before
         // making a spending request or deleting the local upload copy.
         try JSONEncoder().encode(items).write(to: manifestURL, options: .atomic)
-        cleanup(id, keepOriginal: false)
+        // A recording on its way into Photos reads its own hard link (see
+        // photosLink), so moving or deleting the queue's file here cannot
+        // take the player's Photos copy with it.
+        let kept = await keepWorkingCopy(id, matchID: matchID, owner: owner)
+        cleanup(id, keepOriginal: kept)
         NotificationCenter.default.post(name: .plUploadRegistered, object: nil)
         await sendProcessingRequest(id)
         if let current = items.first(where: { $0.id == id }) {
@@ -636,6 +662,33 @@ final class RecordingQueue: NSObject {
         }
     }
 
+    /// Hand-cut accounts keep the file when the upload did not ask for
+    /// automatic processing: it moves to LocalMatchVideos, indexed by the
+    /// match it became. Everyone else, and any failure here, falls back to
+    /// today's delete.
+    private func keepWorkingCopy(_ id: UUID, matchID: UUID, owner: UUID) async -> Bool {
+        guard let item = items.first(where: { $0.id == id }) else { return false }
+        let policy = DeviceVideoPolicy.shared
+        await policy.resolve()
+        guard policy.userId == owner,
+              DeviceVideoGate.keepsWorkingCopy(handCut: policy.handCut, processingRequested: item.processOn)
+        else { return false }
+        let capturedAt = Date(timeIntervalSince1970: Double(item.capturedAtMs) / 1000)
+        let parts = MatchTitle.parts(
+            opponentName: item.metadata.opponent, venue: item.metadata.venue,
+            playedAt: ISO8601DateFormatter().string(from: capturedAt),
+            matchType: item.metadata.matchType)
+        do {
+            try LocalMatchVideos.shared.adopt(
+                file: fileURL(item), matchId: matchID, ownerId: owner,
+                title: parts.primary, detail: parts.secondary)
+            update(id) { $0.keptOnDevice = true }
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func cleanup(_ id: UUID, keepOriginal: Bool) {
         guard let item = items.first(where: { $0.id == id }) else { return }
         try? FileManager.default.removeItem(at: partsDirectory(id))
@@ -661,20 +714,136 @@ final class RecordingQueue: NSObject {
         Task { await prepare(id) }
     }
 
+    /// Copy the item's file into Photos (add-only permission): the failure
+    /// parachute, whose footage stays in the queue for Retry. Once per
+    /// item; a refused permission is the end of it.
     func exportToPhotos(_ id: UUID) {
-        guard let item = items.first(where: { $0.id == id }),
-              !item.savedToPhotos else { return }
+        guard let item = items.first(where: { $0.id == id }) else { return }
         let url = fileURL(item)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] status in
-            guard status == .authorized || status == .limited else { return }
-            PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
-            } completionHandler: { success, _ in
-                Task { @MainActor in
-                    if success { self?.update(id) { $0.savedToPhotos = true } }
-                }
+        let previous = photoSaves[id]
+        photosSaving.insert(id)
+        photoSaves[id] = Task { [weak self] () -> Bool in
+            // Behind a recording's own save, so the two never both copy.
+            if let previous, await previous.value { return true }
+            guard let self else { return false }
+            let ok = await self.saveFileToPhotos(id, url: url)
+            self.photosSaving.remove(id)
+            return ok
+        }
+    }
+
+    /// Did any file of this session reach Photos, or is one on its way?
+    /// The discard prompts say what survives a discard, and a copy in
+    /// Photos does.
+    func sessionSavedToPhotos(_ sessionId: UUID) -> Bool {
+        items.contains { $0.sessionId == sessionId && ($0.savedToPhotos || photosSaving.contains($0.id)) }
+    }
+
+    /// Recording stopped: save it to Photos when this account is inside
+    /// app_config.recordings_to_photos, decided per recording (from the
+    /// last answer the server gave when there is no signal).
+    ///
+    /// The save reads a hard link to the recording, not the queue's own
+    /// name for it. The upload moves that file (to LocalMatchVideos) or
+    /// deletes it at registration, a discard deletes it at once, and the
+    /// first save waits on a permission prompt the player may not answer
+    /// for a while; none of those can reach the link. A link costs no
+    /// space and goes as soon as the save has finished or been refused.
+    private func saveRecordingToPhotosIfEnabled(_ id: UUID) {
+        guard let item = items.first(where: { $0.id == id }) else { return }
+        let original = fileURL(item)
+        let link = Self.photosLink(for: original, id: id)
+        photosSaving.insert(id)
+        photoSaves[id] = Task { [weak self] () -> Bool in
+            let policy = DeviceVideoPolicy.shared
+            await policy.resolve()
+            var ok = false
+            if policy.recordingsToPhotos, let self {
+                ok = await self.saveFileToPhotos(id, url: link ?? original)
             }
+            if let link { try? FileManager.default.removeItem(at: link) }
+            self?.photosSaving.remove(id)
+            return ok
+        }
+    }
+
+    /// Where pending Photos saves keep their hard links. Outside the
+    /// recordings folder, so the launch sweep never adopts one as a new
+    /// recording.
+    private static var photosPendingDirectory: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PhotosPending", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// nil when the link cannot be made; the save then reads the original
+    /// and is best effort against a fast upload.
+    private static func photosLink(for original: URL, id: UUID) -> URL? {
+        let ext = original.pathExtension.isEmpty ? "mov" : original.pathExtension
+        let link = photosPendingDirectory.appendingPathComponent("\(id.uuidString).\(ext)")
+        try? FileManager.default.removeItem(at: link)
+        do {
+            try FileManager.default.linkItem(at: original, to: link)
+            return link
+        } catch {
+            return nil
+        }
+    }
+
+    /// A save the app died in the middle of: finish it (the player's
+    /// answer still stands) and drop the link either way. Waits briefly
+    /// for the stored session, because the policy is per account; with no
+    /// account the links wait for the next launch, up to a week.
+    private func resumePendingPhotosSaves() {
+        let dir = Self.photosPendingDirectory
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
+            .filter { !$0.hasPrefix(".") }
+        guard !names.isEmpty else { return }
+        Task { [weak self] in
+            for _ in 0..<20 where supa.auth.currentUser == nil {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            guard supa.auth.currentUser != nil else {
+                for name in names {
+                    let link = dir.appendingPathComponent(name)
+                    let made = (try? FileManager.default.attributesOfItem(atPath: link.path)[.creationDate] as? Date) ?? Date()
+                    if Date().timeIntervalSince(made) > 7 * 86_400 { try? FileManager.default.removeItem(at: link) }
+                }
+                return
+            }
+            let policy = DeviceVideoPolicy.shared
+            await policy.resolve()
+            for name in names {
+                let link = dir.appendingPathComponent(name)
+                let id = UUID(uuidString: (name as NSString).deletingPathExtension)
+                if policy.recordingsToPhotos, let self {
+                    _ = await self.saveFileToPhotos(id, url: link)
+                }
+                try? FileManager.default.removeItem(at: link)
+            }
+        }
+    }
+
+    private func saveFileToPhotos(_ id: UUID?, url: URL) async -> Bool {
+        if let id, items.first(where: { $0.id == id })?.savedToPhotos == true { return true }
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else { return false }
+        do {
+            try await Self.addVideoToPhotos(url)
+            if let id { update(id) { $0.savedToPhotos = true } }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Nonisolated so the change block is not inferred onto the main
+    /// actor: Photos runs it on its own queue.
+    nonisolated private static func addVideoToPhotos(_ url: URL) async throws {
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
         }
     }
 
@@ -713,6 +882,8 @@ final class RecordingQueue: NSObject {
                     )
                 }
             }
+            // A Photos save in flight reads its own hard link, so the
+            // copy in Photos, which is the player's, outlives a discard.
             cleanup(item.id, keepOriginal: false)
         }
         items.removeAll { $0.sessionId == sessionId && $0.state != .done }
@@ -731,6 +902,7 @@ final class RecordingQueue: NSObject {
     /// landed), and re-enqueue only the gaps.
     private func recover() async {
         resumeProcessingRequests()
+        resumePendingPhotosSaves()
         let tasks = await session.allTasks
         let live = Set(tasks.compactMap(\.taskDescription))
         for item in items {
@@ -808,8 +980,13 @@ final class RecordingQueue: NSObject {
             let settings = RecordSettings.load()
             item.processOn = settings.processAfterUpload
             item.placementOn = true
+            // The camera writes live-* and merged-* files; a match-* file
+            // had already entered the queue once (picked or recorded, no
+            // way to tell), so it is not copied into Photos a second time.
+            item.recordedInApp = !file.hasPrefix("match-")
             items.append(item)
             persist()
+            if item.recordedInApp == true { saveRecordingToPhotosIfEnabled(item.id) }
             await prepare(item.id)
         }
     }

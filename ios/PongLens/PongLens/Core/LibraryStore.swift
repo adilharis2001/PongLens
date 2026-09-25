@@ -77,10 +77,14 @@ final class LibraryStore {
             let matchId: String
         }
         struct Res: Decodable { let ok: Bool? }
-        let _: Res? = try? await API.post(
+        let res: Res? = try? await API.post(
             "api/delete-match",
             Req(action: "delete", matchId: match.id.uuidString.lowercased())
         )
+        // The copy this phone kept for marking goes with the match, but only
+        // once the server has said the match is gone. A refused delete
+        // brings the card back, and it should come back with its video.
+        if res?.ok == true { LocalMatchVideos.shared.remove(matchId: match.id) }
         await load()
     }
 
@@ -115,6 +119,9 @@ final class LibraryStore {
                 .execute()
                 .value
             if let handCuts { failedHandCuts = JobRow.failedHandCutMatchIds(handCuts) }
+            // A kept video whose match was cut, processed or deleted
+            // elsewhere goes now. No query at all without kept videos.
+            Task { await LocalMatchVideos.shared.reconcile() }
             struct FeedbackRequest: Encodable { let p_match_ids: [UUID] }
             let ownMatches = supa.auth.currentUser.map { user in m.filter { $0.userId == user.id } } ?? []
             let feedback: [MatchProcessingFeedback]? = try? await supa

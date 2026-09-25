@@ -28,6 +28,18 @@
 		<string>instagram-stories</string>
 		<string>instagram-reels</string>
 	</array>
+	<!--
+	  Hand cut on iPhone (spec 2026-09-24): continued processing tasks, so
+	  a cut the player started keeps encoding with the app in the
+	  background. Wildcard notation, as BGContinuedProcessingTaskRequest
+	  requires: the bundle id, a context, then ".*"; each submission adds
+	  its own suffix. Must match HandCutBenchmark.taskWildcard. An array,
+	  so it lives here and not in an INFOPLIST_KEY_* build setting.
+	-->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.ponglens.PongLens.handcut.*</string>
+	</array>
 	<!-- Must match AppConfig.metaAppID. -->
 	<key>FacebookAppID</key>
 	<string>1012434688493595</string>

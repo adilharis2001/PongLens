@@ -114,6 +114,8 @@ struct AccountScreen: View {
                         coachingSection
                     }
 
+                    thisIPhoneSection
+
                     if store.commerceEnabled && app.workspace != .coach {
                         minutesSection
                         storageSection
@@ -357,6 +359,29 @@ struct AccountScreen: View {
             .tint(PL.cyan.opacity(0.6))
         }
         .padding(16)
+    }
+
+    /// Hand cut on iPhone (spec 2026-09-24): the videos this phone kept for
+    /// marking, for accounts that can hand cut (or that still have one
+    /// kept from before the gate closed), and the admin's cutting speed
+    /// test. Nobody else sees the group.
+    @ViewBuilder
+    private var thisIPhoneSection: some View {
+        let keptVideos = DeviceVideoPolicy.shared.handCut
+            || !LocalMatchVideos.shared.entries(owner: app.userId).isEmpty
+        if keptVideos || app.isAdmin {
+            group("This iPhone") {
+                if keptVideos {
+                    linkRow("Videos on this iPhone", value: "device-videos")
+                }
+                if keptVideos && app.isAdmin {
+                    rowDivider
+                }
+                if app.isAdmin {
+                    linkRow("Cutting speed test", value: "cutting-speed-test")
+                }
+            }
+        }
     }
 
     /// The two sides of the account, in one place on both sides, right
