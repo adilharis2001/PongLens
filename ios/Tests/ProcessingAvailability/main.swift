@@ -47,6 +47,20 @@ private func check(_ value: @autoclosure () -> Bool, _ label: String) {
     check(primarySummary.exitMessage == "We’ll email you when your match is ready.", "healthy primary retains email promise")
     let terminalSummary = summarizeProcessingWork(mixedStatus, work: [ProcessingWork(kind: "deadspace_cut", status: "done", videoSaved: true)], now: now)
     check(terminalSummary.notice == nil && terminalSummary.continuingCount == 0 && !terminalSummary.exitMessage.contains("email"), "terminal primary cannot claim queued or promise another email")
+    var handDown = availableStatus
+    handDown.hand = .unavailable
+    let phone = summarizeProcessingWork(handDown, work: [
+        ProcessingWork(kind: "hand_cut", status: "processing", videoSaved: true, onDevice: true)
+    ], now: now)
+    check(phone.blockedCount == 0 && phone.notice == nil, "no Mac lane blocks a cut on the iPhone")
+    check(phone.continuingLabel == "Cutting on your iPhone" && phone.exitMessage == "We’ll email you when your match is ready.", "a cut on the iPhone names the phone and keeps the ready email")
+    let handedToMac = summarizeProcessingWork(handDown, work: [ProcessingWork(kind: "hand_cut", status: "queued", videoSaved: true)], now: now)
+    check(handedToMac.blockedCount == 1, "the same cut on the Mac is blocked by the hand lane")
+    let handStore = ProcessingServiceStore(fetch: { handDown }, now: { now }, waitForExpiry: { try await Task.sleep(for: .seconds(30)) })
+    await handStore.refresh()
+    check(handStore.matchNotice(matchStatus: "uploaded", jobKind: "hand_cut", jobStatus: "processing", lane: "hand", onDevice: true) == nil, "the match notice never blames the Mac for a cut on the iPhone")
+    check(handStore.matchNotice(matchStatus: "uploaded", jobKind: "hand_cut", jobStatus: "queued", lane: "hand") != nil, "a hand cut on the Mac still gets the hand lane's notice")
+    handStore.stop()
     check(processingServiceLane(kind: "hand_cut", clipLane: .fast) == .hand, "hand cut avoids main")
     check(processingServiceLane(kind: "reclip", clipLane: .main) == .main, "reclip follows returned main")
     check(processingServiceLane(kind: "reel", clipLane: .fast, scope: "v:point:1") == .fast, "vertical reel follows clip lane")

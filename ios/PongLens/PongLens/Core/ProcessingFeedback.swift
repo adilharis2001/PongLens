@@ -15,13 +15,26 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     let windowEndS: Double?
     let cameraCheck: CameraCheck?
     var estimate: ProcessingEstimate? = nil
+    /// A hand cut the owner's iPhone cut or is cutting (20260925160000):
+    /// phase "device" while the phone works, "verify" once the Mac checks
+    /// it, "mac" when the Mac took it over. Nil on every other job.
+    var cutter: String? = nil
+    var phase: String? = nil
+    /// The phone's own stage, and when it last reported (its claim when it
+    /// never has), while phase is "device".
+    var deviceStage: String? = nil
+    var deviceSeenAtString: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case matchId = "match_id", jobId = "job_id", jobStatus = "job_status"
         case jobKind = "job_kind", stage, workerState = "worker_state", serviceState = "service_state", lane
         case checkedAtString = "checked_at", windowStartS = "window_start_s"
         case windowEndS = "window_end_s", cameraCheck = "camera_check", estimate
+        case cutter, phase, deviceStage = "device_stage", deviceSeenAtString = "device_seen_at"
     }
+
+    /// The owner's iPhone is cutting this match; no Mac lane is involved yet.
+    var onDevice: Bool { jobKind == "hand_cut" && phase == "device" }
 
     struct CameraCheck: Decodable, Hashable {
         let statusString: String
@@ -42,9 +55,15 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     var stageLabel: String? {
         guard jobKind != "content_check" else { return nil }
         guard jobStatus == "queued" || jobStatus == "processing" else { return nil }
+        // The phone is doing the work, so the Mac's lanes and pulses say
+        // nothing about it: its own stage is the whole answer.
+        if onDevice { return Self.deviceStageLabel(deviceStage) }
         if workerState == "silent" { return "Processing is delayed" }
         let handCut = jobKind == "hand_cut"
-        if jobStatus == "queued" { return handCut ? "Waiting to prepare clips" : "Waiting to process" }
+        if jobStatus == "queued" {
+            if !handCut { return "Waiting to process" }
+            return phase == "verify" ? "Waiting to check the cut" : "Waiting to prepare clips"
+        }
         guard workerState == "fresh" else { return nil }
         if handCut { return Self.handCutStageLabel(stage) }
         switch stage {
@@ -67,12 +86,23 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     static func handCutStageLabel(_ stage: String?) -> String {
         switch stage {
         case "marks": return "Reading the marks"
+        case "device_verify": return "Checking the cut"
         case "download": return "Preparing video"
         case "cut": return "Cutting the video"
         case "upload": return "Uploading the result"
         case "points": return "Building the points"
         case "publish": return "Saving the match"
         default: return "Preparing clips"
+        }
+    }
+
+    /// What the player reads while the phone works on the cut. The web's
+    /// deviceStageLabel in src/lib/deviceHandCut.ts.
+    static func deviceStageLabel(_ stage: String?) -> String {
+        switch stage {
+        case "device_upload": return "Uploading from your iPhone"
+        case "device_paused": return "Paused on your iPhone"
+        default: return "Cutting on your iPhone"
         }
     }
 
@@ -108,5 +138,9 @@ extension MatchProcessingFeedback {
         cameraCheck = try values.decodeIfPresent(CameraCheck.self, forKey: .cameraCheck)
         // Advisory timing must not discard established processing or camera feedback.
         estimate = try? values.decodeIfPresent(ProcessingEstimate.self, forKey: .estimate)
+        cutter = try? values.decodeIfPresent(String.self, forKey: .cutter)
+        phase = try? values.decodeIfPresent(String.self, forKey: .phase)
+        deviceStage = try? values.decodeIfPresent(String.self, forKey: .deviceStage)
+        deviceSeenAtString = try? values.decodeIfPresent(String.self, forKey: .deviceSeenAtString)
     }
 }

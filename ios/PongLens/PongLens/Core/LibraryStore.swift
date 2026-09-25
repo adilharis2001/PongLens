@@ -29,7 +29,8 @@ final class LibraryStore {
             jobKind: feedback?.jobKind ?? live?.kind,
             jobStatus: feedback?.jobStatus ?? live?.status,
             lane: feedback?.lane,
-            videoSaved: match.rawPath != nil
+            videoSaved: match.rawPath != nil,
+            onDevice: feedback?.onDevice ?? false
         )
     }
 

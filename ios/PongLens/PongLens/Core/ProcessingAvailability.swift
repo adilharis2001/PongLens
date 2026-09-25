@@ -59,6 +59,9 @@ struct ProcessingWork {
     var videoSaved: Bool
     var lane: ProcessingServiceLane? = nil
     var stageLabel: String? = nil
+    /// A hand cut the owner's iPhone is cutting. No Mac lane is involved
+    /// until the phone hands it over, so no lane's outage blocks it.
+    var onDevice: Bool = false
 }
 
 struct ProcessingWorkSummary {
@@ -75,7 +78,7 @@ func summarizeProcessingWork(_ services: ProcessingServiceStatus, work: [Process
     var continuing: [ProcessingWork] = []
     for job in work where job.status == "queued" || job.status == "processing" {
         let state = services.state(for: job.lane ?? processingServiceLane(kind: job.kind, clipLane: services.clipLane), now: now)
-        if state == .unavailable || state == .maintenance { blocked.append(job) }
+        if !job.onDevice && (state == .unavailable || state == .maintenance) { blocked.append(job) }
         else { continuing.append(job) }
     }
     let queued = !continuing.isEmpty && continuing.allSatisfy { $0.status == "queued" }
@@ -83,7 +86,7 @@ func summarizeProcessingWork(_ services: ProcessingServiceStatus, work: [Process
     if continuing.count == 1, let first = continuing.first {
         if let stage = first.stageLabel { label = stage }
         else if first.kind == "youtube_import" { label = queued ? "Waiting to import video" : "Importing video" }
-        else if first.kind == "hand_cut" { label = queued ? "Waiting to prepare clips" : "Preparing clips" }
+        else if first.kind == "hand_cut" { label = first.onDevice ? "Cutting on your iPhone" : queued ? "Waiting to prepare clips" : "Preparing clips" }
         else { label = queued ? "Waiting to process" : "Your match is processing" }
     } else { label = "\(continuing.count) videos are \(queued ? "waiting to process" : "processing")" }
     // A hand cut ends in the same ready email as an automatic cut.

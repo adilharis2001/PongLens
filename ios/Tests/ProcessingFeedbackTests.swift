@@ -243,4 +243,31 @@ func runProcessingFeedbackChecks() {
         eq(changed?.cameraWarning(trimStart: .nan, trimEnd: 20), nil, "NaN selected start is invalid")
         check(!(changed?.cameraWarning(trimStart: 10, trimEnd: 20) ?? "").contains("12"), "warning does not expose detection timestamps")
     }
+
+    suite("a hand cut on the owner's iPhone says what the phone is doing") {
+        func phone(_ extra: String) -> MatchProcessingFeedback? {
+            decodeProcessingFeedback("""
+            {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"processing","job_kind":"hand_cut","worker_state":"missing","service_state":"unavailable","cutter":"device","phase":"device"\(extra)}
+            """)
+        }
+        eq(phone(",\"device_stage\":\"device_cut\"")?.stageLabel, Optional("Cutting on your iPhone"), "cutting")
+        eq(phone(",\"device_stage\":\"device_clips\"")?.stageLabel, Optional("Cutting on your iPhone"), "clips")
+        eq(phone(",\"device_stage\":\"device_upload\"")?.stageLabel, Optional("Uploading from your iPhone"), "uploading")
+        eq(phone(",\"device_stage\":\"device_paused\"")?.stageLabel, Optional("Paused on your iPhone"), "paused")
+        eq(phone("")?.stageLabel, Optional("Cutting on your iPhone"), "no stage yet")
+        eq(phone(",\"device_seen_at\":\"2026-09-25T10:00:00+00:00\"")?.deviceSeenAtString,
+           Optional("2026-09-25T10:00:00+00:00"), "last report crosses the boundary")
+        check(phone("")?.onDevice == true, "a phone job is on the device")
+
+        let verifying = decodeProcessingFeedback("""
+        {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"queued","job_kind":"hand_cut","worker_state":"missing","cutter":"device","phase":"verify"}
+        """)
+        eq(verifying?.stageLabel, Optional("Waiting to check the cut"), "submitted, waiting for the Mac")
+        check(verifying?.onDevice == false, "a submitted job is the Mac's")
+        let checking = decodeProcessingFeedback("""
+        {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"processing","job_kind":"hand_cut","worker_state":"fresh","stage":"device_verify","cutter":"device","phase":"verify"}
+        """)
+        eq(checking?.stageLabel, Optional("Checking the cut"), "the Mac checking the cut")
+
+    }
 }

@@ -1725,7 +1725,8 @@ struct MatchDetailScreen: View {
             jobKind: model.processingFeedback?.jobKind ?? model.job?.kind,
             jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
             lane: model.processingFeedback?.lane,
-            videoSaved: current.rawPath != nil
+            videoSaved: current.rawPath != nil,
+            onDevice: model.processingFeedback?.onDevice ?? false
         )
     }
 
