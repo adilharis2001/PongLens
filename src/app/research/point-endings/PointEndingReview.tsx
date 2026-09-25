@@ -13,6 +13,10 @@ import {EndingSaveQueue} from '@/lib/research/endingSaveQueue';
 import type {EndingEvidence} from '@/lib/research/endingEvidence';
 import {BallEvidence} from './BallEvidence';
 import {BounceDetails} from './BounceDetails';
+import {CutReview} from './CutReview';
+import {OvernightResults} from './OvernightResults';
+import {cutReviewComplete} from '@/lib/research/cutReview';
+import {CUT_REVIEW_POINTS} from '@/lib/research/cutReviewStudy';
 import {PlaybackTimeline} from './PlaybackTimeline';
 
 const field='w-full min-h-11 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus:border-cyan-glow focus:outline-none';
@@ -20,12 +24,12 @@ const secondary='min-h-11 w-full rounded-lg border border-edge px-3 py-2 text-sm
 const mediaButton='min-h-11 rounded-lg border border-edge px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 disabled:opacity-40';
 type SaveStatus={state:'saving'|'saved'|'error'|'draft';message?:string};
 
-export function PointEndingReview({initialRows,initialCustom}:{initialRows:EndingRow[];initialCustom:string[]}) {
+export function PointEndingReview({initialRows,initialCustom,initialCutReview=false}:{initialRows:EndingRow[];initialCustom:string[];initialCutReview?:boolean}) {
  const [rows,setRows]=useState(()=>initialRows.map(r=>({...r,suggestion:withoutLegacyLastBounce(r.suggestion,r.rallyPrediction)})));
  const rowsRef=useRef(rows);rowsRef.current=rows;
- const [selected,setSelected]=useState(()=>initialRows.find(r=>rallyPending(r.label,r.rallyPrediction)&&!r.label.bounceReview?.lastBounce)?.id??initialRows.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)?.id??nextUnlabeled(initialRows)?.id??initialRows[0]?.id??'');
+ const [selected,setSelected]=useState(()=>(initialCutReview?(initialRows.find(r=>CUT_REVIEW_POINTS.has(r.id)&&!cutReviewComplete(r.label.cutReview))??initialRows.find(r=>CUT_REVIEW_POINTS.has(r.id)))?.id:undefined)??initialRows.find(r=>rallyPending(r.label,r.rallyPrediction)&&!r.label.bounceReview?.lastBounce)?.id??initialRows.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)?.id??nextUnlabeled(initialRows)?.id??initialRows[0]?.id??'');
  const [matchId,setMatchId]=useState('all');
- const [filter,setFilter]=useState<'all'|'unlabeled'|'labeled'|'suggested'|'rally'>('all');
+ const [filter,setFilter]=useState<'all'|'unlabeled'|'labeled'|'suggested'|'rally'|'cuts'>(initialCutReview?'cuts':'all');
  const [statuses,setStatuses]=useState<Record<string,SaveStatus>>({});
  const [exitBlocked,setExitBlocked]=useState(false);
  const writers=useRef(new Map<string,EndingSaveQueue>());
@@ -53,7 +57,9 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
  const evidence=evidenceResult?.id===point?.id?evidenceResult?.data??null:null;
  const matches=useMemo(()=>Array.from(new Map(rows.map(r=>[r.match_id,r.source.matchName])).entries()),[rows]);
  const matchRows=rows.filter(r=>matchId==='all'||r.match_id===matchId);
- const visible=matchRows.filter(r=>filter==='all'||(filter==='rally'?rallyPending(r.label,r.rallyPrediction):filter==='suggested'?pendingSuggestionKeys(r.label,r.suggestion).length>0:(filter==='labeled')===savedLabel(r.label)));
+ const navigationRows=filter==='cuts'?matchRows.filter(r=>CUT_REVIEW_POINTS.has(r.id)):matchRows;
+ const cutRemaining=rows.filter(r=>CUT_REVIEW_POINTS.has(r.id)&&!cutReviewComplete(r.label.cutReview)).length;
+ const visible=matchRows.filter(r=>filter==='all'||(filter==='cuts'?CUT_REVIEW_POINTS.has(r.id):filter==='rally'?rallyPending(r.label,r.rallyPrediction):filter==='suggested'?pendingSuggestionKeys(r.label,r.suggestion).length>0:(filter==='labeled')===savedLabel(r.label)));
  const suggestedPoints=rows.filter(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0).length;
  const pending=point?pendingSuggestionKeys(point.label,point.suggestion):[];
  const shown=point?displayLabel(point.label,point.suggestion):undefined;
@@ -134,15 +140,16 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
 
  function seek(at:number){const v=video.current;if(!v||!point)return;v.pause();v.currentTime=Math.min(point.source.end,Math.max(point.source.start,at));}
  function seekEnding(){const p=pointRef.current;const v=video.current;if(!p||!v)return;v.pause();v.currentTime=Math.max(p.source.start,(p.source.tap??p.source.end)-4);}
- useEffect(()=>{if(video.current?.readyState){seekEnding();setReady(true);}
+ function seekInitial(){if(filter==='cuts')seek(point.source.start);else seekEnding();}
+ useEffect(()=>{if(video.current?.readyState){seekInitial();setReady(true);}
  // eslint-disable-next-line react-hooks/exhaustive-deps
- },[selected,url]);
+ },[selected,url,filter]);
  useEffect(()=>{if(video.current)video.current.playbackRate=rate;},[rate,url]);
  useEffect(()=>{const v=video.current;return()=>{v?.pause();};},[url]);
- function play(){const v=video.current;if(!v||!point)return;if(!v.paused){v.pause();return;}if(v.currentTime>=point.source.end-0.05||v.currentTime<point.source.start)seekEnding();v.playbackRate=rate;void v.play().catch(()=>setMediaError('Video could not play. Reload the video to try again.'));}
+ function play(){const v=video.current;if(!v||!point)return;if(!v.paused){v.pause();return;}if(v.currentTime>=point.source.end-0.05||v.currentTime<point.source.start)seekInitial();v.playbackRate=rate;void v.play().catch(()=>setMediaError('Video could not play. Reload the video to try again.'));}
  function confirm(keys?:string[],dismiss=false){const p=pointRef.current;if(p?.suggestion)change(confirmSuggestions(p.label,p.suggestion,keys,dismiss));}
- function next(){const index=matchRows.findIndex(r=>r.id===selected);const ordered=[...matchRows.slice(index+1),...matchRows.slice(0,index)];const p=ordered.find(r=>rallyPending(r.label,r.rallyPrediction))??ordered.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
- function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>id==='all'||r.match_id===id);setSelected((list.find(r=>rallyPending(r.label,r.rallyPrediction))??list.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(list)??list[0])?.id??'');}
+ function next(){if(filter==='cuts'){const index=navigationRows.findIndex(r=>r.id===selected);const next=[...navigationRows.slice(index+1),...navigationRows.slice(0,index)].find(r=>!cutReviewComplete(r.label.cutReview));if(next)setSelected(next.id);return;}const index=matchRows.findIndex(r=>r.id===selected);const ordered=[...matchRows.slice(index+1),...matchRows.slice(0,index)];const p=ordered.find(r=>rallyPending(r.label,r.rallyPrediction))??ordered.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
+ function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>(id==='all'||r.match_id===id)&&(filter!=='cuts'||CUT_REVIEW_POINTS.has(r.id)));setSelected((filter==='cuts'?(list.find(r=>!cutReviewComplete(r.label.cutReview))??list[0]):(list.find(r=>rallyPending(r.label,r.rallyPrediction))??list.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(list)??list[0]))?.id??'');}
  function retryVideo(){if(point)cache.current.delete(point.match_id);setMediaRetry(n=>n+1);}
 
  if(!point)return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8"><h1 className="text-2xl font-semibold">Point-ending labels</h1><p className="mt-3 text-zinc-400">The study points have not been loaded yet.</p></main>;
@@ -158,28 +165,18 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
      {suggestedPoints>0&&<span className="text-amber-200">{suggestedPoints} with suggestions to review</span>}
      <span className={unfinishedSaves?'text-amber-200':'text-zinc-500'}>{unfinishedSaves?`${unfinishedSaves} answer${unfinishedSaves===1?'':'s'} not yet saved`:'All answers saved'}</span>
    </div>
-   {rows.some(r=>r.rallyPrediction?.version===2)&&<details className="mt-3 text-sm text-zinc-400">
-    <summary className="min-h-11 cursor-pointer py-3">Experiment results</summary>
-    <div className="max-w-2xl space-y-3 pb-3">
-     <table className="w-full text-left text-xs sm:text-sm"><caption className="pb-2 text-left">Agreement with 50 existing last-bounce marks; each recording excluded from its model’s training</caption><thead><tr><th className="py-2 pr-3 font-medium">Match</th><th className="py-2 pr-3 font-medium">Ball path</th><th className="py-2 font-medium">Ball + pose</th></tr></thead><tbody>
-      {[['Lester','8 / 18','11 / 18'],['Prabhas','8 / 17','10 / 17'],['Yu Yu Lin','12 / 15','11 / 15'],['Total','28 / 50','32 / 50']].map(r=><tr key={r[0]} className="border-t border-edge">{r.map((v,i)=><td key={i} className="py-2 pr-3 tabular-nums">{v}</td>)}</tr>)}
-     </tbody></table>
-     <p>{rows.filter(r=>r.rallyPrediction?.ranking?.method==='ball_pose').length} points use pose; {rows.filter(r=>r.rallyPrediction?.ranking?.method==='ball_only').length} use ball evidence only.</p>
-     <p>Start with unmarked Julian points to test a new match, then unmarked Lester and Yu Yu Lin points. Check the suggested last bounce; you do not need to label every other bounce.</p>
-     <p>These results compare against your earlier marks, whose definitions may vary. New corrections will measure how well this works across the corpus; the ranking margin is not a calibrated accuracy score.</p>
-    </div>
-   </details>}
+   <OvernightResults/>
    {exitBlocked&&unfinishedSaves>0&&<p role="alert" className="mt-3 text-sm text-amber-200">Wait for your answers to save, or retry an unsaved answer before leaving.</p>}
    <div className="mt-4 flex flex-wrap gap-2" aria-label="Matches">
      {[['all','All matches'],...matches].map(([id,name])=><button key={id} onClick={()=>selectMatch(id)} aria-pressed={matchId===id} className={`rounded-full border px-3 py-1.5 text-sm ${matchId===id?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400 hover:border-zinc-500'}`}>{name}{id!=='all'&&<span className="ml-2 text-xs text-zinc-500">{rows.filter(r=>r.match_id===id&&savedLabel(r.label)).length}/{rows.filter(r=>r.match_id===id).length}</span>}</button>)}
    </div>
    <div className="mt-3 flex flex-wrap gap-2">
-     {(['all','rally','suggested','unlabeled','labeled'] as const).map(f=><button key={f} onClick={()=>setFilter(f)} aria-pressed={filter===f} className={`rounded-full border px-3 py-1 text-sm ${filter===f?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400'}`}>{f==='all'?'All points':f==='rally'?'Last bounce to review':f==='suggested'?'Suggestions to review':f==='unlabeled'?'Unlabeled':'Labeled'}</button>)}
+     {(['all','cuts','rally','suggested','unlabeled','labeled'] as const).map(f=><button key={f} onClick={()=>{setFilter(f);if(f==='cuts'){setMatchId('all');const first=rows.find(r=>CUT_REVIEW_POINTS.has(r.id)&&!cutReviewComplete(r.label.cutReview))??rows.find(r=>CUT_REVIEW_POINTS.has(r.id));if(first)setSelected(first.id);}}} aria-pressed={filter===f} className={`rounded-full border px-3 py-1 text-sm ${filter===f?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400'}`}>{f==='all'?'All points':f==='cuts'?`Cuts to review · ${cutRemaining}`:f==='rally'?'Last bounce to review':f==='suggested'?'Suggestions to review':f==='unlabeled'?'Unlabeled':'Labeled'}</button>)}
    </div>
    <div ref={review} className="mt-4 scroll-mt-4 flex flex-col gap-6 lg:flex-row">
      <div className="min-w-0 flex-1">
        <div className="relative aspect-video overflow-hidden rounded-xl border border-edge bg-black">
-         {url&&<video ref={video} src={url} playsInline preload="metadata" className="absolute inset-0 h-full w-full" onLoadedMetadata={()=>{seekEnding();setReady(true);if(video.current)video.current.playbackRate=rate;}} onTimeUpdate={e=>{const v=e.currentTarget;if(v.currentTime>=end&&!v.paused)v.pause();}} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onError={()=>setMediaError('Could not play this video. Reload it to try again.')} />}
+         {url&&<video ref={video} src={url} playsInline preload="metadata" className="absolute inset-0 h-full w-full" onLoadedMetadata={()=>{seekInitial();setReady(true);if(video.current)video.current.playbackRate=rate;}} onTimeUpdate={e=>{const v=e.currentTarget;if(v.currentTime>=end&&!v.paused)v.pause();}} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onError={()=>setMediaError('Could not play this video. Reload it to try again.')} />}
          {url&&<BallEvidence key={url} video={video} evidence={evidence} trail={showTrail} bounces={showBounces} review={point.label.bounceReview}/>}
          {!ready&&!mediaError&&<div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">Loading video…</div>}
        </div>
@@ -209,6 +206,7 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          <button className={secondary} disabled={!ready} onClick={()=>{seek(start);void video.current?.play();}}>Play whole point</button>
          {point.source.tap!==null&&<button className={secondary} disabled={!ready} onClick={()=>seek(point.source.tap!)}>Go to saved tap</button>}
        </div>
+       <CutReview key={`cut:${point.id}`} value={point.label.cutReview} initialOpen={filter==='cuts'} start={start} end={end} ready={ready} currentTime={()=>video.current?.currentTime??start} onSeek={seek} onChange={cutReview=>change({cutReview})}/>
        <BounceDetails key={point.id} openRequest={bounceOpenRequest} value={point.label.bounceReview} suggestion={point.suggestion} suggestionReview={point.label.suggestionReview} onReviewSuggestion={confirm} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>setBounceSelection({pointId:point.id,id})} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??start}/>
      </div>
      <div className="w-full shrink-0 lg:w-[340px]">
@@ -249,15 +247,15 @@ export function PointEndingReview({initialRows,initialCustom}:{initialRows:Endin
          <div role="status" className={`text-xs ${selectedStatus?.state==='error'?'text-rose-300':selectedStatus?.state==='draft'?'text-amber-200':'text-zinc-400'}`}>{selectedStatus?.state==='saving'?'Saving…':selectedStatus?.state==='error'?selectedStatus.message:selectedStatus?.state==='draft'?selectedStatus.message:selectedStatus?.state==='saved'?'Saved':point.source.imported?'Carried over from your earlier review':savedLabel(point.label)?'Saved':'Not labeled yet'}</div>
          {selectedStatus?.state==='error'&&<button className={secondary} onClick={()=>writers.current.get(point.id)?.retry()}>Retry save</button>}
          {pending.length>0&&<div><button type="button" className="min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-medium text-black" onClick={()=>confirm()}>Confirm this point’s suggestions</button></div>}
-         <button className={pending.length?secondary:"min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40"} disabled={!matchRows.some(r=>r.id!==selected&&(rallyPending(r.label,r.rallyPrediction)||pendingSuggestionKeys(r.label,r.suggestion).length>0))&&!nextUnlabeled(matchRows,selected)} onClick={next}>{suggestedPoints||point.rallyPrediction?'Next point to review':'Next unlabeled point'}</button>
-         <button className={secondary} disabled={matchRows.findIndex(r=>r.id===selected)<=0} onClick={()=>{const i=matchRows.findIndex(r=>r.id===selected);if(i>0)setSelected(matchRows[i-1].id);}}>Previous point</button>
+         <button className={pending.length?secondary:"min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40"} disabled={filter==='cuts'?!navigationRows.some(r=>r.id!==selected&&!cutReviewComplete(r.label.cutReview)):!matchRows.some(r=>r.id!==selected&&(rallyPending(r.label,r.rallyPrediction)||pendingSuggestionKeys(r.label,r.suggestion).length>0))&&!nextUnlabeled(matchRows,selected)} onClick={next}>{filter==='cuts'?'Next cut to review':suggestedPoints||point.rallyPrediction?'Next point to review':'Next unlabeled point'}</button>
+         <button className={secondary} disabled={navigationRows.findIndex(r=>r.id===selected)<=0} onClick={()=>{const i=navigationRows.findIndex(r=>r.id===selected);if(i>0)setSelected(navigationRows[i-1].id);}}>Previous point</button>
        </div>
      </div>
    </div>
    <details className="mt-5 text-xs text-zinc-500"><summary className="cursor-pointer">About the saved references</summary><p className="mt-2">Scores, servers and taps come from the study’s saved Scorekeeper record. A tap is a timing reference, not an exact physical ending. These labels do not change match scores.</p>{evidence&&<p className="mt-2">{evidence.lineage}</p>}</details>
    <div className="mt-6 border-t border-edge pt-4"><h2 className="text-sm font-medium text-zinc-300">{visible.length} points in this view</h2>
      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-       {visible.map(r=><button key={r.id} aria-current={selected===r.id?'true':undefined} onClick={()=>{setSelected(r.id);review.current?.scrollIntoView({behavior:'smooth',block:'start'});}} className={`min-h-14 rounded-lg border px-3 py-2 text-left ${selected===r.id?'border-cyan-glow/60 bg-cyan-500/10':'border-edge hover:border-zinc-500'}`}><span className="block text-sm text-zinc-200">{r.source.matchName} · {r.source.number}</span><span className={`mt-1 block text-xs ${statuses[r.id]?.state==='error'?'text-rose-300':savedLabel(r.label)?'text-cyan-100':'text-zinc-500'}`}>{statuses[r.id]?.state==='error'?'Not saved':`${r.suggestion&&suggestionState(r.label,r.suggestion,'reason')==='pending'?'Suggested: ':''}${reasonText(displayLabel(r.label,r.suggestion))}`}{pendingSuggestionKeys(r.label,r.suggestion).length>0&&<span className="ml-2 text-amber-200">Review suggestions</span>}</span></button>)}
+       {visible.map(r=><button key={r.id} aria-current={selected===r.id?'true':undefined} onClick={()=>{setSelected(r.id);review.current?.scrollIntoView({behavior:'smooth',block:'start'});}} className={`min-h-14 rounded-lg border px-3 py-2 text-left ${selected===r.id?'border-cyan-glow/60 bg-cyan-500/10':'border-edge hover:border-zinc-500'}`}><span className="block text-sm text-zinc-200">{r.source.matchName} · {r.source.number}</span><span className={`mt-1 block text-xs ${statuses[r.id]?.state==='error'?'text-rose-300':savedLabel(r.label)?'text-cyan-100':'text-zinc-500'}`}>{statuses[r.id]?.state==='error'?'Not saved':filter==='cuts'?(cutReviewComplete(r.label.cutReview)?'Cut timing reviewed':'Cut timing to review'):`${r.suggestion&&suggestionState(r.label,r.suggestion,'reason')==='pending'?'Suggested: ':''}${reasonText(displayLabel(r.label,r.suggestion))}`}{pendingSuggestionKeys(r.label,r.suggestion).length>0&&<span className="ml-2 text-amber-200">Review suggestions</span>}</span></button>)}
      </div>
    </div>
  </main>;

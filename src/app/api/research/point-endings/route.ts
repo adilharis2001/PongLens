@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { validEndingLabel, normalizeEndingLabel, sameEndingLabel, bounceReviewInPoint } from '@/lib/research/pointEndings';
 import {suggestionKeys,validSuggestion,type EndingSuggestion} from '@/lib/research/endingSuggestions';
 import {validRallyPrediction} from '@/lib/research/rallyPredictions';
+import {cutReviewInPoint} from '@/lib/research/cutReview';
 export const runtime='nodejs';
 export async function POST(request:Request) {
   const db=await createClient();
@@ -17,6 +18,7 @@ export async function POST(request:Request) {
   if(!current)return NextResponse.json({error:'Point not found.'},{status:404});
   // Preserve optional bounce/contact answers omitted by older open tabs.
   const label=normalizeEndingLabel(body.label,current.label);
+  if(label.cutReview&&!cutReviewInPoint(label.cutReview,current.source))return NextResponse.json({error:'Mark the serve start and point end within this video window, with the start before the end.'},{status:400});
   if(label.bounceReview){
     const {data:evidence,error:evidenceError}=await db.from('point_ending_evidence').select('payload').eq('point_id',body.id).maybeSingle();
     if(evidenceError||!evidence)return NextResponse.json({error:'Could not load bounce references. Try again.'},{status:503});
