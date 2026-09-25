@@ -7636,24 +7636,55 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
         if not os.path.exists(cut_local) or os.path.getsize(cut_local) == 0:
             raise RuntimeError("hand cut produced no video")
 
+        # Publish the cut's MEASURED clock, exactly as the automatic path
+        # does. Each segment is encoded on its own and the parts are joined
+        # end to end, and every part runs a few milliseconds past its
+        # window (a last frame, an AAC packet), so the planned offsets fall
+        # further behind the real video with every segment: 0.6 s by the
+        # last point of a real 86-segment hand cut (docs/research/
+        # 2026-09-25-hand-cut-clock). cmd_cut measures where each part
+        # really landed and rewrites match.json with it; reconciling again
+        # here and reading the file back puts that clock under every
+        # published cut_t0, every clip window below, the tripwire and the
+        # uploaded match.json. A missing timeline stops the job rather
+        # than guessing.
+        cut_timeline.reconcile_file(mj_path, cut_local + ".timeline.json")
+        with open(mj_path) as fh:
+            match_json = json.load(fh)
+        points = match_json["points"]
+        planned_cut_t0 = {int(p["idx"]): float(p["cut_t0"])
+                          for p in plan.points}
+
         # A second, independent read of the same arithmetic before anything
         # is published. _CutMap.locate is what every later re-cut uses, so
         # if the two disagree the match would play every chip at the wrong
         # second and nothing would error. Fail with the draft intact.
         sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
         from points_pipeline import hand_cut_length_tolerance  # noqa: E402
+        tolerance = hand_cut_length_tolerance(len(segments))
         probe_cut = probe_duration_s(cut_local) or 0.0
-        if abs(probe_cut - kept) > hand_cut_length_tolerance(len(segments)):
+        if abs(probe_cut - kept) > tolerance:
             raise RuntimeError(
                 f"hand cut length {probe_cut:.1f}s does not match the "
                 f"segments' {kept:.1f}s")
         verify = _CutMap(match_json)
+        worst = 0.0
         for p in points:
             got = verify.locate(int(p["idx"]), p["clip_t0"], p["clip_t1"])
             if got is None or abs(got - float(p["cut_t0"])) > 0.05:
                 raise RuntimeError(
                     f"cut_t0 disagreement on point {p['idx']}: "
                     f"{p['cut_t0']} vs {got}")
+            # The measured clock may run ahead of the plan by the parts'
+            # rounding, never by more than the whole cut may differ.
+            ahead = float(p["cut_t0"]) - planned_cut_t0[int(p["idx"])]
+            if abs(ahead) > tolerance:
+                raise RuntimeError(
+                    f"point {p['idx']} measured {ahead:+.2f}s from its "
+                    "planned place in the cut")
+            worst = max(worst, abs(ahead))
+        log.info("  hand cut: %d segments, measured clock within %.3fs of "
+                 "the plan", len(segments), worst)
 
         pulse_stage("upload")
         update_job(conn, job_id, progress=40)

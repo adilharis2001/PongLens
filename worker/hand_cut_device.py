@@ -4,13 +4,22 @@ Spec: docs/superpowers/specs/2026-09-24-ios-hand-cut-design.md, section 7.
 Contract: docs/superpowers/specs/2026-09-25-device-hand-cut-contract.md.
 
 `plan_hand_cut` is the one statement of which source seconds a hand cut
-keeps and where every point lands in the cut. The Mac's own hand cut
-(worker.process_hand_cut), the check of a phone's cut (check_manifest) and
-the parity fixture the iPhone's planner is tested against
-(ios/Tests/fixtures/cut-plan-parity.json) all call it, so the three cannot
-drift apart. Its arithmetic is points_pipeline's own: play_cut_segments,
-segment_cut_offsets and cut_position with SEGMENT_PADS and SEGMENT_MERGE_S,
-exactly as the automatic cut uses them.
+keeps and where every point is PLANNED to land in the cut. The Mac's own
+hand cut (worker.process_hand_cut), the check of a phone's cut
+(check_manifest) and the parity fixture the iPhone's planner is tested
+against (ios/Tests/fixtures/cut-plan-parity.json) all call it, so the three
+cannot drift apart. Its arithmetic is points_pipeline's own:
+play_cut_segments, segment_cut_offsets and cut_position with SEGMENT_PADS
+and SEGMENT_MERGE_S, exactly as the automatic cut uses them.
+
+What gets PUBLISHED is the measured clock, never the plan's offsets. The
+Mac encodes each segment separately and joins the parts, each a few
+milliseconds longer than its window, so its cut runs ahead of the plan
+(0.6 s by the end of an 86-segment match); process_hand_cut publishes the
+offsets cmd_cut measured (cut_timeline). The phone lays each segment at its
+planned offset in one composition, so its measured clock equals the plan
+within OFFSET_TOLERANCE_S, and check_manifest re-derives every position
+from the offsets the phone measured, not from the plan.
 
 Everything below `plan_hand_cut` is pure: it reads a manifest and numbers
 the worker measured, and either returns what to publish or raises
@@ -96,9 +105,10 @@ class HandCutPlan:
     segments_exact: list[tuple[float, float]]
     cut_segments: list[list[float]]
     # segment_cut_offsets over cut_segments: where each segment starts on
-    # the cut's clock if the encoder lays them end to end.
+    # the cut's clock if the encoder lays them end to end. A plan, not a
+    # measurement: see the module docstring.
     offsets: list[float]
-    # idx, t0, t1, clip_t0, clip_t1, cut_t0, clip ("01.mp4")
+    # idx, t0, t1, clip_t0, clip_t1, cut_t0 (planned), clip ("01.mp4")
     points: list[dict]
 
     @property
