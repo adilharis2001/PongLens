@@ -448,3 +448,19 @@ has already been processed. Cutting on the cloud twin.
 None open on design. What is still needed before or during the build is in
 the handover message of 2026-09-24: the iPhone 12 session, go-aheads for each
 production step, and coordination with other chats touching the worker.
+
+---
+
+## 13. Changed after approval (Adil, 2026-09-25)
+
+These supersede the matching lines above and in the marker inventory.
+
+| Was | Now |
+| --- | --- |
+| The marker opens with "Cut only, or cut and score?" | No first question. "Mark the points yourself" opens in place on the raw page like "Automatically", with a **Score** switch and "Start marking" / "Keep marking". Score is also a switch inside the marker (footer; landscape bottom-bar tile). On by default for matches; off, greyed, "Matches only" on practice and drills; a resumed draft keeps its mode |
+| Done as an outlined pill | Done is the primary cyan button (footer and landscape top bar) |
+| "This match cannot be processed automatically afterwards." | Removed; see `2026-09-25-cut-again-design.md` |
+| "Free" on the row | Never used; "{N} marked" or nothing |
+| "Cut on the Mac instead", "Cutting on your iPhone", "Keep PongLens open while it cuts." | Players never see where a cut runs. A phone cut that can't finish hands over silently; the server also takes over a phone quiet for 15 minutes (migration `20260925105830`). Player labels are the same wherever it runs: "Cutting the video", "Uploading the result", "Saving the match" |
+| "Me serves" | "You serve" |
+| Row line "You tap where each point starts and who won." | "You mark where each point starts and ends." |
