@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="September 15, 2026">
+    <LegalPage title="Privacy Policy" updated="September 17, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -32,6 +32,8 @@ export default async function PrivacyPage() {
           beta-access email, the videos you upload, and the notes you add.
           Google sign-in can also provide your name and profile picture.
           Videos are processed on hardware we operate and stored privately.
+          During processing, a small number of still frames from each match
+          are checked by OpenAI.
           Your videos stay in your library, within your storage allowance,
           until you delete them.
           Voice note audio is deleted after 90 days. Your point clips and
@@ -134,16 +136,27 @@ export default async function PrivacyPage() {
         </p>
         <p>
           Some steps send a limited amount of your content to two providers
-          so we can give you the result. Deepgram turns voice note audio into
-          text. OpenAI runs automated checks during video processing and the
-          AI-assisted features you choose to use, which are lesson summaries,
-          Journal photo reading, Ask, Recollect, feedback assistance, and page
-          drafting for coaches. Each receives only what that step needs,
-          returns the result to us, and is contractually barred from using
-          your content to train or improve its own models. Section 8
-          lists the categories of provider we use. Before the first time a
-          feature sends your content to one of these providers, we ask you in
-          the app, and you can switch it off in Account.
+          so we can give you the result. Each receives only what that step
+          needs, returns the result to us, and is contractually barred from
+          using your content to train or improve its own models. Section 8
+          lists the categories of provider we use.
+        </p>
+        <p>
+          <strong>Every processed match.</strong> Processing a match sends a
+          small number of still frames from the video to OpenAI, to confirm
+          it is table tennis we can work with and to find the table. This is
+          part of how processing works, so it happens for every match you
+          process.
+        </p>
+        <p>
+          <strong>Optional features.</strong> Deepgram turns voice note audio
+          into text. OpenAI powers the AI-assisted features you choose to use:
+          lesson summaries, Journal photo reading, Ask, Improve with AI,
+          Recollect, feedback assistance, and page drafting for coaches.
+          Before the first time an optional feature sends your content to
+          either provider, we ask you in the app, and you can switch these
+          features off in Account. That setting does not change the frame
+          checks during processing.
         </p>
       </section>
 
@@ -156,7 +169,10 @@ export default async function PrivacyPage() {
         </p>
         <ul>
           <li>
-            <strong>Running your account and processing your videos:</strong>{" "}
+            <strong>
+              Running your account and processing your videos, including the
+              frame checks during processing:
+            </strong>{" "}
             performing our contract with you.
           </li>
           <li>
@@ -238,6 +254,11 @@ export default async function PrivacyPage() {
           <li>
             <strong>Server and processing logs:</strong> kept for up to 90
             days, then deleted.
+          </li>
+          <li>
+            <strong>Material we are legally required to report:</strong>{" "}
+            kept, securely and with access restricted, for as long as the law
+            requires, even if the account is deleted.
           </li>
           <li>
             <strong>
@@ -332,6 +353,20 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
+        <h2>7a. When the law requires us to share</h2>
+        <p>
+          We share personal data with courts, law enforcement, or government
+          agencies only when the law requires it, for example to answer a
+          valid subpoena or court order, or when it is needed to protect
+          someone from serious harm. If we find sexual or abusive imagery of
+          a child, we remove it, close the account that uploaded it, and
+          report it, with the account details the law requires, to the
+          National Center for Missing &amp; Exploited Children, which works
+          with law enforcement.
+        </p>
+      </section>
+
+      <section>
         <h2>8. Service providers</h2>
         <p>
           We rely on a small set of providers to run PongLens. Each one
@@ -417,7 +452,7 @@ export default async function PrivacyPage() {
           details touching our servers, minimal personal data held.
         </p>
         <p>
-          A small operations team (today, the person who runs PongLens) can
+          A small operations team (today, the two people who run PongLens) can
           access stored videos and account records when needed to run the
           service: debugging a failed upload, reviewing content that was
           reported or refused, or answering a support request you sent. We
@@ -440,7 +475,8 @@ export default async function PrivacyPage() {
           The analysis is automated, and it produces no legal effect and
           nothing that similarly significantly affects you. It is a training
           aid, not an official record of play. Summaries, reminders, and
-          transcripts produced by AI are marked as such where they appear.
+          transcripts are generated automatically and can contain mistakes,
+          so check them against your own notes before relying on them.
         </p>
       </section>
 
