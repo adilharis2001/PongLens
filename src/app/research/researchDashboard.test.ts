@@ -5,6 +5,7 @@ import { isProtectedAppPath } from "../../lib/auth/paths.ts";
 import {
   RESEARCH_PAGES,
   hasResearchDashboardAccess,
+  researchPagesForViewer,
 } from "./researchDashboardModel.ts";
 
 const read = (path: string) =>
@@ -106,4 +107,14 @@ test("public and signed-in navigation do not advertise research", () => {
   ]) {
     assert.doesNotMatch(read(path), /href=[{\"']+\/research/);
   }
+});
+
+
+test("the broader match comparison is advertised only to admins", () => {
+  const reviewerPages = researchPagesForViewer(false);
+  assert.deepEqual(reviewerPages, RESEARCH_PAGES);
+  assert.equal(reviewerPages.some(p => p.href === "/research/match-comparison"), false);
+  const adminPages = researchPagesForViewer(true);
+  assert.equal(adminPages.filter(p => p.href === "/research/match-comparison").length, 1);
+  assert.deepEqual(adminPages.filter(p => p.href !== "/research/match-comparison"), RESEARCH_PAGES);
 });

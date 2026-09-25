@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ResearchDashboard } from "./ResearchDashboard";
 import {
-  RESEARCH_PAGES,
+  researchPagesForViewer,
   hasResearchDashboardAccess,
 } from "./researchDashboardModel";
 
@@ -41,5 +41,5 @@ export default async function ResearchPage() {
     notFound();
   }
 
-  return <ResearchDashboard pages={RESEARCH_PAGES} />;
+  return <ResearchDashboard pages={researchPagesForViewer(adminResult.data === true)} />;
 }
