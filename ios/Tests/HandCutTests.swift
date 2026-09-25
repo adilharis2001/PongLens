@@ -1,150 +1,439 @@
 import Foundation
 
-/// Hand cut on iPhone (spec 2026-09-24): the segment plan arithmetic the
-/// encoder runs on, the rollout gates, and the index of videos the phone
-/// keeps. Pure Foundation, so it runs here without a simulator. What it
-/// cannot cover (the encoder itself, Photos, background tasks) needs a
-/// real iPhone.
-func runHandCutChecks() {
-    print("\n— hand cut on iPhone: plan, gates, kept videos —")
+// Port-parity checks for Core/HandCut.swift against the web's own output.
+//
+// fixtures/handcut-parity.json is written by scripts/handcut-fixture.ts,
+// which drives the REAL src/app/match/[id]/handCut.ts through scripted
+// marking sessions and records the whole state after every step. This
+// replays every step here and demands the same marks, undo stack, selection
+// and awaited point after each one, the same refusal, and the same answer
+// from every query. Same arrangement as the serve and rally-end parity
+// checks: the port is measured against the original's OUTPUT, never against
+// a second reading of the spec.
+//
+// Numbers are compared exactly. The fixture's floating-point edges (10.1 -
+// 9.4 falling just short of 0.7, a lead of 0.8999999999999999) are there on
+// purpose: Swift's Double does the same IEEE arithmetic, so any difference
+// is a real one.
 
-    // MARK: Synthetic plan: 20 s on, 20 s off
-
-    eq(HandCutPlan.alternating(duration: 100),
-       [TimeWindow(start: 0, end: 20), TimeWindow(start: 40, end: 60), TimeWindow(start: 80, end: 100)],
-       "100 s keeps three whole pieces")
-    eq(HandCutPlan.alternating(duration: 95),
-       [TimeWindow(start: 0, end: 20), TimeWindow(start: 40, end: 60), TimeWindow(start: 80, end: 95)],
-       "a short last piece is kept to the end of the video")
-    eq(HandCutPlan.alternating(duration: 40.5),
-       [TimeWindow(start: 0, end: 20)],
-       "a last piece under a second is dropped, not encoded as a sliver")
-    eq(HandCutPlan.alternating(duration: 41),
-       [TimeWindow(start: 0, end: 20), TimeWindow(start: 40, end: 41)],
-       "a last piece of exactly a second is kept")
-    eq(HandCutPlan.alternating(duration: 12),
-       [TimeWindow(start: 0, end: 12)],
-       "a video shorter than one piece is one piece")
-    eq(HandCutPlan.alternating(duration: 0), [], "an empty video has no plan")
-    eq(HandCutPlan.alternating(duration: .nan), [], "an unreadable length has no plan")
-    let fortyFive = HandCutPlan.alternating(duration: 45 * 60)
-    eq(fortyFive.count, 68, "a 45-minute match is 68 pieces")
-    near(HandCutPlan.cutDuration(for: fortyFive), 1360, "and keeps 22:40")
-
-    // MARK: Normalising a plan before the composition sees it
-
-    eq(HandCutPlan.normalized(
-        [TimeWindow(start: 50, end: 70), TimeWindow(start: -3, end: 10), TimeWindow(start: 8, end: 20)],
-        duration: 60),
-       [TimeWindow(start: 0, end: 20), TimeWindow(start: 50, end: 60)],
-       "sorted, clamped to the file, overlaps merged")
-    eq(HandCutPlan.normalized(
-        [TimeWindow(start: 0, end: 10), TimeWindow(start: 10, end: 20)], duration: 60),
-       [TimeWindow(start: 0, end: 20)],
-       "touching pieces become one: no second of the video is inserted twice")
-    eq(HandCutPlan.normalized([TimeWindow(start: 70, end: 80), TimeWindow(start: 5, end: 5)], duration: 60),
-       [], "pieces past the end or empty are dropped")
-
-    // MARK: Where each piece starts on the cut's clock
-
-    let plan = HandCutPlan.alternating(duration: 95)
-    let starts = HandCutPlan.cutStarts(for: plan)
-    eq(starts.count, 3, "one start per piece")
-    near(starts[0], 0, "first piece starts the cut")
-    near(starts[1], 20, "second starts where the first ends")
-    near(starts[2], 40, "third after both")
-    near(HandCutPlan.cutDuration(for: plan), 55, "cut length is the kept total")
-    eq(HandCutPlan.cutStarts(for: []), [], "no pieces, no starts")
-
-    // MARK: Keyframes: 60 frames, the duration consistent with it
-
-    near(HandCutPlan.keyframeSeconds(fps: 30), 2, "60 frames at 30 fps is 2 s")
-    near(HandCutPlan.keyframeSeconds(fps: 60), 1, "60 frames at 60 fps is 1 s")
-    near(HandCutPlan.keyframeSeconds(fps: 29.97), 60 / 29.97, "NTSC rate kept exact")
-    near(HandCutPlan.keyframeSeconds(fps: 0), 2, "no frame rate reads as 30")
-
-    // MARK: Clip size: 720 wide as displayed, height even
-
-    let landscape = HandCutPlan.clipEncodedSize(naturalWidth: 1920, naturalHeight: 1080, rotated: false)
-    eq([landscape.width, landscape.height], [720, 406], "1080p landscape is 720x406 (405 rounded to even)")
-    let fourK = HandCutPlan.clipEncodedSize(naturalWidth: 3840, naturalHeight: 2160, rotated: false)
-    eq([fourK.width, fourK.height], [720, 406], "4K the same")
-    let portrait = HandCutPlan.clipEncodedSize(naturalWidth: 1920, naturalHeight: 1080, rotated: true)
-    eq([portrait.width, portrait.height], [1280, 720],
-       "a quarter-turned file encodes 1280x720 on its side, shown 720 wide")
-    let fourThree = HandCutPlan.clipEncodedSize(naturalWidth: 1440, naturalHeight: 1080, rotated: false)
-    eq([fourThree.width, fourThree.height], [720, 540], "4:3 keeps its aspect")
-    check(HandCutPlan.clipEncodedSize(naturalWidth: 1000, naturalHeight: 333, rotated: false).height % 2 == 0,
-          "an odd height is rounded to even")
-
-    // MARK: Bitrate from bits per pixel
-
-    eq(HandCutPlan.bitrate(width: 1920, height: 1080, fps: 60), 12_441_600, "1080p60 at 0.1 bpp")
-    eq(HandCutPlan.bitrate(width: 1920, height: 1080, fps: 30), 6_220_800, "1080p30 at 0.1 bpp")
-    eq(HandCutPlan.bitrate(width: 10, height: 10, fps: 30), 500_000, "never below half a megabit")
-
-    // MARK: Rollout gates
-
-    check(!DeviceVideoGate.recordingsToPhotos(configValue: nil, handCut: true), "unreadable config is off")
-    check(!DeviceVideoGate.recordingsToPhotos(configValue: "off", handCut: true), "off is off, even for admins")
-    check(DeviceVideoGate.recordingsToPhotos(configValue: "admins", handCut: true), "admins: a hand-cut account saves")
-    check(!DeviceVideoGate.recordingsToPhotos(configValue: "admins", handCut: false), "admins: everyone else does not")
-    check(DeviceVideoGate.recordingsToPhotos(configValue: "on", handCut: false), "on: everyone saves")
-    check(DeviceVideoGate.recordingsToPhotos(configValue: "\"on\"", handCut: false), "a JSON-quoted value reads the same")
-    check(!DeviceVideoGate.recordingsToPhotos(configValue: "yes", handCut: true), "an unknown word is off")
-    check(DeviceVideoGate.keepsWorkingCopy(handCut: true, processingRequested: false),
-          "hand-cut account, no automatic processing: keep")
-    check(!DeviceVideoGate.keepsWorkingCopy(handCut: true, processingRequested: true),
-          "automatic processing asked for: nothing to mark, delete as today")
-    check(!DeviceVideoGate.keepsWorkingCopy(handCut: false, processingRequested: false),
-          "everyone else: delete as today")
-
-    // MARK: The kept-video index
-
-    let owner = UUID()
-    let other = UUID()
-    let m1 = UUID(), m2 = UUID(), m3 = UUID(), m4 = UUID()
-    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
-    func entry(_ id: UUID, _ who: UUID, _ name: String, _ offset: Double) -> LocalVideoEntry {
-        LocalVideoEntry(matchId: id, ownerId: who, fileName: name, bytes: 1_000,
-                        createdAt: t0.addingTimeInterval(offset), title: nil, detail: nil)
+func runHandCutParityChecks() {
+    print("\nhand cut rules (parity with handCut.ts)")
+    let url = URL(fileURLWithPath: "fixtures/handcut-parity.json")
+    guard let data = try? Data(contentsOf: url),
+          let fx = try? JSONDecoder().decode(HandCutJSON.self, from: data)
+    else {
+        check(false, "hand cut fixture loads")
+        return
     }
-    var index = LocalVideoIndex()
-    eq(index.upsert(entry(m1, owner, "a.mov", 0)), nil, "first copy of a match replaces nothing")
-    index.upsert(entry(m2, owner, "b.mp4", 10))
-    index.upsert(entry(m3, other, "c.mov", 20))
-    eq(index.upsert(entry(m1, owner, "a2.mov", 30)), "a.mov",
-       "a second copy of the same match hands back the old file to delete")
-    eq(index.entries.count, 3, "still one entry per match")
-    eq(index.entries(owner: owner).map(\.matchId), [m1, m2], "one account's copies, newest first")
-    eq(index.entries(owner: other).map(\.matchId), [m3], "another account's copies stay theirs")
 
-    // Round trip through the file format.
-    let decoded = LocalVideoIndex.decode(try? index.encoded())
-    eq(decoded, index, "the index survives a write and a read")
-    eq(LocalVideoIndex.decode(Data("not json".utf8)), LocalVideoIndex(), "a damaged index reads as empty")
-    eq(LocalVideoIndex.decode(nil), LocalVideoIndex(), "a missing index reads as empty")
+    // Constants, the lead, and every sentence the player can be shown.
+    if let k = fx["constants"] {
+        eq(k["MIN_POINT_S"], .number(HandCut.MIN_POINT_S), "MIN_POINT_S")
+        eq(k["MAX_POINT_S"], .number(HandCut.MAX_POINT_S), "MAX_POINT_S")
+        eq(k["LONGEST_POINT_S"], .number(HandCut.LONGEST_POINT_S), "LONGEST_POINT_S")
+        eq(k["PAST_END_ALLOWANCE_S"], .number(HandCut.PAST_END_ALLOWANCE_S), "PAST_END_ALLOWANCE_S")
+        eq(k["MAX_MARKS"], .number(Double(HandCut.MAX_MARKS)), "MAX_MARKS")
+        eq(k["SPLIT_LEAD_S"], .number(HandCut.SPLIT_LEAD_S), "SPLIT_LEAD_S")
+        eq(k["LEAD_MIN_S"], .number(HandCut.LEAD_MIN_S), "LEAD_MIN_S")
+        eq(k["LEAD_MAX_S"], .number(HandCut.LEAD_MAX_S), "LEAD_MAX_S")
+        eq(k["GAP_WORTH_MARKING_S"], .number(HandCut.GAP_WORTH_MARKING_S), "GAP_WORTH_MARKING_S")
+        eq(k["TAIL_S"], .number(HandCut.TAIL_S), "TAIL_S")
+    } else {
+        check(false, "fixture has constants")
+    }
+    if case .array(let leads)? = fx["leadFor"] {
+        for row in leads {
+            guard case .number(let rate)? = row["rate"] else { continue }
+            eq(HandCutJSON.number(HandCut.leadFor(rate)), row["lead"] ?? .null, "leadFor(\(rate))")
+        }
+    }
+    if case .object(let refusals)? = fx["refusals"] {
+        eq(refusals.count, HandCutRefusal.allCases.count, "every refusal is ported")
+        for r in HandCutRefusal.allCases {
+            eq(refusals[r.rawValue], .string(r.text), "refusal \(r.rawValue) word for word")
+        }
+    }
+    if case .object(let invalid)? = fx["invalid"] {
+        eq(invalid.count, HandCutInvalid.allCases.count, "every validate reason is ported")
+        for r in HandCutInvalid.allCases {
+            eq(invalid[r.rawValue], .string(r.text), "invalid \(r.rawValue) word for word")
+        }
+    }
 
-    // Files and entries that disagree.
-    eq(index.orphans(in: ["a2.mov", "b.mp4", "c.mov", "stray.mov", "index.json", ".DS_Store"]),
-       ["stray.mov"], "only a file nothing points at is an orphan")
-    eq(index.missingFiles(present: ["a2.mov", "c.mov"]), [m2], "an entry whose file is gone is noticed")
+    guard case .array(let cases)? = fx["cases"] else {
+        check(false, "fixture has cases")
+        return
+    }
+    var stepCount = 0
+    for c in cases { stepCount += runHandCutCase(c) }
+    var checkCount = 0
+    if case .array(let fnChecks)? = fx["checks"] {
+        for ch in fnChecks {
+            runHandCutCheck(ch)
+            checkCount += 1
+        }
+    }
+    print("  replayed \(cases.count) cases, \(stepCount) steps, \(checkCount) checks")
+    check(cases.count == 32 && stepCount == 355 && checkCount == 46,
+          "the whole fixture was replayed (32 cases, 355 steps, 46 checks)")
 
-    index.setTitle("vs Julian", detail: "Sep 24, 2026 · Match", for: m1)
-    eq(index.entry(for: m1)?.title, "vs Julian", "titles catch up from the server")
-    eq(index.remove(matchId: m2)?.fileName, "b.mp4", "removing hands back the file to delete")
-    eq(index.remove(matchId: m2), nil, "removing twice is harmless")
+    runHandCutPortChecks()
+}
 
-    // MARK: Reconciling with the server
+// MARK: - Replaying a case
 
-    let mine = [entry(m1, owner, "a.mov", 0), entry(m2, owner, "b.mov", 1),
-                entry(m3, owner, "c.mov", 2), entry(m4, other, "d.mov", 3)]
-    let doomed = LocalVideoReconcile.doomed(
-        entries: mine, owner: owner,
-        rows: [m1: "uploaded", m2: "ready", m4: "ready"])
-    eq(Set(doomed), Set([m2, m3]),
-       "ready goes, a match the owner cannot find goes, uploaded stays, another account's is never touched")
-    eq(LocalVideoReconcile.doomed(entries: mine, owner: owner,
-                                  rows: [m1: "processing", m2: "failed", m3: "uploaded"]),
-       [], "processing and failed keep their copy")
+private func runHandCutCase(_ c: HandCutJSON) -> Int {
+    let name = c["name"].flatMap(stringValue) ?? "?"
+
+    var state = HandCutState()
+    if let start = c["start"] {
+        state.marks = strictMarks(start["marks"])
+        state.selectedId = start["selectedId"].flatMap(stringValue)
+        state.awaitingId = start["awaitingId"].flatMap(stringValue)
+        eq(stateJSON(state), start, "\(name): start state reads back")
+    }
+
+    guard case .array(let steps)? = c["steps"] else { return 0 }
+    for (n, step) in steps.enumerated() {
+        let op = step["op"].flatMap(stringValue) ?? "?"
+        let args = step["args"] ?? .object([:])
+        let label = "\(name) · step \(n + 1) \(op)"
+        var applied: HandCutApplied?
+        var result: HandCutJSON?
+
+        switch op {
+        case "start":
+            applied = HandCut.startMark(
+                state,
+                now: numberValue(step["now"]) ?? .nan,
+                rate: numberValue(step["rate"]) ?? 1,
+                id: args["id"].flatMap(stringValue) ?? ""
+            )
+        case "end":
+            applied = HandCut.endMark(state, now: numberValue(step["now"]) ?? .nan)
+        case "outcome":
+            let o = args["outcome"].flatMap(stringValue).flatMap(HandCutOutcome.init(rawValue:))
+            applied = HandCut.setOutcome(state, o ?? .user)
+        case "star":
+            applied = HandCut.toggleStar(state, id: args["id"].flatMap(stringValue) ?? "")
+        case "clearAwaiting":
+            state = HandCut.clearAwaiting(state)
+        case "select":
+            state = HandCut.selectMark(state, id: args["id"].flatMap(stringValue))
+        case "moveEdge":
+            applied = HandCut.moveEdge(
+                state,
+                id: args["id"].flatMap(stringValue) ?? "",
+                edge: args["edge"].flatMap(stringValue).flatMap(HandCutEdge.init(rawValue:)) ?? .t0,
+                delta: numberValue(args["delta"]) ?? 0
+            )
+        case "setEdges":
+            applied = HandCut.setEdges(
+                state,
+                id: args["id"].flatMap(stringValue) ?? "",
+                t0: numberValue(args["t0"]) ?? .nan,
+                t1: numberValue(args["t1"]) ?? .nan
+            )
+        case "insert":
+            applied = HandCut.insertMark(
+                state,
+                t0: numberValue(args["t0"]) ?? .nan,
+                t1: numberValue(args["t1"]) ?? .nan,
+                id: args["id"].flatMap(stringValue) ?? ""
+            )
+        case "remove":
+            applied = HandCut.removeMark(state, id: args["id"].flatMap(stringValue) ?? "")
+        case "reset":
+            let r = HandCut.resetOpen(state)
+            state = r.state
+            result = .object(["backTo": .number(r.backTo)])
+        case "undo":
+            state = HandCut.undoLast(state)
+        case "load":
+            state = HandCutState(marks: HandCut.normalizeMarks(args["raw"]))
+
+        case "openMark":
+            result = HandCut.openMark(state.marks).map { .string($0.id) } ?? .null
+        case "lastClosedEnd":
+            result = HandCut.lastClosedEnd(state.marks).map { .number($0) } ?? .null
+        case "firstUnscored":
+            result = HandCut.firstUnscored(
+                state.marks, afterId: args["afterId"].flatMap(stringValue)
+            ).map { .string($0.id) } ?? .null
+        case "allCalled":
+            result = .bool(HandCut.allCalled(state.marks))
+        case "gapsAround":
+            let g = HandCut.gapsAround(
+                state.marks, id: args["id"].flatMap(stringValue),
+                durationS: numberValue(args["durationS"])
+            )
+            result = gapsJSON(g)
+        case "draftMode":
+            let recorded = args["recorded"].flatMap(stringValue).flatMap(HandCutMode.init(rawValue:))
+            result = .string(HandCut.draftMode(state.marks, recorded: recorded).rawValue)
+        case "openAs":
+            let mode = args["mode"].flatMap(stringValue).flatMap(HandCutMode.init(rawValue:)) ?? .score
+            result = .string(HandCut.openAs(
+                state.marks, durationS: numberValue(args["durationS"]), mode: mode
+            ).rawValue)
+        case "summarize":
+            result = summaryJSON(HandCut.summarize(state.marks))
+        case "submittable":
+            result = .array(HandCut.submittable(state.marks).map(submissionJSON))
+        case "validate":
+            result = validationJSON(HandCut.validate(state.marks, durationS: numberValue(args["durationS"])))
+        case "asPoints":
+            result = .array(HandCut.asPoints(state.marks).map(pointJSON))
+        default:
+            check(false, "\(label): unknown op")
+            continue
+        }
+
+        if let applied { state = applied.state }
+        let refusedKey: HandCutJSON = applied?.refused.map { .string($0.rawValue) } ?? .null
+        eq(refusedKey, step["refused"] ?? .null, "\(label): refusal")
+        if let wanted = step["result"] {
+            eq(result ?? .null, wanted, "\(label): result")
+        } else {
+            check(result == nil, "\(label): no result expected")
+        }
+        eq(stateJSON(state), step["expect"] ?? .null, "\(label): state")
+    }
+    return steps.count
+}
+
+private func runHandCutCheck(_ ch: HandCutJSON) {
+    let fn = ch["fn"].flatMap(stringValue) ?? "?"
+    let args = ch["args"] ?? .object([:])
+    let marks = strictMarks(args["marks"])
+    let wanted = ch["result"] ?? .null
+    let got: HandCutJSON
+    switch fn {
+    case "openAs":
+        let mode = args["mode"].flatMap(stringValue).flatMap(HandCutMode.init(rawValue:)) ?? .score
+        got = .string(HandCut.openAs(marks, durationS: numberValue(args["durationS"]), mode: mode).rawValue)
+    case "draftMode":
+        let recorded = args["recorded"].flatMap(stringValue).flatMap(HandCutMode.init(rawValue:))
+        got = .string(HandCut.draftMode(marks, recorded: recorded).rawValue)
+    case "validate":
+        got = validationJSON(HandCut.validate(marks, durationS: numberValue(args["durationS"])))
+    case "normalizeMarks":
+        got = .array(HandCut.normalizeMarks(args["raw"]).map(markJSON))
+    case "firstUnscored":
+        got = HandCut.firstUnscored(marks, afterId: args["afterId"].flatMap(stringValue))
+            .map { .string($0.id) } ?? .null
+    case "allCalled":
+        got = .bool(HandCut.allCalled(marks))
+    case "lastClosedEnd":
+        got = HandCut.lastClosedEnd(marks).map { .number($0) } ?? .null
+    default:
+        check(false, "check \(fn): unknown function")
+        return
+    }
+    eq(got, wanted, "check \(fn)(\(compact(args)))")
+}
+
+// MARK: - Swift-only checks: the score, the encoders, the round trip
+
+private func runHandCutPortChecks() {
+    // The ticker's score and next server come from the product's own walk
+    // and rotation, over asPoints: a (user), b (opponent), c (let).
+    var s = HandCutState()
+    for (id, start, end, outcome) in [
+        ("a", 10.0, 24.0, HandCutOutcome.user),
+        ("b", 40.0, 55.0, .opponent),
+        ("c", 70.0, 78.0, .let),
+    ] {
+        s = HandCut.startMark(s, now: start, rate: 1, id: id).state
+        s = HandCut.endMark(s, now: end).state
+        s = HandCut.setOutcome(s, outcome).state
+    }
+    let score = handCutScore(s.marks)
+    eq(score.current.you, 1, "hand cut score: you")
+    eq(score.current.them, 1, "hand cut score: them")
+    // Me serves 1 and 2, Them serves 3, and a let is served again.
+    eq(handCutNextServer(s.marks, firstServer: .user), .opponent, "next server after a let")
+    eq(handCutNextServer([], firstServer: .opponent), .opponent, "no points: the first server")
+    eq(handCutNextServer(s.marks, firstServer: nil), nil, "no first server: no rotation")
+    // An open rally is not a point yet, so it does not move the rotation.
+    let opened = HandCut.startMark(s, now: 90, rate: 1, id: "d").state
+    eq(handCutNextServer(opened.marks, firstServer: .user), .opponent, "an open rally serves nothing")
+
+    // Eleven straight: a game, then the first server changes ends.
+    var g = HandCutState()
+    for i in 0..<11 {
+        let t = Double(i) * 20 + 5
+        g = HandCut.startMark(g, now: t, rate: 1, id: "g\(i)").state
+        g = HandCut.endMark(g, now: t + 10).state
+        g = HandCut.setOutcome(g, .user).state
+    }
+    let gs = handCutScore(g.marks)
+    eq(gs.gamesYou, 1, "eleven straight is a game")
+    eq(gs.current.you + gs.current.them, 0, "a new game starts at 0-0")
+    eq(handCutNextServer(g.marks, firstServer: .user), .opponent, "the other player opens game two")
+
+    // The draft is written with every key, nulls included: the web DROPS
+    // an entry whose t1 is missing rather than null.
+    let enc = JSONEncoder()
+    enc.outputFormatting = .sortedKeys
+    let open = HandCutMark(id: "o", t0: 1.5, t1: nil, winner: nil, isLet: false,
+                           starred: false, tap: 2.1, rate: 1)
+    if let data = try? enc.encode(open), let text = String(data: data, encoding: .utf8) {
+        eq(text, #"{"id":"o","isLet":false,"rate":1,"starred":false,"t0":1.5,"t1":null,"tap":2.1,"winner":null}"#,
+           "an open mark encodes t1 and winner as null")
+    } else {
+        check(false, "an open mark encodes")
+    }
+    let sub = HandCut.submittable([HandCutMark(id: "x", t0: 1, t1: 3, winner: nil, isLet: true,
+                                               starred: true, tap: 1.6, rate: 2)])
+    if let data = try? enc.encode(sub), let text = String(data: data, encoding: .utf8) {
+        eq(text, #"[{"let":true,"rate":2,"star":true,"t0":1,"t1":3,"tap":1.6,"w":null}]"#,
+           "claim_hand_cut rows are the web's short form")
+    } else {
+        check(false, "a submission encodes")
+    }
+
+    // What the phone writes, the web reads back unchanged, and so does this.
+    if let data = try? JSONEncoder().encode(s.marks + [open]),
+       let back = try? JSONDecoder().decode(HandCutJSON.self, from: data) {
+        let read = HandCut.normalizeMarks(back)
+        eq(read, (s.marks + [open]).sorted { $0.t0 < $1.t0 }, "a saved draft reads back as the same marks")
+    } else {
+        check(false, "a saved draft round-trips")
+    }
+}
+
+// MARK: - JSON helpers
+
+private func stringValue(_ v: HandCutJSON) -> String? {
+    if case .string(let s) = v { return s }
+    return nil
+}
+
+private func numberValue(_ v: HandCutJSON?) -> Double? {
+    if case .number(let n)? = v { return n }
+    return nil
+}
+
+private func winnerJSON(_ w: Winner?) -> HandCutJSON {
+    w.map { .string($0.rawValue) } ?? .null
+}
+
+private func optNumber(_ n: Double?) -> HandCutJSON {
+    n.map { .number($0) } ?? .null
+}
+
+private func markJSON(_ m: HandCutMark) -> HandCutJSON {
+    .object([
+        "id": .string(m.id), "t0": .number(m.t0), "t1": optNumber(m.t1),
+        "winner": winnerJSON(m.winner), "isLet": .bool(m.isLet),
+        "starred": .bool(m.starred), "tap": .number(m.tap), "rate": .number(m.rate),
+    ])
+}
+
+private func undoJSON(_ u: HandCutUndo) -> HandCutJSON {
+    switch u {
+    case .start(let id):
+        return .object(["type": .string("start"), "id": .string(id)])
+    case .startOver(let id, let prevId, let prevT1):
+        return .object([
+            "type": .string("start-over"), "id": .string(id),
+            "prevId": .string(prevId), "prevT1": optNumber(prevT1),
+        ])
+    case .end(let id, let t1, let winner, let isLet):
+        return .object([
+            "type": .string("end"), "id": .string(id), "t1": optNumber(t1),
+            "winner": winnerJSON(winner), "isLet": .bool(isLet),
+        ])
+    case .outcome(let id, let winner, let isLet):
+        return .object([
+            "type": .string("outcome"), "id": .string(id),
+            "winner": winnerJSON(winner), "isLet": .bool(isLet),
+        ])
+    case .star(let id, let starred):
+        return .object(["type": .string("star"), "id": .string(id), "starred": .bool(starred)])
+    case .move(let id, let t0, let t1):
+        return .object([
+            "type": .string("move"), "id": .string(id), "t0": .number(t0), "t1": optNumber(t1),
+        ])
+    case .remove(let index, let mark):
+        return .object([
+            "type": .string("remove"), "index": .number(Double(index)), "mark": markJSON(mark),
+        ])
+    }
+}
+
+private func stateJSON(_ s: HandCutState) -> HandCutJSON {
+    .object([
+        "marks": .array(s.marks.map(markJSON)),
+        "undo": .array(s.undo.map(undoJSON)),
+        "selectedId": s.selectedId.map { .string($0) } ?? .null,
+        "awaitingId": s.awaitingId.map { .string($0) } ?? .null,
+    ])
+}
+
+private func gapsJSON(_ g: (before: HandCutGap?, after: HandCutGap?)) -> HandCutJSON {
+    func one(_ gap: HandCutGap?) -> HandCutJSON {
+        gap.map { .object(["lo": .number($0.lo), "hi": .number($0.hi)]) } ?? .null
+    }
+    return .object(["before": one(g.before), "after": one(g.after)])
+}
+
+private func summaryJSON(_ s: HandCutSummary) -> HandCutJSON {
+    .object([
+        "total": .number(Double(s.total)), "unscored": .number(Double(s.unscored)),
+        "open": .bool(s.open), "long": .number(Double(s.long)),
+        "starred": .number(Double(s.starred)),
+    ])
+}
+
+private func submissionJSON(_ r: HandCutSubmission) -> HandCutJSON {
+    .object([
+        "t0": .number(r.t0), "t1": .number(r.t1), "w": winnerJSON(r.w),
+        "let": .bool(r.isLet), "star": .bool(r.star), "tap": .number(r.tap),
+        "rate": .number(r.rate),
+    ])
+}
+
+private func validationJSON(_ v: HandCutInvalid?) -> HandCutJSON {
+    guard let v else { return .object(["ok": .bool(true)]) }
+    return .object([
+        "ok": .bool(false), "reason": .string(v.text), "reasonKey": .string(v.rawValue),
+    ])
+}
+
+private func pointJSON(_ p: HandCutPoint) -> HandCutJSON {
+    .object([
+        "id": .string(p.id), "confirmed_winner": winnerJSON(p.confirmedWinner),
+        "is_let": .bool(p.isLet), "server_override": winnerJSON(p.serverOverride),
+        "game_end_override": p.gameEndOverride.map { .string($0.rawValue) } ?? .null,
+        "game_winner_override": winnerJSON(p.gameWinnerOverride),
+    ])
+}
+
+/// Marks exactly as the generator built them, read field by field. Never
+/// through normalizeMarks, which would quietly repair the very thing a
+/// case might be about.
+private func strictMarks(_ v: HandCutJSON?) -> [HandCutMark] {
+    guard case .array(let rows)? = v else { return [] }
+    return rows.compactMap { r in
+        guard case .string(let id)? = r["id"], case .number(let t0)? = r["t0"],
+              case .bool(let isLet)? = r["isLet"], case .bool(let starred)? = r["starred"],
+              case .number(let tap)? = r["tap"], case .number(let rate)? = r["rate"]
+        else {
+            check(false, "fixture mark is well formed: \(compact(r))")
+            return nil
+        }
+        let t1 = numberValue(r["t1"])
+        let winner = r["winner"].flatMap(stringValue).flatMap(Winner.init(rawValue:))
+        return HandCutMark(id: id, t0: t0, t1: t1, winner: winner, isLet: isLet,
+                           starred: starred, tap: tap, rate: rate)
+    }
+}
+
+private func compact(_ v: HandCutJSON) -> String {
+    let enc = JSONEncoder()
+    enc.outputFormatting = .sortedKeys
+    guard let data = try? enc.encode(v), let s = String(data: data, encoding: .utf8) else { return "?" }
+    return s.count > 160 ? String(s.prefix(160)) + "…" : s
 }
