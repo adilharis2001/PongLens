@@ -182,6 +182,22 @@ test("{N} marked counts only a draft nobody has sent", () => {
   assert.equal(unsentMarkCount([], false), 0);
 });
 
+test("a prefill nobody changed is not marking", () => {
+  // start_recut wrote this cut's three points as the marks the marker
+  // opens on; the player opened it, changed nothing and closed it. The row
+  // must not read "3 marked" / "Keep marking" (QA, 2026-09-25, 5e432cde).
+  const prefill = marks([[1, 5, "user"], [6, 9, "opponent"], [10, 14, null]]);
+  assert.equal(unsentMarkCount(prefill, false, true), 0);
+  // Once a save really changes them, the database clears the flag and the
+  // marks are the player's own work again.
+  assert.equal(unsentMarkCount(prefill, false, false), 3);
+  // A sent draft stays history whatever the flag says.
+  assert.equal(unsentMarkCount(prefill, true, true), 0);
+  assert.equal(unsentMarkCount(prefill, true, false), 0);
+  // The flag defaults off, so the unprocessed page's reads are unchanged.
+  assert.equal(unsentMarkCount(prefill, false), 3);
+});
+
 test("where the switch starts on a processed match", () => {
   const scored = marks([[1, 5, "user"], [6, 9, null]]);
   const cutOnly = marks([[1, 5, null], [6, 9, null]]);

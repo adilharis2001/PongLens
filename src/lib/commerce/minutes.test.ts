@@ -6,6 +6,7 @@ import {
   formatClock,
   formatGb,
   formatMinutes,
+  processWindow,
 } from "./minutes.ts";
 
 test("chargeMinutes mirrors the SQL: ceil to the minute, minimum one", () => {
@@ -41,4 +42,60 @@ test("formatClock covers both shapes", () => {
   assert.equal(formatClock(4044), "1:07:24");
   assert.equal(formatClock(0), "0:00");
   assert.equal(formatClock(59.6), "1:00"); // rounds, never shows :60
+});
+
+test("processWindow draws the bar on the picture and charges on the stored length", () => {
+  // 623c09c6: duration_s 729, the file 728.99. The player reads 12:08
+  // (whole seconds, counted down); the bar under it must too, once the
+  // player has read the file.
+  const before = processWindow({ storedS: 729, videoS: null, trimStartS: 0, trimEndS: null });
+  assert.equal(before.barS, 729); // the stored length until the metadata arrives
+  assert.equal(before.barEndS, 729);
+  const after = processWindow({ storedS: 729, videoS: 728.99, trimStartS: 0, trimEndS: null });
+  assert.equal(after.barS, 728.99);
+  assert.equal(after.barEndS, 728.99);
+  assert.equal(formatClock(Math.floor(after.barEndS!)), "12:08");
+  // Untrimmed either way: no window in the request, the stored length's charge.
+  for (const w of [before, after]) {
+    assert.equal(w.trimmed, false);
+    assert.equal(w.requestStartS, null);
+    assert.equal(w.requestEndS, null);
+    assert.equal(w.charge, 13); // ceil(729 / 60), what claim_processing takes
+  }
+});
+
+test("an end handle dragged back to the picture's end is still no trim", () => {
+  // TrimBar clamps a drag to its own length, 728.99 here, never 729.
+  const full = processWindow({ storedS: 729, videoS: 728.99, trimStartS: 0, trimEndS: 728.99 });
+  assert.equal(full.trimmed, false);
+  assert.equal(full.requestEndS, null);
+  // A stamp a fraction short of the end is the end, as it always was.
+  assert.equal(processWindow({ storedS: 729, videoS: 728.99, trimStartS: 0, trimEndS: 728.6 }).trimmed, false);
+  // A start trim alone sends the end as the stored length, as before.
+  const head = processWindow({ storedS: 729, videoS: 728.99, trimStartS: 60, trimEndS: null });
+  assert.equal(head.trimmed, true);
+  assert.equal(head.requestStartS, 60);
+  assert.equal(head.requestEndS, 729);
+  assert.equal(head.charge, chargeMinutes(729 - 60));
+});
+
+test("a real trim end is sent and charged as claim_processing will read it", () => {
+  const cut = processWindow({ storedS: 729, videoS: 728.99, trimStartS: 30, trimEndS: 600 });
+  assert.equal(cut.trimmed, true);
+  assert.equal(cut.barEndS, 600);
+  assert.equal(cut.requestStartS, 30);
+  assert.equal(cut.requestEndS, 600);
+  assert.equal(cut.charge, chargeMinutes(570));
+  // A file longer than its stored length: the claim clamps the end to the
+  // stored length (least(p_trim_end_s, duration_s)), and so does the quote.
+  const long = processWindow({ storedS: 700, videoS: 728, trimStartS: 0, trimEndS: 720 });
+  assert.equal(long.requestEndS, 700);
+  assert.equal(long.charge, chargeMinutes(700));
+});
+
+test("processWindow without a stored length has nothing to quote", () => {
+  const none = processWindow({ storedS: null, videoS: null, trimStartS: 0, trimEndS: null });
+  assert.equal(none.barS, null);
+  assert.equal(none.charge, null);
+  assert.equal(none.trimmed, false);
 });

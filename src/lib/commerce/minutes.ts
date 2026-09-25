@@ -11,6 +11,59 @@ export function chargeMinutes(durationS: number): number {
   return Math.max(1, Math.ceil(durationS / 60));
 }
 
+/**
+ * The window a Process request covers, and its charge, the way
+ * claim_processing computes them: the STORED length is the whole video,
+ * and a trim end past it counts as the whole video.
+ *
+ * The trim bar is drawn on `videoS`, the length the player itself read,
+ * once it has read one: the stored duration_s is not the file's (729
+ * against a 728.99 s file), and the bar sits one line under the player's
+ * own clock. An end handle at the picture's end is still no trim: the
+ * request leaves the end off and the charge is the stored length's,
+ * exactly what the claim will take.
+ */
+export function processWindow({
+  storedS,
+  videoS,
+  trimStartS,
+  trimEndS,
+}: {
+  /** matches.duration_s, or the player's reading when the row has none. */
+  storedS: number | null;
+  /** What the player read, or null before its metadata arrives. */
+  videoS: number | null;
+  trimStartS: number;
+  /** Where the end handle was put; null while it has not been moved. */
+  trimEndS: number | null;
+}): {
+  /** The trim bar's length and its end handle. */
+  barS: number | null;
+  barEndS: number | null;
+  trimmed: boolean;
+  /** The body /api/process takes: null for an untrimmed side. */
+  requestStartS: number | null;
+  requestEndS: number | null;
+  charge: number | null;
+} {
+  const barS = videoS ?? storedS;
+  if (storedS == null || barS == null) {
+    return { barS, barEndS: barS, trimmed: false, requestStartS: null, requestEndS: null, charge: null };
+  }
+  const barEndS = Math.min(trimEndS ?? barS, barS);
+  const endAtFull = barEndS >= barS - 0.5;
+  const endS = endAtFull ? storedS : Math.min(barEndS, storedS);
+  const trimmed = trimStartS > 0.5 || !endAtFull;
+  return {
+    barS,
+    barEndS,
+    trimmed,
+    requestStartS: trimmed ? trimStartS : null,
+    requestEndS: trimmed ? endS : null,
+    charge: chargeMinutes(Math.max(0, endS - trimStartS)),
+  };
+}
+
 /** "250 minutes", "1 minute". Balances and quotes read as words. */
 export function formatMinutes(minutes: number): string {
   const m = Math.max(0, Math.floor(minutes));

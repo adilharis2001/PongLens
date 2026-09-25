@@ -16,9 +16,10 @@ import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilit
 import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 import { Switch } from "@/components/Switch";
 import { TrimBar } from "@/components/TrimBar";
-import { chargeMinutes, formatMinutes } from "@/lib/commerce/minutes";
+import { formatMinutes, processWindow } from "@/lib/commerce/minutes";
 import { processingExitMessage, type AvailabilityContext } from "@/lib/processingAvailability";
 import { createClient } from "@/lib/supabase/client";
+import { clock as playerClock } from "./ClipPlayer";
 import { scoreSwitchCopy, type CutMode } from "./handCut";
 
 export type Strictness = "tight" | "normal" | "loose";
@@ -103,23 +104,37 @@ export function useProcessQuote({
    *  against, and the buttons do not show. */
   videoRef?: RefObject<HTMLVideoElement | null>;
 }) {
+  /** The stored length (the player's reading when the row has none):
+   *  what claim_processing charges from. */
   const [duration, setDuration] = useState<number | null>(durationS);
+  /** The length the player itself read, which the trim bar is drawn on
+   *  (processWindow). Null until the metadata arrives. */
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState<number | null>(durationS);
+  /** Where the end handle was put; null while it sits at the end. */
+  const [trimEnd, setTrimEnd] = useState<number | null>(null);
   const [strictness, setStrictness] = useState<Strictness>("normal");
   const [availableMinutes, setAvailableMinutes] = useState(minutesBalance);
   const [minutesShort, setMinutesShort] = useState(false);
   useEffect(() => { setAvailableMinutes(minutesBalance); }, [minutesBalance]);
 
-  /** The player read the length the row did not have. */
+  /** The player read the file's length: the bar takes it, and it stands in
+   *  for a length the row did not have. */
   const learnDuration = useCallback((d: number) => {
     setDuration((prev) => prev ?? d);
-    setTrimEnd((prev) => prev ?? d);
+    setVideoDuration(d);
   }, []);
+
+  const win = processWindow({
+    storedS: duration,
+    videoS: videoDuration,
+    trimStartS: trimStart,
+    trimEndS: trimEnd,
+  });
 
   const stampStart = () => {
     const t = videoRef?.current?.currentTime ?? 0;
-    setTrimStart(Math.min(t, (trimEnd ?? duration ?? t) - 5));
+    setTrimStart(Math.min(t, (win.barEndS ?? t) - 5));
   };
   const stampEnd = () => {
     const t = videoRef?.current?.currentTime ?? 0;
@@ -127,22 +142,17 @@ export function useProcessQuote({
   };
   const resetTrim = () => {
     setTrimStart(0);
-    setTrimEnd(duration);
+    setTrimEnd(null);
   };
 
-  const windowS =
-    duration != null ? Math.max(0, (trimEnd ?? duration) - trimStart) : null;
-  const charge = windowS != null ? chargeMinutes(windowS) : null;
-  const trimmed =
-    duration != null &&
-    (trimStart > 0.5 || (trimEnd != null && trimEnd < duration - 0.5));
+  const { charge, trimmed } = win;
   const enough =
     charge != null && availableMinutes != null && availableMinutes >= charge && !minutesShort;
 
   /** The body /api/process takes, bar the match. */
   const request = () => ({
-    trimStartS: trimmed ? trimStart : null,
-    trimEndS: trimmed ? trimEnd : null,
+    trimStartS: win.requestStartS,
+    trimEndS: win.requestEndS,
     points: true,
     // The detailed analysis rides on the same run for nothing
     // (the ball is detected and the table found for the cut anyway);
@@ -153,6 +163,7 @@ export function useProcessQuote({
 
   return {
     duration, setDuration, learnDuration,
+    barDuration: win.barS, barEnd: win.barEndS,
     trimStart, trimEnd, setTrim: (s: number, e: number) => { setTrimStart(s); setTrimEnd(e); },
     stampStart, stampEnd, resetTrim, canStamp: !!videoRef,
     videoRef,
@@ -229,13 +240,18 @@ export function AutoProcessPanel({
           </p>
           <div className="mt-3" />
           <TrimBar
-            duration={q.duration}
+            duration={q.barDuration ?? q.duration}
             start={q.trimStart}
-            end={q.trimEnd ?? q.duration}
+            end={q.barEnd ?? q.duration}
             onChange={q.setTrim}
             onScrub={(t) => {
               if (q.videoRef?.current) q.videoRef.current.currentTime = t;
             }}
+            // Drawn on the file's own length and written the way the
+            // player above writes it, so the bar's end and the player's
+            // length are the same number (a 728.99 s file is 12:08 in
+            // both, not 12:08 over 12:09).
+            clock={playerClock}
           />
 
           {(q.canStamp || q.trimmed) && (

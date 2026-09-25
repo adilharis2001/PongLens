@@ -164,10 +164,14 @@ export function processErrorMessage(code: unknown): string {
 /**
  * The trailing "{N} marked" on "Mark the points yourself": closed marks in
  * a draft nobody has sent. A sent draft (the cut that made this match) is
- * history, not work in progress, and shows nothing.
+ * history, not work in progress, and shows nothing. Neither does a
+ * prefilled one: start_recut copies this cut's points in as the marks the
+ * marker opens on, and opening it only to look is not marking
+ * (20260925133555). Nothing counted also means "Start marking", not
+ * "Keep marking".
  */
-export function unsentMarkCount(marks: Mark[], submitted: boolean): number {
-  if (submitted) return 0;
+export function unsentMarkCount(marks: Mark[], submitted: boolean, prefilled = false): number {
+  if (submitted || prefilled) return 0;
   return marks.filter((m) => m.t1 !== null).length;
 }
 

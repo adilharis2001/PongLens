@@ -20,6 +20,14 @@ export function useHandCutDraft(matchId: string, userId: string, enabled: boolea
    *  that made the match, not marking in progress. */
   const [submitted, setSubmitted] = useState(false);
   /**
+   * The row is still what start_recut wrote from a processed match's
+   * points, untouched (20260925133555). Opening the marker and closing it
+   * again is looking, not marking, so a prefilled draft counts as nothing
+   * marked yet. The database clears the flag on the first save that
+   * changes the marks, whichever app made it.
+   */
+  const [prefilled, setPrefilled] = useState(false);
+  /**
    * Does the hand-cut backend exist yet?
    *
    * Self-disabling rather than config-gated: the draft read below answers
@@ -60,7 +68,7 @@ export function useHandCutDraft(matchId: string, userId: string, enabled: boolea
     const supabase = createClient();
     const { data, error } = await supabase
       .from("hand_cut_drafts")
-      .select("marks, mode, updated_at, submitted_at")
+      .select("marks, mode, updated_at, submitted_at, prefilled")
       .eq("match_id", matchId)
       .maybeSingle();
     if (error) return false;
@@ -69,10 +77,12 @@ export function useHandCutDraft(matchId: string, userId: string, enabled: boolea
       mode?: string | null;
       updated_at?: string | null;
       submitted_at?: string | null;
+      prefilled?: boolean | null;
     } | null;
     setMarks(normalizeMarks(row?.marks));
     setMode(row?.mode === "cut" || row?.mode === "score" ? row.mode : null);
     setSubmitted(row?.submitted_at != null);
+    setPrefilled(row?.prefilled === true);
     stamp.current = row?.updated_at ?? null;
     return true;
   }, [matchId]);
@@ -92,6 +102,11 @@ export function useHandCutDraft(matchId: string, userId: string, enabled: boolea
    * Take a draft the database has just written (start_recut) as the one
    * this page knows, stamp included, so the saves that follow are
    * conditional updates of that row.
+   *
+   * start_recut hands back either the player's own unsent draft or a
+   * fresh prefill, and its answer does not say which, so the flag is read
+   * from the row at exactly that stamp. A save that lands first carries
+   * its own flag and wins.
    */
   const adopt = useCallback(
     (raw: unknown, recorded: unknown, updatedAt: string | null): Mark[] => {
@@ -100,9 +115,22 @@ export function useHandCutDraft(matchId: string, userId: string, enabled: boolea
       setMode(recorded === "cut" || recorded === "score" ? recorded : null);
       setSubmitted(false);
       stamp.current = updatedAt;
+      if (updatedAt) {
+        void createClient()
+          .from("hand_cut_drafts")
+          .select("prefilled")
+          .eq("match_id", matchId)
+          .eq("updated_at", updatedAt)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (data && stamp.current === updatedAt) {
+              setPrefilled((data as { prefilled?: boolean | null }).prefilled === true);
+            }
+          });
+      }
       return next;
     },
-    [],
+    [matchId],
   );
 
   /** A new opening of the marker. */
@@ -140,26 +168,30 @@ export function useHandCutDraft(matchId: string, userId: string, enabled: boolea
           const { data, error: insertError } = await supabase
             .from("hand_cut_drafts")
             .insert({ match_id: matchId, user_id: userId, marks: next, mode: nextMode, updated_at: now })
-            .select("updated_at")
+            .select("updated_at, prefilled")
             .single();
           if (insertError) {
             // The row appeared since this page last looked.
             if (insertError.code === "23505") return conflict();
             throw insertError;
           }
-          stamp.current = (data as { updated_at: string }).updated_at;
+          const row = data as { updated_at: string; prefilled?: boolean | null };
+          stamp.current = row.updated_at;
+          setPrefilled(row.prefilled === true);
         } else {
           const { data, error: updateError } = await supabase
             .from("hand_cut_drafts")
             .update({ marks: next, mode: nextMode, updated_at: now })
             .eq("match_id", matchId)
             .eq("updated_at", known)
-            .select("updated_at");
+            .select("updated_at, prefilled");
           if (updateError) throw updateError;
-          const rows = (data ?? []) as { updated_at: string }[];
+          const rows = (data ?? []) as { updated_at: string; prefilled?: boolean | null }[];
           // Nothing matched: the row was saved since (or sent, or gone).
           if (rows.length === 0) return conflict();
           stamp.current = rows[0].updated_at;
+          // The trigger's verdict: still the untouched prefill, or marked.
+          setPrefilled(rows[0].prefilled === true);
         }
         setMarks(next);
         setMode(nextMode);
@@ -172,5 +204,5 @@ export function useHandCutDraft(matchId: string, userId: string, enabled: boolea
     [matchId, userId, load],
   );
 
-  return { marks, mode, submitted, ready, load, adopt, beginSession, save };
+  return { marks, mode, submitted, prefilled, ready, load, adopt, beginSession, save };
 }

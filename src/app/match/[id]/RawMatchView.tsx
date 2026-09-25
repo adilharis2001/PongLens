@@ -141,13 +141,24 @@ export function RawMatchView({
       || (initialJob?.kind === "hand_cut" && initialJob.status === "failed"),
   );
   /** Which of the two ways is open. Neither, until the reader picks one:
-   *  the card's job is to show that there IS a choice. Each row opens and
-   *  closes on its own, the same way. A hand cut that failed opens its
-   *  own row, because its marks and the way back into them are the point. */
+   *  the card's job is to show that there IS a choice. One at a time:
+   *  each ends in a cyan button, and two primaries open together leave the
+   *  reader to work out which is meant, so opening one closes the other
+   *  (More options does the same). A hand cut that failed opens its own
+   *  row, because its marks and the way back into them are the point. */
   const [autoOpen, setAutoOpen] = useState(false);
   const [handOpen, setHandOpen] = useState(
     initialJob?.kind === "hand_cut" && initialJob.status === "failed",
   );
+  const toggleWay = (way: "automatic" | "hand") => {
+    if (way === "automatic") {
+      setAutoOpen(!autoOpen);
+      if (!autoOpen) setHandOpen(false);
+    } else {
+      setHandOpen(!handOpen);
+      if (!handOpen) setAutoOpen(false);
+    }
+  };
   /** The hand-marking takeover, and whatever marking is already done. */
   const [marking, setMarking] = useState(false);
   /**
@@ -169,7 +180,10 @@ export function RawMatchView({
   const draftMarks: Mark[] = draft.marks;
   const draftMode: CutMode | null = draft.mode;
   const handCutReady = draft.ready;
-  const draftCount = draftMarks.filter((m) => m.t1 !== null).length;
+  // A prefill start_recut wrote and nobody changed is nothing marked yet
+  // (the same rule as More options, unsentMarkCount); the marker still
+  // opens on it.
+  const draftCount = draft.prefilled ? 0 : draftMarks.filter((m) => m.t1 !== null).length;
   const [openingMarker, setOpeningMarker] = useState(false);
   const [spokenOpen, setSpokenOpen] = useState(false);
   const spokenRows = cleanSpoken(match.spoken_scores);
@@ -758,7 +772,7 @@ export function RawMatchView({
             detail="We find the rallies and cut them for you."
             trailing={charge != null ? `${charge} min` : null}
             open={autoOpen}
-            onToggle={() => setAutoOpen((v) => !v)}
+            onToggle={() => toggleWay("automatic")}
           />
           {autoOpen && (
             <AutoProcessPanel
@@ -784,7 +798,7 @@ export function RawMatchView({
             detail="You mark where each point starts and ends."
             trailing={draftCount > 0 ? `${draftCount} marked` : null}
             open={handOpen && !!rawUrl && !undecodable}
-            onToggle={() => setHandOpen((v) => !v)}
+            onToggle={() => toggleWay("hand")}
             disabled={!rawUrl || undecodable}
           />
           {handOpen && rawUrl && !undecodable && (
@@ -792,7 +806,7 @@ export function RawMatchView({
               mode={markMode}
               scoringAllowed={markScoringAllowed}
               onMode={setMarkModeChoice}
-              resume={draftMarks.length > 0}
+              resume={!draft.prefilled && draftMarks.length > 0}
               opening={openingMarker}
               onStart={() => void openMarker()}
             />

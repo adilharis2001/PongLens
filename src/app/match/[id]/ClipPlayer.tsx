@@ -17,8 +17,10 @@ const persistedZoom = { scale: 1, tx: 0, ty: 0 };
 // choice about the footage, not the clip. Same rates as the match player.
 let persistedSpeed = 1;
 
-/** "7:24" / "1:07:24" — the shape every phone shows a video length in. */
-function clock(seconds: number) {
+/** "7:24" / "1:07:24" — the shape every phone shows a video length in.
+ *  Whole seconds, counted down (728.99 s is 12:08). The trim bar under
+ *  a preview borrows it (BreakIntoPoints). */
+export function clock(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const t = Math.floor(seconds);
   const h = Math.floor(t / 3600);

@@ -93,6 +93,36 @@ export function processingStageLabel(feedback: ProcessingFeedback | null): strin
   return stages[feedback.stage ?? ""] ?? "Processing your match";
 }
 
+/**
+ * The feedback about `job`, the cut a page knows is running on the match.
+ *
+ * Owner feedback is polled every 15 seconds, so for a moment after a cut is
+ * asked for it still names the job before it, finished, and its label is
+ * nobody's (a processed match's Replace read "Processing" while it waited,
+ * where the unprocessed page reads "Waiting to prepare clips"). Until the
+ * poll catches up, the job's own status and kind speak through the same
+ * labels. A job the feedback never names (match_reprocess) always reads
+ * this way.
+ */
+export function feedbackForJob(
+  feedback: ProcessingFeedback | null,
+  job: { id: string; status: string; kind: string | null } | null,
+): ProcessingFeedback | null {
+  if (!job || feedback?.job_id === job.id) return feedback;
+  return {
+    match_id: feedback?.match_id ?? "",
+    job_id: job.id,
+    job_status: job.status,
+    job_kind: job.kind,
+    stage: null,
+    worker_state: null,
+    checked_at: null,
+    window_start_s: null,
+    window_end_s: null,
+    camera_check: null,
+  };
+}
+
 export function cameraViewWarning(
   feedback: ProcessingFeedback | null,
   trimStart = 0,

@@ -33,7 +33,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BottomSheet } from "@/components/BottomSheet";
 import { availabilityNotice, processingContext, serviceLane } from "@/lib/processingAvailability";
-import { onDevice, processingStageLabel } from "@/lib/processingFeedback";
+import { feedbackForJob, onDevice, processingStageLabel } from "@/lib/processingFeedback";
 import { tracksServe } from "@/lib/matchTitle";
 import { createClient } from "@/lib/supabase/client";
 import type { Match } from "@/lib/types";
@@ -178,7 +178,10 @@ export function MoreOptions({
   }, [jobId, jobStatus, loadOptions, loadDraft, router]);
 
   const feedbackByMatch = useProcessingFeedback(live ? [match.id] : []);
-  const feedback = feedbackByMatch[match.id] ?? null;
+  // About the running cut, never the finished one before it: a Replace
+  // just asked for reads "Waiting to prepare clips", as the unprocessed
+  // page reads it, not a bare "Processing" until the next poll.
+  const feedback = feedbackForJob(feedbackByMatch[match.id] ?? null, job);
   const services = useProcessingService();
   const running = job != null;
   const stageLabel = running ? processingStageLabel(feedback) : null;
@@ -331,7 +334,7 @@ export function MoreOptions({
         anyCalled,
         scoringAllowed,
       });
-  const unsent = unsentMarkCount(draft.marks, draft.submitted);
+  const unsent = unsentMarkCount(draft.marks, draft.submitted, draft.prefilled);
 
   const [opening, setOpening] = useState(false);
   const [marking, setMarking] = useState<{
@@ -430,6 +433,22 @@ export function MoreOptions({
     [match.id, loadOptions, loadJob, router],
   );
 
+  /**
+   * The two ways open one at a time: each ends in a cyan button, and two
+   * primaries on one sheet leave the player to work out which one is
+   * meant. Opening one closes the other; the unprocessed page does the
+   * same.
+   */
+  const toggleWay = (way: "automatic" | "hand") => {
+    if (way === "automatic") {
+      setAutoOpen(!autoOpen);
+      if (!autoOpen) setHandOpen(false);
+    } else {
+      setHandOpen(!handOpen);
+      if (!handOpen) setAutoOpen(false);
+    }
+  };
+
   /* ------------------------------------------------------------- render */
 
   const trailing = running ? (
@@ -497,7 +516,7 @@ export function MoreOptions({
                 title="Process automatically"
                 trailing={quote.charge != null ? `${quote.charge} min` : null}
                 open={autoOpen}
-                onToggle={() => setAutoOpen((v) => !v)}
+                onToggle={() => toggleWay("automatic")}
               />
               {autoOpen && (
                 <AutoProcessPanel
@@ -526,7 +545,7 @@ export function MoreOptions({
                 title="Mark the points yourself"
                 trailing={unsent > 0 ? `${unsent} marked` : null}
                 open={handOpen}
-                onToggle={() => setHandOpen((v) => !v)}
+                onToggle={() => toggleWay("hand")}
               />
               {handOpen && (
                 <>

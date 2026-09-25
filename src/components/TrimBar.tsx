@@ -25,12 +25,17 @@ export function TrimBar({
   end,
   onChange,
   onScrub,
+  clock = formatClock,
 }: {
   duration: number;
   start: number;
   end: number;
   onChange: (start: number, end: number) => void;
   onScrub: (t: number) => void;
+  /** How the three times under the bar are written. A bar directly under
+   *  a player passes the player's own clock, so the two never read a
+   *  second apart. */
+  clock?: (seconds: number) => string;
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef<"start" | "end" | null>(null);
@@ -139,9 +144,9 @@ export function TrimBar({
         </div>
       </div>
       <div className="mt-2 flex items-baseline justify-between text-xs tabular-nums">
-        <span className="text-zinc-400">{formatClock(start)}</span>
-        <span className="text-cyan-200/90">{formatClock(end - start)} kept</span>
-        <span className="text-zinc-400">{formatClock(end)}</span>
+        <span className="text-zinc-400">{clock(start)}</span>
+        <span className="text-cyan-200/90">{clock(end - start)} kept</span>
+        <span className="text-zinc-400">{clock(end)}</span>
       </div>
     </div>
   );

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { shouldRefreshActiveVersion } from "@/lib/matchIssues/activeVersion";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { DictateButton } from "@/components/DictateButton";
 import type { MatchIssue, MatchIssueKind, MatchIssueState, MatchIssueSubmission } from "@/lib/matchIssues/types";
 import { TOOL_ROW_CLASS, ToolRowChevron } from "../ReelBar";
@@ -128,10 +129,19 @@ const eventLabels: Record<string, string> = {
   restored: "Previous version restored", declined: "Request closed",
 };
 
-export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, title, detail, thumbnail, hasOriginal }: {
+const noSubscription = () => () => {};
+
+export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, title, detail, titleFacts, thumbnail, hasOriginal }: {
   matchId: string; initialState: MatchIssueState | null; isOwner: boolean;
   matchStatus: MatchIssueState["matchStatus"]; title: string; detail: string; thumbnail: string | null; hasOriginal: boolean;
+  /** What the title is made of. The server can only write the date in its
+   *  own time zone (UTC), a day ahead of the match page for an evening
+   *  match; once the page is live the title is made again in the reader's,
+   *  as the match page and the library make it. */
+  titleFacts: Parameters<typeof deriveMatchTitleParts>[0];
 }) {
+  const hydrated = useSyncExternalStore(noSubscription, () => true, () => false);
+  const heading = hydrated ? deriveMatchTitleParts(titleFacts) : { primary: title, secondary: detail };
   const { state, loadError, refresh, saved } = useMatchIssueState(matchId, initialState);
   const fallback: MatchIssueState = { role: isOwner ? "owner" : "coach", matchStatus,
     activeIssue: null, events: [], refundableMinutes: null,
@@ -196,7 +206,7 @@ export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, tit
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={thumbnail} alt="" className="h-full w-full object-cover" />
       </div>}
-      <div className="min-w-0"><p className="break-words text-sm font-semibold text-zinc-100">{title}</p><p className="mt-1 text-xs text-zinc-500">{detail}</p></div>
+      <div className="min-w-0"><p className="break-words text-sm font-semibold text-zinc-100">{heading.primary}</p><p className="mt-1 text-xs text-zinc-500">{heading.secondary}</p></div>
     </header>
     <div className="rounded-2xl border border-edge bg-surface p-5 sm:p-6">
       {view.automaticRefundMessage && <p role="status" className="mb-4 text-sm text-zinc-300">{view.automaticRefundMessage}</p>}
