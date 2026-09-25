@@ -1576,7 +1576,7 @@ export function MarkPoints({
             }`}
             aria-hidden="true"
           />
-          {nextServer === "user" ? `${youLabel} serves` : `${themLabel} serves`}
+          {nextServer === "user" ? "You serve" : `${themLabel} serves`}
         </span>
       )}
     </div>
@@ -2504,7 +2504,7 @@ export function MarkPoints({
                         nextServer === "user" ? "bg-cyan-glow" : "bg-magenta-soft"
                       }`}
                     />
-                    {nextServer === "user" ? `${youLabel} serves` : `${themLabel} serves`}
+                    {nextServer === "user" ? "You serve" : `${themLabel} serves`}
                   </span>
                 )}
               </div>

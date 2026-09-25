@@ -331,7 +331,7 @@ extension PlayerTakeover {
                 .fill(server == .user ? PL.cyan : PL.magentaSoft)
                 .frame(width: landscape ? 7 : 10, height: landscape ? 7 : 10)
                 .accessibilityHidden(true)
-            Text("\(server == .user ? hc.youLabel : hc.themLabel) serves")
+            Text(server == .user ? "You serve" : "\(hc.themLabel) serves")
                 .font(.system(size: landscape ? 13 : 11))
                 .foregroundStyle(landscape ? PL.text300 : PL.text400)
                 .lineLimit(1)
