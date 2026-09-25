@@ -4,7 +4,7 @@ import { validEndingLabel, normalizeEndingLabel, sameEndingLabel, bounceReviewIn
 import {suggestionKeys,validSuggestion,type EndingSuggestion} from '@/lib/research/endingSuggestions';
 import {validRallyPrediction} from '@/lib/research/rallyPredictions';
 import {START_REVIEW_CASES} from '@/lib/research/startReviewCases';
-import {startReviewAllowed} from '@/lib/research/startReview';
+import {startReviewAllowed,startReviewWindow} from '@/lib/research/startReview';
 import {cutReviewInPoint} from '@/lib/research/cutReview';
 export const runtime='nodejs';
 export async function POST(request:Request) {
@@ -20,12 +20,13 @@ export async function POST(request:Request) {
   if(!current)return NextResponse.json({error:'Point not found.'},{status:404});
   // Preserve optional review answers omitted by older open tabs.
   const label=normalizeEndingLabel(body.label,current.label);
-  if(label.cutReview&&!cutReviewInPoint(label.cutReview,current.source))return NextResponse.json({error:'Mark the serve start and point end within this video window, with the start before the end.'},{status:400});
+  const reviewWindow=startReviewWindow(current.source,START_REVIEW_CASES.find(item=>item.pointId===body.id));
+  if(label.cutReview&&!cutReviewInPoint(label.cutReview,reviewWindow))return NextResponse.json({error:'Mark the serve start and point end within this video window, with the start before the end.'},{status:400});
   if(label.startReview&&!startReviewAllowed(label.startReview,current.label?.startReview,label.cutReview?.serveStart??null,START_REVIEW_CASES.find(item=>item.pointId===body.id)))return NextResponse.json({error:'The serve mark changed. Review the proposed start again before saving your answer.'},{status:400});
   if(label.bounceReview){
     const {data:evidence,error:evidenceError}=await db.from('point_ending_evidence').select('payload').eq('point_id',body.id).maybeSingle();
     if(evidenceError||!evidence)return NextResponse.json({error:'Could not load bounce references. Try again.'},{status:503});
-    if(!bounceReviewInPoint(label.bounceReview,current.source,evidence.payload.bounces.length))return NextResponse.json({error:'Choose a bounce or frame within this point.'},{status:400});
+    if(!bounceReviewInPoint(label.bounceReview,reviewWindow,evidence.payload.bounces.length))return NextResponse.json({error:'Choose a bounce or frame within this point.'},{status:400});
   }
   if(label.suggestionReview){
     const {data:suggestion,error:suggestionError}=await db.from('point_ending_suggestions').select('payload').eq('point_id',body.id).eq('run_id',label.suggestionReview.runId).maybeSingle();

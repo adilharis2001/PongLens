@@ -16,7 +16,7 @@ import {BounceDetails} from './BounceDetails';
 import {CutReview} from './CutReview';
 import {OvernightResults} from './OvernightResults';
 import {cutReviewComplete} from '@/lib/research/cutReview';
-import {nextStartReview,startReviewComplete,startReviewRows,type StartReviewCase} from '@/lib/research/startReview';
+import {nextStartReview,startReviewWindow,startReviewComplete,startReviewRows,type StartReviewCase} from '@/lib/research/startReview';
 import {CUT_REVIEW_POINTS} from '@/lib/research/cutReviewStudy';
 import {PlaybackTimeline} from './PlaybackTimeline';
 
@@ -140,22 +140,22 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
    return()=>{cancelled=true;abort.abort();};
  },[point?.id,evidenceRetry]);
 
- function seek(at:number){const v=video.current;if(!v||!point)return;v.pause();v.currentTime=Math.min(point.source.end,Math.max(point.source.start,at));}
+ function seek(at:number){const v=video.current;if(!v||!point)return;v.pause();v.currentTime=Math.min(point.source.end,Math.max(startReviewWindow(point.source,startCases.find(item=>item.pointId===point.id)).start,at));}
  function seekEnding(){const p=pointRef.current;const v=video.current;if(!p||!v)return;v.pause();v.currentTime=Math.max(p.source.start,(p.source.tap??p.source.end)-4);}
- function seekInitial(){if(filter==='cuts'||filter==='starts')seek(point.source.start);else seekEnding();}
+ function seekInitial(){if(filter==='cuts'||filter==='starts')seek(startReviewWindow(point.source,startCases.find(item=>item.pointId===point.id)).start);else seekEnding();}
  useEffect(()=>{if(video.current?.readyState){seekInitial();setReady(true);}
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[selected,url,filter]);
  useEffect(()=>{if(video.current)video.current.playbackRate=rate;},[rate,url]);
  useEffect(()=>{const v=video.current;return()=>{v?.pause();};},[url]);
- function play(){const v=video.current;if(!v||!point)return;if(!v.paused){v.pause();return;}if(v.currentTime>=point.source.end-0.05||v.currentTime<point.source.start)seekInitial();v.playbackRate=rate;void v.play().catch(()=>setMediaError('Video could not play. Reload the video to try again.'));}
+ function play(){const v=video.current;if(!v||!point)return;if(!v.paused){v.pause();return;}if(v.currentTime>=point.source.end-0.05||v.currentTime<startReviewWindow(point.source,startCases.find(item=>item.pointId===point.id)).start)seekInitial();v.playbackRate=rate;void v.play().catch(()=>setMediaError('Video could not play. Reload the video to try again.'));}
  function confirm(keys?:string[],dismiss=false){const p=pointRef.current;if(p?.suggestion)change(confirmSuggestions(p.label,p.suggestion,keys,dismiss));}
  function next(){if(filter==='starts'){const next=nextStartReview(matchRows,startCases,selected);if(next)setSelected(next.id);return;}if(filter==='cuts'){const index=navigationRows.findIndex(r=>r.id===selected);const next=[...navigationRows.slice(index+1),...navigationRows.slice(0,index)].find(r=>!cutReviewComplete(r.label.cutReview));if(next)setSelected(next.id);return;}const index=matchRows.findIndex(r=>r.id===selected);const ordered=[...matchRows.slice(index+1),...matchRows.slice(0,index)];const p=ordered.find(r=>rallyPending(r.label,r.rallyPrediction))??ordered.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
  function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>(id==='all'||r.match_id===id)&&(filter!=='cuts'||CUT_REVIEW_POINTS.has(r.id))&&(filter!=='starts'||startCases.some(item=>item.pointId===r.id)));setSelected((filter==='starts'?(nextStartReview(list,startCases)??list[0]):filter==='cuts'?(list.find(r=>!cutReviewComplete(r.label.cutReview))??list[0]):(list.find(r=>rallyPending(r.label,r.rallyPrediction))??list.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(list)??list[0]))?.id??'');}
  function retryVideo(){if(point)cache.current.delete(point.match_id);setMediaRetry(n=>n+1);}
 
  if(!point)return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8"><h1 className="text-2xl font-semibold">Point-ending labels</h1><p className="mt-3 text-zinc-400">The study points have not been loaded yet.</p></main>;
- const start=point.source.start,end=point.source.end;
+ const {start,end}=startReviewWindow(point.source,startCases.find(item=>item.pointId===point.id));
  const customSelected=point.label.reason==='custom'&&customOptions.includes(point.label.custom);
  return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8 lg:px-6">
    <Link href="/research" onClick={e=>{if(unfinishedSaves){e.preventDefault();setExitBlocked(true);}}} className="text-sm text-zinc-400 hover:text-cyan-glow">← Research</Link>

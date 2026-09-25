@@ -28,7 +28,7 @@ export function CutReview({value,initialOpen=false,start,end,ready,currentTime,o
      <div className="flex flex-wrap justify-between gap-x-4 gap-y-1"><dt className="text-zinc-400">Proposed clip start</dt><dd className="text-cyan-100">{clock(startCase.proposedStart-start)} into this point</dd></div>
      {reference&&<div className="flex flex-wrap justify-between gap-x-4 gap-y-1"><dt className="text-zinc-400">Proposed start minus {reference.kind==='tap'?'tap':'mark'}</dt><dd className="text-zinc-200">{startCase.proposedStart-reference.time>=0?'+':'−'}{Math.abs(startCase.proposedStart-reference.time).toFixed(3)} s</dd></div>}
     </dl>
-    <p className="text-sm text-zinc-400">{reference?.kind==='tap'?'The recorded serve tap is an earlier timing reference. ':''}Watch the serve to judge the proposed clip start. You can correct the serve mark below.</p>
+    <p className="text-sm text-zinc-400">{startCase.retainedExistingStart?'The later suggestion was withdrawn. This keeps the existing clip start.':`${reference?.kind==='tap'?'The recorded serve tap is an earlier timing reference. ':''}Watch the serve to judge the proposed clip start. You can correct the serve mark below.`}</p>
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
      <button type="button" className={button} disabled={!ready||!reference} onClick={()=>{if(reference)onSeek(reference.time);}}>Go to {reference?.kind==='tap'?'recorded serve tap':'saved serve mark'}</button>
      <button type="button" className={button} disabled={!ready} onClick={()=>onSeek(startCase.proposedStart)}>Go to proposed start</button>
@@ -37,7 +37,7 @@ export function CutReview({value,initialOpen=false,start,end,ready,currentTime,o
     <select id="start-review-outcome" className="w-full min-h-11 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus:border-cyan-glow focus:outline-none" value={reviewed?startReview?.outcome??'':''} onChange={event=>onStartReview?.({runId:startCase.runId,outcome:(event.target.value||null) as StartReview['outcome'],observedServeStart:marks.serveStart})}>
      <option value="">Not reviewed</option><option value="yes">Yes</option><option value="no">No</option><option value="uncertain">Cannot tell</option>
     </select>
-    {stale&&<p className="text-sm text-zinc-400">The serve mark changed after your previous answer. Review the proposed start again.</p>}
+    {stale&&<p className="text-sm text-zinc-400">{startReview?.runId!==startCase.runId?'The suggestion changed. Your previous answer is saved; this updated start has not been reviewed.':'The serve mark changed after your previous answer. Review the proposed start again.'}</p>}
    </div>}
    <p className="text-sm text-zinc-400">Pause at each moment and mark it. Either answer can be skipped; these marks do not change your clips.</p>
    {([['serveStart','Serve starts','Start of the serving action, including the toss. Ignore preparation and practice bounces.'],['pointEnd','Point ends','When the point is visibly over, not the last legal bounce or your score tap.']] as const).map(([key,title,help])=><div key={key} className="space-y-2">
