@@ -74,6 +74,8 @@ function point(opts: {
   rallyEndCut?: number | null;
   tapCut?: number | null;
   let?: boolean;
+  t0?: number;
+  t1?: number;
 }): Point {
   return {
     id: opts.id,
@@ -81,8 +83,8 @@ function point(opts: {
     is_let: opts.let ?? false,
     confirmed_winner: opts.winner,
     placement: opts.placement ?? null,
-    t0: 100,
-    t1: 105,
+    t0: opts.t0 ?? 100,
+    t1: opts.t1 ?? 105,
     cut_t0: 50,
     rally_end_cut_s: opts.rallyEndCut ?? null,
     scored_at_cut_s: opts.tapCut ?? null,
@@ -250,4 +252,86 @@ test("nothing is computed below the scored gate or without a side", () => {
     }),
     null,
   );
+});
+
+/*
+ * Hand cuts (matches.cut_source = 'manual'): the owner's marks are the
+ * point. The End Point tap (t1) is the end, the start mark (t0) is the start
+ * wherever the ball gave no serve time, and point length needs no side.
+ * The same cases run in ios/Tests/ScoredCardsTests.swift.
+ */
+function runHandCut(points: Point[], userSide: "near" | "far" | null, placementTrusted = true) {
+  return computeScoredCards({
+    points,
+    userSide,
+    gameIndexByPoint: new Map(points.map((p) => [p.id, 0])),
+    serving: new Map(points.map((p) => [p.id, { server: "user" as const }])),
+    prePad,
+    placementTrusted,
+    handCut: true,
+  });
+}
+
+const bands = (tallies: { won: number; lost: number }[]) =>
+  tallies.map((b) => [b.won, b.lost]);
+
+test("a hand cut times each point from its marks, with no side and no ball", () => {
+  const points = [
+    point({ id: "a", winner: "user", t0: 100, t1: 102 }), // 2 s
+    point({ id: "b", winner: "opponent", t0: 200, t1: 204.5 }), // 4.5 s
+    point({ id: "c", winner: "user", t0: 300, t1: 307 }), // 7 s
+  ];
+  const result = runHandCut(points, null, false)!;
+  assert.notEqual(result, null);
+  assert.equal(result.pointLength.covered, 3);
+  assert.equal(result.pointLength.considered, 3);
+  assert.deepEqual(bands(result.pointLength.mine), [[1, 0], [0, 1], [1, 0]]);
+  // Nothing that needs the ball or the side.
+  assert.deepEqual(result.serveSpeed, { mine: [], theirs: [] });
+  assert.equal(result.endings.considered, 0);
+  // The same points as an automatic cut, with no rally end or tap, have no length.
+  assert.equal(run(points)!.pointLength.covered, 0);
+});
+
+test("a hand cut ends at the End Point tap, not at a later score tap", () => {
+  // Score tap cut 60 -> source 109 would make it 9 s; the mark says 2 s.
+  const points = [0, 1, 2].map((i) =>
+    point({ id: `t${i}`, winner: "user", t0: 100, t1: 102, tapCut: 60 }),
+  );
+  assert.deepEqual(bands(runHandCut(points, "near")!.pointLength.mine), [[3, 0], [0, 0], [0, 0]]);
+});
+
+test("a hand cut uses the ball's serve time where it has one", () => {
+  // A late Begin tap: the serve's first bounce (100.0) is before the mark
+  // (101.5). From the bounce it is 3.5 s; from the mark it would be 2 s.
+  const points = [0, 1, 2].map((i) =>
+    point({ id: `s${i}`, winner: "user", placement: placement({}), t0: 101.5, t1: 103.5 }),
+  );
+  assert.deepEqual(bands(runHandCut(points, "near")!.pointLength.mine), [[0, 0], [3, 0], [0, 0]]);
+  // Before the analysis is trusted, the mark is the start.
+  assert.deepEqual(bands(runHandCut(points, "near", false)!.pointLength.mine), [[3, 0], [0, 0], [0, 0]]);
+  // Without a side there is no serve to read, so the mark again.
+  assert.deepEqual(bands(runHandCut(points, null)!.pointLength.mine), [[3, 0], [0, 0], [0, 0]]);
+});
+
+test("a hand cut with no trusted serve starts at the mark, not the first bounce", () => {
+  // First bounce on the receiver's half: the serve rules refuse it. An
+  // automatic cut would fall back to the first table bounce (100.0, 3.5 s);
+  // the hand cut's own mark says 2 s.
+  const refused = placement({
+    first: { u: 0.7, v: 2.0, t: 100.0 },
+    landing: { u: 0.7, v: 0.6, t: 100.4 },
+  });
+  const points = [0, 1, 2].map((i) =>
+    point({ id: `r${i}`, winner: "user", placement: refused, t0: 101.5, t1: 103.5 }),
+  );
+  assert.deepEqual(bands(runHandCut(points, "near")!.pointLength.mine), [[3, 0], [0, 0], [0, 0]]);
+});
+
+test("a hand cut still waits for the scored gate", () => {
+  const points = [
+    point({ id: "a", winner: "user", t0: 100, t1: 102 }),
+    point({ id: "b", winner: null, t0: 200, t1: 202 }),
+  ];
+  assert.equal(runHandCut(points, null), null);
 });

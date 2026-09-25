@@ -10,7 +10,7 @@ private func decodePoint(_ json: String) -> MatchPoint? {
 
 private func pointJSON(
     id: String, winner: String?, rallyEnd: Double? = nil, tap: Double? = nil,
-    isLet: Bool = false, placement: String? = nil
+    isLet: Bool = false, placement: String? = nil, t0: Double = 100, t1: Double = 105
 ) -> String {
     let winnerField = winner.map { "\"confirmed_winner\": \"\($0)\"," } ?? ""
     let rallyField = rallyEnd.map { "\"rally_end_cut_s\": \($0)," } ?? ""
@@ -18,7 +18,7 @@ private func pointJSON(
     let placementField = placement.map { "\"placement\": \($0)," } ?? ""
     return """
     {"id": "\(id)", "match_id": "11111111-1111-1111-1111-111111111111", "idx": 1,
-     "t0": 100, "t1": 105, "cut_t0": 50, "is_let": \(isLet), "starred": false,
+     "t0": \(t0), "t1": \(t1), "cut_t0": 50, "is_let": \(isLet), "starred": false,
      "deleted": false, "edited": false, "tight_start": false, "tight_end": false,
      \(winnerField) \(rallyField) \(tapField) \(placementField)
      "server": null}
@@ -31,7 +31,12 @@ private func uuid(_ n: Int) -> String {
 
 /// A serve from the near end: first bounce on the near half, landing on the
 /// far half, consecutive candidates, plus whatever extra bounces follow.
-private func placementJSON(extra: [(u: Double?, v: Double?, t: Double, kind: String)] = []) -> String {
+/// `refused` swaps the two halves, so the app's serve rules turn it down.
+private func placementJSON(
+    extra: [(u: Double?, v: Double?, t: Double, kind: String)] = [], refused: Bool = false
+) -> String {
+    let firstV = refused ? 2.0 : 0.6
+    let landingV = refused ? 0.6 : 2.2
     let extras = extra.enumerated().map { index, e in
         let u = e.u.map { "\($0)" } ?? "null"
         let v = e.v.map { "\($0)" } ?? "null"
@@ -39,14 +44,14 @@ private func placementJSON(extra: [(u: Double?, v: Double?, t: Double, kind: Str
     }.joined(separator: ",")
     let serve = """
     {"id": "shot-1", "seq": 1, "phase": "serve", "hitter_side": "near", "contact_t": null, "contact": null,
-     "serve_first_bounce": {"event_id": "c1", "t": 100.0, "u": 0.7, "v": 0.6, "confidence": 0.9},
-     "landing": {"event_id": "c2", "t": 100.4, "u": 0.7, "v": 2.2, "confidence": 0.9},
+     "serve_first_bounce": {"event_id": "c1", "t": 100.0, "u": 0.7, "v": \(firstV), "confidence": 0.9},
+     "landing": {"event_id": "c2", "t": 100.4, "u": 0.7, "v": \(landingV), "confidence": 0.9},
      "terminal": null, "confidence": 0.9}
     """
     return """
     {"v": 3, "status": "ready",
-     "candidates": [{"id": "c1", "kind": "bounce", "t": 100.0, "u": 0.7, "v": 0.6},
-                    {"id": "c2", "kind": "bounce", "t": 100.4, "u": 0.7, "v": 2.2}\(extras.isEmpty ? "" : "," + extras)],
+     "candidates": [{"id": "c1", "kind": "bounce", "t": 100.0, "u": 0.7, "v": \(firstV)},
+                    {"id": "c2", "kind": "bounce", "t": 100.4, "u": 0.7, "v": \(landingV)}\(extras.isEmpty ? "" : "," + extras)],
      "hypotheses": {
        "near": {"status": "ready", "confidence": 0.9, "server_side": "near", "shots": [\(serve)], "hard_reasons": [], "reasons": []},
        "far": {"status": "unavailable", "confidence": 0.1, "server_side": "far", "shots": [], "hard_reasons": [], "reasons": []}
@@ -143,4 +148,71 @@ func runScoredCardsChecks() {
         serving: serving, prePad: { _ in 1 }, gameFilter: 1
     )
     check(game1?.gate.scored == 10 && game1?.pointLength.considered == 1, "a game filter narrows the cards but never the gate")
+
+    runHandCutPointLengthChecks()
+}
+
+/// Hand cuts (cut_source = "manual"): the owner's marks are the point. The
+/// End Point tap (t1) is the end, the start mark (t0) is the start wherever
+/// the ball gave no serve time, and point length needs no side. The same
+/// cases as src/lib/placement/scoredCards.test.ts.
+private func runHandCutPointLengthChecks() {
+    func points(_ specs: [(winner: String, t0: Double, t1: Double, tap: Double?, placement: String?)]) -> [MatchPoint] {
+        specs.enumerated().compactMap { index, spec in
+            decodePoint(pointJSON(
+                id: uuid(500 + index), winner: spec.winner, tap: spec.tap,
+                placement: spec.placement, t0: spec.t0, t1: spec.t1
+            ))
+        }
+    }
+    func run(_ points: [MatchPoint], userSide: String?, trusted: Bool = true, handCut: Bool = true) -> ScoredCardsResult? {
+        computeScoredCards(
+            points: points, userSide: userSide,
+            gameIndexByPoint: Dictionary(uniqueKeysWithValues: points.map { ($0.id, 0) }),
+            serving: Dictionary(uniqueKeysWithValues: points.map {
+                ($0.id, ServeInfo(server: .user, source: .rotation, isLet: false))
+            }),
+            prePad: { _ in 1 }, placementTrusted: trusted, handCut: handCut
+        )
+    }
+    func bands(_ result: ScoredCardsResult?) -> [[Int]] {
+        (result?.pointLength.mine ?? []).map { [$0.won, $0.lost] }
+    }
+
+    // From the marks alone: no side, no ball. 2 s, 4.5 s, 7 s.
+    let marked = points([
+        ("user", 100, 102, nil, nil),
+        ("opponent", 200, 204.5, nil, nil),
+        ("user", 300, 307, nil, nil),
+    ])
+    check(marked.count == 3, "hand-cut fixture points decode")
+    let fromMarks = run(marked, userSide: nil, trusted: false)
+    check(fromMarks != nil, "a hand cut computes without a side")
+    check(fromMarks?.pointLength.covered == 3 && fromMarks?.pointLength.considered == 3, "every marked point has a length")
+    check(bands(fromMarks) == [[1, 0], [0, 1], [1, 0]], "a hand cut times each point from its marks")
+    check(fromMarks?.serveSpeedMine.isEmpty == true && fromMarks?.serveSpeedTheirs.isEmpty == true
+          && fromMarks?.endings.considered == 0, "nothing that needs the ball or the side")
+    check(run(marked, userSide: "near", handCut: false)?.pointLength.covered == 0,
+          "the same points as an automatic cut, with no rally end or tap, have no length")
+
+    // The End Point tap is the end, not a later score tap (cut 60 -> 109).
+    let tapped = points((0..<3).map { _ in ("user", 100, 102, 60, nil) })
+    check(bands(run(tapped, userSide: "near")) == [[3, 0], [0, 0], [0, 0]], "a hand cut ends at the End Point tap, not at a later score tap")
+
+    // A late Begin tap: the serve's first bounce (100.0) is before the mark
+    // (101.5). From the bounce it is 3.5 s; from the mark it would be 2 s.
+    let late = points((0..<3).map { _ in ("user", 101.5, 103.5, nil, placementJSON()) })
+    check(bands(run(late, userSide: "near")) == [[0, 0], [3, 0], [0, 0]], "a hand cut uses the ball's serve time where it has one")
+    check(bands(run(late, userSide: "near", trusted: false)) == [[3, 0], [0, 0], [0, 0]], "before the analysis is trusted, the mark is the start")
+    check(bands(run(late, userSide: nil)) == [[3, 0], [0, 0], [0, 0]], "without a side there is no serve to read, so the mark again")
+
+    // A refused serve: an automatic cut would fall back to the first table
+    // bounce (100.0, 3.5 s); the hand cut's own mark says 2 s.
+    let refused = points((0..<3).map { _ in ("user", 101.5, 103.5, nil, placementJSON(refused: true)) })
+    check(bands(run(refused, userSide: "near")) == [[3, 0], [0, 0], [0, 0]], "a hand cut with no trusted serve starts at the mark, not the first bounce")
+
+    // Still behind the scored gate.
+    let unscored = points([("user", 100, 102, nil, nil)])
+        + [decodePoint(pointJSON(id: uuid(599), winner: nil, t0: 200, t1: 202))].compactMap { $0 }
+    check(run(unscored, userSide: nil) == nil, "a hand cut still waits for the scored gate")
 }

@@ -10,6 +10,12 @@ import Foundation
 // the owner's own tap. The placement JSON supplies the serve's two bounces
 // and the candidate bounces, and every rule below refuses what the camera
 // got wrong rather than guessing more.
+//
+// A hand-cut match (cut_source = "manual") has no rally end and no
+// detector, but the owner marked every point: the End Point tap (t1) is its
+// ending and the start mark (t0) its start wherever the ball gave no serve
+// time. Point length is the one card that needs neither the ball nor the
+// owner's side, so a hand cut gets it from its marks alone.
 
 /// Share of scoreable points that must carry a winner before any card shows.
 /// The same bar as the highlights, and the same arithmetic as
@@ -141,18 +147,22 @@ private func halfOf(_ v: Double) -> String { v < NET_V_M ? "near" : "far" }
 private struct ScoredContext {
     let point: MatchPoint
     let server: Winner
-    let serverSide: String
-    let userPhysical: String
-    let loserSide: String
+    /// Nil only on a hand cut whose owner has not said which end they
+    /// played from; such a point never carries placement.
+    let serverSide: String?
+    let userPhysical: String?
+    let loserSide: String?
     let placement: PlacementV3Data?
     /// The serve as the app's own six rules drew it, or nil.
     let drawn: TrustedPlacementObservation?
     let end: Double?
+    /// A hand cut's start mark (t0, source clock); nil on an automatic cut.
+    let markStart: Double?
 }
 
 private func serveShot(_ ctx: ScoredContext) -> PlacementShot? {
-    guard let data = ctx.placement else { return nil }
-    return selectPlacementHypothesis(data, serverSide: ctx.serverSide)?
+    guard let data = ctx.placement, let serverSide = ctx.serverSide else { return nil }
+    return selectPlacementHypothesis(data, serverSide: serverSide)?
         .shots.first { $0.phase == "serve" }
 }
 
@@ -169,6 +179,9 @@ private func pointLength(_ contexts: [ScoredContext]) -> PointLengthResult {
         var start: Double?
         if ctx.drawn != nil, let t = serveShot(ctx)?.serveFirstBounce?.t {
             start = t
+        } else if let mark = ctx.markStart {
+            // A hand cut with no serve time from the ball: the owner's start mark.
+            start = mark
         } else if let data = ctx.placement {
             // No trusted serve: the first bounce seen on the table before the
             // point ended. Later than the real start by a shot at most.
@@ -290,14 +303,15 @@ private func endings(_ contexts: [ScoredContext]) -> EndingsResult {
     var won = 0
     for ctx in contexts {
         guard let data = ctx.placement, let end = ctx.end,
+              let loserSide = ctx.loserSide, let userPhysical = ctx.userPhysical,
               let last = lastCleanBounce(data, end: end),
               let u = last.u, let v = last.v
         else { continue }
         considered += 1
-        guard halfOf(v) == ctx.loserSide else { continue }
+        guard halfOf(v) == loserSide else { continue }
         agreed += 1
-        let lostByUser = ctx.loserSide == ctx.userPhysical
-        let n = normalizePlacementCoordinates(u: u, v: v, userPhysicalSide: ctx.userPhysical)
+        let lostByUser = loserSide == userPhysical
+        let n = normalizePlacementCoordinates(u: u, v: v, userPhysicalSide: userPhysical)
         guard let zone = placementZone(u: n.u, v: n.v, filter: lostByUser ? .theirRally : .myRally)
         else { continue }
         if lostByUser {
@@ -316,9 +330,12 @@ private func endings(_ contexts: [ScoredContext]) -> EndingsResult {
     )
 }
 
-/// Nil when the gate is closed or the owner's side is unknown. `gameFilter`
+/// Nil when the gate is closed, or when the owner's side is unknown on an
+/// automatic cut; a hand cut's point length needs only its marks. `gameFilter`
 /// narrows the cards to one game (0-based); the gate always reads the whole
-/// match.
+/// match. `handCut` is cut_source = "manual": the End Point tap is each
+/// point's end and the start mark stands in for a serve time the ball did not
+/// give.
 func computeScoredCards(
     points: [MatchPoint],
     userSide: String?,
@@ -326,17 +343,20 @@ func computeScoredCards(
     serving: [UUID: ServeInfo],
     prePad: (MatchPoint) -> Double,
     placementTrusted: Bool = true,
-    gameFilter: Int? = nil
+    gameFilter: Int? = nil,
+    handCut: Bool = false
 ) -> ScoredCardsResult? {
     let gate = scoredCardsGate(points)
-    guard gate.open, let userSide else { return nil }
+    guard gate.open, userSide != nil || handCut else { return nil }
     let live = points.filter { !$0.deleted }
-    let drawn = Dictionary(
-        collectServePlacementObservations(
-            points: live, userSide: userSide, gameIndexByPoint: gameIndexByPoint, serving: serving
-        ).map { ($0.pointId, $0) },
-        uniquingKeysWith: { first, _ in first }
-    )
+    let drawn: [UUID: TrustedPlacementObservation] = userSide.map { side in
+        Dictionary(
+            collectServePlacementObservations(
+                points: live, userSide: side, gameIndexByPoint: gameIndexByPoint, serving: serving
+            ).map { ($0.pointId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    } ?? [:]
 
     var contexts: [ScoredContext] = []
     for point in live {
@@ -345,20 +365,25 @@ func computeScoredCards(
         guard let server = serving[point.id]?.server else { continue }
         let gameIndex = gameIndexByPoint[point.id] ?? 0
         if let gameFilter, gameIndex != gameFilter { continue }
-        let userPhysical = physicalSideForGame(userSide, gameIndex: gameIndex)
-        let serverSide = server == .user ? userPhysical : otherSide(userPhysical)
-        let winnerSide = winner == .user ? userPhysical : otherSide(userPhysical)
+        let userPhysical = userSide.map { physicalSideForGame($0, gameIndex: gameIndex) }
+        let serverSide = userPhysical.map { server == .user ? $0 : otherSide($0) }
+        let winnerSide = userPhysical.map { winner == .user ? $0 : otherSide($0) }
+        // Placement is drawn from one end of the table, so without the side
+        // it cannot be read at all.
         var placement: PlacementV3Data?
-        if placementTrusted, point.placementFlagged != true,
+        if userPhysical != nil, placementTrusted, point.placementFlagged != true,
            case .v3(let data)? = point.placement {
             placement = data
         }
         contexts.append(ScoredContext(
             point: point, server: server, serverSide: serverSide,
-            userPhysical: userPhysical, loserSide: otherSide(winnerSide),
+            userPhysical: userPhysical, loserSide: winnerSide.map { otherSide($0) },
             placement: placement,
             drawn: placement == nil ? nil : drawn[point.id],
-            end: pointEndSource(point, prePad: prePad(point))
+            // A hand cut ends where the owner tapped End Point, on the same
+            // source clock as the placement candidates.
+            end: handCut ? point.t1 : pointEndSource(point, prePad: prePad(point)),
+            markStart: handCut ? point.t0 : nil
         ))
     }
 
