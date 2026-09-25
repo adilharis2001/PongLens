@@ -24,7 +24,13 @@
  * the only clock that exists while marking. There is no cut video yet.
  */
 
-import type { MatchServer } from "./serving";
+import type { Point } from "@/lib/types";
+import {
+  computeMatchScore,
+  type GameEndOverride,
+  type MatchScore,
+} from "./gameScore.ts";
+import { computeServing, type MatchServer } from "./serving.ts";
 
 /**
  * A rally the player has marked. `t1` null means it is still open.
@@ -48,6 +54,23 @@ export interface Mark {
    *  against real sessions later without a schema change. */
   tap: number;
   rate: number;
+  /**
+   * The owner's game-end correction on this point, from Keep score
+   * ("Players changed ends"): points.game_end_override. `end` closes the
+   * game after this point whatever the score says, `continue` holds it
+   * open. Absent means none, which is every mark the marker itself makes.
+   *
+   * Only a match being marked again carries these (start_recut copies them
+   * from the live points), and the marker has no control for them: they
+   * ride on their mark, count in the running score, and go wherever the
+   * mark goes. A mark taken out takes its correction with it. The cut
+   * writes them onto the new points (publish_hand_cut_v2 and
+   * publish_hand_recut), so a Replace keeps the games the owner set.
+   */
+  gameEnd?: "end" | "continue";
+  /** Who took the game that closes here, when the owner named it
+   *  (points.game_winner_override). Absent means none. */
+  gameWinner?: MatchServer;
 }
 
 /** What the three answer buttons say. Closing a point is a separate tap
@@ -902,8 +925,8 @@ export function summarize(marks: Mark[]): MarkSummary {
   return { total, unscored, open: openMark(marks) !== null, long, starred };
 }
 
-/** What goes to `claim_hand_cut`: closed marks only, ordered, terse. */
-export function submittable(marks: Mark[]): {
+/** One row of what goes to `claim_hand_cut`. */
+export interface Submission {
   t0: number;
   t1: number;
   w: MatchServer | null;
@@ -911,7 +934,15 @@ export function submittable(marks: Mark[]): {
   star: boolean;
   tap: number;
   rate: number;
-}[] {
+  /** Present only when the mark carries one. They keep their long names:
+   *  one spelling in both stored shapes is one key for the database to
+   *  read when the cut publishes. */
+  gameEnd?: "end" | "continue";
+  gameWinner?: MatchServer;
+}
+
+/** What goes to `claim_hand_cut`: closed marks only, ordered, terse. */
+export function submittable(marks: Mark[]): Submission[] {
   return marks
     .filter((m): m is Mark & { t1: number } => m.t1 !== null)
     .sort((a, b) => a.t0 - b.t0)
@@ -923,7 +954,16 @@ export function submittable(marks: Mark[]): {
       star: m.starred,
       tap: m.tap,
       rate: m.rate,
+      ...gameMarks(m),
     }));
+}
+
+/** A mark's game corrections, as the keys that are set and no others. */
+function gameMarks(m: Pick<Mark, "gameEnd" | "gameWinner">): Pick<Mark, "gameEnd" | "gameWinner"> {
+  const out: Pick<Mark, "gameEnd" | "gameWinner"> = {};
+  if (m.gameEnd) out.gameEnd = m.gameEnd;
+  if (m.gameWinner) out.gameWinner = m.gameWinner;
+  return out;
 }
 
 /**
@@ -968,15 +1008,17 @@ export function validate(
  * `claim_hand_cut` was sent, the short form from `submittable`:
  * `{t0, t1, w, let, star, tap, rate}` with no id. Passed straight in as
  * marks, the short form has no `winner` field, so every point reads as
- * called and the pass reopens as a finished review.
+ * called and the pass reopens as a finished review. Either shape may carry
+ * `gameEnd` and `gameWinner` under those names (a match marked again).
  *
  * Both shapes are read here. An entry that is not an object, or whose
  * times are not numbers, is dropped. A winner other than "user" or
- * "opponent" is read as uncalled rather than dropping the rally with it.
- * Marks come back ordered by start with at most one still open (the
- * latest), and an open one carries no answer. A missing or repeated id is
- * replaced with `d1`, `d2` and so on
- * in order, so the same draft always reads back with the same ids.
+ * "opponent" is read as uncalled rather than dropping the rally with it,
+ * and a game correction that is not one of its two values is read as
+ * none. Marks come back ordered by start with at most one still open (the
+ * latest), and an open one carries no answer and no game correction. A
+ * missing or repeated id is replaced with `d1`, `d2` and so on in order, so
+ * the same draft always reads back with the same ids.
  */
 export function normalizeMarks(raw: unknown): Mark[] {
   if (!Array.isArray(raw)) return [];
@@ -1032,6 +1074,8 @@ function readMark(entry: unknown): (Omit<Mark, "id"> & { id: string | null }) | 
   const starred = r.starred !== undefined ? r.starred : r.star;
   // A rally still open has not been answered, whatever the row says.
   const answered = t1 !== null;
+  const gameEnd = r.gameEnd;
+  const gameWinner = r.gameWinner;
   return {
     id: typeof r.id === "string" && r.id.length > 0 ? r.id : null,
     t0,
@@ -1041,6 +1085,11 @@ function readMark(entry: unknown): (Omit<Mark, "id"> & { id: string | null }) | 
     starred: starred === true,
     tap: finite(r.tap) ? r.tap : t0,
     rate: finite(r.rate) && r.rate > 0 ? r.rate : 1,
+    ...gameMarks({
+      gameEnd: answered && (gameEnd === "end" || gameEnd === "continue") ? gameEnd : undefined,
+      gameWinner:
+        answered && (gameWinner === "user" || gameWinner === "opponent") ? gameWinner : undefined,
+    }),
   };
 }
 
@@ -1050,15 +1099,17 @@ function readMark(entry: unknown): (Omit<Mark, "id"> & { id: string | null }) | 
  * Those two are the ITTF rotation and the game walk the whole product runs
  * on, and CLAUDE.md's rule is that the rotation is never re-derived. So the
  * ticker here does not compute a score: it borrows the product's own, by
- * handing it the six fields it actually reads.
+ * handing it the six fields it actually reads. A mark's game corrections
+ * go in as the point's own, so a match marked again walks its games where
+ * Keep score (and the canonical projection) put them.
  */
 export function asPoints(marks: Mark[]): {
   id: string;
   confirmed_winner: MatchServer | null;
   is_let: boolean;
   server_override: MatchServer | null;
-  game_end_override: null;
-  game_winner_override: null;
+  game_end_override: GameEndOverride;
+  game_winner_override: MatchServer | null;
 }[] {
   return marks
     .filter((m) => m.t1 !== null)
@@ -1067,7 +1118,38 @@ export function asPoints(marks: Mark[]): {
       confirmed_winner: m.winner,
       is_let: m.isLet,
       server_override: null,
+      game_end_override: m.gameEnd ?? null,
+      game_winner_override: m.gameWinner ?? null,
+    }));
+}
+
+/** The running score of a marking pass: `computeMatchScore` over
+ *  `asPoints`, never a walk of its own. The iPhone's `handCutScore`. */
+export function markScore(marks: Mark[]): MatchScore {
+  return computeMatchScore(asPoints(marks) as unknown as Point[]);
+}
+
+/**
+ * Who serves the NEXT rally: the rotation asked about a stand-in point
+ * appended after every closed mark. The rule is never restated here. The
+ * iPhone's `handCutNextServer`.
+ */
+export function markNextServer(
+  marks: Mark[],
+  firstServer: MatchServer | null
+): MatchServer | null {
+  const points = asPoints(marks);
+  if (!points.length) return firstServer;
+  const probe = [
+    ...points,
+    {
+      id: "__next__",
+      confirmed_winner: null,
+      is_let: false,
+      server_override: null,
       game_end_override: null,
       game_winner_override: null,
-    }));
+    },
+  ] as unknown as Point[];
+  return computeServing(probe, firstServer).get("__next__")?.server ?? null;
 }

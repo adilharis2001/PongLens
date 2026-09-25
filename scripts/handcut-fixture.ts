@@ -40,8 +40,14 @@
  * null), lastClosedEnd, firstUnscored {afterId}, allCalled, gapsAround
  * {id, durationS}, draftMode {recorded}, openAs {durationS, mode},
  * summarize, submittable, validate {durationS} (result {ok, reason?,
- * reasonKey?}), asPoints. Every default is resolved into `args`, so the
- * Swift side never has to guess one.
+ * reasonKey?}), asPoints, score (markScore: {current: [you, them],
+ * games: [[you, them, resolved winner or null]], gamesYou, gamesThem}) and
+ * nextServer {firstServer} (markNextServer). Every default is resolved into
+ * `args`, so the Swift side never has to guess one.
+ *
+ * A mark carries `gameEnd` and `gameWinner` only when set (a match marked
+ * again brings the owner's game ends with its marks), so every mark without
+ * them reads exactly as it always has.
  */
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -69,6 +75,8 @@ import {
   insertMark,
   lastClosedEnd,
   leadFor,
+  markNextServer,
+  markScore,
   moveEdge,
   normalizeMarks,
   openAs,
@@ -90,6 +98,7 @@ import {
   type MarkState,
   type Outcome,
 } from "../src/app/match/[id]/handCut.ts";
+import { resolvedGameWinner } from "../src/app/match/[id]/gameScore.ts";
 
 type Args = Record<string, unknown>;
 
@@ -118,6 +127,19 @@ const mark = (
   isLet = false,
   starred = false
 ): Mark => ({ id, t0, t1, winner, isLet, starred, tap: t0, rate: 1 });
+
+/** A mark as start_recut prefills it, carrying the owner's game ends. */
+const markG = (
+  id: string,
+  t0: number,
+  t1: number,
+  winner: "user" | "opponent" | null,
+  game: { gameEnd?: "end" | "continue"; gameWinner?: "user" | "opponent" }
+): Mark => ({ ...mark(id, t0, t1, winner), ...game });
+
+/** n called rallies, 10 s apart from `from`, each won by `winner`. */
+const run = (prefix: string, n: number, from: number, winner: "user" | "opponent"): Mark[] =>
+  Array.from({ length: n }, (_, i) => mark(`${prefix}${i + 1}`, from + i * 10, from + i * 10 + 6, winner));
 
 const S = (id: string, now: number, rate = 1): StepIn => ({ op: "start", args: { id }, now, rate });
 const E = (now: number): StepIn => ({ op: "end", now });
@@ -536,6 +558,99 @@ const CASES: CaseIn[] = [
     ],
   },
   {
+    name: "game ends ride on their marks: an end the score cannot prove, and its winner",
+    mode: "score",
+    durationS: 600,
+    // Marked again: b carries the owner's end and named winner, d an end
+    // pinned on a rally nobody scored (it still closes the game).
+    start: {
+      marks: [
+        mark("a", 10, 15, "user"),
+        markG("b", 20, 25, "user", { gameEnd: "end", gameWinner: "user" }),
+        mark("c", 30, 35, "opponent"),
+        markG("d", 40, 45, null, { gameEnd: "end" }),
+        mark("e", 50, 55, "user"),
+      ],
+    },
+    steps: [
+      Q("score"), Q("nextServer", { firstServer: "user" }), Q("asPoints"), Q("submittable"),
+      // Answering the point again leaves its game end where it was.
+      sel("b"), O("opponent"), Q("score"), U,
+      // Adjusting a point, or dropping a missed rally in beside it, keeps it too.
+      { op: "setEdges", args: { id: "b", t0: 19, t1: 26 } },
+      { op: "insert", args: { t0: 36, t1: 39, id: "x" } },
+      Q("score"), U, U,
+      // A point taken out takes its game end with it, and Undo brings both back.
+      { op: "remove", args: { id: "d" } },
+      Q("score"), Q("nextServer", { firstServer: "user" }), Q("submittable"),
+      U,
+      Q("score"),
+      // Marked again in the gap it left: the new rally has no game end.
+      { op: "remove", args: { id: "b" } },
+      S("b2", 20.6), E(25), O("user"),
+      Q("score"), Q("asPoints"),
+      // A new rally after the last carries none either.
+      S("f", 60.6), E(66), O("opponent"),
+      Q("score"), Q("nextServer", { firstServer: "opponent" }),
+    ],
+  },
+  {
+    name: "game ends ride on their marks: continue holds a game open past eleven",
+    mode: "score",
+    durationS: 900,
+    start: {
+      marks: [
+        ...run("p", 10, 10, "user"),
+        markG("p11", 110, 116, "user", { gameEnd: "continue" }),
+        mark("p12", 120, 126, "user"),
+        markG("p13", 130, 136, "opponent", { gameEnd: "end" }),
+        mark("q1", 140, 146, "opponent"),
+      ],
+    },
+    steps: [
+      Q("score"), Q("nextServer", { firstServer: "user" }),
+      // Without the owner's continue, the eleventh point ends the game.
+      { op: "remove", args: { id: "p11" } },
+      { op: "insert", args: { t0: 110, t1: 116, id: "p11b" } },
+      O("user"),
+      Q("score"), Q("nextServer", { firstServer: "user" }),
+      U, U, U,
+      Q("score"),
+    ],
+  },
+  {
+    name: "load: game ends in both stored shapes",
+    mode: "score",
+    durationS: 600,
+    steps: [
+      {
+        op: "load",
+        args: {
+          raw: [
+            // The prefill's full form.
+            { id: "p1", t0: 10, t1: 15, winner: "user", isLet: false, starred: false, tap: null, rate: null },
+            { id: "p2", t0: 20, t1: 25, winner: "opponent", isLet: false, starred: false, tap: null, rate: null,
+              gameEnd: "end", gameWinner: "opponent" },
+            { id: "p3", t0: 30, t1: 35, winner: null, isLet: true, starred: false, tap: null, rate: null,
+              gameEnd: "continue", gameWinner: null },
+            // The short form a failed cut hands back.
+            { t0: 40, t1: 45, w: "user", let: false, star: true, tap: 40.6, rate: 1, gameEnd: "end" },
+            { t0: 50, t1: 55, w: null, let: false, star: false, tap: 50.6, rate: 1, gameWinner: "user" },
+            // Nothing else is a game end or a game winner.
+            { t0: 60, t1: 65, w: null, let: false, star: false, tap: 60.6, rate: 1,
+              gameEnd: "END", gameWinner: "near" },
+            { t0: 70, t1: 75, w: null, let: false, star: false, tap: 70.6, rate: 1,
+              gameEnd: true, gameWinner: 1 },
+            // A rally still open carries no game end.
+            { id: "o", t0: 80, t1: null, winner: null, isLet: false, starred: false, tap: 80.6, rate: 1,
+              gameEnd: "end", gameWinner: "user" },
+          ],
+        },
+      },
+      Q("asPoints"), Q("submittable"), Q("score"), Q("draftMode", { recorded: null }),
+    ],
+  },
+  {
     name: "load: not a list",
     mode: null,
     durationS: null,
@@ -637,6 +752,17 @@ const invalidKey = (text: string): string => {
 const validated = (marks: Mark[], durationS: number | null) => {
   const v = validate(marks, durationS);
   return v.ok ? { ok: true } : { ok: false, reason: v.reason, reasonKey: invalidKey(v.reason) };
+};
+
+/** markScore, as the plain numbers the Swift side compares. */
+const scoreResult = (marks: Mark[]) => {
+  const s = markScore(marks);
+  return {
+    current: [s.current.you, s.current.them],
+    games: s.games.map((g) => [g.you, g.them, resolvedGameWinner(g)]),
+    gamesYou: s.gamesYou,
+    gamesThem: s.gamesThem,
+  };
 };
 
 const snapshot = (s: MarkState) => ({
@@ -748,6 +874,13 @@ function runCase(c: CaseIn) {
         break;
       case "asPoints":
         result = asPoints(state.marks);
+        break;
+      case "score":
+        result = scoreResult(state.marks);
+        break;
+      case "nextServer":
+        a.firstServer = a.firstServer ?? null;
+        result = markNextServer(state.marks, a.firstServer as "user" | "opponent" | null);
         break;
       default:
         throw new Error(`unknown op ${step.op}`);

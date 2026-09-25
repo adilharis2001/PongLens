@@ -47,7 +47,6 @@ import {
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ClipPlayer, type PictureBox } from "./ClipPlayer";
-import { computeMatchScore } from "./gameScore";
 import {
   BOTTOM_BAR_H,
   LET_H,
@@ -60,19 +59,19 @@ import {
   railPair,
 } from "./markLandscape";
 import { SPEEDS, SpeedMenu } from "./SpeedMenu";
-import { computeServing, type MatchServer } from "./serving";
+import type { MatchServer } from "./serving";
 import { tracksServe } from "@/lib/matchTitle";
-import type { Point } from "@/lib/types";
 import {
   type Mark,
   type MarkState,
   type Outcome,
-  asPoints,
   clearAwaiting,
   firstUnscored,
   gapsAround,
   insertMark,
   lastClosedEnd as lastEnd,
+  markNextServer,
+  markScore,
   type CutMode,
   type Gap,
   type OpenAs,
@@ -1500,27 +1499,13 @@ export function MarkPoints({
   const canAnswer = awaiting || state.selectedId !== null;
   const sum = useMemo(() => summarize(state.marks), [state.marks]);
 
-  // The rotation and the game walk are the product's own, never re-derived.
-  const scorePoints = useMemo(
-    () => asPoints(state.marks) as unknown as Point[],
-    [state.marks]
+  // The rotation and the game walk are the product's own, never re-derived,
+  // and a match marked again brings the owner's game ends with its marks.
+  const score = useMemo(() => markScore(state.marks), [state.marks]);
+  const nextServer: MatchServer | null = useMemo(
+    () => markNextServer(state.marks, firstServer),
+    [state.marks, firstServer]
   );
-  const score = useMemo(() => computeMatchScore(scorePoints), [scorePoints]);
-  const nextServer: MatchServer | null = useMemo(() => {
-    if (!scorePoints.length) return firstServer;
-    const probe = [
-      ...scorePoints,
-      {
-        id: "__next__",
-        confirmed_winner: null,
-        is_let: false,
-        server_override: null,
-        game_end_override: null,
-        game_winner_override: null,
-      } as unknown as Point,
-    ];
-    return computeServing(probe, firstServer).get("__next__")?.server ?? null;
-  }, [scorePoints, firstServer]);
 
   const grow = open ? Math.max(0, playhead - open.t0) : 0;
 

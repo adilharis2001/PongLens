@@ -12,6 +12,8 @@ import {
   gapsAround,
   insertMark,
   lastClosedEnd,
+  markNextServer,
+  markScore,
   normalizeMarks,
   openAs,
   openingMode,
@@ -874,6 +876,105 @@ test("normalizeMarks never generates an id that is already taken", () => {
     { id: "d1", t0: 10, t1: 15 },
   ]);
   assert.deepEqual(marks.map((m) => m.id), ["d2", "d1"]);
+});
+
+/* ------------------------------------ a match marked again: game ends */
+
+// What start_recut prefills for a scored match whose owner corrected the
+// games in Keep score: the corrections ride on the marks (match 623c09c6
+// read as one long game in the marker while Keep score showed 1-1).
+const prefilled = (): Mark[] => {
+  const marks: Mark[] = [];
+  for (let i = 0; i < 9; i++) {
+    marks.push({
+      id: `g1-${i}`, t0: 10 + i * 10, t1: 16 + i * 10,
+      winner: i % 3 === 2 ? "opponent" : "user",
+      isLet: false, starred: false, tap: 10 + i * 10, rate: 1,
+    });
+  }
+  // The players changed ends after the ninth rally at 6-3: the owner
+  // pinned the end there and said who took the game.
+  marks[8] = { ...marks[8], gameEnd: "end", gameWinner: "user" };
+  for (let i = 0; i < 12; i++) {
+    marks.push({
+      id: `g2-${i}`, t0: 200 + i * 10, t1: 206 + i * 10,
+      winner: i < 11 ? "opponent" : "user",
+      isLet: false, starred: false, tap: 200 + i * 10, rate: 1,
+    });
+  }
+  return marks;
+};
+
+test("a match marked again walks its games where the owner put them", () => {
+  const marks = prefilled();
+  const score = markScore(marks);
+  assert.deepEqual(
+    score.games.map((g) => [g.you, g.them, g.winnerOverride ?? null]),
+    [[6, 3, "user"], [0, 11, null]],
+    "the owner's end closes game one at 6-3; game two ends on the score"
+  );
+  assert.deepEqual([score.gamesYou, score.gamesThem], [1, 1]);
+  assert.deepEqual([score.current.you, score.current.them], [1, 0]);
+
+  // Without the corrections the first game runs on into the second, which
+  // is what the marker used to show.
+  const plain = markScore(marks.map(({ gameEnd, gameWinner, ...m }) => m));
+  assert.deepEqual([plain.gamesYou, plain.gamesThem], [0, 1]);
+  assert.deepEqual(plain.games.map((g) => [g.you, g.them]), [[6, 11]]);
+});
+
+test("the next server follows the owner's game ends too", () => {
+  const marks = prefilled();
+  // Game two opened with the other player; one point into game three the
+  // first server is back, on the second serve of the block.
+  assert.equal(markNextServer(marks, "user"), "user");
+  const plain = marks.map(({ gameEnd, gameWinner, ...m }) => m);
+  assert.notEqual(markNextServer(plain, "user"), markNextServer(marks, "user"));
+});
+
+test("game ends ride on their mark and leave with it", () => {
+  let state: MarkState = { ...emptyState, marks: prefilled() };
+  state = setOutcome(selectMark(state, "g1-8"), "opponent").state;
+  assert.equal(state.marks[8].gameEnd, "end", "answering again keeps the end");
+  state = removeMark(state, "g1-8").state;
+  assert.equal(state.marks.some((m) => m.gameEnd), false, "removing the point removes its end");
+  assert.equal(markScore(state.marks).gamesThem, 1);
+  state = undoLast(state);
+  assert.deepEqual(
+    [state.marks[8].gameEnd, state.marks[8].gameWinner],
+    ["end", "user"],
+    "undo puts the point back with its end"
+  );
+  // A rally the marker makes carries none.
+  const fresh = startMark(emptyState, 10, 1, "n").state.marks[0];
+  assert.equal("gameEnd" in fresh || "gameWinner" in fresh, false);
+});
+
+test("game ends survive both stored shapes, and nothing else is one", () => {
+  const marks = prefilled();
+  // The draft the marker saves reads back the same.
+  assert.deepEqual(normalizeMarks(JSON.parse(JSON.stringify(marks))), marks);
+  // The claim's short form keeps them, and reads back as the same marks.
+  const sent = submittable(marks);
+  assert.deepEqual(sent[8], {
+    t0: 90, t1: 96, w: "opponent", let: false, star: false, tap: 90, rate: 1,
+    gameEnd: "end", gameWinner: "user",
+  });
+  assert.equal("gameEnd" in sent[0], false, "a mark without one sends no key");
+  assert.deepEqual(
+    normalizeMarks(sent).map(({ id, ...m }) => m),
+    marks.map(({ id, ...m }) => m)
+  );
+  // Old drafts without them read exactly as before.
+  assert.deepEqual(normalizeMarks([{ t0: 1, t1: 5, w: "user" }])[0], {
+    id: "d1", t0: 1, t1: 5, winner: "user", isLet: false, starred: false, tap: 1, rate: 1,
+  });
+  const odd = normalizeMarks([
+    { t0: 1, t1: 5, gameEnd: "END", gameWinner: "near" },
+    { t0: 6, t1: 9, gameEnd: null, gameWinner: null },
+    { t0: 10, t1: null, gameEnd: "end", gameWinner: "user" },
+  ]);
+  assert.equal(odd.some((m) => "gameEnd" in m || "gameWinner" in m), false);
 });
 
 /* ---------------------------------------------------- parity fixture */

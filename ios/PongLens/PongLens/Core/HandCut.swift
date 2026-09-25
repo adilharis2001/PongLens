@@ -42,6 +42,15 @@ struct HandCutMark: Equatable {
     /// was tapped at.
     var tap: Double
     var rate: Double
+    /// The owner's game-end correction on this point from Keep score
+    /// (points.game_end_override): `end` closes the game here whatever the
+    /// score says, `continue` holds it open. Nil is none, which is every
+    /// mark the marker makes. Only a match marked again carries these; they
+    /// ride on the mark, count in the score, and leave with it.
+    var gameEnd: GameEndOverride? = nil
+    /// Who took the game that closes here, when the owner named it
+    /// (points.game_winner_override).
+    var gameWinner: Winner? = nil
 }
 
 /// The three answer buttons. Closing a point is End Point, a separate tap.
@@ -153,14 +162,19 @@ struct HandCutSubmission: Equatable, Encodable {
     let star: Bool
     let tap: Double
     let rate: Double
+    /// Present only when the mark carries one, under the same names as the
+    /// full form, so the database reads one key when the cut publishes.
+    var gameEnd: GameEndOverride? = nil
+    var gameWinner: Winner? = nil
 
     enum CodingKeys: String, CodingKey {
-        case t0, t1, w, star, tap, rate
+        case t0, t1, w, star, tap, rate, gameEnd, gameWinner
         case isLet = "let"
     }
 
     /// `w` is always present, null when uncalled, exactly as the web's
-    /// JSON has it. The synthesized encoder would drop the key.
+    /// JSON has it. The synthesized encoder would drop the key. The game
+    /// corrections are the other way round: absent unless set.
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(t0, forKey: .t0)
@@ -170,6 +184,8 @@ struct HandCutSubmission: Equatable, Encodable {
         try c.encode(star, forKey: .star)
         try c.encode(tap, forKey: .tap)
         try c.encode(rate, forKey: .rate)
+        try c.encodeIfPresent(gameEnd, forKey: .gameEnd)
+        try c.encodeIfPresent(gameWinner, forKey: .gameWinner)
     }
 }
 
@@ -179,8 +195,8 @@ struct HandCutPoint: Equatable {
     let confirmedWinner: Winner?
     let isLet: Bool
     let serverOverride: Winner? = nil
-    let gameEndOverride: GameEndOverride? = nil
-    let gameWinnerOverride: Winner? = nil
+    var gameEndOverride: GameEndOverride? = nil
+    var gameWinnerOverride: Winner? = nil
 }
 
 /// A JSON value with JavaScript's distinctions intact: a boolean is never a
@@ -228,12 +244,13 @@ indirect enum HandCutJSON: Equatable, Codable {
 
 extension HandCutMark: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, t0, t1, winner, isLet, starred, tap, rate
+        case id, t0, t1, winner, isLet, starred, tap, rate, gameEnd, gameWinner
     }
 
     /// Every key, nulls included. The web's reader DROPS an entry whose
     /// `t1` is missing rather than null, so an omitted key would lose the
-    /// open rally on the other platform.
+    /// open rally on the other platform. The game corrections are the
+    /// exception: absent unless set, as the web writes them.
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
@@ -244,6 +261,8 @@ extension HandCutMark: Codable {
         try c.encode(starred, forKey: .starred)
         try c.encode(tap, forKey: .tap)
         try c.encode(rate, forKey: .rate)
+        try c.encodeIfPresent(gameEnd, forKey: .gameEnd)
+        try c.encodeIfPresent(gameWinner, forKey: .gameWinner)
     }
 
     /// Stored drafts are read through `HandCut.normalizeMarks`, never this.
@@ -259,6 +278,8 @@ extension HandCutMark: Codable {
         starred = try c.decode(Bool.self, forKey: .starred)
         tap = try c.decode(Double.self, forKey: .tap)
         rate = try c.decode(Double.self, forKey: .rate)
+        gameEnd = try c.decodeIfPresent(GameEndOverride.self, forKey: .gameEnd)
+        gameWinner = try c.decodeIfPresent(Winner.self, forKey: .gameWinner)
     }
 }
 
@@ -796,7 +817,8 @@ enum HandCut {
         sortedByStart(marks.filter { $0.t1 != nil }).map { m in
             HandCutSubmission(
                 t0: m.t0, t1: m.t1!, w: m.winner, isLet: m.isLet,
-                star: m.starred, tap: m.tap, rate: m.rate
+                star: m.starred, tap: m.tap, rate: m.rate,
+                gameEnd: m.gameEnd, gameWinner: m.gameWinner
             )
         }
     }
@@ -826,12 +848,14 @@ enum HandCut {
     ///
     /// `hand_cut_drafts.marks` holds two shapes: full marks, saved while
     /// marking, and the short `submittable` form handed back after a failed
-    /// cut (`{t0, t1, w, let, star, tap, rate}`, no id). Both are read. An
+    /// cut (`{t0, t1, w, let, star, tap, rate}`, no id). Both are read, and
+    /// either may carry `gameEnd` and `gameWinner` under those names. An
     /// entry that is not an object, or whose times are not numbers, is
-    /// dropped; a winner other than user or opponent reads as uncalled.
-    /// Marks come back ordered by start with at most one still open (the
-    /// latest), which carries no answer. A missing or repeated id becomes
-    /// `d1`, `d2` and so on in order.
+    /// dropped; a winner other than user or opponent reads as uncalled, and
+    /// a game correction other than its two values as none. Marks come back
+    /// ordered by start with at most one still open (the latest), which
+    /// carries no answer and no game correction. A missing or repeated id
+    /// becomes `d1`, `d2` and so on in order.
     static func normalizeMarks(_ raw: HandCutJSON?) -> [HandCutMark] {
         guard case .array(let entries)? = raw else { return [] }
         var read: [(id: String?, mark: HandCutMark)] = []
@@ -898,6 +922,10 @@ enum HandCut {
         if answered, case .string(let s)? = w, s == "user" || s == "opponent" {
             winner = Winner(rawValue: s)
         }
+        var gameEnd: GameEndOverride?
+        if answered, case .string(let s)? = r["gameEnd"] { gameEnd = GameEndOverride(rawValue: s) }
+        var gameWinner: Winner?
+        if answered, case .string(let s)? = r["gameWinner"] { gameWinner = Winner(rawValue: s) }
         var id: String?
         if case .string(let s)? = r["id"], !s.isEmpty { id = s }
         let rate = finite(r["rate"]).flatMap { $0 > 0 ? $0 : nil } ?? 1
@@ -909,16 +937,23 @@ enum HandCut {
             isLet: answered && isLet == .bool(true),
             starred: starred == .bool(true),
             tap: finite(r["tap"]) ?? t0,
-            rate: rate
+            rate: rate,
+            gameEnd: gameEnd,
+            gameWinner: gameWinner
         ))
     }
 
     // MARK: - Score, through the product's own rules
 
-    /// Marks as the shape the game walk and the rotation read.
+    /// Marks as the shape the game walk and the rotation read. A mark's
+    /// game corrections go in as the point's own, so a match marked again
+    /// walks its games where Keep score put them.
     static func asPoints(_ marks: [HandCutMark]) -> [HandCutPoint] {
         marks.filter { $0.t1 != nil }.map {
-            HandCutPoint(id: $0.id, confirmedWinner: $0.winner, isLet: $0.isLet)
+            HandCutPoint(
+                id: $0.id, confirmedWinner: $0.winner, isLet: $0.isLet,
+                gameEndOverride: $0.gameEnd, gameWinnerOverride: $0.gameWinner
+            )
         }
     }
 }
