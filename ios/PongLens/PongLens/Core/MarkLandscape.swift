@@ -91,7 +91,7 @@ struct MarkLandscape: Equatable {
     enum Tone: String { case lit, unlit, off }
 
     enum Action: String {
-        case beginCutting, beginReview, keepMarking, reviewPoints
+        case beginCutting, beginReview, keepMarking, reviewPoints, startAgain
         case begin, reset, end, adjust, confirm, resume
     }
 
@@ -105,19 +105,35 @@ struct MarkLandscape: Equatable {
 
     /// The right rail's tiles, top to bottom: the pair, in the same two
     /// slots whatever they mean, or the gate before the session starts.
+    /// `startAgain` adds the outlined Start again under the gate, when a
+    /// processed match is marked again and marks exist (cut again contract).
     static func railPair(
-        started: Bool, opened: HandCutOpenAs, reviewing: Bool, adjusting: Bool, open: Bool
+        started: Bool, opened: HandCutOpenAs, reviewing: Bool, adjusting: Bool, open: Bool,
+        startAgain: Bool = false
     ) -> [PairTile] {
         if !started {
+            let again = PairTile(
+                label: MarkerCopy.startAgain, action: .startAgain, tone: .unlit, share: 0.22)
             if opened == .choice {
-                return [
-                    PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.58),
-                    PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.42),
-                ]
+                return startAgain
+                    ? [
+                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.46),
+                        PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.32),
+                        again,
+                    ]
+                    : [
+                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.58),
+                        PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.42),
+                    ]
             }
-            return opened == .review
-                ? [PairTile(label: "Begin review", action: .beginReview, tone: .lit, share: 1)]
-                : [PairTile(label: "Begin Cutting", action: .beginCutting, tone: .lit, share: 1)]
+            let only = opened == .review
+                ? PairTile(label: "Begin review", action: .beginReview, tone: .lit, share: 1)
+                : PairTile(label: "Begin Cutting", action: .beginCutting, tone: .lit, share: 1)
+            guard startAgain, opened != .fresh else { return [only] }
+            return [
+                PairTile(label: only.label, action: only.action, tone: .lit, share: 0.78),
+                again,
+            ]
         }
         if reviewing {
             return adjusting
@@ -132,7 +148,7 @@ struct MarkLandscape: Equatable {
         }
         return open
             ? [
-                PairTile(label: "Reset", action: .reset, tone: .unlit, share: 0.5),
+                PairTile(label: MarkerCopy.backToLastPoint, action: .reset, tone: .unlit, share: 0.5),
                 PairTile(label: "End Point", action: .end, tone: .lit, share: 0.5),
             ]
             : [
@@ -145,5 +161,73 @@ struct MarkLandscape: Equatable {
     static func pairTileHeight(_ tile: PairTile, count: Int, boxH: Double) -> Double {
         if count <= 1 { return boxH }
         return (boxH - railGap * Double(count - 1)) * tile.share
+    }
+}
+
+// MARK: - The marker's words
+
+/// Words the marker shows in more than one place (portrait pad, landscape
+/// board, the match page's accordion), kept together so they cannot drift.
+enum MarkerCopy {
+    /// The button that undoes a Begin tap made too early (Adil, 2026-09-25:
+    /// it used to read "Reset").
+    static let backToLastPoint = "Back to last point"
+    /// Marking a processed match again, at the gate (cut again contract).
+    static let startAgain = "Start again"
+
+    /// The Score switch's label: what the pass is, on or off (Adil,
+    /// 2026-09-25). Practice and drills can only be cut.
+    static func scoreLabel(on: Bool, practice: Bool) -> String {
+        on && !practice ? "Cut and score" : "Cut only"
+    }
+
+    /// The one line under the switch, where there is room for it: the
+    /// accordion on the match page and in More options.
+    static func scoreDetail(on: Bool, practice: Bool) -> String {
+        if practice { return "Scoring is for matches." }
+        return on ? "Say who won each point as you go." : "Mark where each rally starts and ends."
+    }
+}
+
+// MARK: - The portrait pad
+
+/// How the portrait pad's controls share their height, in every state, so
+/// the pad is full from the strip to the footer (Adil, 2026-09-25: the gate
+/// left the bottom 40% of the screen empty). The pass keeps its old split,
+/// the pair above the answers 3:2; the gate's buttons take those same two
+/// shares, and a single gate button takes both. Start again sits where the
+/// pass keeps its tool row.
+struct MarkPortraitPad: Equatable {
+    static let gap = 10.0
+    static let padding = 12.0
+    /// The tool row and the footer.
+    static let rowH = 44.0
+    static let refusalH = 16.0
+    /// Sensible ceilings for the gate's buttons; what they leave sits above
+    /// the footer.
+    static let primaryMax = 240.0
+    static let secondaryMax = 160.0
+    static let singleMax = 320.0
+
+    /// The pass: the pair and the answers (0 when cutting only).
+    static func pass(height: Double, refusal: Bool, answers: Bool) -> (pair: Double, answers: Double) {
+        let refusalBlock = refusal ? refusalH + gap : 0
+        let fixed = 2 * padding + refusalBlock + rowH + gap + rowH + gap + (answers ? gap : 0)
+        let flex = max(0, height - fixed)
+        let pair = answers ? max(64, flex * 3 / 5) : max(64, flex)
+        return (pair, answers ? max(56, flex * 2 / 5) : 0)
+    }
+
+    /// The gate: `buttons` is 1 or 2; `startAgain` takes the tool row's
+    /// place. Without it the buttons take that row too.
+    static func gate(
+        height: Double, refusal: Bool, buttons: Int, startAgain: Bool
+    ) -> (primary: Double, secondary: Double) {
+        let refusalBlock = refusal ? refusalH + gap : 0
+        let fixed = 2 * padding + refusalBlock + rowH + gap
+            + (startAgain ? rowH + gap : 0) + (buttons > 1 ? gap : 0)
+        let flex = max(0, height - fixed)
+        if buttons <= 1 { return (min(singleMax, max(64, flex)), 0) }
+        return (min(primaryMax, max(64, flex * 3 / 5)), min(secondaryMax, max(48, flex * 2 / 5)))
     }
 }

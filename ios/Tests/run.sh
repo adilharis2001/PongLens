@@ -44,7 +44,8 @@ swiftc -O -o "$OUT" \
   "$CORE/LocalVideoIndex.swift" \
   "$CORE/HandCut.swift" \
   "$CORE/MarkLandscape.swift" \
+  "$CORE/CutAgain.swift" \
   ScoreLogicTests.swift FeedbackBoardTests.swift ServePlacementTests.swift StarredTests.swift \
   HighlightsTests.swift PlayerTakeoverTests.swift CameraGuideGateTests.swift \
-  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift ScorerStateTests.swift CanonicalScoreCommandsTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift UserFacingErrorTests.swift MatchToolsTests.swift LessonPreviewTests.swift CoachActionsTests.swift MatchPointLinkTests.swift SignupSourceTests.swift ProcessingFeedbackTests.swift ScoredCardsTests.swift HandCutVideoTests.swift HandCutTests.swift CutPlanTests.swift DeviceCutTests.swift MarkLandscapeTests.swift main.swift
+  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift ScorerStateTests.swift CanonicalScoreCommandsTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift UserFacingErrorTests.swift MatchToolsTests.swift LessonPreviewTests.swift CoachActionsTests.swift MatchPointLinkTests.swift SignupSourceTests.swift ProcessingFeedbackTests.swift ScoredCardsTests.swift HandCutVideoTests.swift HandCutTests.swift CutPlanTests.swift DeviceCutTests.swift MarkLandscapeTests.swift CutAgainTests.swift main.swift
 "$OUT"

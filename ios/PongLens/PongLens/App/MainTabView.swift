@@ -167,6 +167,11 @@ struct MainTabView: View {
             .navigationDestination(for: MatchPointRoute.self) { route in
                 MatchDetailScreen(match: route.match, openPointId: route.pointId)
             }
+            .onChange(of: router.openMatchId) { _, id in
+                guard let id else { return }
+                router.openMatchId = nil
+                Task { await replaceTopMatch(id, library: library, path: $path) }
+            }
             .navigationDestination(for: CoachRosterRoute.self) { _ in
                 CoachRosterScreen()
             }
@@ -650,4 +655,17 @@ struct PLFabStack: View {
             router.newMatchOpen = true
         }
     }
+}
+
+/// Swap the match page on top of a stack for another match's page: the
+/// copy that "Keep this match and add a new one" made. The row comes from
+/// the library when it is already there, else straight from the table.
+@MainActor
+func replaceTopMatch(_ id: UUID, library: LibraryStore, path: Binding<NavigationPath>) async {
+    await library.load()
+    var row = library.matches.first { $0.id == id }
+    if row == nil { row = try? await MatchDetailClient.live.match(id) }
+    guard let row else { return }
+    if !path.wrappedValue.isEmpty { path.wrappedValue.removeLast() }
+    path.wrappedValue.append(row)
 }

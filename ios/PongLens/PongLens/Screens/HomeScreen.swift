@@ -56,13 +56,10 @@ struct HomeScreen: View {
         // counts once on its own. Counting rows and jobs separately made one
         // video read as "2 matches are processing" — the bug the web's
         // HomeOverview fixed the same way.
-        let ownJobIds = Set(ownMatches.compactMap(\.jobId))
-        let ownIds = Set(ownMatches.map { $0.id.uuidString.lowercased() })
-        let orphanJobs = library.activeJobs.filter { job in
-            (job.kind == "youtube_import" || job.kind == "deadspace_cut" || job.kind == "hand_cut")
-                && !ownJobIds.contains(job.id)
-                && !ownIds.contains(job.options?.matchId?.lowercased() ?? "")
-        }
+        // After a Replace the match's job_id is the new cut's job and the
+        // upload's first job is finished, so nothing is left over to count
+        // as a stray video (LibraryWork, cut again).
+        let orphanJobs = LibraryWork.orphanJobs(library.activeJobs, ownMatches: ownMatches)
         let working = ownMatches.filter {
             $0.status == .processing || library.liveJob(for: $0) != nil
         }

@@ -139,7 +139,7 @@ func runMarkLandscapeChecks() {
     eq(labels(false, .review, false, false, false), ["Begin review:lit"], "gate, review")
     eq(labels(false, .choice, false, false, false), ["Keep marking:lit", "Review the points:unlit"], "gate, choice")
     eq(labels(true, .fresh, false, false, false), ["Begin Point:lit", "End Point:off"], "marking")
-    eq(labels(true, .fresh, false, false, true), ["Reset:unlit", "End Point:lit"], "rally open")
+    eq(labels(true, .fresh, false, false, true), ["Back to last point:unlit", "End Point:lit"], "rally open")
     eq(labels(true, .fresh, true, false, false), ["Adjust:lit", "Resume:unlit"], "selected")
     eq(labels(true, .fresh, true, true, false), ["Confirm:lit", "Resume:off"], "adjusting")
     eq(labels(true, .fresh, true, false, true), ["Adjust:lit", "Resume:unlit"], "selected outranks open")
