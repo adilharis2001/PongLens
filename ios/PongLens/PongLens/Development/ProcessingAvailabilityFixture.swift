@@ -73,7 +73,7 @@ struct ProcessingAvailabilityFixtureView: View {
                             UploadScreen().sheet(isPresented: $uploadDetailsOpen) {
                                 MatchDetailsSheet(sessionId: AvailabilityUploadQA.sessionID,
                                     draft: $uploadDraft, recentOpponents: ["Alex"], recentVenues: ["QA Club"],
-                                    processOn: false, placementOn: false)
+                                    placementOn: false)
                             }
                         case "export":
                             MainTabView()

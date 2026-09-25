@@ -755,9 +755,8 @@ enum MatchKind {
     }
 
     /// Practice footage does not earn its processing minutes back: there is
-    /// no score to keep and no serve to map. Both toggles start off and the
-    /// owner turns them on deliberately. A match keeps whatever they set in
-    /// Record settings, which is the setting doing its job rather than this
-    /// overriding it.
+    /// no score to keep and no serve to map. Placement starts off for it.
+    /// Processing itself now starts at Later for every kind (Break it into
+    /// points on the details sheet), so this no longer decides that.
     var forcesProcessingOff: Bool { self == .practice }
 }

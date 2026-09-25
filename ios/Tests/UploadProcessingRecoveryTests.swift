@@ -2,20 +2,23 @@ import Foundation
 
 @main struct UploadProcessingRecoveryTests {
     static func main() throws {
-        var choice = UploadProcessingChoice(process: false, placement: false)
-        choice.chooseProcess(true)
+        // Break it into points (2026-09-25): Later by default, and an
+        // explicit answer survives Type. ios/Tests/run.sh covers the rest.
+        var choice = UploadProcessingChoice(placement: false)
+        precondition(!choice.process, "The sheet opens on Later")
+        choice.choose(.automatic)
         choice.selectType(tracksServe: true)
         precondition(choice.process, "Choosing Match must preserve explicit processing")
         choice.selectType(tracksServe: false)
         precondition(choice.process, "An explicit choice survives later type edits")
-        choice.chooseProcess(false)
+        choice.choose(.later)
         choice.selectType(tracksServe: true)
         precondition(!choice.process, "An explicit opt-out is never overwritten")
-        var defaults = UploadProcessingChoice(process: true, placement: true)
+        var defaults = UploadProcessingChoice(placement: true)
         defaults.selectType(tracksServe: false)
         precondition(!defaults.process && !defaults.placement)
         defaults.selectType(tracksServe: true)
-        precondition(defaults.process && defaults.placement)
+        precondition(!defaults.process && defaults.placement, "Type never turns processing on")
         defaults.choosePlacement(false)
         defaults.selectType(tracksServe: false)
         defaults.selectType(tracksServe: true)

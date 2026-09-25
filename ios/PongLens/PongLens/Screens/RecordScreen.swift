@@ -614,10 +614,13 @@ struct RecordScreen: View {
             }
             #endif
             recorder.onSegment = { url, duration in
+                // Later until the details sheet says otherwise, for every
+                // kind: the sheet opens on Later and a roll that uploads
+                // before it is answered must not have spent anything.
                 queue.enqueue(
                     fileURL: url, durationS: duration, sessionId: sessionId,
                     metadata: draft,
-                    processOn: kind.forcesProcessingOff ? false : settings.processAfterUpload,
+                    processOn: false,
                     placementOn: !kind.forcesProcessingOff,
                     recordedInApp: true
                 )
@@ -736,7 +739,6 @@ struct RecordScreen: View {
                 recentOpponents: library.recentValues(\.opponentName),
                 recentVenues: library.recentValues(\.venue),
                 kind: kind,
-                processOn: kind.forcesProcessingOff ? false : settings.processAfterUpload,
                 placementOn: !kind.forcesProcessingOff
             )
             .presentationDetents([.large])
@@ -1578,7 +1580,10 @@ private struct RecordSettingsSheet: View {
                     }
                     .pickerStyle(.segmented)
                 } footer: {
-                    Text("60 fps gives smoother slow motion, at twice the file size. Phones that cannot record 1080p at 60 use 30.")
+                    // The file sizes used to sit under the processing
+                    // switch, which left with Break it into points; they
+                    // belong beside the frame rate that sets them.
+                    Text("Video records at 1080p HEVC. 60 fps gives smoother slow motion, at twice the file size. A 45-minute match is about 4 GB at 60 fps, or 2 GB at 30. Phones that cannot record 1080p at 60 use 30.")
                 }
 
                 Section {
@@ -1595,15 +1600,6 @@ private struct RecordSettingsSheet: View {
                     ))
                 } footer: {
                     Text("With Wi-Fi only on, recordings wait in the queue until the phone is on Wi-Fi.")
-                }
-
-                Section {
-                    Toggle("Process when the upload finishes", isOn: Binding(
-                        get: { settings.processAfterUpload },
-                        set: { settings.processAfterUpload = $0; settings.save() }
-                    ))
-                } footer: {
-                    Text("Video records at 1080p HEVC. A 45-minute match is about 4 GB at 60 fps, or 2 GB at 30.")
                 }
 
                 if offerScoreSetting {
@@ -1691,7 +1687,6 @@ struct MatchDetailsSheet: View {
         recentOpponents: [String],
         recentVenues: [String],
         kind: MatchKind? = nil,
-        processOn: Bool,
         placementOn: Bool
     ) {
         self.sessionId = sessionId
@@ -1699,11 +1694,24 @@ struct MatchDetailsSheet: View {
         self.recentOpponents = recentOpponents
         self.recentVenues = recentVenues
         self.kind = kind
-        self._processingChoice = State(initialValue: UploadProcessingChoice(process: processOn, placement: placementOn))
+        self._processingChoice = State(initialValue: UploadProcessingChoice(
+            way: Self.carriedWay(sessionId), placement: placementOn))
+    }
+
+    /// Later for every new upload, never the last upload's answer. A sheet
+    /// reopened on a running upload (the Upload screen's shelf) shows what
+    /// the session already carries, so its Done cannot quietly undo it.
+    private static func carriedWay(_ sessionId: UUID) -> UploadCutWay {
+        let queue = RecordingQueue.shared
+        if queue.markerSession == sessionId { return .byHand }
+        let processing = queue.items.contains {
+            $0.sessionId == sessionId && $0.state != .done && $0.processOn
+        }
+        return processing ? .automatic : .later
     }
 
     var body: some View {
-        PLSheetScaffold(title: "Match details") {
+        PLSheetScaffold(title: "Match details", onDone: { done() }) {
             Form {
                 Section {
                     progressRow
@@ -1713,13 +1721,21 @@ struct MatchDetailsSheet: View {
                     }
                 }
 
+                // The match page's own choice cells, one row per answer,
+                // standing on the sheet rather than inside a form cell.
+                // One row holds all three: separate buttons in a single
+                // Form row need .plain, which each cell has, or a tap
+                // anywhere fires every one of them.
                 Section {
-                    Toggle("Process when the upload finishes", isOn: Binding(
-                        get: { processOn }, set: { processingChoice.chooseProcess($0) }))
+                    VStack(spacing: 10) {
+                        ForEach(UploadCutWay.offered(marking: markingOffered), id: \.self) { way in
+                            cutWayCell(way)
+                        }
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                 } header: {
-                    Text("Processing")
-                } footer: {
-                    Text(processingFootnote)
+                    Text("Break it into points")
                 }
 
                 if processOn, let minutesBalance,
@@ -1768,8 +1784,6 @@ struct MatchDetailsSheet: View {
                             Text(MatchTitle.typeLabel[value] ?? value).tag(value)
                         }
                     }
-                } footer: {
-                    Text("The upload is already running. Fill in what you know and close this whenever.")
                 }
 
                 Section {
@@ -1844,9 +1858,25 @@ struct MatchDetailsSheet: View {
             #endif
             await loadMinutes()
         }
+        .task {
+            #if DEBUG
+            guard TutorialCaptureScenario.current != .playerRecord else { return }
+            #endif
+            await DeviceVideoPolicy.shared.resolve()
+        }
+        .onChange(of: markingOffered) { _, offered in
+            if !offered { processingChoice.markingUnavailable() }
+        }
+        // Only Done hands the session to the marker. Leaving the row
+        // withdraws a hand-off an earlier Done made (a reopened sheet).
+        .onChange(of: processingChoice.way) { _, way in
+            if !way.opensMarker, queue.markerSession == sessionId {
+                queue.markerSession = nil
+            }
+        }
         .onChange(of: processOn) { pushProcessing() }
         .onChange(of: placementOn) { pushProcessing() }
-        // Type can supply defaults, but must never undo an explicit toggle.
+        // Type can supply defaults, but must never undo an explicit answer.
         .onChange(of: draft.matchType) { _, next in
             let tracked = MatchTitle.tracksServe(next)
             processingChoice.selectType(tracksServe: tracked)
@@ -2054,35 +2084,67 @@ struct MatchDetailsSheet: View {
         }
     }
 
-    private var processingFootnote: String {
-        #if DEBUG
-        if TutorialCaptureScenario.current == .playerRecord {
-            return "The video will upload when you close this form."
+    // MARK: - Break it into points
+
+    /// One answer, drawn with the match page's choice cell (ChoiceLabel in
+    /// choiceCell, as CutWayPicker draws it), so the two places read the
+    /// same. The words are the match page's own; Later is this sheet's.
+    private func cutWayCell(_ way: UploadCutWay) -> some View {
+        let on = processingChoice.way == way
+        let words: (title: String, detail: String) = switch way {
+        case .later: ("Later", "Choose on the match page when you're ready.")
+        case .automatic: (CutAgainCopy.automatically, CutAgainCopy.automaticallyDetail)
+        case .byHand: (CutAgainCopy.markYourself, CutAgainCopy.markYourselfDetail)
         }
-        #endif
-        if !processOn {
-            return "The video just lands in your library. You can process it any time from the match page."
-        }
-        let session = queue.items.filter { $0.sessionId == sessionId }
-        // Billable length per file, which is the trim window where one was
-        // chosen. Quoting the raw duration here would name a number the
-        // invoice does not match, on the one screen that promises it.
-        let charge = session.reduce(0) { total, item in
-            let kept: Double
-            if let t1 = item.trimEndS {
-                kept = max(0, t1 - (item.trimStartS ?? 0))
-            } else {
-                kept = item.durationS
+        return Button {
+            withAnimation(.easeOut(duration: 0.15)) { processingChoice.choose(way) }
+        } label: {
+            ChoiceLabel(
+                on: on,
+                title: words.title,
+                trailing: way == .automatic ? automaticTrailing : nil
+            ) {
+                Text(words.detail)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
             }
-            return total + max(1, Int(ceil(kept / 60)))
+            .choiceCell(on: on)
         }
-        var text = charge > 0
-            ? "Uses \(charge) minute\(charge == 1 ? "" : "s") of your balance."
-            : "Its length in minutes comes off your balance."
-        if let minutesBalance {
-            text += " You have \(minutesBalance)."
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// "{N} min": what the switch's line used to quote, trim included.
+    /// Nothing until a file is in the queue to measure.
+    private var automaticTrailing: String? {
+        let files = queue.items
+            .filter { $0.sessionId == sessionId }
+            .map { (durationS: $0.durationS, trimStartS: $0.trimStartS, trimEndS: $0.trimEndS) }
+        let minutes = UploadCutWay.minutes(files)
+        return minutes > 0 ? "\(minutes) min" : nil
+    }
+
+    /// Mark the points yourself is offered on the same answer the match
+    /// page rests on (hand_cut_enabled for this account), read through the
+    /// policy that also decides whether this phone keeps its copy once the
+    /// upload lands, which is the copy the marker opens. Remembered per
+    /// account, so a hall with no signal still gets the row.
+    private var markingOffered: Bool {
+        let policy = DeviceVideoPolicy.shared
+        return policy.handCut && policy.userId != nil && policy.userId == app.userId
+    }
+
+    /// Done. Mark the points yourself hands the session to MainTabView,
+    /// which opens the marker on this phone's copy as soon as the match
+    /// exists (at once when it already does). The other two answers
+    /// withdraw a hand-off an earlier Done made.
+    private func done() {
+        if processingChoice.way.opensMarker {
+            queue.markerSession = sessionId
+        } else if queue.markerSession == sessionId {
+            queue.markerSession = nil
         }
-        return text
+        dismiss()
     }
 
     private func loadMinutes() async {

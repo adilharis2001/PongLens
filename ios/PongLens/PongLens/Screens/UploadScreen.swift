@@ -120,14 +120,9 @@ struct UploadScreen: View {
                 draft: $draft,
                 recentOpponents: library.recentValues(\.opponentName),
                 recentVenues: library.recentValues(\.venue),
-                // Off by default, the same as the web card and the
-                // recorder: processing spends minutes, so it is asked
-                // for rather than assumed. Hardcoded rather than read
-                // from Record settings — that switch was set in the
-                // recorder's context, and library uploads must never
-                // start spending because of a choice made about
-                // recording.
-                processOn: false,
+                // Break it into points opens on Later, the same as the web
+                // card and the recorder: processing spends minutes, so it
+                // is asked for rather than assumed.
                 placementOn: placementOn
             )
             .presentationDetents([.large])

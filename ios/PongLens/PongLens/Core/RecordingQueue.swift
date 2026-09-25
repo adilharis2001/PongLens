@@ -115,6 +115,11 @@ final class RecordingQueue: NSObject {
     /// Set while the metadata sheet is open for a session: completion holds
     /// so a fast upload doesn't register with half-typed fields.
     private var metadataHolds: Set<UUID> = []
+    /// The session whose match opens in the marker as soon as it registers:
+    /// "Mark the points yourself", confirmed with Done on the details
+    /// sheet. MainTabView watches it. In memory only: a relaunch forgets
+    /// it, and the match page offers the same choice.
+    var markerSession: UUID?
     private var backgroundCompletionHandler: (() -> Void)?
     @ObservationIgnored private var processingRetryTask: Task<Void, Never>?
     private var processingRequestsInFlight: Set<UUID> = []
@@ -857,6 +862,7 @@ final class RecordingQueue: NSObject {
     /// server to drop the half-uploaded object, and delete the footage.
     func discardSession(_ sessionId: UUID) {
         metadataHolds.remove(sessionId)
+        if markerSession == sessionId { markerSession = nil }
         let doomed = items.filter { $0.sessionId == sessionId && $0.state != .done }
         guard !doomed.isEmpty else { return }
         let ids = Set(doomed.map { $0.id.uuidString })
@@ -977,8 +983,9 @@ final class RecordingQueue: NSObject {
                 totalBytes: bytes, sessionId: UUID()
             )
             item.partCount = Int((bytes + Self.partSize - 1) / Self.partSize)
-            let settings = RecordSettings.load()
-            item.processOn = settings.processAfterUpload
+            // Later, like every upload: nobody answered Break it into
+            // points for a recording the app had to rescue.
+            item.processOn = false
             item.placementOn = true
             // The camera writes live-* and merged-* files; a match-* file
             // had already entered the queue once (picked or recorded, no
