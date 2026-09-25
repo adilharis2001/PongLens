@@ -4,7 +4,7 @@ import UIKit
 
 // Step 0 of the hand-cut plan (spec 2026-09-24, section 9): measure the
 // phone's cut on a real iPhone 12 before building on it. Admin only,
-// reached from Account > This iPhone > Cutting speed test.
+// reached from Account > Storage > Cutting speed test (admins only).
 //
 // A run takes one video picked from Photos, keeps 20 seconds, drops 20,
 // across the whole thing, and encodes exactly what a real phone cut would:

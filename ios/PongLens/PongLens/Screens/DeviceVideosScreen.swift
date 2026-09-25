@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// "Videos on this iPhone": the copies the app kept for matches waiting to
+/// "My app recordings" (was "Videos on this iPhone"): the copies the app kept for matches waiting to
 /// be marked (spec 2026-09-24, section 6). Accounts that can hand cut only,
 /// reached from Account. Deleting one removes this phone's copy and
 /// nothing else: the match, the upload and the copy in Photos all stay.
@@ -28,7 +28,7 @@ struct DeviceVideosScreen: View {
                         }
                         .buttonStyle(PLSecondaryButtonStyle())
 
-                        Text("Videos on this iPhone")
+                        Text("My app recordings")
                             .font(.plPageTitle)
                             .tracking(-0.6)
                             .foregroundStyle(PL.textBody)
@@ -41,7 +41,7 @@ struct DeviceVideosScreen: View {
 
                 Section {
                     if entries.isEmpty {
-                        Text("No videos kept on this iPhone.")
+                        Text("No recordings kept.")
                             .font(.plBody)
                             .foregroundStyle(PL.text500)
                     } else {
@@ -79,7 +79,7 @@ struct DeviceVideosScreen: View {
                 store.remove(matchId: entry.matchId)
             }
             .buttonStyle(PLSoftDestructiveButtonStyle())
-            .accessibilityLabel("Delete the copy of \(entry.title ?? "this match") on this iPhone")
+            .accessibilityLabel("Delete the app's copy of \(entry.title ?? "this match")")
         }
         .padding(.vertical, 4)
     }

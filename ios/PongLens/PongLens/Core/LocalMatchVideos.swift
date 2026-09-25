@@ -95,7 +95,7 @@ private nonisolated struct HandCutParams: Encodable { let p_user: UUID }
 
 /// The app's own copy of a match video, kept for accounts that can hand
 /// cut until the match is cut or processed, deleted with the match, or
-/// deleted by the player from "Videos on this iPhone".
+/// deleted by the player from "My app recordings" (Account > Storage).
 ///
 /// Lives in Application Support (never tmp, which the system empties, and
 /// never Documents, which is the upload queue's scratch space), excluded
