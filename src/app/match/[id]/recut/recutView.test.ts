@@ -252,5 +252,10 @@ test("More options says it processes the match again (Adil, 2026-09-25)", () => 
   assert.match(src, /actionLabel="Process again"/);
   assert.match(shared, /actionLabel = "Process"/);
   assert.match(shared, /`\$\{actionLabel\} · \$\{q\.charge\} min`/);
-  assert.ok(src.includes("Report a problem"));
+  // Report a problem is its own group below, not under the label (as on
+  // iOS): the Process again group closes before it opens.
+  const group = src.indexOf('<div className="-mx-5 mt-2 border-y border-edge/60">');
+  const report = src.indexOf(">\n              Report a problem");
+  assert.ok(group > 0 && report > group);
+  assert.match(src.slice(group, report), /<\/div>\s*<\/>\s*\)\}[\s\S]*processRows \? "mt-9 border-b" : "mt-4"/);
 });

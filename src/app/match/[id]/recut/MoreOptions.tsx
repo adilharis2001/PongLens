@@ -10,7 +10,9 @@
  *   Mark the points yourself 14 marked the raw page's switch and Start
  *                                     marking, into the marker on the
  *                                     ORIGINAL, prefilled from this cut
- *   Report a problem                  today's request form, unchanged
+ *
+ *   Report a problem                  its own group, no label; today's
+ *                                     request form, unchanged
  *
  * The first two are the raw page's own components (BreakIntoPoints), so
  * the two places look and behave the same. At the last step of either the
@@ -198,6 +200,8 @@ export function MoreOptions({
     hasOriginal,
     jobRunning: running,
   });
+  /** Either way is on offer: the "Process again" group shows. */
+  const processRows = view.automatic || view.hand;
 
   /* ------------------------------------------------ the original, shown */
 
@@ -513,75 +517,82 @@ export function MoreOptions({
         {view.note && <p className="mt-4 text-sm text-zinc-400">{view.note}</p>}
         {/* What the two ways do to a processed match, said once as a label
             in the page's own section style (Adil, 2026-09-25), not as a
-            sentence under the title. */}
-        {(view.automatic || view.hand) && (
-          <SectionHeading className="mt-5">Process again</SectionHeading>
-        )}
-        <div
-          className={`-mx-5 border-t border-edge/60 ${
-            view.automatic || view.hand ? "mt-2" : "mt-4"
-          }`}
-        >
-          {view.automatic && (
-            <>
-              <AccordionRow
-                title="Automatically"
-                trailing={quote.charge != null ? `${quote.charge} min` : null}
-                open={autoOpen}
-                onToggle={() => toggleWay("automatic")}
-              />
-              {autoOpen && (
-                <AutoProcessPanel
-                  quote={quote}
-                  onProcess={() => void processAutomatically()}
-                  actionLabel="Process again"
-                  busy={busy}
-                  error={autoError}
-                  picture={picture}
-                  choice={
-                    <RecutChoice
-                      name="recut-automatic"
-                      view={autoChoice}
-                      onChange={setAutoPick}
-                      disabled={busy}
-                    />
-                  }
-                  onBalanceChecked={() => setAutoError(null)}
-                />
-              )}
-            </>
-          )}
-          {view.hand && (
-            <>
-              <AccordionRow
-                bordered={view.automatic}
-                title="Mark the points yourself"
-                trailing={unsent > 0 ? `${unsent} marked` : null}
-                open={handOpen}
-                onToggle={() => toggleWay("hand")}
-              />
-              {handOpen && (
+            sentence under the title. The label covers these two rows
+            only; Report a problem is a group of its own below. */}
+        {processRows && (
+          <>
+            <SectionHeading className="mt-5">Process again</SectionHeading>
+            <div className="-mx-5 mt-2 border-y border-edge/60">
+              {view.automatic && (
                 <>
-                  <MarkYourselfPanel
-                    mode={markMode}
-                    scoringAllowed={scoringAllowed}
-                    onMode={setModeChoice}
-                    resume={unsent > 0}
-                    opening={opening}
-                    onStart={() => void startMarking()}
+                  <AccordionRow
+                    title="Automatically"
+                    trailing={quote.charge != null ? `${quote.charge} min` : null}
+                    open={autoOpen}
+                    onToggle={() => toggleWay("automatic")}
                   />
-                  {handError && (
-                    <p className="-mt-2 px-5 pb-5 text-sm text-amber-300/90">{handError}</p>
+                  {autoOpen && (
+                    <AutoProcessPanel
+                      quote={quote}
+                      onProcess={() => void processAutomatically()}
+                      actionLabel="Process again"
+                      busy={busy}
+                      error={autoError}
+                      picture={picture}
+                      choice={
+                        <RecutChoice
+                          name="recut-automatic"
+                          view={autoChoice}
+                          onChange={setAutoPick}
+                          disabled={busy}
+                        />
+                      }
+                      onBalanceChecked={() => setAutoError(null)}
+                    />
                   )}
                 </>
               )}
-            </>
-          )}
+              {view.hand && (
+                <>
+                  <AccordionRow
+                    bordered={view.automatic}
+                    title="Mark the points yourself"
+                    trailing={unsent > 0 ? `${unsent} marked` : null}
+                    open={handOpen}
+                    onToggle={() => toggleWay("hand")}
+                  />
+                  {handOpen && (
+                    <>
+                      <MarkYourselfPanel
+                        mode={markMode}
+                        scoringAllowed={scoringAllowed}
+                        onMode={setModeChoice}
+                        resume={unsent > 0}
+                        opening={opening}
+                        onStart={() => void startMarking()}
+                      />
+                      {handError && (
+                        <p className="-mt-2 px-5 pb-5 text-sm text-amber-300/90">{handError}</p>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )}
+        {/* Report a problem stands apart from Process again, as on iOS,
+            where it is its own Form section: the gap is the one iOS
+            leaves between sections (about 35pt), and there is no label
+            over it. Alone in the sheet, it reads as it always has. */}
+        <div
+          className={`-mx-5 border-t border-edge/60 ${
+            processRows ? "mt-9 border-b" : "mt-4"
+          }`}
+        >
           <Link
             href={`/match/${match.id}/feedback`}
-            className={`flex w-full items-center gap-3 ${
-              view.automatic || view.hand ? "border-t border-edge/60 " : ""
-            }p-5 text-left transition-colors hover:bg-ink/20`}
+            className="flex w-full items-center gap-3 p-5 text-left transition-colors hover:bg-ink/20"
           >
             <span className="min-w-0 flex-1 text-sm font-semibold text-zinc-100">
               Report a problem
