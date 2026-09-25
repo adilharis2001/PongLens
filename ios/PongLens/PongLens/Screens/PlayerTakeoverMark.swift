@@ -236,9 +236,9 @@ extension PlayerTakeover {
     }
 
     /// Refusal, then the gate or the pair, answers and tools, then the
-    /// footer, filling the pad in every state (MarkPortraitPad): the pair
-    /// and the answers share what is left 3:2, and the gate's buttons take
-    /// those same shares, so the footer always sits at the bottom.
+    /// footer (MarkPortraitPad): while marking, the pair and the answers
+    /// share what is left 3:2; the gate is plain buttons at the top. The
+    /// footer always sits at the bottom.
     func markControls(_ hc: HandCutMarker, height: CGFloat) -> some View {
         let gap = CGFloat(MarkPortraitPad.gap)
         let status = markStatus(hc)

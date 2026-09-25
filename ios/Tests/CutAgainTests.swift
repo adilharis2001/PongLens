@@ -311,43 +311,26 @@ private func runMarkerCopyChecks() {
     }
 }
 
-/// The portrait pad fills its height in every state.
+/// The pass fills the portrait pad; the gate is plain buttons that fit.
 private func runPortraitPadChecks() {
     let gap = MarkPortraitPad.gap, pad = MarkPortraitPad.padding, row = MarkPortraitPad.rowH
-    // 620 is a Pro Max's pad, where the old 320 ceiling left a band.
+    // 320 is the smallest pad, 620 a Pro Max's.
     for height in [320.0, 398.0, 451.0, 620.0] {
         // The pass, as the marker has always split it.
         let scoring = MarkPortraitPad.pass(height: height, refusal: false, answers: true)
         let used = 2 * pad + scoring.pair + gap + scoring.answers + gap + row + gap + row
         near(used, height, "the pass fills \(height)")
 
-        // The choice gate: two buttons, the tool row's place empty.
-        let choice = MarkPortraitPad.gate(height: height, refusal: false, buttons: 2, startAgain: false)
-        let choiceUsed = 2 * pad + choice.primary + gap + choice.secondary + gap + row
-        check(choiceUsed <= height + 0.001, "the choice gate fits \(height)")
-        check(height - choiceUsed < 1 || choice.primary == MarkPortraitPad.primaryMax
-              || choice.secondary == MarkPortraitPad.secondaryMax,
-              "the choice gate leaves no dead zone at \(height) unless a button is at its ceiling")
-
-        // Marking again: Start again where the tool row goes.
-        let again = MarkPortraitPad.gate(height: height, refusal: false, buttons: 2, startAgain: true)
-        let againUsed = 2 * pad + again.primary + gap + again.secondary + gap + row + gap + row
-        check(againUsed <= height + 0.001, "the gate with Start again fits \(height)")
-        near(again.primary, min(MarkPortraitPad.primaryMax, scoring.pair),
-             "the gate's primary takes the pair's share at \(height)")
-        near(again.secondary, min(MarkPortraitPad.secondaryMax, scoring.answers),
-             "the gate's secondary takes the answers' share at \(height)")
-
-        // One button takes both shares, all the way down to the footer.
-        let one = MarkPortraitPad.gate(height: height, refusal: false, buttons: 1, startAgain: false)
-        near(one.primary, height - 2 * pad - row - gap,
-             "a single gate button fills the pad at \(height)")
+        // The gate is plain buttons, the web's heights, and always fits.
+        for (buttons, again) in [(1, false), (2, false), (2, true)] {
+            let g = MarkPortraitPad.gate(height: height, refusal: false, buttons: buttons, startAgain: again)
+            near(g.primary, 64, "the gate's primary is a plain button at \(height)")
+            near(g.secondary, buttons > 1 ? 48 : 0, "the gate's second button is plain at \(height)")
+            let used = 2 * pad + g.primary + (buttons > 1 ? gap + g.secondary : 0)
+                + (again ? gap + row : 0) + gap + row
+            check(used <= height + 0.001, "the gate fits \(height)")
+        }
     }
-    let refused = MarkPortraitPad.gate(height: 398, refusal: true, buttons: 1, startAgain: false)
-    let clear = MarkPortraitPad.gate(height: 398, refusal: false, buttons: 1, startAgain: false)
-    near(clear.primary - refused.primary, MarkPortraitPad.refusalH + gap, "a refusal line takes its own row")
-    check(MarkPortraitPad.gate(height: 60, refusal: false, buttons: 2, startAgain: true).primary >= 64,
-          "never smaller than a pad button")
 }
 
 /// Landscape: Start again at the foot of the gate, only with marks.
