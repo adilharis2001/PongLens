@@ -158,6 +158,13 @@ struct MoreOptionsToolRow: View {
 /// controls; then Report a problem. A way the server does not allow is not
 /// there (one way left means no choice, just its controls); a running cut
 /// takes their place.
+///
+/// Cards, not a Form (owner, build 241). The two ways are the raw page's
+/// own components, drawn as dark cards inside; a Form row put them in a
+/// system-grey cell, card in card, and a row clips its content to the
+/// section's ~26pt corners, which would cut the 16pt card's border. So the
+/// sheet is the page's cards on the scaffold's ground: Process again in
+/// the "Break it into points" card, Report a problem as a Tools row.
 struct MoreOptionsSheet: View {
     let match: MatchRow
     let hooks: MoreOptionsHooks?
@@ -172,32 +179,16 @@ struct MoreOptionsSheet: View {
 
     var body: some View {
         PLSheetScaffold(title: CutAgainCopy.moreOptions) {
-            Form {
-                if let hooks {
-                    CutAgainSections(match: match, hooks: hooks, close: close, expand: expand)
-                }
-                Section {
-                    Button { report() } label: {
-                        HStack(spacing: 8) {
-                            Text(CutAgainCopy.reportProblem)
-                                .font(.plRowTitle)
-                                .foregroundStyle(PL.text100)
-                            Spacer(minLength: 8)
-                            if let words = issue.state?.rowTrailing, words != CutAgainCopy.reportProblem {
-                                Text(words)
-                                    .font(.plBody)
-                                    .foregroundStyle(PL.text500)
-                                    .lineLimit(1)
-                            }
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(PL.text600)
-                        }
-                        .padding(.vertical, 6)
-                        .contentShape(Rectangle())
+            ScrollView {
+                // The match page's rhythm: 20 between cards, 20 in from
+                // the edges.
+                VStack(alignment: .leading, spacing: 20) {
+                    if let hooks {
+                        CutAgainSections(match: match, hooks: hooks, close: close, expand: expand)
                     }
-                    .buttonStyle(.plain)
+                    reportRow
                 }
+                .padding(20)
             }
             .plKeyboardDismiss()
         }
@@ -206,11 +197,38 @@ struct MoreOptionsSheet: View {
             hooks?.cutAgain.startPolling()
         }
     }
+
+    /// A Tools row on the match page, word for word in its dress: 16pt
+    /// label, the trailing state in caption grey, the chevron, in the
+    /// page's card (MatchTools.toolRow inside ToolsSection's card).
+    private var reportRow: some View {
+        Button { report() } label: {
+            HStack(spacing: 8) {
+                Text(CutAgainCopy.reportProblem)
+                    .font(.system(size: 16))
+                    .foregroundStyle(PL.textBody)
+                Spacer()
+                if let words = issue.state?.rowTrailing, words != CutAgainCopy.reportProblem {
+                    Text(words)
+                        .font(.plBody)
+                        .foregroundStyle(PL.text500)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.text600)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .plCard(padding: 0)
+    }
 }
 
 /// The two ways (one choice and the chosen way's controls), or the running
-/// cut, or the one line that stands in for them. Form sections, so the
-/// sheet reads as one form.
+/// cut, or the one line that stands in for them, each in the page's card.
 private struct CutAgainSections: View {
     let match: MatchRow
     let hooks: MoreOptionsHooks
@@ -245,46 +263,61 @@ private struct CutAgainSections: View {
     var body: some View {
         let plan = plan
         if plan.running {
-            Section {
-                if model.jobRunning {
-                    // The unprocessed page's processing card, word for word.
-                    MatchProcessingContent(
-                        notice: model.serviceNotice,
-                        stageLabel: model.runningLabel,
-                        warning: nil,
-                        progress: model.job?.progress,
-                        sendsReadyEmail: true,
-                        estimate: model.feedback?.estimate,
-                        jobStatus: model.feedback?.jobStatus ?? model.job?.status,
-                        serviceState: model.serviceState
-                    )
-                    .padding(.vertical, 6)
-                } else {
-                    // The server says something is running before its job is
-                    // seen: the contract's line for `processing`.
-                    Text(plan.blocked ?? CutAgainCopy.busy)
-                        .font(.plCardTitle)
-                        .foregroundStyle(PL.text100)
-                        .padding(.vertical, 6)
-                }
+            if model.jobRunning {
+                // The unprocessed page's processing card, word for word.
+                MatchProcessingCard(
+                    notice: model.serviceNotice,
+                    stageLabel: model.runningLabel,
+                    warning: nil,
+                    progress: model.job?.progress,
+                    sendsReadyEmail: true,
+                    estimate: model.feedback?.estimate,
+                    jobStatus: model.feedback?.jobStatus ?? model.job?.status,
+                    serviceState: model.serviceState
+                )
+            } else {
+                // The server says something is running before its job is
+                // seen: the contract's line for `processing`.
+                Text(plan.blocked ?? CutAgainCopy.busy)
+                    .font(.plCardTitle)
+                    .foregroundStyle(PL.text100)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .plCard()
             }
         } else if let line = plan.blocked {
-            Section {
-                Text(line).font(.plBody).foregroundStyle(PL.text300)
-            }
+            Text(line).font(.plBody).foregroundStyle(PL.text300)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .plCard()
         } else if model.options == nil {
-            Section {
+            Group {
                 if model.optionsFailed {
-                    Text("Couldn't load this match. Try again.")
-                        .font(.plBody).foregroundStyle(PL.warningText)
-                    Button("Try again") { Task { await model.load() } }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Couldn't load this match. Try again.")
+                            .font(.plBody).foregroundStyle(PL.warningText)
+                        // Full width, the width on the label, as the
+                        // allowance card's retry does it.
+                        Button { Task { await model.load() } } label: {
+                            Text("Try again").frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .buttonStyle(PLSecondaryButtonStyle())
+                    }
                 } else {
                     ProgressView().tint(PL.cyan)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .plCard()
         }
         if plan.automatic || plan.marking {
-            Section {
+            VStack(alignment: .leading, spacing: 10) {
+                // What both rows do on a processed match, dressed as the
+                // sheets' own section header (Match details' "Your side":
+                // 17pt semibold in the secondary grey, level with the rows'
+                // text), not the page's uppercase label. Nothing under it.
+                Text(CutAgainCopy.processAgain)
+                    .font(.headline)
+                    .foregroundStyle(PL.text400)
+                    .padding(.horizontal, 16)
                 Group {
                     if plan.automatic && plan.marking {
                         // Both ways: one choice, then the chosen way's
@@ -308,13 +341,11 @@ private struct CutAgainSections: View {
                         markingControls
                     }
                 }
-                .listRowInsets(EdgeInsets())
-            } header: {
-                // What both rows do on a processed match, in the sheets'
-                // own section header (Match details' "Your side"), not the
-                // page's uppercase label: a sheet reads like every other
-                // sheet off the Tools list. Nothing under it.
-                Text(CutAgainCopy.processAgain)
+                // The raw page's "Break it into points" card: surface
+                // fill, edge border, 16pt corners, no padding of its own
+                // (the components carry theirs).
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .plCard(padding: 0)
             }
         }
     }
