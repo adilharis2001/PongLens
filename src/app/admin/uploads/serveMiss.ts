@@ -141,6 +141,22 @@ export interface MissCard {
   /** Additive Admin-only shadow evidence; absent on older diagnostics. */
   inferred_bounce_evidence?: unknown;
   why: MissWhy;
+  /**
+   * Set only on a hand-cut match's cards, which handCutEvidence.ts builds
+   * from the owner's own marks rather than an assembler. Such a card spans
+   * the frames detailed analysis read (clip start to End Point tap), so its
+   * `t0` is not the mark; `point_t0` is, and it is what the card is matched
+   * to its point on. Absent on every automatic card, which is matched on
+   * `t0` exactly as before.
+   */
+  hand?: {
+    point_t0: number;
+    /** False when no serve diagnosis covers this card (highlights have not
+     *  run, or the detector's cards never reached it). The serve row then
+     *  says it was not checked, never that no serve was found, and `why`
+     *  is a placeholder nothing reads. */
+    serve_checked: boolean;
+  };
 }
 
 export interface ServeMissData {
@@ -418,8 +434,10 @@ export function hydrateServeMissData(
   const sourceHeight =
     finiteNumber(matchJson?.source?.height) ?? finiteNumber(data.h) ?? 0;
   const cards = data.cards.map((card) => {
+    // A hand-cut card is keyed on its mark; every other card on its start.
+    const key = card.hand?.point_t0 ?? card.t0;
     const source = tracks?.cards.find(
-      (candidate) => Math.abs(Number(candidate.t0) - card.t0) < 0.1
+      (candidate) => Math.abs(Number(candidate.t0) - key) < 0.1
     );
     const fullRows = (source?.track ?? card.track).flatMap((row) => {
       const numeric = row.map(Number);
@@ -435,9 +453,9 @@ export function hydrateServeMissData(
     const matchPoint = matchJson?.points?.find(
       (point) =>
         finiteNumber(point.t0) !== null &&
-        Math.abs(Number(point.t0) - card.t0) < 0.1
+        Math.abs(Number(point.t0) - key) < 0.1
     );
-    const placement = readyPlacementEvidence(matchJson, card.t0);
+    const placement = readyPlacementEvidence(matchJson, key);
     const serveTime =
       finiteNumber(matchPoint?.serve_s) ?? finiteNumber(card.serve_s);
     const trajectory =
@@ -969,8 +987,11 @@ export function missForPoint(
 ): MissCard | null {
   if (!data) return null;
   const t0 = Number(point.t0);
+  // A hand-cut card starts at its clip start, not its mark, and says which
+  // mark it belongs to.
   return (
-    data.cards.find((c) => Math.abs(c.t0 - t0) < 0.1) ?? null
+    data.cards.find((c) => Math.abs((c.hand?.point_t0 ?? c.t0) - t0) < 0.1) ??
+    null
   );
 }
 

@@ -307,9 +307,19 @@ export function PointCard({
               );
             })()}
             {miss &&
+              // A hand-cut card no serve diagnosis covers has no verdict to
+              // show; saying "no serve" there would report a check that
+              // never ran.
+              !(miss.hand && !miss.hand.serve_checked) &&
               (typeof miss.serve_s === "number" ? (
                 <span className="rounded border border-edge px-1.5 py-px text-zinc-400">
-                  serve +{(miss.serve_s - row.t0).toFixed(1)}s
+                  {miss.hand
+                    ? // Measured from the mark, and a late Begin tap puts
+                      // the serve before it.
+                      `serve ${miss.serve_s >= row.t0 ? "+" : "−"}${Math.abs(
+                        miss.serve_s - row.t0
+                      ).toFixed(1)}s`
+                    : <>serve +{(miss.serve_s - row.t0).toFixed(1)}s</>}
                 </span>
               ) : (
                 <span
@@ -359,7 +369,8 @@ export function PointCard({
             {openMiss
               ? "Close"
               : miss && missData
-                ? typeof miss.serve_s === "number"
+                ? typeof miss.serve_s === "number" ||
+                  (miss.hand && !miss.hand.serve_checked)
                   ? "Show the ball"
                   : "Why no serve"
                 : "Add a note"}

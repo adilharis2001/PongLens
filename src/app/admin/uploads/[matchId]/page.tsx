@@ -23,6 +23,13 @@ import type {
 import { hydrateServeMissData, type ServeMissData } from "../serveMiss";
 import { readCards, type TrackArtifact } from "../pointReadings";
 import { normaliseSplits, type EndName } from "../pointLabels";
+import {
+  HAND_TRACKING_NAME,
+  buildHandCutEvidence,
+  readHandTracking,
+  type HandTracking,
+} from "../handCutEvidence";
+import { clipPad } from "../../../match/[id]/clipEdit";
 
 /** Postgres hands back text; only two values mean anything. */
 function asEnd(value: string | null): EndName | null {
@@ -132,6 +139,34 @@ async function readTracks(
   }
 }
 
+/**
+ * A hand cut's ball track, read on the SERVER.
+ *
+ * A hand cut never writes tracks.json. Detailed analysis and highlights
+ * track the ball inside the marked points and save it beside match.json as
+ * one gzip line per frame of the original (worker/hand_cut_analysis.py).
+ * Read only for a hand cut and only when tracks.json is absent, so an
+ * automatic match makes no extra request. Bounded in readHandTracking; any
+ * failure costs the drawing, not the page.
+ */
+async function readHandCutTracking(
+  matchJsonPath: string | null
+): Promise<HandTracking | null> {
+  const prefix = `r2://${MEDIA_BUCKET}/`;
+  if (!matchJsonPath?.startsWith(prefix)) return null;
+  const key = matchJsonPath
+    .slice(prefix.length)
+    .replace(/match\.json$/, HAND_TRACKING_NAME);
+  if (!key.endsWith(HAND_TRACKING_NAME)) return null;
+  try {
+    const object = await getObject(MEDIA_BUCKET, key);
+    if (!object) return null;
+    return readHandTracking(new Uint8Array(object.body));
+  } catch {
+    return null;
+  }
+}
+
 export default async function AdminUploadPage({
   params,
 }: {
@@ -227,6 +262,33 @@ export default async function AdminUploadPage({
       getUnscoredRallyEndTightBufferS(),
     ]);
 
+  // A hand cut's evidence is keyed on the owner's marks and drawn on the
+  // original's own frame times; handCutEvidence.ts explains both. An
+  // automatic match never enters this branch and reads exactly as before.
+  const handCut =
+    matchJson?.pipeline === "hand-v1" && !tracks
+      ? buildHandCutEvidence({
+          matchId,
+          matchJson,
+          points: detail.points.map((p) => ({
+            id: p.id,
+            t0: Number(p.t0),
+            t1: Number(p.t1),
+            tight_start: !!p.tight_start,
+            deleted: !!p.deleted,
+          })),
+          evidence: ((evidenceRes.data ?? []) as {
+            id: string;
+            placement: unknown;
+          }[]).map((e) => ({ id: e.id, placement: e.placement })),
+          tracking: await readHandCutTracking(detail.match.match_json_path),
+          serves: serveMisses,
+          // The same pad the page converts clocks with (cutOffsetFor).
+          pre: clipPad(detail.job?.strictness, detail.match.clip_pads).pre,
+        })
+      : null;
+  const cardTracks = handCut ? handCut.tracks : tracks;
+
   // The three winner rules, asked here rather than in the browser: the
   // candidates and the track together are most of a megabyte, and only the
   // verdicts are worth sending.
@@ -234,12 +296,13 @@ export default async function AdminUploadPage({
     detail,
     evidence: evidenceRes.data ?? [],
     matchJson,
-    tracks,
+    tracks: cardTracks,
   });
-  const hydratedServeMisses = serveMisses
+  const cardEvidence = handCut ? handCut.data : serveMisses;
+  const hydratedServeMisses = cardEvidence
     ? hydrateServeMissData(
-        serveMisses,
-        tracks,
+        cardEvidence,
+        cardTracks,
         matchJson?.source?.fps,
         matchJson
       )
@@ -258,6 +321,7 @@ export default async function AdminUploadPage({
           detail={detail}
           matchJson={matchJson}
           serveMisses={hydratedServeMisses}
+          handCut={handCut ? handCut.status : null}
           readings={readings}
           readingSummary={summary}
           scoreProjection={scoreProjection}

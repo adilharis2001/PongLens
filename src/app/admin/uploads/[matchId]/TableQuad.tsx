@@ -188,8 +188,8 @@ export function TableQuad({
 
         {table.state === "unknown" && (
           <p className="mt-3 text-sm text-zinc-300">
-            This upload has no processing record, so there is nothing to say
-            about a table.
+            {table.note ??
+              "This upload has no processing record, so there is nothing to say about a table."}
           </p>
         )}
       </div>

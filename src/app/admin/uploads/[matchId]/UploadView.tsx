@@ -44,6 +44,7 @@ import {
   type UploadPointRow,
 } from "../uploadView";
 import type { CardReading, ReadingSummary } from "../pointReadings";
+import type { HandEvidenceStatus as HandCutStatus } from "../handCutEvidence";
 import {
   cutOffsetFor,
   labelKey,
@@ -116,6 +117,7 @@ export function UploadView({
   detail,
   matchJson,
   serveMisses,
+  handCut = null,
   readings,
   readingSummary,
   scoreProjection,
@@ -127,6 +129,9 @@ export function UploadView({
   detail: UploadDetail;
   matchJson: MatchJson | null;
   serveMisses: ServeMissData | null;
+  /** Set on a hand-cut match only: what its evidence was built from, so
+   *  the page can say plainly which piece has not been made yet. */
+  handCut?: HandCutStatus | null;
   readings: CardReading[];
   readingSummary: ReadingSummary | null;
   scoreProjection: ScoreProjectionDiagnostic | null;
@@ -674,7 +679,9 @@ export function UploadView({
                   ? "End-on"
                   : assembly.route === "serve-anchored"
                     ? "Serve-anchored"
-                    : "Not recorded"
+                    : assembly.pipeline === "hand-v1"
+                      ? "Marked by hand"
+                      : "Not recorded"
             }
             detail={assembly.pipeline ? `pipeline ${assembly.pipeline}` : null}
           />
@@ -685,7 +692,9 @@ export function UploadView({
                 ? detectorName(table.detector)
                 : table.state === "refused"
                   ? "None found"
-                  : "Not recorded"
+                  : assembly.pipeline === "hand-v1"
+                    ? "Not looked for yet"
+                    : "Not recorded"
             }
           />
           <Fact
@@ -795,6 +804,8 @@ export function UploadView({
             </p>
           </div>
         ) : null}
+
+        {handCut && <HandCutLine status={handCut} />}
 
         {rows.length > 0 && (
           <div className="relative mt-3 h-2.5 overflow-hidden rounded-full bg-surface-2">
@@ -1284,6 +1295,24 @@ function PlainCardClip({
       <div className="flex min-w-0 flex-col gap-3 lg:flex-[2]">{side}</div>
     </div>
   );
+}
+
+/**
+ * What a hand cut's cards can show, in one plain line.
+ *
+ * Each piece comes from a different job, and a hand cut may have had
+ * either, both or neither. A missing piece is a job that has not run, not
+ * a fault, so it is said in grey and names the job that makes it.
+ */
+function HandCutLine({ status }: { status: HandCutStatus }) {
+  const line = !status.tracked
+    ? "The ball has not been tracked on this hand cut yet. Detailed analysis or highlights track it inside the marked points."
+    : !status.drawn
+      ? "The ball was tracked, but there is no table to draw it against."
+      : status.serveChecked
+        ? "Each card runs from the clip start to the End Point tap, the stretch detailed analysis read."
+        : "Each card runs from the clip start to the End Point tap. The ball and bounces come from detailed analysis; the serve check comes with highlights, which have not run on this match.";
+  return <p className="mt-2 text-sm text-zinc-500">{line}</p>;
 }
 
 function firstPlayableId(rows: UploadPointRow[]): string | null {

@@ -361,15 +361,19 @@ export function readTable(
       camera,
     };
   }
-  if (matchJson.pipeline === "hand-v1") {
-    // Marked by hand: the ladder never ran, so this is "never asked", not
-    // "declined". Reporting it as refused would count a player's own cut
-    // as a detector failure.
+  if (matchJson.pipeline === "hand-v1" && !matchJson.calibration) {
+    // Marked by hand, and nothing has looked for a table yet: cutting by
+    // hand runs no ladder. That is "never asked", not "declined", and
+    // reporting it as refused would count a player's own cut as a detector
+    // failure. Detailed analysis (2026-09-24) runs the ladder and writes
+    // its answer into this same match.json, and from then on the answer
+    // is read below exactly as an automatic match's is: a table where it
+    // found one, a refusal where it looked and declined.
     return {
       state: "unknown",
       quad: null,
       detector: null,
-      note: null,
+      note: "Marked by hand, and detailed analysis has not run, so nothing has looked for the table yet.",
       agreement: null,
       camera,
     };

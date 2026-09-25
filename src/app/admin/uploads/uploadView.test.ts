@@ -295,6 +295,60 @@ test("a quad with no named source is the retired pink-rim calibrator", () => {
   assert.equal(reading.detector, "pink_rim");
 });
 
+test("a hand cut's table is read from its calibration once detailed analysis wrote one", () => {
+  // The shape detailed analysis writes into a hand cut's match.json
+  // (623c09c6, 2026-09-25).
+  const handCut: MatchJson = {
+    pipeline: "hand-v1",
+    source: { duration: 728.99, fps: 59.881, width: 1920, height: 1080 },
+    calibration: {
+      ok: true,
+      source: "keypoints",
+      note: "keypoint detector (table-keypoints/segformerpp_b0), 16/16 frames agree",
+      agreement: { frames_sampled: 16, frames_used: 16, spread_px: 0.71 },
+      table_corners_px: {
+        A_near_1: [565.9, 501.3],
+        B_near_2: [673.5, 627.4],
+        C_far_2: [1222.7, 518.5],
+        D_far_1: [1020.7, 459.9],
+      },
+    },
+  };
+  const reading = readTable(handCut, null);
+  assert.equal(reading.state, "detected");
+  assert.equal(reading.detector, "keypoints");
+  assert.deepEqual(reading.quad, [
+    [565.9, 501.3],
+    [673.5, 627.4],
+    [1222.7, 518.5],
+    [1020.7, 459.9],
+  ]);
+  assert.equal(reading.agreement?.frames_used, 16);
+});
+
+test("a hand cut nothing has analysed is never asked, not refused", () => {
+  const reading = readTable({ pipeline: "hand-v1" }, { camera: "side-on" });
+  assert.equal(reading.state, "unknown");
+  assert.equal(reading.quad, null);
+  assert.equal(reading.detector, null);
+  assert.equal(reading.camera, "side-on");
+  // Says why in its own words rather than the "no processing record" line
+  // an unreadable automatic match gets.
+  assert.match(reading.note ?? "", /marked by hand/i);
+  assert.equal(readTable(null, null).note, null);
+});
+
+test("a hand cut whose analysis looked and found no table reads as refused", () => {
+  // The ladder DID run here, during detailed analysis, and declined: the
+  // same honest answer an automatic match gets.
+  const reading = readTable(
+    { pipeline: "hand-v1", calibration: { ok: false, note: "no table" } },
+    null
+  );
+  assert.equal(reading.state, "refused");
+  assert.equal(reading.note, "no table");
+});
+
 /* -------------------------------------------------------------- assembly */
 
 test("the route is read from the worker's own sentence", () => {

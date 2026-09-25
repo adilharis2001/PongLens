@@ -376,7 +376,9 @@ export function CardTimeline({
           </>
         ) : (
           <text x={PLOT_X} y={SERVE_Y + 4} fontSize="10" fill="#3f3f46">
-            none found in this card
+            {card.hand && !card.hand.serve_checked
+              ? "not checked: the serve check comes with highlights"
+              : "none found in this card"}
           </text>
         )}
 
