@@ -221,6 +221,12 @@ private func runProcessChargeChecks() {
     eq(ProcessCharge.minutes(durationS: nil, trimStart: 0, trimEnd: nil), nil, "no length, no quote")
     eq(ProcessCharge.label(minutes: 12), "Process · 12 min", "the button")
     eq(ProcessCharge.label(minutes: nil), "Process", "the button without a length")
+    eq(ProcessCharge.label(minutes: 12, again: true), "Process again · 12 min",
+       "More options' button says it processes the match again")
+    eq(ProcessCharge.label(minutes: nil, again: true), "Process again",
+       "More options' button without a length")
+    eq(CutAgainCopy.processAgain, "Process again", "More options' label over the two ways")
+    eq(CutAgainCopy.automatically, "Automatically", "the first way, as on the unprocessed page")
     eq(ProcessCharge.trimmed(durationS: 600, trimStart: 0.4, trimEnd: 599.8), false,
        "half a second either end is not a trim")
     eq(ProcessCharge.trimmed(durationS: 600, trimStart: 1, trimEnd: nil), true, "a trimmed start")
@@ -297,7 +303,7 @@ private func runMarkerCopyChecks() {
     eq(MarkerCopy.scoreDetail(on: false, practice: false), "Mark where each rally starts and ends.", "line, off")
     eq(MarkerCopy.scoreDetail(on: false, practice: true), "Scoring is for matches.", "line, practice")
     eq(MarkerCopy.backToLastPoint, "Back to last point", "the renamed Reset")
-    for words in [CutAgainCopy.moreOptions, CutAgainCopy.processAutomatically, CutAgainCopy.markYourself,
+    for words in [CutAgainCopy.moreOptions, CutAgainCopy.processAgain, CutAgainCopy.automatically, CutAgainCopy.markYourself,
                   CutAgainCopy.reportProblem, CutAgainCopy.replace, CutAgainCopy.keep,
                   CutAgainCopy.replaceDeletes, CutAgainCopy.matchNotesStay, CutAgainCopy.hasCoachReview,
                   CutAgainCopy.startAgain, CutAgainCopy.clearTitle, CutAgainCopy.busy, CutAgainCopy.noSource,

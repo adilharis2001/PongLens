@@ -1117,7 +1117,7 @@ struct MatchDetailScreen: View {
                                     onRowChanged: {
                                         // The Tools rows render from this
                                         // screen's captured row: refetch it
-                                        // so "Your side" / details reflect
+                                        // so the details row reflects
                                         // the save immediately, then square
                                         // the library list too.
                                         Task {
@@ -1362,10 +1362,15 @@ struct MatchDetailScreen: View {
             .presentationDragIndicator(.visible)
         }
         // Edit details in the menu opens the same editor the Tools card
-        // does. The title is derived from these fields, so the row is
-        // refetched on save to repaint it right away.
+        // does, Your side included once the match is processed. The title
+        // is derived from these fields, so the row is refetched on save to
+        // repaint it right away.
         .sheet(isPresented: $detailsOpen) {
-            MatchDetailsEditor(match: current) {
+            MatchDetailsEditor(
+                match: current,
+                asksSide: current.status == .ready,
+                videoURL: model.videoURL
+            ) {
                 Task {
                     await refreshMatch(refreshLibrary: true)
                 }

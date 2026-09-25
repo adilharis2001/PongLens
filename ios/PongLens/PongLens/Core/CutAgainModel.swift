@@ -88,7 +88,7 @@ struct CutAgainClient {
     var claimHandRecut: (UUID, [HandCutSubmission], Bool) async throws -> HandRecutClaim
     var copyForRecut: (UUID) async throws -> UUID
     var process: (UUID, ProcessSettings) async -> ProcessStart
-    /// Phase 2 only (Replace under Process automatically). The design names
+    /// Phase 2 only (Replace under Automatically, in More options). The design names
     /// `claim_auto_recut(match, replace, trim, strictness)`; the contract
     /// has not pinned its parameters yet, so this is the design's reading.
     var claimAutoRecut: (UUID, ProcessSettings) async throws -> UUID?
@@ -329,7 +329,7 @@ final class CutAgainModel {
         }
     }
 
-    // MARK: - Process automatically
+    // MARK: - Process again, automatically
 
     /// Keep: a copy of this match, then the ordinary process call on the
     /// copy. Returns the match to open (the copy), or nil when this match

@@ -14,7 +14,11 @@ import Foundation
 /// price for marking by hand, never "free", "Mac", "iPhone" or "version".
 enum CutAgainCopy {
     static let moreOptions = "More options"
-    static let processAutomatically = "Process automatically"
+    /// The label over the two ways, which is what they do on a processed
+    /// match: process it again.
+    static let processAgain = "Process again"
+    /// The unprocessed page's word for the same row.
+    static let automatically = "Automatically"
     static let markYourself = "Mark the points yourself"
     static let reportProblem = "Report a problem"
 
@@ -141,8 +145,8 @@ struct MoreOptionsPlan: Equatable {
 // MARK: - The two ways, one open at a time
 
 /// The two ways to cut a match, as rows that open in place: the unprocessed
-/// page's "Automatically" and "Mark the points yourself", and More options'
-/// "Process automatically" and "Mark the points yourself". Opening one
+/// page's "Automatically" and "Mark the points yourself", and the same two
+/// under More options' "Process again" label. Opening one
 /// closes the other, so there is only ever one cyan primary on screen
 /// (QA 2026-09-25).
 enum CutWay: Equatable {
@@ -305,8 +309,11 @@ enum ProcessCharge {
             .map { max(1, Int(($0 / 60).rounded(.up))) }
     }
 
-    static func label(minutes: Int?) -> String {
-        minutes.map { "Process · \($0) min" } ?? "Process"
+    /// The button. `again` on a processed match (More options), where it
+    /// says it processes the match again.
+    static func label(minutes: Int?, again: Bool = false) -> String {
+        let verb = again ? CutAgainCopy.processAgain : "Process"
+        return minutes.map { "\(verb) · \($0) min" } ?? verb
     }
 
     static func enough(minutes: Int?, balance: Int?, needsMore: Bool) -> Bool {

@@ -906,7 +906,7 @@ struct PointDetailScreen: View {
     }
 
     /// The map's orientation prompt writes matches.user_side — the same
-    /// write the Your side sheet does.
+    /// column the Your side field in Match details writes.
     private func setUserSide(_ side: String) async {
         _ = try? await supa
             .from("matches")

@@ -64,6 +64,8 @@ struct AutoProcessControls<Choice: View>: View {
     /// "Check minutes" in the allowance card: re-read the balance.
     let recheckMinutes: () async throws -> Void
     let onProcess: () -> Void
+    /// More options: the button reads "Process again".
+    var again = false
     @ViewBuilder var choice: () -> Choice
 
     private var trimmed: Bool {
@@ -157,7 +159,7 @@ struct AutoProcessControls<Choice: View>: View {
                     // the label measures, so a frame outside the style
                     // stretches the tap target and leaves the pill hugging in
                     // the middle.
-                    Text(busy ? "Starting…" : ProcessCharge.label(minutes: minutes))
+                    Text(busy ? "Starting…" : ProcessCharge.label(minutes: minutes, again: again))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PLPrimaryButtonStyle())
