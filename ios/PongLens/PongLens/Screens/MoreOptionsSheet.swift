@@ -128,9 +128,9 @@ struct MoreOptionsToolRow: View {
     }
 }
 
-/// The sheet: Process automatically, Mark the points yourself, Report a
-/// problem. Rows the server does not allow are not there; a running cut
-/// takes their place.
+/// The sheet: under a "Process again" label, Automatically and Mark the
+/// points yourself; then Report a problem. Rows the server does not allow
+/// are not there; a running cut takes their place.
 struct MoreOptionsSheet: View {
     let match: MatchRow
     let hooks: MoreOptionsHooks?
@@ -265,7 +265,7 @@ private struct CutAgainSections: View {
             Section {
                 if plan.automatic {
                     AccordionHeaderRow(
-                        title: CutAgainCopy.processAutomatically,
+                        title: CutAgainCopy.automatically,
                         trailing: minutes.map { "\($0) min" },
                         open: model.autoOpen
                     ) {
@@ -293,6 +293,10 @@ private struct CutAgainSections: View {
                             .listRowInsets(EdgeInsets())
                     }
                 }
+            } header: {
+                // What both rows do on a processed match, in the page's
+                // own section label ("TOOLS", "POINTS"). Nothing under it.
+                SectionHeading(CutAgainCopy.processAgain)
             }
         }
     }
@@ -315,6 +319,7 @@ private struct CutAgainSections: View {
                     if model.error == nil { close(opening) }
                 }
             },
+            again: true,
             choice: {
                 if model.autoChoice != nil {
                     RecutChoiceView(

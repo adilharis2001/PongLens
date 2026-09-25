@@ -11,7 +11,8 @@ struct ToolsSection: View {
     let onScrollToNotes: () -> Void
     let onScrollToAnalysis: () -> Void
     let onScrollToPlacement: () -> Void
-    /// Called after a sheet writes to the match row (details, your side).
+    /// Called after a sheet writes to the match row (Match details, which
+    /// holds Your side).
     /// The screen refetches its own copy — this card renders from a
     /// captured MatchRow, and reloading the library alone left the rows'
     /// trailing text stale, which read as the save not working.
@@ -33,7 +34,6 @@ struct ToolsSection: View {
     @State private var coachOpen = false
     @State private var exportOpen = false
     @State private var detailsOpen = false
-    @State private var sideOpen = false
     @State private var analysisRequestOpen = false
     @State private var automaticHighlights: AutomaticHighlightsResponse?
 
@@ -90,16 +90,17 @@ struct ToolsSection: View {
                 divider
                 toolRow("Notes", trailing: .text("Add a note")) { onScrollToNotes() }
                 divider
+                // Your side is a field of Match details, not a row of its
+                // own (Adil, 2026-09-25).
                 locked(toolRow("Match details", trailing: .text(detailsTrailing)) { detailsOpen = true })
                 divider
-                locked(toolRow("Your side", trailing: .text(sideTrailing)) { sideOpen = true })
+                locked(FeedbackBoardToolRow(match: match))
                 divider
                 // More options took Processing's place (cut again,
-                // 2026-09-25): cutting the match again, either way, and
+                // 2026-09-25): processing the match again, either way, and
                 // Report a problem, which is the Processing form unchanged.
+                // The last row (Adil, 2026-09-25).
                 locked(MoreOptionsToolRow(match: match, hooks: moreOptions))
-                divider
-                locked(FeedbackBoardToolRow(match: match))
             }
             .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
             .overlay(
@@ -142,7 +143,7 @@ struct ToolsSection: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $detailsOpen) {
-            MatchDetailsEditor(match: match) {
+            MatchDetailsEditor(match: match, asksSide: true, videoURL: model.videoURL) {
                 onRowChanged()
             }
             .presentationDetents([.large])
@@ -152,13 +153,6 @@ struct ToolsSection: View {
             PlacementRequestSheet(match: match, onChanged: onRowChanged)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $sideOpen) {
-            YourSideSheet(match: match, videoURL: model.videoURL) {
-                onRowChanged()
-            }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
         }
         .task(id: match.id) { await loadAutomaticHighlights() }
     }
@@ -257,14 +251,6 @@ struct ToolsSection: View {
         let venue = match.venue ?? ""
         if opp.isEmpty && venue.isEmpty { return "Add opponent and venue" }
         return [opp, venue].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    private var sideTrailing: String {
-        switch match.userSide {
-        case "near": "Bottom of video"
-        case "far": "Top of video"
-        default: "Set your side"
-        }
     }
 
     private var divider: some View {
@@ -1243,25 +1229,50 @@ struct ExportSheet: View {
 /// The app's one details idiom, shared with the record and upload flows:
 /// a native Form, typed fields with recent answers behind a chevron, and
 /// Done in the toolbar.
+///
+/// On a processed match it also asks which end the owner played from:
+/// Your side used to be a Tools row and a sheet of its own, and is a field
+/// here since 2026-09-25 (Adil). Everything that asked for the side opens
+/// this sheet now. Not before processing (audit, 2026-09-01): nothing at
+/// processing time reads it.
 struct MatchDetailsEditor: View {
     let match: MatchRow
+    /// Show the Your side field. The processed match page only.
+    var asksSide = false
+    /// The cut video, for the still the side question is answered from.
+    /// Nil asks without a picture, which is the thing to avoid: near/far
+    /// is a guess without one, and a wrong answer mirrors every map.
+    var videoURL: URL? = nil
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(LibraryStore.self) private var library
+    @Environment(AppState.self) private var app
     @State private var opponent: String
     @State private var venue: String
     @State private var matchType: String
+    /// "near" or "far", or nil while the match has none. Written on Done,
+    /// with the other fields, and only when it changed.
+    @State private var side: String?
     @State private var saving = false
+    @State private var frame: UIImage?
+    @State private var frameFailed = false
+    @State private var sideError: String?
 
     private static let types = ["drills", "practice", "match", "league", "tournament"]
 
-    init(match: MatchRow, onSaved: @escaping () -> Void) {
+    init(
+        match: MatchRow, asksSide: Bool = false, videoURL: URL? = nil,
+        onSaved: @escaping () -> Void
+    ) {
         self.match = match
+        self.asksSide = asksSide
+        self.videoURL = videoURL
         self.onSaved = onSaved
         _opponent = State(initialValue: match.opponentName ?? "")
         _venue = State(initialValue: match.venue ?? "")
         _matchType = State(initialValue: match.matchType ?? "")
+        _side = State(initialValue: match.userSide)
     }
 
     var body: some View {
@@ -1287,6 +1298,9 @@ struct MatchDetailsEditor: View {
                             Text(MatchTitle.typeLabel[value] ?? value).tag(value)
                         }
                     }
+                }
+                if asksSide {
+                    sideSections
                 }
             }
             .plKeyboardDismiss()
@@ -1318,9 +1332,10 @@ struct MatchDetailsEditor: View {
 
     private func save() async {
         saving = true
+        sideError = nil
+        let typedOpponent = opponent.trimmingCharacters(in: .whitespaces)
         let fields: [String: AnyJSON] = [
-            "opponent_name": opponent.trimmingCharacters(in: .whitespaces).isEmpty
-                ? .null : .string(opponent.trimmingCharacters(in: .whitespaces)),
+            "opponent_name": typedOpponent.isEmpty ? .null : .string(typedOpponent),
             "venue": venue.trimmingCharacters(in: .whitespaces).isEmpty
                 ? .null : .string(venue.trimmingCharacters(in: .whitespaces)),
             "match_type": matchType.isEmpty ? .null : .string(matchType),
@@ -1330,55 +1345,68 @@ struct MatchDetailsEditor: View {
             .update(fields)
             .eq("id", value: match.id.uuidString.lowercased())
             .execute()
+        // After the details, so the side's name-fill reads the opponent
+        // as it now stands: the order the two sheets were saved in when
+        // they were separate.
+        if asksSide, let side, side != match.userSide {
+            let typed = typedOpponent != (match.opponentName ?? "")
+                .trimmingCharacters(in: .whitespaces)
+            guard await saveSide(side, opponent: typedOpponent, opponentTyped: typed) else {
+                saving = false
+                onSaved()
+                return
+            }
+        }
         saving = false
         onSaved()
         dismiss()
     }
-}
 
-// MARK: - Your side
+    // MARK: Your side
 
-struct YourSideSheet: View {
-    let match: MatchRow
-    /// The cut video, for the still the question is answered from. Nil
-    /// asks without a picture, which is the thing to avoid: near/far is a
-    /// guess without one, and a wrong answer mirrors every map.
-    var videoURL: URL? = nil
-    let onSaved: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @Environment(AppState.self) private var app
-    @State private var saving = false
-    @State private var frame: UIImage?
-    @State private var frameFailed = false
-    /// Which row is being written, so only that one shows the spinner.
-    @State private var savingSide: String?
-    @State private var errorMessage: String?
-
-    var body: some View {
-        PLSheetScaffold(title: "Which player are you?") {
-            Form {
-                if videoURL != nil, !frameFailed {
-                    Section {
-                        frameView
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
-                    }
-                }
-                Section {
-                    sideRow("Bottom of video", side: "near")
-                    sideRow("Top of video", side: "far")
-                } footer: {
-                    Text("So your labels and serve maps come out right.")
-                }
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.plBody)
-                            .foregroundStyle(PL.warningText)
-                    }
-                }
+    /// The still in its own clear section with the label over it, then
+    /// the two choices: the old Your side sheet's layout under a field
+    /// label. Without a still the label sits on the choices.
+    @ViewBuilder
+    private var sideSections: some View {
+        if videoURL != nil, !frameFailed {
+            Section {
+                frameView
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            } header: {
+                Text("Your side")
             }
+            Section { sideRows }
+        } else {
+            Section { sideRows } header: {
+                Text("Your side")
+            }
+        }
+        if let sideError {
+            Section {
+                Text(sideError)
+                    .font(.plBody)
+                    .foregroundStyle(PL.warningText)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sideRows: some View {
+        sideRow("Bottom of video", side: "near")
+        sideRow("Top of video", side: "far")
+    }
+
+    /// The share sheet's choice row, so the questions the match page asks
+    /// look like the same kind of question. The chosen side is marked.
+    private func sideRow(_ label: String, side value: String) -> some View {
+        PLChoiceRow(
+            title: label,
+            selected: side == value,
+            disabled: saving
+        ) {
+            side = value
         }
     }
 
@@ -1421,16 +1449,15 @@ struct YourSideSheet: View {
     }
 
     /// The web's chooseSide, column for column (MatchView
-    /// handleSetUserSide): the side, plus the name-fill — your account
-    /// name onto your side, the opponent field onto the other — filling
-    /// only what is empty, so a name someone typed is never overwritten.
-    /// Errors are SHOWN, not swallowed: an expired session answers 204
-    /// and changes nothing, and fire-and-forget made that look exactly
-    /// like a write that worked.
-    private func save(_ side: String) async {
-        saving = true
-        errorMessage = nil
-        defer { saving = false }
+    /// handleSetUserSide), unchanged from the Your side sheet: the side,
+    /// plus the name-fill — your account name onto your side, the
+    /// opponent field onto the other — filling only what is empty, so a
+    /// name someone typed is never overwritten. For the same reason an
+    /// opponent typed in this sheet is not replaced by the name on the
+    /// other end. Errors are SHOWN, not swallowed: an expired session
+    /// answers 204 and changes nothing, and fire-and-forget made that look
+    /// exactly like a write that worked. Answers whether it landed.
+    private func saveSide(_ side: String, opponent opp: String, opponentTyped: Bool) async -> Bool {
         let id = match.id.uuidString.lowercased()
         struct Names: Decodable {
             let playerNearName: String?
@@ -1448,8 +1475,6 @@ struct YourSideSheet: View {
             .execute()
             .value
         let account = app.displayName
-        let opp = (match.opponentName ?? "")
-            .trimmingCharacters(in: .whitespaces)
         var near = (names?.playerNearName ?? "")
             .trimmingCharacters(in: .whitespaces)
         var far = (names?.playerFarName ?? "")
@@ -1468,7 +1493,7 @@ struct YourSideSheet: View {
             "player_near_name": near.isEmpty ? .null : .string(near),
             "player_far_name": far.isEmpty ? .null : .string(far),
         ]
-        if !opponent.isEmpty { fields["opponent_name"] = .string(opponent) }
+        if !opponent.isEmpty, !opponentTyped { fields["opponent_name"] = .string(opponent) }
         do {
             try await supa
                 .from("matches")
@@ -1476,27 +1501,11 @@ struct YourSideSheet: View {
                 .eq("id", value: id)
                 .execute()
         } catch {
-            errorMessage =
+            sideError =
                 "That didn't save. Check your connection and try again."
-            return
+            return false
         }
-        onSaved()
-        dismiss()
-    }
-
-    /// The side already on the row is marked; tapping the other writes
-    /// it and closes. The share sheet's choice row, so the two questions
-    /// the match page asks look like the same kind of question.
-    private func sideRow(_ label: String, side: String) -> some View {
-        PLChoiceRow(
-            title: label,
-            selected: match.userSide == side,
-            busy: saving && savingSide == side,
-            disabled: saving
-        ) {
-            savingSide = side
-            Task { await save(side) }
-        }
+        return true
     }
 }
 

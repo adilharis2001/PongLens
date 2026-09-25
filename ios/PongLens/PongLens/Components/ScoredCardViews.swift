@@ -329,7 +329,8 @@ struct NextStepCard: View {
     var onSetFirstServer: ((Winner) async -> Bool)? = nil
 
     @State private var analysisSheetOpen = false
-    @State private var sideSheetOpen = false
+    /// Match details, which holds the Your side question.
+    @State private var detailsOpen = false
     @State private var savingServer = false
 
     private var status: String { match.placementStatus ?? "not_requested" }
@@ -369,7 +370,7 @@ struct NextStepCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 if sideMissing {
                     row("Which end did you play from?", done: false) {
-                        secondaryButton("Choose your end") { sideSheetOpen = true }
+                        secondaryButton("Choose your end") { detailsOpen = true }
                     }
                 }
                 if showScoring {
@@ -442,8 +443,12 @@ struct NextStepCard: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $sideSheetOpen) {
-            YourSideSheet(match: match, videoURL: videoURL, onSaved: onChanged)
+        // Your side is a field of Match details (2026-09-25), so the
+        // question opens that sheet rather than one of its own.
+        .sheet(isPresented: $detailsOpen) {
+            MatchDetailsEditor(match: match, asksSide: true, videoURL: videoURL, onSaved: onChanged)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 

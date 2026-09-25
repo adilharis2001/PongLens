@@ -70,7 +70,7 @@ enum AnalysisToolRow {
     }
 
     static func unscoredTrailing(mappedPoints: Int) -> String {
-        "\(mappedPoints) points mapped"
+        "\(mappedPoints) \(mappedPoints == 1 ? "point" : "points") mapped"
     }
 }
 

@@ -38,7 +38,8 @@ final class AppState {
     }
 
     /// The account's full display name, for the chooseSide name-fill
-    /// (YourSideSheet writes it into player_*_name the way the web does).
+    /// (Match details' Your side field writes it into player_*_name the
+    /// way the web does).
     /// Empty when the account has never had a name — the fill then leaves
     /// the column alone rather than inventing one.
     var displayName: String {

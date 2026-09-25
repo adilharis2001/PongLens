@@ -162,6 +162,7 @@ private func runAnalysisToolRowChecks() {
           "a practice with nothing mapped has no row, whatever the analysis status")
     check(AnalysisToolRow.shown(scoredType: false, mappedPoints: 4), "a practice with mapped points has it")
     eq(AnalysisToolRow.unscoredTrailing(mappedPoints: 4), "4 points mapped", "and says how many, as the web does")
+    eq(AnalysisToolRow.unscoredTrailing(mappedPoints: 1), "1 point mapped", "one point is singular")
     let unplaced = (0..<5).compactMap { decodePoint(pointJSON(id: uuid(700 + $0), winner: nil)) }
     eq(mappedPointCount(unplaced, userSide: "near", gameIndexByPoint: [:], serving: [:], servesOnly: true), 0,
        "points with no placement map nothing")

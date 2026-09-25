@@ -193,24 +193,20 @@ enum MarkerCopy {
 
 // MARK: - The portrait pad
 
-/// How the portrait pad's controls share their height, in every state, so
-/// the pad is full from the strip to the footer (Adil, 2026-09-25: the gate
-/// left the bottom 40% of the screen empty). The pass keeps its old split,
-/// the pair above the answers 3:2; the gate's buttons take those same two
-/// shares, and a single gate button takes both. Start again sits where the
-/// pass keeps its tool row.
+/// How the portrait pad's controls share their height. The pass fills the
+/// pad, the pair above the answers 3:2. The gate does not: its buttons are
+/// ordinary buttons at the top of the pad, the same as the web's (Adil,
+/// 2026-09-25, build 239: stretched to fill the pad, "Begin Cutting" read as
+/// a giant slab; he chose the plain buttons back over a full pad).
 struct MarkPortraitPad: Equatable {
     static let gap = 10.0
     static let padding = 12.0
     /// The tool row and the footer.
     static let rowH = 44.0
     static let refusalH = 16.0
-    /// Sensible ceilings for the gate's two buttons; what they leave sits
-    /// above the footer. A lone gate button has none: it fills the pad down
-    /// to the footer, as the web marker's does (QA 2026-09-25: capped, it
-    /// left an empty band on the largest phones).
-    static let primaryMax = 240.0
-    static let secondaryMax = 160.0
+    /// The gate's buttons, as the web's (h-16 and h-12).
+    static let primaryH = 64.0
+    static let secondaryH = 48.0
 
     /// The pass: the pair and the answers (0 when cutting only).
     static func pass(height: Double, refusal: Bool, answers: Bool) -> (pair: Double, answers: Double) {
@@ -221,16 +217,11 @@ struct MarkPortraitPad: Equatable {
         return (pair, answers ? max(56, flex * 2 / 5) : 0)
     }
 
-    /// The gate: `buttons` is 1 or 2; `startAgain` takes the tool row's
-    /// place. Without it the buttons take that row too.
+    /// The gate: `buttons` is 1 or 2. Fixed heights whatever the pad; the
+    /// space under them stays empty until the pass begins.
     static func gate(
         height: Double, refusal: Bool, buttons: Int, startAgain: Bool
     ) -> (primary: Double, secondary: Double) {
-        let refusalBlock = refusal ? refusalH + gap : 0
-        let fixed = 2 * padding + refusalBlock + rowH + gap
-            + (startAgain ? rowH + gap : 0) + (buttons > 1 ? gap : 0)
-        let flex = max(0, height - fixed)
-        if buttons <= 1 { return (max(64, flex), 0) }
-        return (min(primaryMax, max(64, flex * 3 / 5)), min(secondaryMax, max(48, flex * 2 / 5)))
+        (primaryH, buttons > 1 ? secondaryH : 0)
     }
 }
