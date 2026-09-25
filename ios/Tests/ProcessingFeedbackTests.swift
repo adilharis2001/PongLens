@@ -126,6 +126,7 @@ func runProcessingFeedbackChecks() {
             ("upload", "Uploading the result"),
             ("points", "Building the points"),
             ("publish", "Saving the match"),
+            ("device_verify", "Saving the match"),
             ("future_stage", "Preparing clips"),
         ]
         for (stage, expected) in cases {
@@ -244,36 +245,42 @@ func runProcessingFeedbackChecks() {
         check(!(changed?.cameraWarning(trimStart: 10, trimEnd: 20) ?? "").contains("12"), "warning does not expose detection timestamps")
     }
 
-    suite("a hand cut on the owner's iPhone says what the phone is doing") {
+    suite("a hand cut reads the same wherever it is cut") {
         func phone(_ extra: String) -> MatchProcessingFeedback? {
             decodeProcessingFeedback("""
             {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"processing","job_kind":"hand_cut","worker_state":"missing","service_state":"unavailable","cutter":"device","phase":"device"\(extra)}
             """)
         }
-        eq(phone(",\"device_stage\":\"device_cut\"")?.stageLabel, Optional("Cutting on your iPhone"), "cutting")
-        eq(phone(",\"device_stage\":\"device_clips\"")?.stageLabel, Optional("Cutting on your iPhone"), "clips")
-        eq(phone(",\"device_stage\":\"device_upload\"")?.stageLabel, Optional("Uploading from your iPhone"), "uploading")
-        eq(phone(",\"device_stage\":\"device_paused\"")?.stageLabel, Optional("Paused on your iPhone"), "paused")
-        eq(phone("")?.stageLabel, Optional("Cutting on your iPhone"), "no stage yet")
+        eq(phone(",\"device_stage\":\"device_cut\"")?.stageLabel, Optional("Cutting the video"), "the phone cutting")
+        eq(phone(",\"device_stage\":\"device_clips\"")?.stageLabel, Optional("Cutting the video"), "the phone cutting clips")
+        eq(phone(",\"device_stage\":\"device_upload\"")?.stageLabel, Optional("Uploading the result"), "the phone uploading")
+        eq(phone(",\"device_stage\":\"device_paused\"")?.stageLabel, Optional("Cutting the video"), "a pause is never shown")
+        eq(phone("")?.stageLabel, Optional("Cutting the video"), "no stage yet")
         eq(phone(",\"device_seen_at\":\"2026-09-25T10:00:00+00:00\"")?.deviceSeenAtString,
            Optional("2026-09-25T10:00:00+00:00"), "last report crosses the boundary")
         check(phone("")?.onDevice == true, "a phone job is on the device")
-        let day = ISO8601DateFormatter().date(from: "2026-09-26T10:00:01Z")!
-        let seen = phone(",\"device_seen_at\":\"2026-09-25T10:00:00.123456+00:00\"")
-        eq(seen?.deviceQuietSeconds(now: day), Optional(86401), "quiet seconds from a Postgres stamp")
-        check(seen?.offersMacInstead(now: day) == true, "a day without word offers the Mac")
-        check(seen?.offersMacInstead(now: day.addingTimeInterval(-3600)) == false, "23 hours does not")
-        check(phone("")?.offersMacInstead(now: day) == false, "no stamp, no offer")
+        for stage in ["device_cut", "device_clips", "device_upload", "device_paused", "device_verify"] {
+            let label = MatchProcessingFeedback.deviceStageLabel(stage)
+            check(!label.contains("iPhone") && !label.contains("phone") && !label.contains("Mac")
+                  && !label.contains("Paused"), "\(stage) does not say where the cut runs")
+        }
+        eq(MatchProcessingFeedback.deviceStageLabel("device_cut"), MatchProcessingFeedback.handCutStageLabel("cut"),
+           "the phone's encode is the Mac's cut")
+        eq(MatchProcessingFeedback.deviceStageLabel("device_upload"), MatchProcessingFeedback.handCutStageLabel("upload"),
+           "the phone's upload is the Mac's upload")
 
         let verifying = decodeProcessingFeedback("""
         {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"queued","job_kind":"hand_cut","worker_state":"missing","cutter":"device","phase":"verify"}
         """)
-        eq(verifying?.stageLabel, Optional("Waiting to check the cut"), "submitted, waiting for the Mac")
+        eq(verifying?.stageLabel, Optional("Waiting to prepare clips"), "submitted, waiting, as any queued hand cut")
         check(verifying?.onDevice == false, "a submitted job is the Mac's")
         let checking = decodeProcessingFeedback("""
         {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"processing","job_kind":"hand_cut","worker_state":"fresh","stage":"device_verify","cutter":"device","phase":"verify"}
         """)
-        eq(checking?.stageLabel, Optional("Checking the cut"), "the Mac checking the cut")
-
+        eq(checking?.stageLabel, Optional("Saving the match"), "the check of the phone's cut reads as saving")
+        let taken = decodeProcessingFeedback("""
+        {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"queued","job_kind":"hand_cut","worker_state":"fresh","cutter":"mac","phase":"mac"}
+        """)
+        eq(taken?.stageLabel, Optional("Waiting to prepare clips"), "handed over, waiting, the same")
     }
 }

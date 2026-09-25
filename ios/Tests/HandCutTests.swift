@@ -236,6 +236,28 @@ private func runHandCutCheck(_ ch: HandCutJSON) {
 // MARK: - Swift-only checks: the score, the encoders, the round trip
 
 private func runHandCutPortChecks() {
+    // Where the Score switch starts: on for a fresh match, off for practice
+    // and drills (always, whatever a draft recorded), and a draft's own
+    // recorded mode otherwise.
+    let called = [HandCutMark(id: "w", t0: 1, t1: 3, winner: .user, isLet: false, starred: false, tap: 1.6, rate: 1)]
+    let uncalled = [HandCutMark(id: "u", t0: 1, t1: 3, winner: nil, isLet: false, starred: false, tap: 1.6, rate: 1)]
+    eq(HandCut.openingMode([], recorded: nil, tracksServe: true), .score, "a fresh match opens with Score on")
+    eq(HandCut.openingMode([], recorded: nil, tracksServe: false), .cut, "fresh practice opens with Score off")
+    eq(HandCut.openingMode(called, recorded: .score, tracksServe: false), .cut, "practice never scores, even a scored draft")
+    eq(HandCut.openingMode(uncalled, recorded: .cut, tracksServe: true), .cut, "a cut-only draft stays cut only")
+    eq(HandCut.openingMode(uncalled, recorded: .score, tracksServe: true), .score, "a scoring draft keeps scoring")
+    eq(HandCut.openingMode(uncalled, recorded: nil, tracksServe: true), .cut, "an old draft with nothing called was cut only")
+    eq(HandCut.openingMode(called, recorded: nil, tracksServe: true), .score, "an old draft with winners was scoring")
+    eq(HandCut.openingMode([], recorded: .cut, tracksServe: true), .cut, "an emptied draft keeps the switch where it was left")
+    eq(HandCut.openingMode(called, recorded: .score, tracksServe: true, chosen: .cut), .cut,
+       "the switch on the match page wins over the draft")
+    eq(HandCut.openingMode([], recorded: nil, tracksServe: true, chosen: .cut), .cut, "and over the default")
+    eq(HandCut.openingMode([], recorded: nil, tracksServe: false, chosen: .score), .cut,
+       "but practice cannot be scored whatever is asked")
+    eq(MatchTitle.tracksServe("practice") || MatchTitle.tracksServe("drills"), false, "practice and drills do not track serve")
+    eq(MatchTitle.tracksServe(nil) && MatchTitle.tracksServe("match") && MatchTitle.tracksServe("tournament"), true,
+       "matches, tournaments and an unset type do")
+
     // The ticker's score and next server come from the product's own walk
     // and rotation, over asPoints: a (user), b (opponent), c (let).
     var s = HandCutState()

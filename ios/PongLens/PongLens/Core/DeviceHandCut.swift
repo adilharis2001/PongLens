@@ -20,17 +20,23 @@ import UIKit
 //  - **One checkpoint per file.** The job and every finished file are kept
 //    in Application Support, so a crash, a relaunch or an expired background
 //    task resumes after the last finished file, never from the start.
+//  - **The player never learns where it cuts.** The match page shows the
+//    ordinary processing card with the hand cut's own stage names, and
+//    whenever the phone cannot cut or cannot finish, it hands the job to the
+//    server silently (release_device_hand_cut with to_mac true), which cuts
+//    the match from the same marks.
 //  - **The background.** Encoding runs under an iOS 26 continued processing
 //    task with visible progress when the system grants one. When it does
-//    not, the card says "Keep PongLens open while it cuts." and the work
-//    pauses when the app leaves the screen, resuming when it returns. The
-//    uploads run on a background URLSession, so they continue regardless.
-//  - **Heat, power, space.** Between files: serious heat waits, critical
-//    heat, Low Power Mode or too little space stop, and the card offers
-//    "Cut on the Mac instead". So does an encode that fails twice.
+//    not, or the task expires, and the app leaves the screen with encoding
+//    still to do, the job is handed over. The uploads run on a background
+//    URLSession, so they continue regardless.
+//  - **Heat, power, space.** Between files: serious heat waits; critical
+//    heat, Low Power Mode or too little space hand the job over. So does an
+//    encode that fails twice.
 //  - **The server has the last word.** Every report can answer that the job
-//    is no longer the phone's; the phone then stops and throws its files
-//    away.
+//    is no longer the phone's (released, submitted, or taken over after 15
+//    minutes without a report); the phone then stops and throws its files
+//    away, quietly.
 
 extension Notification.Name {
     /// A phone cut started, finished, stopped or went to the Mac. The object
@@ -216,21 +222,13 @@ private struct DeviceCutTaskBox: @unchecked Sendable {
 final class DeviceHandCutQueue {
     static let shared = DeviceHandCutQueue()
 
-    /// What the match page shows for a job this phone is cutting.
+    /// What the match page shows for a job this phone is cutting: the
+    /// ordinary processing card's title and bar, nothing more.
     struct Live: Equatable {
         var step: DeviceCutStep = .encodeCut
         var progress = 0
-        /// Waiting (heat, the app off screen): it carries on by itself.
-        var paused = false
-        /// Stopped for a reason only the player (or the Mac) can clear.
-        var stopped = false
-        /// No continued processing task: encoding needs the app open.
-        var foregroundOnly = false
-        var line: String?
-        var movingToMac = false
-        var moveError: String?
 
-        var title: String { DeviceCutCopy.title(step: step, paused: paused || stopped) }
+        var title: String { DeviceCutCopy.title(step: step) }
     }
 
     enum Start: Equatable {
@@ -260,13 +258,15 @@ final class DeviceHandCutQueue {
     @ObservationIgnored private var cancels: [UUID: HandCutCancel] = [:]
     @ObservationIgnored private var expired: Set<UUID> = []
     @ObservationIgnored private var released: Set<UUID> = []
+    @ObservationIgnored private var handingOver: Set<UUID> = []
+    /// Background time asked for while a hand-over is in the air.
+    @ObservationIgnored private var graces: [UUID: UIBackgroundTaskIdentifier] = [:]
     @ObservationIgnored private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     /// Wakes that came while nothing was waiting.
     @ObservationIgnored private var woken: Set<UUID> = []
     @ObservationIgnored private var napTokens: [UUID: UUID] = [:]
     @ObservationIgnored private var sending: Set<String> = []
     @ObservationIgnored private var sentBytes: [String: Int64] = [:]
-    @ObservationIgnored private var transferFailures: [String: Int] = [:]
     @ObservationIgnored private var reconciled: Set<UUID> = []
     @ObservationIgnored private var reporting: Set<UUID> = []
     @ObservationIgnored private var fraction: [UUID: Double] = [:]
@@ -345,8 +345,10 @@ final class DeviceHandCutQueue {
 
     func job(forMatch matchId: UUID) -> DeviceCutJob? { jobs.first { $0.matchId == matchId } }
 
+    /// Nil once the phone has stopped: the job is going (or has gone) to
+    /// the server, and the page reads the server's job row like any other.
     func live(forMatch matchId: UUID) -> Live? {
-        guard let job = job(forMatch: matchId) else { return nil }
+        guard let job = job(forMatch: matchId), job.stop == nil else { return nil }
         return live[job.jobId] ?? Live()
     }
 
@@ -417,8 +419,8 @@ final class DeviceHandCutQueue {
         NotificationCenter.default.post(name: .deviceHandCutChanged, object: matchId)
         if claim.mismatch(with: plan) != nil {
             // The server's keys do not fit the plan: the phone cannot upload
-            // what the Mac would accept. The Mac cuts the same marks.
-            await handToMac(job.jobId)
+            // what the Mac would accept. The server cuts the same marks.
+            await handOver(job.jobId, because: .mismatch)
             return .started(job.jobId)
         }
         kick(job.jobId)
@@ -453,7 +455,6 @@ final class DeviceHandCutQueue {
             // handler has not arrived in a few seconds, work in the front.
             if submitted { try? await Task.sleep(for: .seconds(6)) }
             if awaitingTask.remove(jobId) != nil {
-                setLive(jobId) { $0.foregroundOnly = true }
                 await drive(jobId)
             }
         }
@@ -500,21 +501,24 @@ final class DeviceHandCutQueue {
             cancel?.cancel()
             Task { @MainActor in DeviceHandCutQueue.shared.taskExpired(jobId) }
         }
-        setLive(jobId) { $0.foregroundOnly = false }
         if awaitingTask.remove(jobId) != nil || !driving.contains(jobId) {
             Task { await drive(jobId) }
         }
     }
 
+    /// The system (or the player, from its progress view) took the
+    /// continued processing task away. With encoding still to do, the phone
+    /// cannot count on finishing, so the server cuts it. Uploads need no
+    /// task and carry on.
     private func taskExpired(_ jobId: UUID) {
         expired.insert(jobId)
         cancels[jobId]?.cancel()
         tasks.removeValue(forKey: jobId)?.setTaskCompleted(success: false)
-        setLive(jobId) {
-            $0.paused = true
-            $0.line = DeviceCutCopy.waitingForApp
-        }
         wake(jobId)
+        if let job = job(jobId), job.stop == nil, !job.encodingDone,
+           beginHandOver(jobId, because: .background) {
+            Task { await finishHandOver(jobId) }
+        }
     }
 
     private enum Outcome {
@@ -555,12 +559,9 @@ final class DeviceHandCutQueue {
                 wrapUp(jobId)
                 return
             case .stopped(let stop):
-                setLive(jobId) {
-                    $0.stopped = true
-                    $0.paused = false
-                    $0.line = DeviceCutCopy.stop(stop)
-                }
-                _ = await report(jobId, step: step, paused: true, force: true)
+                // Whatever stopped the phone, the server cuts the match from
+                // the same marks.
+                await handOver(jobId, because: stop)
                 return
             case .encodeCut, .encodeClip:
                 outcome = await encode(jobId, step: step, cancel: cancel)
@@ -596,45 +597,28 @@ final class DeviceHandCutQueue {
     private func encode(_ jobId: UUID, step: DeviceCutStep, cancel: HandCutCancel) async -> Outcome {
         guard let job = job(jobId) else { return .pause }
         guard let source = sourceFile(job.matchId) else {
-            // The video was deleted from this iPhone: only the Mac can
+            // The video was deleted from this iPhone: only the server can
             // finish the cut now.
-            await handToMac(jobId)
+            await handOver(jobId, because: .sourceGone)
             return .pause
         }
         // Encoding needs the app on screen or a continued processing task.
         if UIApplication.shared.applicationState == .background, tasks[jobId] == nil {
-            setLive(jobId) {
-                $0.paused = true
-                $0.line = DeviceCutCopy.waitingForApp
-            }
-            _ = await report(jobId, step: step, paused: true, force: true)
+            await handOver(jobId, because: .background)
             return .pause
         }
         switch conditions(needed: DeviceCutGuard.bytesNeeded(job)) {
         case .hold(let hold):
-            update(jobId) { $0.hold = hold }
-            setLive(jobId) {
-                $0.stopped = true
-                $0.paused = false
-                $0.line = DeviceCutCopy.hold(hold)
-            }
-            _ = await report(jobId, step: step, paused: true, force: true)
+            await handOver(jobId, because: DeviceCutStop(hold))
             return .pause
         case .cool:
-            setLive(jobId) {
-                $0.paused = true
-                $0.line = DeviceCutCopy.cooling
-            }
+            // Serious heat: wait between files. The server hears "paused";
+            // the player's card still reads as cutting.
             guard await report(jobId, step: step, paused: true) else { return .pause }
             await nap(jobId, seconds: 20)
             return .next
         case .go:
-            if job.hold != nil { update(jobId) { $0.hold = nil } }
-        }
-        setLive(jobId) {
-            $0.paused = false
-            $0.stopped = false
-            $0.line = $0.foregroundOnly ? DeviceCutCopy.keepOpen : nil
+            break
         }
         guard await report(jobId, step: step, paused: false) else { return .pause }
         updateTask(jobId, step: step)
@@ -694,22 +678,13 @@ final class DeviceHandCutQueue {
             backoffs[jobId] = nil
             return .next
         } catch {
-            // Backgrounded without a task, an expired task, the player
-            // moving it to the Mac: none of those is the encoder failing.
+            // Backgrounded without a task, an expired task, a hand-over: none
+            // of those is the encoder failing, and each already sees to the
+            // job (the background observer, taskExpired, handOver).
             let interrupted = released.contains(jobId) || expired.contains(jobId) || cancel.isCancelled
                 || (UIApplication.shared.applicationState != .active && tasks[jobId] == nil)
             update(jobId) { DeviceCutFlow.recordFailure(&$0, step: step, interrupted: interrupted) }
-            if interrupted {
-                if !released.contains(jobId) {
-                    setLive(jobId) {
-                        $0.paused = true
-                        $0.line = DeviceCutCopy.waitingForApp
-                    }
-                    _ = await report(jobId, step: step, paused: true, force: true)
-                }
-                return .pause
-            }
-            return .next
+            return interrupted ? .pause : .next
         }
     }
 
@@ -728,14 +703,8 @@ final class DeviceHandCutQueue {
     }
 
     private func updateTask(_ jobId: UUID, step: DeviceCutStep) {
-        guard let task = tasks[jobId], let job = job(jobId) else { return }
-        let subtitle: String
-        switch step {
-        case .encodeCut: subtitle = "Cutting the video"
-        case .encodeClip(let idx): subtitle = "Cutting clip \(idx) of \(job.points.count)"
-        default: subtitle = DeviceCutCopy.uploading
-        }
-        task.updateTitle("Cutting your match", subtitle: subtitle)
+        // The system's progress view reads as the match page does.
+        tasks[jobId]?.updateTitle("Cutting your match", subtitle: DeviceCutCopy.title(step: step))
     }
 
     // MARK: Uploading
@@ -768,11 +737,9 @@ final class DeviceHandCutQueue {
                 finishLocally(jobId)
                 return nil
             default:
-                setLive(jobId) { if $0.line == DeviceCutCopy.offline { $0.line = nil } }
                 return answer
             }
         } catch {
-            setLive(jobId) { $0.line = DeviceCutCopy.offline }
             await backoff(jobId)
             return nil
         }
@@ -879,12 +846,6 @@ final class DeviceHandCutQueue {
     private func upload(_ jobId: UUID, parts: [Int], clips: [Int]) async -> Outcome {
         guard let job = job(jobId), let uploadId = job.uploadId else { return .next }
         updateTask(jobId, step: .upload(parts: parts, clips: clips))
-        // The uploads belong to the system now: the app need not stay open.
-        setLive(jobId) {
-            $0.paused = false
-            $0.stopped = false
-            if $0.line == DeviceCutCopy.keepOpen || $0.line == DeviceCutCopy.waitingForApp { $0.line = nil }
-        }
         // Once per launch: bank what R2 already holds, so nothing is sent
         // twice after a relaunch.
         if !reconciled.contains(jobId) {
@@ -956,7 +917,6 @@ final class DeviceHandCutQueue {
         let kind = transfer.kind
         let n = transfer.number
         if !failed, (200..<300).contains(status) {
-            transferFailures[name] = nil
             if kind == "part" {
                 if let etag {
                     update(jobId) { $0.etags[n] = etag }
@@ -965,14 +925,9 @@ final class DeviceHandCutQueue {
             } else {
                 update(jobId) { if !$0.clipsUploaded.contains(n) { $0.clipsUploaded.append(n) } }
             }
-        } else {
-            // A dropped connection or an expired link: it is signed again
-            // and resent on the next pass.
-            transferFailures[name, default: 0] += 1
-            if transferFailures[name, default: 0] >= 3 {
-                setLive(jobId) { $0.line = DeviceCutCopy.offline }
-            }
         }
+        // A dropped connection or an expired link needs nothing here: the
+        // transfer is signed again and resent on the next pass.
         refreshProgress(jobId)
         wake(jobId)
         if !driving.contains(jobId) { kick(jobId) }
@@ -1034,7 +989,6 @@ final class DeviceHandCutQueue {
             try await transport.put(data, to: url, contentType: "application/json")
             update(jobId) { $0.manifestUploaded = true }
         } catch {
-            setLive(jobId) { $0.line = DeviceCutCopy.offline }
             await backoff(jobId)
         }
         return .next
@@ -1055,8 +1009,8 @@ final class DeviceHandCutQueue {
             }
             update(jobId) { DeviceCutFlow.missing(&$0, keys: keys) }
         case .refused(let status, _) where status == 400 || status == 413:
-            // The route refused the manifest or a clip: the Mac cuts it.
-            await handToMac(jobId)
+            // The route refused the manifest or a clip: the server cuts it.
+            await handOver(jobId, because: .refused)
             return .pause
         default:
             await backoff(jobId)
@@ -1165,17 +1119,51 @@ final class DeviceHandCutQueue {
         _ = try? await transport.route(.init(action: "abort", jobId: jobId.uuidString.lowercased(), uploadId: uploadId))
     }
 
-    /// Give the job to the Mac from the same marks. The player's "Cut on
-    /// the Mac instead", and the phone's own answer when it cannot finish.
+    /// Give the job to the server, which cuts it from the same marks:
+    /// release_device_hand_cut(job, true) through the route. Silent: the
+    /// match page goes back to the ordinary processing card. The stop is
+    /// written first, so the phone never goes back to cutting this job, and
+    /// a release that does not get through is tried again (and, failing
+    /// that, the server takes the job itself once the phone has been quiet
+    /// for 15 minutes, and the phone lets it go when told).
     @discardableResult
-    private func handToMac(_ jobId: UUID) async -> Bool {
+    private func handOver(_ jobId: UUID, because stop: DeviceCutStop) async -> Bool {
+        guard beginHandOver(jobId, because: stop) else { return false }
+        return await finishHandOver(jobId)
+    }
+
+    /// The part of a hand-over that cannot wait: the stop written, the work
+    /// stopped, and background time asked for, all before this returns, so
+    /// an app on its way off the screen gets them. False when one is
+    /// already under way.
+    private func beginHandOver(_ jobId: UUID, because stop: DeviceCutStop) -> Bool {
+        guard job(jobId) != nil, !handingOver.contains(jobId) else { return false }
+        handingOver.insert(jobId)
+        // The release needs a few seconds iOS may not otherwise give an app
+        // that is leaving the screen.
+        beginGrace(jobId)
+        update(jobId) { if $0.stop == nil { $0.stop = stop } }
+        // The page drops the phone's card at once and reads the job row.
+        if let matchId = job(jobId)?.matchId {
+            NotificationCenter.default.post(name: .deviceHandCutChanged, object: matchId)
+        }
         released.insert(jobId)
         cancels[jobId]?.cancel()
+        wake(jobId)
+        return true
+    }
+
+    /// The release itself, after beginHandOver.
+    @discardableResult
+    private func finishHandOver(_ jobId: UUID) async -> Bool {
+        defer {
+            handingOver.remove(jobId)
+            endGrace(jobId)
+        }
         await uploader.cancel(jobId: jobId)
         await abortUpload(jobId)
-        do {
-            let answer = try await transport.route(.init(action: "release", jobId: jobId.uuidString.lowercased(),
-                                                         toMac: true))
+        if let answer = try? await transport.route(
+            .init(action: "release", jobId: jobId.uuidString.lowercased(), toMac: true)) {
             switch answer {
             case .ok, .notOnPhone, .notFound:
                 wrapUp(jobId)
@@ -1183,36 +1171,42 @@ final class DeviceHandCutQueue {
             default:
                 break
             }
-        } catch {}
+        }
         released.remove(jobId)
-        setLive(jobId) { $0.moveError = DeviceCutCopy.moveFailed }
+        retryHandOver(jobId)
         return false
     }
 
-    /// "Cut on the Mac instead" on the match page.
-    func cutOnMac(matchId: UUID) async {
-        guard let job = job(forMatch: matchId) else { return }
-        setLive(job.jobId) {
-            $0.movingToMac = true
-            $0.moveError = nil
-        }
-        let moved = await handToMac(job.jobId)
-        if !moved {
-            setLive(job.jobId) { $0.movingToMac = false }
-            kick(job.jobId)
+    /// The release did not get through (no signal, most likely): try again
+    /// shortly. The job keeps its stop, so the next drive only hands over.
+    private func retryHandOver(_ jobId: UUID) {
+        let n = backoffs[jobId, default: 0]
+        backoffs[jobId] = n + 1
+        let delay = min(60, 5 * pow(2, Double(min(n, 4))))
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, self.job(jobId) != nil else { return }
+            self.kick(jobId)
         }
     }
 
-    /// The same, for a phone job this phone does not hold (another device,
-    /// or a reinstall): offered after a day with no word, as on the web.
-    static func releaseToMac(jobId: UUID) async -> Bool {
-        guard let answer = try? await shared.transport.route(
-            .init(action: "release", jobId: jobId.uuidString.lowercased(), toMac: true))
-        else { return false }
-        switch answer {
-        case .ok, .notOnPhone: return true
-        default: return false
+    private func beginGrace(_ jobId: UUID) {
+        guard graces[jobId] == nil else { return }
+        graces[jobId] = UIApplication.shared.beginBackgroundTask(withName: "Hand over the cut") {
+            MainActor.assumeIsolated { DeviceHandCutQueue.shared.endGrace(jobId) }
         }
+    }
+
+    private func endGrace(_ jobId: UUID) {
+        guard let id = graces.removeValue(forKey: jobId), id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+    }
+
+    /// Hand a job this phone holds to the server on request. The simulator
+    /// QA run's stand-in for a phone that cannot finish.
+    func handOver(matchId: UUID) async {
+        guard let job = job(forMatch: matchId) else { return }
+        await handOver(job.jobId, because: .requested)
     }
 
     // MARK: The app around it
@@ -1229,32 +1223,20 @@ final class DeviceHandCutQueue {
             })
         }
         // Without a continued processing task, the encoder cannot run in the
-        // background: stop cleanly now (not counted as a failure) and carry
-        // on when the app is back.
+        // background: the app is leaving with encoding still to do, so the
+        // server cuts the match from the same marks, handed over now while
+        // iOS still gives the app a few seconds. Uploads carry on by
+        // themselves and need nothing here.
         on(UIApplication.didEnterBackgroundNotification) { [weak self] in
             guard let self else { return }
-            for jobId in self.driving where self.tasks[jobId] == nil && self.fraction[jobId] != nil {
-                // A few seconds to write the checkpoint and say "paused".
-                let app = UIApplication.shared
-                let grace = app.beginBackgroundTask(withName: "Pause the cut", expirationHandler: nil)
-                self.cancels[jobId]?.cancel()
-                Task {
-                    try? await Task.sleep(for: .seconds(5))
-                    app.endBackgroundTask(grace)
-                }
+            for jobId in self.driving where self.tasks[jobId] == nil {
+                guard let job = self.job(jobId), job.stop == nil, !job.encodingDone,
+                      self.beginHandOver(jobId, because: .background) else { continue }
+                // The encode it cut short is marked released, so it is not
+                // counted as the encoder failing.
+                Task { await self.finishHandOver(jobId) }
             }
         }
         on(UIApplication.didBecomeActiveNotification) { [weak self] in self?.resume() }
-        on(.NSProcessInfoPowerStateDidChange) { [weak self] in
-            guard let self else { return }
-            // Low Power Mode off again: a job it stopped can carry on.
-            if !ProcessInfo.processInfo.isLowPowerModeEnabled,
-               UIApplication.shared.applicationState == .active { self.resume() }
-        }
-        on(ProcessInfo.thermalStateDidChangeNotification) { [weak self] in
-            guard let self else { return }
-            if ProcessInfo.processInfo.thermalState.rawValue < 2,
-               UIApplication.shared.applicationState == .active { self.resume() }
-        }
     }
 }

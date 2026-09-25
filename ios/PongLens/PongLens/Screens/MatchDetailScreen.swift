@@ -799,6 +799,11 @@ struct MatchDetailScreen: View {
     @State private var handCut = HandCutDraftStore()
     /// "Automatically" is open inside Break it into points.
     @State private var autoOpen = false
+    /// "Mark the points yourself" is open beside it, the same way.
+    @State private var markOpen = false
+    /// The Score switch on that row, once the player has flipped it. Nil
+    /// means untouched: the marker opens as the draft (or its default) says.
+    @State private var markModeChoice: HandCutMode?
     /// The marker's video link is being minted.
     @State private var openingMarker = false
     /// The Original pill is mid-flight (the presigned URL is a round trip).
@@ -1216,8 +1221,8 @@ struct MatchDetailScreen: View {
             Task { await refreshMatch() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .deviceHandCutChanged)) { notification in
-            // Submitted, moved to the Mac, or let go: the server's job row is
-            // the truth again, so read it and keep watching.
+            // Submitted, handed over, or let go: the server's job row is the
+            // truth again, so read it and keep watching.
             guard notification.object as? UUID == match.id else { return }
             Task {
                 await model.refreshJob()
@@ -1683,9 +1688,7 @@ struct MatchDetailScreen: View {
     @ViewBuilder
     private func rawSection(proxy: ScrollViewProxy) -> some View {
         if isOwner, let phone = DeviceHandCutQueue.shared.live(forMatch: current.id) {
-            DeviceHandCutCard(live: phone) {
-                Task { await DeviceHandCutQueue.shared.cutOnMac(matchId: current.id) }
-            }
+            DeviceHandCutCard(live: phone)
         } else if model.jobRunning || current.status == .processing {
             MatchProcessingCard(
                 notice: processingAvailabilityNotice,
@@ -1698,18 +1701,6 @@ struct MatchDetailScreen: View {
                 jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
                 serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: model.processingFeedback?.jobKind ?? model.job?.kind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue
             )
-            // A phone cut another device (or an earlier install) holds and
-            // has not reported for a day: the web's offer, here too.
-            if isOwner, let feedback = model.processingFeedback, feedback.offersMacInstead(),
-               let jobId = feedback.jobId {
-                DeviceHandCutQuietOffer(jobId: jobId) {
-                    Task {
-                        await model.refreshJob()
-                        await refreshMatch(refreshLibrary: true)
-                        watchKick += 1
-                    }
-                }
-            }
         } else if sourceGone {
             VStack(alignment: .leading, spacing: 10) {
                 Text(model.job?.userMessage ?? "This video couldn't be processed.")
@@ -1845,6 +1836,10 @@ struct MatchDetailScreen: View {
                     }
                     Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
                     markRow
+                    if markOpen {
+                        Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
+                        markControls
+                    }
                 } else {
                     autoControls
                 }
@@ -1926,11 +1921,13 @@ struct MatchDetailScreen: View {
         .buttonStyle(.plain)
     }
 
+    /// Opens in place like "Automatically": the Score switch and the button
+    /// that starts marking sit under it, never a jump straight into the
+    /// marker.
     private var markRow: some View {
         let count = handCut.markedCount
-        let usable = hasOriginal && !openingMarker
         return Button {
-            Task { await openMarker() }
+            withAnimation(.easeOut(duration: 0.22)) { markOpen.toggle() }
         } label: {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -1942,24 +1939,80 @@ struct MatchDetailScreen: View {
                         .foregroundStyle(PL.text500)
                 }
                 Spacer(minLength: 8)
-                if openingMarker {
-                    ProgressView().controlSize(.small).tint(PL.text400)
-                } else {
-                    Text(count > 0 ? "\(count) marked" : "Free")
+                if count > 0 {
+                    Text("\(count) marked")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(PL.text300)
                         .monospacedDigit()
                 }
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(PL.text500)
+                    .rotationEffect(.degrees(markOpen ? 180 : 0))
             }
             .padding(20)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!usable)
+        .disabled(!hasOriginal)
         .opacity(hasOriginal ? 1 : 0.4)
+    }
+
+    /// Practice and drills cannot be scored (the marker's own rule).
+    private var markPractice: Bool { !MatchTitle.tracksServe(current.matchType) }
+
+    /// Where the switch stands: the player's flip, else what the marker
+    /// would open as (on for a match, a draft's recorded mode, off for
+    /// practice and drills).
+    private var markMode: HandCutMode {
+        HandCut.openingMode(
+            handCut.marks, recorded: handCut.mode,
+            tracksServe: !markPractice, chosen: markModeChoice
+        )
+    }
+
+    /// The Score switch, the same rules as in the marker, and the button
+    /// that opens the marker in that mode at its gate.
+    private var markControls: some View {
+        let practice = markPractice
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Score")
+                        .font(.plRowTitle)
+                        .foregroundStyle(practice ? PL.text500 : PL.text100)
+                    if practice {
+                        Text("Matches only")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                    }
+                }
+                .accessibilityHidden(true)
+                Spacer(minLength: 8)
+                Toggle("Score", isOn: Binding(
+                    get: { markMode == .score },
+                    set: { markModeChoice = $0 ? .score : .cut }
+                ))
+                .labelsHidden()
+                .tint(PL.cyan)
+                .disabled(practice)
+                .accessibilityHint(practice ? "Matches only" : "")
+            }
+            Button {
+                Task { await openMarker() }
+            } label: {
+                // The width on the label, as the Process button does it.
+                HStack(spacing: 8) {
+                    if openingMarker { ProgressView().controlSize(.small).tint(PL.ink) }
+                    Text(handCut.markedCount > 0 ? "Keep marking" : "Start marking")
+                }
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 20)
+            }
+            .buttonStyle(PLPrimaryButtonStyle())
+            .disabled(openingMarker || !hasOriginal)
+        }
+        .padding(20)
     }
 
     /// Open the marker on the original: a file already on the phone when
@@ -1987,9 +2040,12 @@ struct MatchDetailScreen: View {
         let marker = HandCutMarker(
             match: current,
             store: handCut,
+            mode: markModeChoice,
             submitMarks: { marks in await submitHandCut(marks) },
             saveFirstServer: { value in await model.setFirstServer(matchId: current.id, value: value) }
         )
+        // The choice now lives in the draft; the row reads it back from there.
+        markModeChoice = nil
         playerRequest = PlayerRequest(
             url: url, startAt: nil, mode: .mark, source: .original, marker: marker
         )
@@ -2002,7 +2058,8 @@ struct MatchDetailScreen: View {
     /// When this iPhone holds the video and the account may cut on the
     /// phone, the phone claims the job instead and cuts it here
     /// (DeviceHandCutQueue); anything that stops that before the claim falls
-    /// through to the Mac, exactly as from the web.
+    /// through to the Mac, exactly as from the web. The player sees the same
+    /// processing card either way.
     private func submitHandCut(_ marks: [HandCutMark]) async -> String? {
         if isOwner, HandCutVideo.localFile(current.id) != nil {
             switch await DeviceHandCutQueue.shared.start(match: current, marks: marks) {

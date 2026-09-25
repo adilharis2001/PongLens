@@ -417,6 +417,21 @@ enum HandCut {
         return marks.contains { $0.isLet || $0.winner != nil } ? .score : .cut
     }
 
+    /// Where the Score switch starts. Practice and drills cannot be scored,
+    /// so theirs is always off. Otherwise the player's own choice on the
+    /// match page wins; else a draft keeps the mode it recorded (or, one
+    /// saved before that was recorded, what its marks show), and a fresh
+    /// match starts with Score on.
+    static func openingMode(
+        _ marks: [HandCutMark], recorded: HandCutMode?, tracksServe: Bool,
+        chosen: HandCutMode? = nil
+    ) -> HandCutMode {
+        guard tracksServe else { return .cut }
+        if let chosen { return chosen }
+        if marks.isEmpty { return recorded ?? .score }
+        return draftMode(marks, recorded: recorded)
+    }
+
     /// Which of the four a reopened draft is. Called is not finished: what
     /// separates them is how much tape is left after the last point.
     static func openAs(

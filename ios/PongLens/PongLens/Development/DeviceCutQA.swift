@@ -7,7 +7,7 @@ import UIKit
 ///     --dev-device-cut-source <video>   --dev-device-cut-fixture <cut-plan-parity.json>
 ///     --dev-device-cut-case "<name>"    --dev-device-cut-root <folder on the Mac>
 ///     [--dev-device-cut-crash-after <clips>]
-///     [--dev-device-cut-mac-at-clip <n>]      press "Cut on the Mac instead" there
+///     [--dev-device-cut-mac-at-clip <n>]      hand the job over to the Mac there
 ///     [--dev-device-cut-refuse-from <progress>] the server stops accepting reports
 ///
 /// DeviceHandCutQueue runs for real: the plan, the encoder, a checkpoint per
@@ -100,11 +100,11 @@ enum DeviceCutQA {
             // 0 means during the cut itself, once it is under way.
             let pressHere = macAt.map { $0 == 0 ? (live.step == .encodeCut && live.progress >= 5)
                                                 : live.step == .encodeClip($0) } ?? false
-            if pressHere, !live.movingToMac {
-                log("press", DeviceCutCopy.cutOnMac)
-                Task { await queue.cutOnMac(matchId: match) }
+            if pressHere, job.stop == nil {
+                log("press", "hand over to the Mac")
+                Task { await queue.handOver(matchId: match) }
             }
-            let now = "\(live.step) \(live.progress)% \(live.title) | \(live.line ?? "-")"
+            let now = "\(live.step) \(live.progress)% \(live.title) | \(job.stop?.rawValue ?? "-")"
             if now != last {
                 log("live", now)
                 last = now

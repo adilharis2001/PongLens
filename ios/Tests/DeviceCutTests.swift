@@ -142,7 +142,7 @@ func runDeviceCutChecks() {
     check(!DeviceCutFlow.recordFailure(&failing, step: .encodeCut, interrupted: false), "one failed cut tries again")
     eq(DeviceCutFlow.next(failing), .encodeCut, "and cuts again")
     check(DeviceCutFlow.recordFailure(&failing, step: .encodeCut, interrupted: false), "a second failed cut stops")
-    eq(DeviceCutFlow.next(failing), .stopped(.encodeFailed), "and offers the Mac")
+    eq(DeviceCutFlow.next(failing), .stopped(.encodeFailed), "and hands the job over")
 
     var clipFailing = fresh
     clipFailing.cut = job.cut
@@ -358,10 +358,38 @@ func runDeviceCutChecks() {
        .refused("Your queue is full. Wait for a video to finish."), "queue full")
     eq(DeviceCutClaimOutcome.from(message: "The network connection was lost."),
        .refused("That didn't send. Check your connection and try again."), "offline")
-    for line in [DeviceCutCopy.cutting, DeviceCutCopy.uploading, DeviceCutCopy.paused, DeviceCutCopy.keepOpen,
-                 DeviceCutCopy.cooling, DeviceCutCopy.cutOnMac, DeviceCutCopy.hold(.heat),
-                 DeviceCutCopy.hold(.lowPower), DeviceCutCopy.hold(.storage), DeviceCutCopy.stop(.encodeFailed)] {
+    // MARK: What the player reads, and why the phone stops
+
+    let steps: [DeviceCutStep] = [.encodeCut, .encodeClip(3), .prepareUpload, .upload(parts: [1], clips: [2]),
+                                  .completeCut, .uploadManifest, .submit, .stopped(.heat)]
+    for step in steps {
+        let line = DeviceCutCopy.title(step: step)
         check(!line.contains("\u{2014}") && !line.contains(" AI"), "no em dash in \"\(line)\"")
+        check(!line.contains("iPhone") && !line.contains("phone") && !line.contains("Mac")
+              && !line.contains("Paused") && !line.contains("PongLens"), "\"\(line)\" does not say where it cuts")
+    }
+    eq(DeviceCutCopy.title(step: .encodeCut), MatchProcessingFeedback.deviceStageLabel("device_cut"),
+       "the phone's card reads as the server's for the same stage")
+    eq(DeviceCutCopy.title(step: .encodeClip(4)), MatchProcessingFeedback.handCutStageLabel("cut"), "clips are cutting too")
+    eq(DeviceCutCopy.title(step: .upload(parts: [], clips: [1])), MatchProcessingFeedback.handCutStageLabel("upload"),
+       "and the upload reads as the Mac's upload")
+    eq(DeviceCutCopy.title(step: .submit), MatchProcessingFeedback.handCutStageLabel("upload"), "submitting is uploading")
+    eq(DeviceCutStop(.heat), .heat, "critical heat hands over")
+    eq(DeviceCutStop(.lowPower), .lowPower, "so does Low Power Mode")
+    eq(DeviceCutStop(.storage), .storage, "and a full disk")
+    var held = fresh
+    held.stop = DeviceCutStop(.lowPower)
+    eq(DeviceCutFlow.next(held), .stopped(.lowPower), "a job that stopped never goes back to cutting")
+    // A job written by build 236, with its old hold key and no new ones,
+    // still reads.
+    if let data = try? JSONEncoder().encode(fresh),
+       var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        object["hold"] = "heat"
+        let old = try? JSONSerialization.data(withJSONObject: object)
+        let back = old.flatMap { try? JSONDecoder().decode(DeviceCutJob.self, from: $0) }
+        eq(back?.jobId, fresh.jobId, "a job saved before this build still loads")
+    } else {
+        check(false, "a job encodes")
     }
 }
 

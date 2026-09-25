@@ -38,7 +38,6 @@ extension PlayerTakeover {
                     markPortrait(geo, hc)
                 }
                 markServeSheet(hc, landscape: landscape, bottomInset: geo.safeAreaInsets.bottom)
-                markModeSheet(hc, landscape: landscape, bottomInset: geo.safeAreaInsets.bottom)
                 markReviewSheet(hc)
             }
         }
@@ -231,7 +230,7 @@ extension PlayerTakeover {
     func markControls(_ hc: HandCutMarker, height: CGFloat) -> some View {
         let gap: CGFloat = 10
         let refusalH: CGFloat = markStatus(hc) == nil ? 0 : 16 + gap
-        let answers = hc.mode != .cut
+        let answers = hc.mode == .score
         let fixed: CGFloat = 24 + refusalH + 44 + gap + 44 + gap + (answers ? gap : 0)
         let flex = max(0, height - fixed)
         let pairH = answers ? max(64, flex * 3 / 5) : max(64, flex)
@@ -820,37 +819,69 @@ extension PlayerTakeover {
         .opacity(enabled ? 1 : 0.35)
     }
 
-    /// The count on the left; the mode switch and Done on the right.
+    /// The count on the left; the Score switch and Done on the right, from
+    /// the gate onwards.
     func markFooter(_ hc: HandCutMarker) -> some View {
         let sum = hc.summary
         let points = "\(sum.total) \(sum.total == 1 ? "point" : "points")"
         let line: String = hc.mode == .cut
             ? (sum.open ? "One point still open" : points)
             : (sum.unscored > 0 ? "\(points) · \(sum.unscored) to score" : points)
-        return HStack(spacing: 8) {
+        return HStack(spacing: 12) {
             Text(line)
                 .font(.system(size: 11))
                 .foregroundStyle(PL.text500)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
-            if hc.started, hc.mode != nil, !hc.practice {
-                markPill(
-                    hc.mode == .score ? "Stop scoring" : "Score them too",
-                    size: 11, color: PL.text400, horizontal: 12
-                ) { markToggleScoring() }
-                .accessibilityLabel(hc.mode == .score
-                    ? "Stop calling who won each point" : "Also call who won each point")
-            }
-            markDoneButton(hc)
+            markScoreSwitch(hc)
+            markDoneButton(hc, compact: false)
         }
         .frame(height: 44)
     }
 
-    func markDoneButton(_ hc: HandCutMarker) -> some View {
-        markPill("Done", size: 12, color: PL.text200, horizontal: 16, enabled: hc.summary.total > 0) {
-            markOpenReview()
+    /// "Score": whether the pass also says who won each point. It can be
+    /// flipped at any time and nothing already called is lost. Practice and
+    /// drills cannot be scored, so theirs stays off, greyed, "Matches only".
+    func markScoreSwitch(_ hc: HandCutMarker) -> some View {
+        let practice = hc.practice
+        return HStack(spacing: 8) {
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("Score")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(practice ? PL.text500 : PL.text200)
+                if practice {
+                    Text("Matches only")
+                        .font(.system(size: 10))
+                        .foregroundStyle(PL.text500)
+                }
+            }
+            .fixedSize()
+            .accessibilityHidden(true)
+            Toggle("Score", isOn: Binding(
+                get: { hc.mode == .score },
+                set: { markSetScoring($0) }
+            ))
+            .labelsHidden()
+            .tint(PL.cyan)
+            .disabled(practice)
+            .accessibilityHint(practice ? "Matches only" : "")
         }
+    }
+
+    /// Done opens the review sheet that sends the marks, so it looks like
+    /// the submit it leads to: the app's primary cyan button.
+    func markDoneButton(_ hc: HandCutMarker, compact: Bool) -> some View {
+        Button {
+            markOpenReview()
+        } label: {
+            Text("Done")
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minHeight: compact ? 0 : 20)
+        }
+        .buttonStyle(PLPrimaryButtonStyle(compact: compact))
+        .disabled(hc.summary.total == 0)
     }
 
     /// A rounded-full, bordered pill with a 44pt target around it.
@@ -885,8 +916,7 @@ extension PlayerTakeover {
             markStrip(hc, chip: 36, landscape: true)
                 .frame(maxWidth: .infinity)
                 .frame(height: 42)
-            markPill("Done", size: 12, color: PL.text200, horizontal: 14,
-                     enabled: hc.summary.total > 0) { markOpenReview() }
+            markDoneButton(hc, compact: true)
             markCloseButton(hc, filled: true)
                 .padding(.horizontal, -6)
         }
@@ -1022,12 +1052,7 @@ extension PlayerTakeover {
                      tint: hc.starLit ? amber300 : nil) { markStar() }
             markTool("Mark again", icon: "arrow.triangle.2.circlepath", enabled: sel) { markAgain() }
             markTool("Remove", icon: "trash", enabled: sel) { markRemove() }
-            if !hc.practice {
-                markTool(hc.mode == .score ? "Stop scoring" : "Score them too", icon: "switch.2",
-                         enabled: hc.started && hc.mode != nil) { markToggleScoring() }
-                    .accessibilityLabel(hc.mode == .score
-                        ? "Stop calling who won each point" : "Also call who won each point")
-            }
+            markScoreTile(hc)
             if sel {
                 markTool("Next", icon: "chevron.right", enabled: hc.hasNext) { markStep(1) }
             } else {
@@ -1061,6 +1086,60 @@ extension PlayerTakeover {
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
         .accessibilityLabel(label)
+    }
+
+    /// The footer's Score switch as a bottom-bar tile: a small switch that
+    /// shows on or off, "Score" beside it, and "Matches only" under it on
+    /// practice and drills, where it stays off and cannot be tapped.
+    func markScoreTile(_ hc: HandCutMarker) -> some View {
+        let practice = hc.practice
+        let on = hc.mode == .score
+        return Button {
+            markSetScoring(!on)
+        } label: {
+            HStack(spacing: 6) {
+                markMiniSwitch(on: on)
+                    .opacity(practice ? 0.35 : 1)
+                // A disabled plain button dims its label by itself, so the
+                // practice lines start brighter to stay readable.
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Score")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(practice ? PL.text300 : PL.text200)
+                    if practice {
+                        Text("Matches only")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(PL.text300)
+                    }
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            }
+            .padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(PL.surface2, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(practice)
+        .accessibilityLabel("Score")
+        .accessibilityValue(on ? "On" : "Off")
+        .accessibilityHint(practice ? "Matches only" : "")
+        .accessibilityAddTraits(.isToggle)
+    }
+
+    /// An iOS switch at tile size: cyan track and the knob right when on.
+    func markMiniSwitch(on: Bool) -> some View {
+        Capsule()
+            .fill(on ? PL.cyan : Color.white.opacity(0.18))
+            .frame(width: 28, height: 16)
+            .overlay(alignment: on ? .trailing : .leading) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 12, height: 12)
+                    .padding(2)
+            }
+            .animation(.easeOut(duration: 0.15), value: on)
     }
 
     func markSpeedTool() -> some View {
@@ -1098,48 +1177,6 @@ extension PlayerTakeover {
 
     // MARK: - Sheets
 
-    /// "Cut only, or cut and score?" On a phone in portrait it rises from
-    /// the bottom; sideways it is a centred card. No way past it but an
-    /// answer, as on the web. Practice and drills grey out Cut and score.
-    @ViewBuilder
-    func markModeSheet(_ hc: HandCutMarker, landscape: Bool, bottomInset: CGFloat) -> some View {
-        if hc.mode == nil {
-            ZStack(alignment: landscape ? .center : .bottom) {
-                PL.ink.opacity(0.7)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {}
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Cut only, or cut and score?")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(PL.text100)
-                    Text("You can score it later either way.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(PL.text500)
-                        .padding(.top, 2)
-                    VStack(spacing: 8) {
-                        markModeOption(
-                            "Cut and score",
-                            sub: hc.practice ? "Matches only" : "Say who won each point as you go.",
-                            enabled: !hc.practice
-                        ) { markChooseScore() }
-                        markModeOption(
-                            "Cut only", sub: "Mark where each rally starts and ends.", enabled: true
-                        ) { hc.mode = .cut }
-                    }
-                    .padding(.top, 16)
-                }
-                .padding(20)
-                .padding(.bottom, landscape ? 0 : 12 + bottomInset)
-                .frame(maxWidth: landscape ? 384 : .infinity, alignment: .leading)
-                .background(PL.surface, in: markSheetShape(landscape: landscape))
-                .overlay(markSheetShape(landscape: landscape).strokeBorder(PL.edge, lineWidth: 1))
-                .modifier(HCFadeIn())
-            }
-            .ignoresSafeArea(edges: landscape ? [] : .bottom)
-        }
-    }
-
     func markSheetShape(landscape: Bool) -> UnevenRoundedRectangle {
         UnevenRoundedRectangle(
             topLeadingRadius: 16, bottomLeadingRadius: landscape ? 16 : 0,
@@ -1148,35 +1185,11 @@ extension PlayerTakeover {
         )
     }
 
-    func markModeOption(
-        _ title: String, sub: String, enabled: Bool, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(PL.text100)
-                Text(sub)
-                    .font(.system(size: 12))
-                    .foregroundStyle(PL.text500)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(PL.edge, lineWidth: 1))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.4)
-    }
-
     /// "Who served first?" No backdrop: the video and the pad stay usable,
     /// because the answer is on the tape.
     @ViewBuilder
     func markServeSheet(_ hc: HandCutMarker, landscape: Bool, bottomInset: CGFloat) -> some View {
-        if hc.serveStep, hc.mode != nil {
+        if hc.serveStep {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Who served first?")
                     .font(.system(size: 16, weight: .semibold))
@@ -1246,7 +1259,7 @@ extension PlayerTakeover {
                     Text("\(sum.total) \(sum.total == 1 ? "point" : "points") marked.")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(PL.text100)
-                    if hc.mode != .cut && sum.unscored > 0 {
+                    if hc.mode == .score && sum.unscored > 0 {
                         Text(sum.unscored == 1
                              ? "1 has no winner yet. You can score it from the match."
                              : "\(sum.unscored) have no winner yet. You can score them from the match.")
@@ -1269,11 +1282,6 @@ extension PlayerTakeover {
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.top, 8)
                     }
-                    Text("This match cannot be processed automatically afterwards.")
-                        .font(.system(size: 14))
-                        .foregroundStyle(PL.text400)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 12)
                     if let error = hc.submitError {
                         Text(error)
                             .font(.system(size: 14))
@@ -1322,8 +1330,8 @@ extension PlayerTakeover {
         guard let hc = marker else { return }
         hc.playbackChanged(playing: false)
         #if DEBUG
-        // Headless checks of the sideways board, where the first sheet
-        // covers the rotate button.
+        // Headless checks of the sideways board, where a sheet can cover
+        // the rotate button.
         if ProcessInfo.processInfo.arguments.contains("--dev-hc-landscape") {
             Task {
                 try? await Task.sleep(for: .seconds(1.5))
@@ -1435,15 +1443,6 @@ extension PlayerTakeover {
         guard let hc = marker else { return }
         hc.started = true
         play()
-    }
-
-    func markChooseScore() {
-        guard let hc = marker, !hc.practice else { return }
-        hc.mode = .score
-        if MatchTitle.tracksServe(hc.matchType), hc.firstServer == nil {
-            hc.serveStepCue = true
-            hc.serveStep = true
-        }
     }
 
     func markCloseServeStep() {
@@ -1637,14 +1636,18 @@ extension PlayerTakeover {
         markPlayMark(next.id)
     }
 
-    /// Cut only and Cut and score, switched mid-pass. Nothing is lost.
-    func markToggleScoring() {
+    /// The Score switch, at the gate or mid-pass. Nothing is lost: winners
+    /// already called stay on their points either way. Off is the old
+    /// "Stop scoring"; on asks who served first where the old "Score them
+    /// too" did.
+    func markSetScoring(_ on: Bool) {
         guard let hc = marker else { return }
-        let next: HandCutMode = hc.mode == .score ? .cut : .score
-        if next == .score, hc.practice { return }
+        let next: HandCutMode = on ? .score : .cut
+        guard next != hc.mode, next == .cut || !hc.practice else { return }
         hc.mode = next
         if next == .cut {
             hc.state = HandCut.clearAwaiting(hc.state)
+            hc.serveStep = false
             if hc.pausedForAnswer {
                 hc.pausedForAnswer = false
                 play()
@@ -1653,7 +1656,9 @@ extension PlayerTakeover {
         }
         if MatchTitle.tracksServe(hc.matchType), hc.firstServer == nil,
            HandCut.openMark(hc.state.marks) == nil {
-            hc.serveStepCue = false
+            // Before the pass starts this is the question on the way in,
+            // and closing it cues the picture the same way.
+            hc.serveStepCue = !hc.started
             hc.serveStep = true
         }
     }

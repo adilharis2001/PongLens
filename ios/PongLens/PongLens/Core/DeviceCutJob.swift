@@ -118,15 +118,19 @@ nonisolated enum DeviceCutSettings {
 
 // MARK: - Why the phone stopped
 
-/// Conditions that stop the phone until they clear: re-checked each time
-/// the work resumes, and meanwhile the player can hand the cut to the Mac.
+/// What the phone reads before each file: critical heat, Low Power Mode or
+/// too little space. Any of them ends the phone's part (DeviceCutStop).
 nonisolated enum DeviceCutHold: String, Codable, Equatable, Sendable {
     case heat
     case lowPower
     case storage
 }
 
-/// Stops that do not clear by themselves. Only the Mac finishes the job.
+/// Why the phone stopped. Every stop hands the job to the server
+/// (release_device_hand_cut with to_mac true), which cuts the match from the
+/// same marks; the player only ever sees the ordinary processing card. The
+/// value is kept on the job, so a release that did not get through is tried
+/// again, and the phone never goes back to cutting a job it gave up.
 nonisolated enum DeviceCutStop: String, Codable, Equatable, Sendable {
     /// The cut failed twice, or three clips did.
     case encodeFailed
@@ -134,6 +138,28 @@ nonisolated enum DeviceCutStop: String, Codable, Equatable, Sendable {
     case tooLarge
     /// The multipart upload vanished and there is nothing left to resend.
     case uploadLost
+    /// Critical heat, Low Power Mode, or too little space.
+    case heat
+    case lowPower
+    case storage
+    /// The app left the screen with no background time to keep encoding.
+    case background
+    /// The claim's keys do not fit the phone's plan.
+    case mismatch
+    /// The video is no longer on this iPhone.
+    case sourceGone
+    /// The route refused the manifest or a clip at submit.
+    case refused
+    /// Handed over on request (the simulator QA run).
+    case requested
+
+    init(_ hold: DeviceCutHold) {
+        switch hold {
+        case .heat: self = .heat
+        case .lowPower: self = .lowPower
+        case .storage: self = .storage
+        }
+    }
 }
 
 // MARK: - The job the phone keeps
@@ -190,7 +216,6 @@ nonisolated struct DeviceCutJob: Codable, Equatable, Sendable, Identifiable {
     var manifestUploaded = false
     var submitted = false
 
-    var hold: DeviceCutHold?
     var stop: DeviceCutStop?
 
     // Diagnostics for the manifest.
@@ -289,8 +314,9 @@ nonisolated enum DeviceCutFlow {
         return .submit
     }
 
-    /// A failed attempt. Returns true when the phone should stop and offer
-    /// the Mac. An interruption the system caused is not counted.
+    /// A failed attempt. Returns true when the phone should stop and hand
+    /// the job to the server. An interruption the system caused is not
+    /// counted.
     @discardableResult
     static func recordFailure(_ job: inout DeviceCutJob, step: DeviceCutStep, interrupted: Bool) -> Bool {
         guard !interrupted else { return false }
@@ -641,40 +667,18 @@ nonisolated struct DeviceCutManifest: Encodable, Equatable, Sendable {
 
 // MARK: - What the player reads
 
+/// The hand cut's own stage names (MatchProcessingFeedback.handCutStageLabel),
+/// the same words wherever the cut runs, so nothing a player reads says
+/// where that is. Also the continued processing task's subtitle.
 nonisolated enum DeviceCutCopy {
-    static let cutting = "Cutting on your iPhone"
-    static let uploading = "Uploading from your iPhone"
-    static let paused = "Paused on your iPhone"
-    static let keepOpen = "Keep PongLens open while it cuts."
-    static let cooling = "Waiting for your iPhone to cool down."
-    static let waitingForApp = "Paused. It carries on when you open PongLens."
-    static let offline = "Waiting for a connection."
-    static let cutOnMac = "Cut on the Mac instead"
-    static let moveFailed = "That didn't go through. Try again."
-
-    static func hold(_ hold: DeviceCutHold) -> String {
-        switch hold {
-        case .heat: "Your iPhone is too hot to keep cutting."
-        case .lowPower: "Cutting stopped because Low Power Mode is on."
-        case .storage: "There isn't enough space on this iPhone to cut the match."
-        }
-    }
-
-    static func stop(_ stop: DeviceCutStop) -> String {
-        switch stop {
-        case .encodeFailed: "This iPhone couldn't cut the match."
-        case .tooLarge: "This match is too long to cut on this iPhone."
-        case .uploadLost: "The upload from this iPhone didn't finish."
-        }
-    }
+    static let cutting = "Cutting the video"
+    static let uploading = "Uploading the result"
 
     /// The title while the phone holds the job.
-    static func title(step: DeviceCutStep, paused: Bool) -> String {
-        if paused { return Self.paused }
+    static func title(step: DeviceCutStep) -> String {
         switch step {
-        case .encodeCut, .encodeClip: return Self.cutting
-        case .stopped: return Self.paused
-        default: return Self.uploading
+        case .encodeCut, .encodeClip, .stopped: return cutting
+        default: return uploading
         }
     }
 }
