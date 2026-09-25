@@ -44,6 +44,9 @@ struct VideoCardsInput {
     /// Open one point from a heat-map zone's list. Nil leaves the zones
     /// as pictures.
     var onOpenPoint: ((MatchPoint) -> Void)? = nil
+    /// Record who served first, for the next-step card. Nil for anyone
+    /// who is not the owner. Resolves to whether the write landed.
+    var onSetFirstServer: ((Winner) async -> Bool)? = nil
 }
 
 /// One card of the deck, boxed so a heterogeneous list can be paged and
@@ -203,7 +206,9 @@ struct AnalysisCards: View {
                 gameIndexByPoint: video.gameIndexByPoint,
                 serving: video.serving,
                 prePad: { effectivePad(video.pad, tightStart: $0.tightStart, tightEnd: $0.tightEnd).pre },
-                placementTrusted: video.placementTrusted
+                placementTrusted: video.placementTrusted,
+                // A hand cut's point length comes from its marks.
+                handCut: video.match.cutSource == "manual"
             )
             : nil
         if let result {
@@ -261,14 +266,17 @@ struct AnalysisCards: View {
         // and never the card.
         let sideMissing = video.userSide == nil && video.showMaps
         let status = video.match.placementStatus ?? "not_requested"
-        let handCut = video.match.cutSource == "manual"
-        let analysisPending = !handCut && status != "ready" && status != "final_failed"
+        let analysisPending = status != "ready" && status != "final_failed"
+        // The maps read whose serve each dot is from the rotation, so a
+        // scored match names its first server on the way to the analysis.
+        let askFirstServer = scoredType && video.match.firstServer == nil
+            && analysisPending && video.onSetFirstServer != nil
         // Scoring is a step only up to the bar; past it the deck has what
         // it needs and the card asks for nothing more about the score.
         let nextStep = !coachView
             && ((scoredType && !gate.open) || sideMissing || analysisPending)
         let complete = coachView
-            ? gate.open && (handCut || status == "ready")
+            ? gate.open && status == "ready"
             : !nextStep
         if nextStep {
             cards.append(DeckCard(id: "next", view: AnyView(
@@ -277,9 +285,11 @@ struct AnalysisCards: View {
                     gate: gate,
                     scoredType: scoredType,
                     sideMissing: sideMissing,
+                    askFirstServer: askFirstServer,
                     onScore: video.onScore,
                     onChanged: video.onPlacementChanged,
-                    videoURL: video.videoURL
+                    videoURL: video.videoURL,
+                    onSetFirstServer: video.onSetFirstServer
                 )
             )))
         }

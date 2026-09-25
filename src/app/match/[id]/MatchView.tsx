@@ -1251,15 +1251,12 @@ export function MatchView({
     },
     [match]
   );
-  // A hand-cut match has no ball track and no table, so placement maps
-  // and automatic highlights are not on offer: not as a disabled row,
-  // not as a notice inviting a tap that can only fail.
-  const handCut = match.cut_source === "manual";
-  const placementNotice = handCut
-    ? null
-    : placementNoticeForViewer(placement.view, isOwner);
-  const showPointPlacementNotice =
-    !handCut && showPlacementDeepDive(placement.view, false);
+  // A hand-cut match gets the same analysis and highlights as an
+  // automatic one: the Mac tracks the ball on the player's own points
+  // (spec 2026-09-24, section 5). Only automatic reprocessing stays off
+  // for it, and that lives on the raw page, not here.
+  const placementNotice = placementNoticeForViewer(placement.view, isOwner);
+  const showPointPlacementNotice = showPlacementDeepDive(placement.view, false);
   const serveGuess = useMemo(
     () => firstServerGuess(visiblePoints, userSide),
     [visiblePoints, userSide]
@@ -1277,23 +1274,33 @@ export function MatchView({
   // missing. Same gate as the deck (and as highlights), so the row and the
   // card it jumps to never disagree about what "unlocked" means.
   const cardsGate = useMemo(() => scoredCardsGate(visiblePoints), [visiblePoints]);
+  // The maps read whose serve each dot is from the rotation, so a scored
+  // match names its first server before the analysis is offered. The
+  // row names that step and lands on the deck's card that asks it.
+  const firstServerBeforeAnalysis =
+    isOwner && scored && firstServer === null && placement.view.actionKind !== null;
   const analysisRowSummary = !scored
     ? `${placementMappedPoints} points mapped`
     : !cardsGate.open
       ? cardsGate.scored === 0
         ? "Score points to unlock"
         : `${cardsGate.scored} of ${cardsGate.eligible} scored`
-      : !handCut && placement.view.poll
+      : placement.view.poll
         ? placement.view.toolStatus
-        : !handCut && placement.view.actionKind === "generate"
-          ? "Generate detailed analysis"
-          : !handCut && placement.view.actionKind === "retry"
-            ? "Try again"
-            : statsRowSummary(stats);
+        : firstServerBeforeAnalysis
+          ? "Who served first?"
+          : placement.view.actionKind === "generate"
+            ? "Generate detailed analysis"
+            : placement.view.actionKind === "retry"
+              ? "Try again"
+              : statsRowSummary(stats);
   // Past the bar the row is the trigger: a tap starts the analysis and
   // lands on the deck, where the card shows it generating.
   const analysisRowAction =
-    scored && cardsGate.open && !handCut && placement.view.actionKind !== null;
+    scored
+    && cardsGate.open
+    && !firstServerBeforeAnalysis
+    && placement.view.actionKind !== null;
   const analysis = useMemo(
     () =>
       computeMatchAnalysis(
@@ -3711,7 +3718,7 @@ export function MatchView({
                 </span>
               </button>
             )}
-            {hasCutOffsets && !handCut && (
+            {hasCutOffsets && (
               <HighlightsRow
                 matchId={match.id}
                 canDownload={!sampleViewer}
@@ -3729,7 +3736,7 @@ export function MatchView({
                 its status names whatever the section is waiting on. The
                 placement lifecycle that used to have a row of its own is
                 a card in the deck (AnalysisCards.PlacementStatusCard). */}
-            {(scored || (!handCut && placementMappedPoints > 0)) && (
+            {(scored || placementMappedPoints > 0) && (
               <button
                 type="button"
                 onClick={() => {
@@ -3740,7 +3747,7 @@ export function MatchView({
               >
                 <span className="text-sm font-semibold">Match analysis</span>
                 <span className="flex shrink-0 items-center gap-2">
-                  {!handCut && placement.view.poll && (
+                  {placement.view.poll && (
                     <span
                       aria-hidden="true"
                       className="h-3 w-3 animate-spin rounded-full border-2 border-cyan-glow/30 border-t-cyan-glow"
@@ -4947,62 +4954,65 @@ export function MatchView({
           the Game filter on the section reaches all of them. Below the
           points so the timeline stays the page's spine. A practice match
           keeps the maps it has (the camera's own data) without the score
-          cards or the gate; a hand-cut match has no ball track, so nothing
-          from the video is offered. A coach reads the same deck without
-          the owner's controls: no gate, no generate button, no flag, and
-          the players' names where the owner reads "you". The #ball-map
-          anchor stays for the links that used to target the maps. */}
-      {(scored || !handCut) && (
-        <div ref={matchStatsRef} id="ball-map" className="scroll-mt-32">
-          <AnalysisCards
-            stats={stats}
-            analysis={analysis}
-            neutral={neutral}
-            youLabel={mapLabels.you}
-            scoredType={scored}
-            points={visiblePoints}
-            userSide={userSide}
-            gameIndexByPoint={gameIndexByPoint}
-            serving={serving}
-            prePad={(p) => effectivePad(pad, p.tight_start, p.tight_end).pre}
-            customReasonLabels={customReasonLabels}
-            labels={mapLabels}
-            ownerHandedness={ownerHandedness ?? null}
-            servesOnly={placementServesOnly}
-            viewer={isOwner ? undefined : "coach"}
-            placement={
-              handCut
-                ? null
-                : isOwner
-                  ? {
-                      controller: placement,
-                      matchId: match.id,
-                      flagged: placementFlagged,
-                      onFlagChange: savePlacementFlagged,
-                      trusted:
-                        match.placement_status === "ready" && !placementFlagged,
-                    }
-                  : {
-                      flagged: placementFlagged,
-                      trusted:
-                        match.placement_status === "ready" && !placementFlagged,
-                    }
-            }
-            onOpenPoint={openPointFromAnalysis}
-            onScore={
-              isOwner && hasCutOffsets && scored
-                ? () => playerRef.current?.openScore()
-                : undefined
-            }
-            onSetUserSide={
-              isOwner && hasCutOffsets
-                ? (side) => void handleSetUserSide(side)
-                : undefined
-            }
-            sideVideoSrc={cutPreviewUrl}
-          />
-        </div>
-      )}
+          cards or the gate. A hand-cut match gets the same deck as an
+          automatic one. A coach reads the same deck without the owner's
+          controls: no gate, no generate button, no flag, and the players'
+          names where the owner reads "you". The #ball-map anchor stays for
+          the links that used to target the maps. */}
+      <div ref={matchStatsRef} id="ball-map" className="scroll-mt-32">
+        <AnalysisCards
+          stats={stats}
+          analysis={analysis}
+          neutral={neutral}
+          youLabel={mapLabels.you}
+          scoredType={scored}
+          points={visiblePoints}
+          userSide={userSide}
+          gameIndexByPoint={gameIndexByPoint}
+          serving={serving}
+          prePad={(p) => effectivePad(pad, p.tight_start, p.tight_end).pre}
+          handCut={match.cut_source === "manual"}
+          customReasonLabels={customReasonLabels}
+          labels={mapLabels}
+          ownerHandedness={ownerHandedness ?? null}
+          servesOnly={placementServesOnly}
+          viewer={isOwner ? undefined : "coach"}
+          placement={
+            isOwner
+              ? {
+                  controller: placement,
+                  matchId: match.id,
+                  flagged: placementFlagged,
+                  onFlagChange: savePlacementFlagged,
+                  trusted:
+                    match.placement_status === "ready" && !placementFlagged,
+                }
+              : {
+                  flagged: placementFlagged,
+                  trusted:
+                    match.placement_status === "ready" && !placementFlagged,
+                }
+          }
+          onOpenPoint={openPointFromAnalysis}
+          onScore={
+            isOwner && hasCutOffsets && scored
+              ? () => playerRef.current?.openScore()
+              : undefined
+          }
+          onSetUserSide={
+            isOwner && hasCutOffsets
+              ? (side) => void handleSetUserSide(side)
+              : undefined
+          }
+          firstServerMissing={firstServer === null}
+          onSetFirstServer={
+            isOwner
+              ? (value) => void saveFirstServer(value)
+              : undefined
+          }
+          sideVideoSrc={cutPreviewUrl}
+        />
+      </div>
 
       {backToAnalysis && (isDesktop || selectedPoint === null) && (
         <div className="pointer-events-none fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 flex justify-center md:bottom-6">
