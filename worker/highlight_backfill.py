@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import tempfile
@@ -283,7 +284,7 @@ def _diagnostic_from_video(production_worker, conn, record, video, workdir):
 
 
 def _diagnostic_from_detections(production_worker, conn, record, video,
-                                workdir, blurball):
+                                workdir, blurball, *, cut_mode=None):
     outdir = os.path.join(workdir, "points_out")
     dump = os.path.join(workdir, "evidence.json")
     strictness = (record.get("job_options") or {}).get("strictness", "normal")
@@ -294,6 +295,12 @@ def _diagnostic_from_detections(production_worker, conn, record, video,
         "--pipeline", "v2", "--endon-fallback", "--no-clips",
         "--evidence-dump", dump,
     ]
+    # v2, the only pipeline that writes the evidence dump, runs only in the
+    # plays cut mode (the main pipeline always passes it). Without it the
+    # child falls back to v1 and every point reads "no matching card".
+    # Passed for hand cuts only, so the automatic route stays as it was.
+    if cut_mode:
+        command += ["--cut-mode", cut_mode]
     pad, merge = production_worker.serve_motif_settings(conn)
     command += ["--serve-surface-pad", str(pad), "--serve-merge-s", str(merge)]
     subprocess.run(command, check=True, cwd=workdir, timeout=6 * 3600)
@@ -355,10 +362,12 @@ def _hand_cut_diagnostic(production_worker, conn, record, points, *,
             diagnostic = None
 
     if diagnostic is None:
-        video = os.path.join(workdir, "source.mp4")
-        production_worker._download_backfill_object(raw_path, video)
+        # _download_backfill_object checks the file through Path methods,
+        # so it must be handed a Path; the rest of this block takes str.
+        source = Path(workdir) / "source.mp4"
+        production_worker._download_backfill_object(raw_path, source)
         video = production_worker.apply_source_trim(
-            video, workdir, record.get("job_options"))
+            str(source), workdir, record.get("job_options"))
         if tracking is None:
             tracking = production_worker.track_hand_cut(
                 video, workdir, match_json_path=match_json_path,
@@ -368,7 +377,8 @@ def _hand_cut_diagnostic(production_worker, conn, record, points, *,
         if geometry is None:
             raise RuntimeError("the original's frame rate could not be read")
         diagnostic = _diagnostic_from_detections(
-            production_worker, conn, record, video, workdir, detections)
+            production_worker, conn, record, video, workdir, detections,
+            cut_mode="plays")
         diagnostic.setdefault("meta", {})["hand_cut"] = {
             "raw_path": raw_path,
             "windows": header["frames"].get("windows") or needed,
