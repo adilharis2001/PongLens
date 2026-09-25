@@ -222,3 +222,19 @@ export function hasResearchDashboardAccess(
 ): boolean {
   return isAdmin || reviewerActive;
 }
+
+
+export function researchPagesForViewer(isAdmin: boolean): readonly ResearchPage[] {
+  if (!isAdmin) return RESEARCH_PAGES;
+  return [
+    RESEARCH_PAGES[0],
+    {
+      title: "Match comparison",
+      category: "Model evaluation",
+      description: "Compare cuts and winner predictions on new recordings, including Anton’s hand-cut matches.",
+      href: "/research/match-comparison",
+      accent: "cyan",
+    },
+    ...RESEARCH_PAGES.slice(1),
+  ];
+}
