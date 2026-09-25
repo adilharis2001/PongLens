@@ -37,8 +37,10 @@ struct MoreOptionsToolRow: View {
     @State private var open = false
     /// A match the sheet asked to open once it has closed.
     @State private var pendingOpen: UUID?
-    /// Half height to start; opening a row takes the sheet to full height,
-    /// so what the row holds is on screen rather than below the fold.
+    /// Full height when the two ways are offered, because the chosen way's
+    /// controls always show and its button would otherwise sit below the
+    /// fold; half height for the rest (a running cut, one line, Report a
+    /// problem).
     @State private var detent: PresentationDetent = .medium
 
     init(match: MatchRow, hooks: MoreOptionsHooks?, issueClient: MatchIssueClient? = nil) {
@@ -52,10 +54,16 @@ struct MoreOptionsToolRow: View {
     init(match: MatchRow, hooks: MoreOptionsHooks?, issueClient: MatchIssueClient?, open: Bool) {
         self.init(match: match, hooks: hooks, issueClient: issueClient)
         _open = State(initialValue: open)
-        let expanded = hooks.map { $0.cutAgain.autoOpen || $0.cutAgain.markOpen } ?? false
-        _detent = State(initialValue: expanded ? .large : .medium)
+        _detent = State(initialValue: offersWays ? .large : .medium)
     }
     #endif
+
+    /// The sheet will show a way to process again, and so its controls.
+    private var offersWays: Bool {
+        guard let hooks else { return false }
+        let plan = hooks.cutAgain.plan(handCutEnabled: hooks.handCut.enabled && hooks.handCut.ready)
+        return plan.automatic || plan.marking
+    }
 
     private var trailing: String? {
         // The running cut in the unprocessed page's words: a paused lane's
@@ -70,8 +78,7 @@ struct MoreOptionsToolRow: View {
 
     var body: some View {
         Button {
-            let expanded = hooks.map { $0.cutAgain.autoOpen || $0.cutAgain.markOpen } ?? false
-            detent = expanded ? .large : .medium
+            detent = offersWays ? .large : .medium
             open = true
         } label: {
             HStack(spacing: 8) {
@@ -128,16 +135,18 @@ struct MoreOptionsToolRow: View {
     }
 }
 
-/// The sheet: under a "Process again" label, Automatically and Mark the
-/// points yourself; then Report a problem. Rows the server does not allow
-/// are not there; a running cut takes their place.
+/// The sheet: under a "Process again" label, the choice between
+/// Automatically and Mark the points yourself and the chosen way's
+/// controls; then Report a problem. A way the server does not allow is not
+/// there (one way left means no choice, just its controls); a running cut
+/// takes their place.
 struct MoreOptionsSheet: View {
     let match: MatchRow
     let hooks: MoreOptionsHooks?
     let issue: MatchIssueModel
     /// Close the sheet, optionally opening a match once it has gone.
     let close: (UUID?) -> Void
-    /// A row was opened: the sheet goes to full height.
+    /// A way was picked: the sheet goes to full height.
     var expand: () -> Void = {}
     @State private var reportOpen = false
 
@@ -187,8 +196,9 @@ struct MoreOptionsSheet: View {
     }
 }
 
-/// The two accordions, or the running cut, or the one line that stands in
-/// for them. Form sections, so the sheet reads as one form.
+/// The two ways (one choice and the chosen way's controls), or the running
+/// cut, or the one line that stands in for them. Form sections, so the
+/// sheet reads as one form.
 private struct CutAgainSections: View {
     let match: MatchRow
     let hooks: MoreOptionsHooks
@@ -263,36 +273,30 @@ private struct CutAgainSections: View {
         }
         if plan.automatic || plan.marking {
             Section {
-                if plan.automatic {
-                    AccordionHeaderRow(
-                        title: CutAgainCopy.automatically,
-                        trailing: minutes.map { "\($0) min" },
-                        open: model.autoOpen
-                    ) {
-                        withAnimation(.easeOut(duration: 0.22)) { model.ways.toggle(.automatic) }
-                        if model.autoOpen { expand() }
-                    }
-                    .listRowInsets(EdgeInsets())
-                    if model.autoOpen {
+                Group {
+                    if plan.automatic && plan.marking {
+                        // Both ways: one choice, then the chosen way's
+                        // controls, as on the raw page.
+                        CutWayPicker(
+                            selected: model.way.selected(draftCount: handCut.openDraftCount),
+                            automaticTrailing: minutes.map { "\($0) min" },
+                            markingTrailing: MoreOptionsPlan.markingTrailing(draftCount: handCut.openDraftCount),
+                            onSelect: { way in
+                                model.way.choose(way)
+                                expand()
+                            },
+                            automatic: { automaticControls },
+                            marking: { markingControls }
+                        )
+                    } else if plan.automatic {
+                        // One way only (no marking by hand on this
+                        // account): its controls, with nothing to choose.
                         automaticControls
-                            .listRowInsets(EdgeInsets())
-                    }
-                }
-                if plan.marking {
-                    AccordionHeaderRow(
-                        title: CutAgainCopy.markYourself,
-                        trailing: MoreOptionsPlan.markingTrailing(draftCount: handCut.openDraftCount),
-                        open: model.markOpen
-                    ) {
-                        withAnimation(.easeOut(duration: 0.22)) { model.ways.toggle(.byHand) }
-                        if model.markOpen { expand() }
-                    }
-                    .listRowInsets(EdgeInsets())
-                    if model.markOpen {
+                    } else {
                         markingControls
-                            .listRowInsets(EdgeInsets())
                     }
                 }
+                .listRowInsets(EdgeInsets())
             } header: {
                 // What both rows do on a processed match, in the page's
                 // own section label ("TOOLS", "POINTS"). Nothing under it.

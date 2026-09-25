@@ -112,22 +112,43 @@ private func runSameMarksChecks() {
     check(!HandCut.sameMarks(base, [base[0], base[1], mark("c", 30, 33)]), "an unskipped let is a change")
 }
 
-/// QA 2026-09-25: both rows open at once put two cyan primaries on screen.
+/// The two ways are one choice (owner's option A, 2026-09-25): exactly one
+/// selected, Automatically unless unsent marks are waiting.
 private func runCutWayChecks() {
-    var ways = CutWayAccordion()
-    eq(ways.open, nil, "both rows start closed")
-    ways.toggle(.automatic)
-    eq(ways.open, .automatic, "a tap opens a row")
-    ways.toggle(.byHand)
-    eq(ways.open, .byHand, "opening the other row closes the first")
-    check(!ways.isOpen(.automatic), "so only one is ever open")
-    ways.toggle(.byHand)
-    eq(ways.open, nil, "a second tap closes it")
-    ways.set(.automatic, open: true)
-    ways.set(.byHand, open: false)
-    eq(ways.open, .automatic, "closing a row that is not open leaves the other alone")
-    ways.set(.byHand, open: true)
-    eq(ways.open, .byHand, "setting one open closes the other")
+    let untouched = CutWayChoice()
+    eq(untouched.chosen, nil, "nothing is picked until the player taps")
+    eq(untouched.selected(draftCount: 0), .automatic, "Automatically is selected by default")
+    eq(untouched.selected(draftCount: 7), .byHand,
+       "unsent marks (the row reads \"7 marked\") select Mark the points yourself")
+    eq(untouched.selected(draftCount: 1), .byHand, "one unsent mark is enough")
+
+    // The count is the one the row trails, so a draft that is not waiting
+    // to be sent never moves the default.
+    let prefilled = MoreOptionsPlan.draftCount(markedCount: 12, submitted: false, prefilled: true)
+    eq(untouched.selected(draftCount: prefilled), .automatic,
+       "a prefilled draft (the live cut's points) keeps Automatically")
+    let submitted = MoreOptionsPlan.draftCount(markedCount: 12, submitted: true, prefilled: false)
+    eq(untouched.selected(draftCount: submitted), .automatic,
+       "a submitted draft (the cut already live) keeps Automatically")
+    let unsent = MoreOptionsPlan.draftCount(markedCount: 12, submitted: false, prefilled: false)
+    eq(untouched.selected(draftCount: unsent), .byHand, "an unsent draft selects marking")
+    eq(MoreOptionsPlan.markingTrailing(draftCount: unsent), "12 marked",
+       "the default follows the same count the row shows")
+
+    var picked = CutWayChoice()
+    picked.choose(.byHand)
+    eq(picked.selected(draftCount: 0), .byHand, "a tap wins over the default")
+    picked.choose(.automatic)
+    eq(picked.selected(draftCount: 7), .automatic, "including over a waiting draft")
+    picked.choose(.automatic)
+    eq(picked.selected(draftCount: 0), .automatic, "tapping the selected way keeps it selected")
+
+    // No original to mark: the row is greyed and cannot be the choice.
+    eq(untouched.selected(draftCount: 7, markingSelectable: false), .automatic,
+       "marking that cannot be chosen is never selected by a draft")
+    picked.choose(.byHand)
+    eq(picked.selected(draftCount: 0, markingSelectable: false), .automatic,
+       "nor by an earlier tap")
 }
 
 private func runRecutChoiceChecks() {

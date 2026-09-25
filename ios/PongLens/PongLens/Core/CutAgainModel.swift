@@ -192,16 +192,8 @@ final class CutAgainModel {
     var trimEnd: Double?
     var strictness = "normal"
     var autoChoice: RecutChoiceState?
-    /// Which of the two rows is open: at most one.
-    var ways = CutWayAccordion()
-    var autoOpen: Bool {
-        get { ways.isOpen(.automatic) }
-        set { ways.set(.automatic, open: newValue) }
-    }
-    var markOpen: Bool {
-        get { ways.isOpen(.byHand) }
-        set { ways.set(.byHand, open: newValue) }
-    }
+    /// Which of the two ways the player picked, if they have.
+    var way = CutWayChoice()
     /// The switch on Mark the points yourself, once flipped.
     var markModeChoice: HandCutMode?
     private(set) var busy = false

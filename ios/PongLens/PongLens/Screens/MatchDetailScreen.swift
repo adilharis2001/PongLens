@@ -777,12 +777,9 @@ struct MatchDetailScreen: View {
     /// Mark the points yourself: this match's draft, and whether the
     /// account may hand cut at all.
     @State private var handCut = HandCutDraftStore()
-    /// Which of "Automatically" and "Mark the points yourself" is open
-    /// inside Break it into points: one at a time, so there is one cyan
-    /// primary on the card.
-    @State private var ways = CutWayAccordion()
-    private var autoOpen: Bool { ways.isOpen(.automatic) }
-    private var markOpen: Bool { ways.isOpen(.byHand) }
+    /// Which of "Automatically" and "Mark the points yourself" the player
+    /// picked inside Break it into points, if they have (`selectedWay`).
+    @State private var way = CutWayChoice()
     /// The Score switch on that row, once the player has flipped it. Nil
     /// means untouched: the marker opens as the draft (or its default) says.
     @State private var markModeChoice: HandCutMode?
@@ -1863,20 +1860,18 @@ struct MatchDetailScreen: View {
                 Rectangle().fill(PL.edge).frame(height: 1)
 
                 if handCutAvailable {
-                    // Two ways to do this, stated as two rows (the web's
-                    // RawMatchView). The automatic one carries the price and
-                    // the trim; marking by hand has neither.
-                    autoRow
-                    if autoOpen {
-                        Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
-                        autoControls
-                    }
-                    Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
-                    markRow
-                    if markOpen {
-                        Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
-                        markControls
-                    }
+                    // Two ways to do this, as one choice, then only the
+                    // chosen way's controls. The automatic one carries the
+                    // price and the trim; marking by hand has neither.
+                    CutWayPicker(
+                        selected: selectedWay,
+                        automaticTrailing: minutesCharge.map { "\($0) min" },
+                        markingTrailing: MoreOptionsPlan.markingTrailing(draftCount: handCut.rawDraftCount),
+                        markingEnabled: hasOriginal,
+                        onSelect: { way.choose($0) },
+                        automatic: { autoControls },
+                        marking: { markControls }
+                    )
                 } else {
                     autoControls
                 }
@@ -1927,31 +1922,11 @@ struct MatchDetailScreen: View {
         .plCard()
     }
 
-    private var autoRow: some View {
-        AccordionHeaderRow(
-            title: "Automatically",
-            detail: "We find the rallies and cut them for you.",
-            trailing: minutesCharge.map { "\($0) min" },
-            open: autoOpen
-        ) {
-            withAnimation(.easeOut(duration: 0.22)) { ways.toggle(.automatic) }
-        }
-    }
-
-    /// Opens in place like "Automatically": the Score switch and the button
-    /// that starts marking sit under it, never a jump straight into the
-    /// marker.
-    private var markRow: some View {
-        AccordionHeaderRow(
-            title: "Mark the points yourself",
-            detail: "You mark where each point starts and ends.",
-            trailing: MoreOptionsPlan.markingTrailing(draftCount: handCut.rawDraftCount),
-            open: markOpen
-        ) {
-            withAnimation(.easeOut(duration: 0.22)) { ways.toggle(.byHand) }
-        }
-        .disabled(!hasOriginal)
-        .opacity(hasOriginal ? 1 : 0.4)
+    /// Automatically, unless unsent marks are waiting ("{N} marked"); the
+    /// player's own pick once they make one. Marking greys out, and cannot
+    /// be the choice, when there is no original to mark.
+    private var selectedWay: CutWay {
+        way.selected(draftCount: handCut.rawDraftCount, markingSelectable: hasOriginal)
     }
 
     /// Practice and drills cannot be scored (the marker's own rule).
