@@ -6,12 +6,12 @@
  * experience stays out of sight until the video has been through the
  * pipeline — this view is deliberately small.
  *
- * Trimming is player-driven: scrub the player, then stamp "Start here" /
- * "End here". The charge quote updates from the stamped window, and
- * claim_processing recomputes the same charge server-side, so what the
- * button says is what the balance loses. It sits immediately below the
- * picture for that reason — the handles mean nothing without the frame
- * they point at. The same TrimBar runs in the upload card.
+ * Trimming is player-driven: drag a handle and the preview above the bar
+ * goes to that frame, or play it and stamp "Start here" / "End here". The
+ * minutes line under Process follows the window, and claim_processing
+ * recomputes the same charge server-side, so what it says is what the
+ * balance loses. The trim and its preview are TrimPreview, the same
+ * component the upload card and a processed match's More options run.
  *
  * The player is ClipPlayer in its cut mode, not a native <video controls>:
  * this is where someone decides whether a video they just paid to store is
@@ -108,12 +108,11 @@ export function RawMatchView({
   }, [noteAuthors]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // The window, strictness, price and balance: the same hook the More
-  // options sheet runs on a processed match (BreakIntoPoints).
+  // The window, price and balance: the same hook the More options sheet
+  // runs on a processed match (BreakIntoPoints).
   const quote = useProcessQuote({
     durationS: match.duration_s ?? null,
     minutesBalance,
-    videoRef,
   });
   const { duration, trimStart, trimEnd, charge, learnDuration } = quote;
   const feedbackByMatch = useProcessingFeedback(isOwner ? [match.id] : []);
@@ -142,9 +141,9 @@ export function RawMatchView({
       || (initialJob?.kind === "hand_cut" && initialJob.status === "failed"),
   );
   /** The way the player picked in the pick-one group, if any. Until they
-   *  pick, wayChoiceView selects one (Automatically, or Mark the points
-   *  yourself when there are marks to go back to: a hand cut that failed
-   *  keeps its marks, so it lands there). Local state only. */
+   *  pick, neither is selected and nothing shows under the group (a hand
+   *  cut that failed keeps its marks, and its row says "{N} marked").
+   *  Local state only. */
   const [pickedWay, setPickedWay] = useState<RecutWay | null>(null);
   /** The hand-marking takeover, and whatever marking is already done. */
   const [marking, setMarking] = useState(false);
@@ -183,6 +182,9 @@ export function RawMatchView({
    * true, so it never opens on a file this browser cannot show.
    */
   const [hasPicture, setHasPicture] = useState<boolean | null>(null);
+  /** The picture's width over its height, once the player has read it:
+   *  the trim's preview box takes that shape from its first frame. */
+  const [videoAspect, setVideoAspect] = useState<number | null>(null);
   // The two ways: Automatically always here (the card shows only where
   // processing is sold), marking by hand where the account has it. Its row
   // greys when this browser has no picture to mark on.
@@ -190,7 +192,6 @@ export function RawMatchView({
     automatic: true,
     hand: handCutEnabled && handCutReady,
     handDisabled: !rawUrl || undecodable,
-    markedCount: draftCount,
     picked: pickedWay,
   });
 
@@ -352,6 +353,7 @@ export function RawMatchView({
   const onMetadata = useCallback(() => {
     const v = videoRef.current;
     if (v) setHasPicture(v.videoWidth > 0 && v.videoHeight > 0);
+    if (v && v.videoWidth > 0 && v.videoHeight > 0) setVideoAspect(v.videoWidth / v.videoHeight);
     const d = v?.duration;
     if (!d || !Number.isFinite(d) || d <= 0) return;
     learnDuration(d);
@@ -683,7 +685,7 @@ export function RawMatchView({
             // watching it, and a whole match in a card is a squint.
             landscape
             // Nothing here draws on a frame — videoRef is only read for
-            // the trim bar's currentTime — and R2's presigned URLs answer
+            // the file's length and shape — and R2's presigned URLs answer
             // a CORS request with nothing, so asking costs a failed
             // request and a reload on every open of this page. The point
             // sheet and the coach workspace DO capture frames, so they
@@ -816,25 +818,25 @@ export function RawMatchView({
           {processOpen && (
           <div className="border-t border-edge/60">
           {/* Two ways to do this, as one pick-one group (Adil, 2026-09-25,
-              option A), with only the selected way's content under it. The
-              automatic one carries the price and the trim, because a charge
-              is computed from the window it will process; marking by hand
-              has neither, so offering a trim there would be a control that
-              changes nothing. Nothing about marking is priced, and it never
+              option A), with only the selected way's content under it, and
+              nothing under it until the player picks one. The automatic one
+              carries the price and the trim, because a charge is computed
+              from the window it will process; marking by hand has neither,
+              so offering a trim there would be a control that changes
+              nothing. Nothing about marking is priced, and it never
               says so: "Free" read as a sales line beside a row that is
               simply another way to do it. The group, the rows and what they
               show are shared with a processed match's More options
               (BreakIntoPoints), so the two places cannot drift. An account
               without marking by hand has one way and sees no group, only
               the automatic content. */}
-          {ways.group && ways.selected && (
+          {ways.group && (
             <WayChoice
-              className="px-5 pt-5"
+              className={ways.selected ? "px-5 pt-5" : "p-5"}
               label="Break it into points"
               selected={ways.selected}
               onSelect={setPickedWay}
               trailing={{
-                automatic: charge != null ? `${charge} min` : null,
                 hand: draftCount > 0 ? `${draftCount} marked` : null,
               }}
               handDisabled={!rawUrl || undecodable}
@@ -846,6 +848,14 @@ export function RawMatchView({
               onProcess={() => void process()}
               busy={busy}
               error={error}
+              // The same file the player above shows, previewed beside the
+              // trim so the handles have a picture on a phone, where the
+              // player has scrolled away by the time the bar is in reach.
+              preview={{
+                src: rawUrl,
+                playable: !!rawUrl && !undecodable && hasPicture !== false,
+                aspect: videoAspect,
+              }}
               onBalanceChecked={() => setError(null)}
             />
           )}

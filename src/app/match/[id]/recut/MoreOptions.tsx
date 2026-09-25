@@ -5,11 +5,13 @@
  * processed match (Cut again, 2026-09-25), and the sheet it opens.
  *
  *   PROCESS AGAIN                        a section label over the two ways
- *   (o) Automatically            12 min  one pick-one group (WayChoice)
- *   ( ) Mark the points yourself 14 marked
+ *   ( ) Automatically                    one pick-one group (WayChoice),
+ *   ( ) Mark the points yourself 14 marked  nothing selected until a tap
  *   the selected way's content:          Automatically: the raw page's
- *                                        trim and strictness, the choice,
- *                                        then Process again. By hand: the
+ *                                        trim with its preview, the
+ *                                        choice, then Process again and
+ *                                        "Uses N of your M minutes." By
+ *                                        hand: the
  *                                        raw page's switch and Start
  *                                        marking, into the marker on the
  *                                        ORIGINAL, prefilled from this cut
@@ -57,7 +59,6 @@ import {
   postProcess,
   useProcessQuote,
 } from "../BreakIntoPoints";
-import { ClipPlayer } from "../ClipPlayer";
 import { MarkPoints } from "../MarkPoints";
 import { useMatchIssueRow } from "../feedback/MatchFeedback";
 import { openingMode, submittable, type CutMode, type Mark } from "../handCut";
@@ -248,11 +249,9 @@ export function MoreOptions({
 
   /* ------------------------------------------------------- Automatically */
 
-  const previewRef = useRef<HTMLVideoElement | null>(null);
   const quote = useProcessQuote({
     durationS: match.duration_s ?? null,
     minutesBalance,
-    videoRef: previewRef,
   });
   const [autoPick, setAutoPick] = useState<Choice | null>(null);
   const autoChoice = recutChoiceView("automatic", options, autoPick);
@@ -283,9 +282,9 @@ export function MoreOptions({
     try {
       if (autoChoice.selected === "replace") {
         // claim_auto_recut (phase 2): the candidate is built beside this cut
-        // and charged as /api/process charges (the same window, strictness
-        // and minutes; it always asks for the detailed analysis, as
-        // request() does). Greyed until recut_options says
+        // and charged as /api/process charges (the same window and minutes,
+        // strictness always "normal"; it always asks for the detailed
+        // analysis, as request() does). Greyed until recut_options says
         // replace_automatic.
         const req = quote.request();
         const { data, error } = await createClient().rpc("claim_auto_recut", {
@@ -362,9 +361,8 @@ export function MoreOptions({
       });
   const unsent = unsentMarkCount(draft.marks, draft.submitted, draft.prefilled);
 
-  /** The way the player picked, if any; until then wayChoiceView selects
-   *  Automatically, or Mark the points yourself when the row reads
-   *  "{N} marked". Local state only. */
+  /** The way the player picked, if any; until then neither is selected
+   *  and nothing shows under the group. Local state only. */
   const [pickedWay, setPickedWay] = useState<RecutWay | null>(null);
   // No original to mark on: the hand row greys and cannot be picked, as
   // on the unprocessed page. (A match with no stored original never gets
@@ -373,7 +371,6 @@ export function MoreOptions({
     automatic: view.automatic,
     hand: view.hand,
     handDisabled: rawMissing,
-    markedCount: unsent,
     picked: pickedWay,
   });
 
@@ -496,15 +493,6 @@ export function MoreOptions({
     <span className="truncate text-xs text-zinc-500">{issue.requestStatus}</span>
   ) : null;
 
-  const picture = (
-    <OriginalPreview
-      url={rawUrl}
-      missing={rawMissing}
-      videoRef={previewRef}
-      onDuration={quote.learnDuration}
-    />
-  );
-
   return (
     <div>
       <button
@@ -550,14 +538,13 @@ export function MoreOptions({
             {/* One pick-one group, then only the selected way's content,
                 as on the unprocessed page (Adil, 2026-09-25, option A).
                 Each way ends in one cyan button, so exactly one shows. */}
-            {ways.group && ways.selected && (
+            {ways.group && (
               <WayChoice
                 className="mt-3"
                 label="Process again"
                 selected={ways.selected}
                 onSelect={setPickedWay}
                 trailing={{
-                  automatic: quote.charge != null ? `${quote.charge} min` : null,
                   hand: unsent > 0 ? `${unsent} marked` : null,
                 }}
                 handDisabled={rawMissing}
@@ -571,7 +558,16 @@ export function MoreOptions({
                 actionLabel="Process again"
                 busy={busy}
                 error={autoError}
-                picture={picture}
+                // The original upload, signed once and held (originalUrl),
+                // so the trim's handles have the picture they cut.
+                preview={{
+                  src: rawUrl,
+                  unavailable: rawMissing ? (
+                    <p className="mb-5 text-sm text-zinc-400">
+                      The original video is no longer stored.
+                    </p>
+                  ) : null,
+                }}
                 choice={
                   <RecutChoice
                     name="recut-automatic"
@@ -651,48 +647,6 @@ export function MoreOptions({
           />,
           document.body,
         )}
-    </div>
-  );
-}
-
-/**
- * The original upload inside the sheet, above the trim bar, so the trim's
- * handles and "Start here" / "End here" have a picture to point at, as they
- * do on the unprocessed page. Paused when it leaves the page: a removed
- * <video> keeps playing with sound.
- */
-function OriginalPreview({
-  url,
-  missing,
-  videoRef,
-  onDuration,
-}: {
-  url: string | null;
-  missing: boolean;
-  videoRef: React.MutableRefObject<HTMLVideoElement | null>;
-  onDuration: (d: number) => void;
-}) {
-  const el = useRef<HTMLVideoElement | null>(null);
-  useEffect(() => () => el.current?.pause(), []);
-  if (missing) {
-    return <p className="mb-5 text-sm text-zinc-400">The original video is no longer stored.</p>;
-  }
-  return (
-    <div className="mb-5 overflow-hidden rounded-xl border border-edge bg-black">
-      {url ? (
-        <ClipPlayer
-          src={url}
-          mode="cut"
-          readPixels={false}
-          videoElRef={videoRef}
-          onLoadedMetadata={(v) => {
-            el.current = v;
-            if (Number.isFinite(v.duration) && v.duration > 0) onDuration(v.duration);
-          }}
-        />
-      ) : (
-        <div className="aspect-video w-full animate-pulse bg-surface-2" />
-      )}
     </div>
   );
 }

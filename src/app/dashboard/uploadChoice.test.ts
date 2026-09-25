@@ -105,11 +105,23 @@ test("the upload card: one choice in place of the switch, Later by default", () 
   assert.match(block, /<WayChoice/);
   assert.match(block, /rows=\{uploadChoiceRows\(handCutEnabled\)\}/);
   assert.match(block, /onSelect=\{setChoice\}/);
-  assert.match(block, /trailing=\{\{ automatic: quote != null \? `\$\{quote\} min` : null \}\}/);
+  // No minutes beside Automatically: the line under the trim says them.
+  assert.match(block, /trailing=\{\{\}\}/);
+  assert.doesNotMatch(block, / min`/);
   assert.match(block, /disabled=\{committed\}/);
-  // Trim and the out-of-minutes recovery only while Automatically is selected.
-  assert.match(block, /\{autoProcess && canTrim && durationS != null && localVideoUrl && \(/);
+  // Trim, the minutes line and the out-of-minutes recovery only while
+  // Automatically is selected, in that order. The trim is the shared one
+  // (TrimPreview) on the picked file, and a file this browser cannot
+  // decode still gets the bar, alone.
+  assert.match(block, /\{autoProcess && durationS != null && localVideoUrl && \(/);
+  assert.match(block, /<TrimPreview[\s\S]*src=\{localVideoUrl\}[\s\S]*playable=\{canTrim\}/);
+  assert.match(block, /\{autoProcess && minutesLine && \(/);
+  assert.match(src, /const minutesLine = minutesUseLine\(quote, minutesBalance, autoState === "short"\);/);
   assert.match(block, /\{autoProcess && autoState === "short" && \(\s*<AllowanceRecovery/);
+  assert.ok(block.indexOf("<TrimPreview") < block.indexOf("{minutesLine.text}"));
+  assert.ok(block.indexOf("{minutesLine.text}") < block.indexOf("<AllowanceRecovery"));
+  // No new button: the card's own label rule stands.
+  assert.equal(block.split("<button").length - 1, 1);
   assert.equal(src.split("<AllowanceRecovery resource=\"minutes\"").length - 1, 1);
 
   // Changing the type never touches the choice (an explicit pick survives it).

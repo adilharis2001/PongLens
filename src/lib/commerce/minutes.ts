@@ -70,6 +70,28 @@ export function formatMinutes(minutes: number): string {
   return m === 1 ? "1 minute" : `${m} minutes`;
 }
 
+/**
+ * The line under an automatic run's button (or under the trim, on the
+ * upload card), following the trim as it moves: what the run costs, out of
+ * what the player has. Minutes are the cost, so they are said here once
+ * rather than on the button and again beside the row (Adil, 2026-09-25).
+ * An unknown balance says the cost alone. A balance that will not cover
+ * it, or a claim refused for it, keeps the out-of-minutes sentence the
+ * unprocessed page has always shown, in amber.
+ */
+export function minutesUseLine(
+  charge: number | null,
+  balance: number | null,
+  refused = false,
+): { text: string; short: boolean } | null {
+  if (charge == null) return null;
+  if (balance == null) return { text: `Uses ${formatMinutes(charge)}.`, short: false };
+  if (refused || balance < charge) {
+    return { text: `Not enough minutes. You have ${formatMinutes(balance)}.`, short: true };
+  }
+  return { text: `Uses ${charge} of your ${formatMinutes(balance)}.`, short: false };
+}
+
 /** "1:07:24" / "7:24" — video durations shown next to the player. */
 export function formatClock(durationS: number): string {
   if (!Number.isFinite(durationS) || durationS < 0) return "0:00";

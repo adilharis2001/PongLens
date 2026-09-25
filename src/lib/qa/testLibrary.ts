@@ -495,11 +495,11 @@ export const testCases: TestCase[] = [
     id: "upload-options",
     area: "upload",
     title: "The processing options on an unprocessed match do what they say",
-    why: "The options moved off the upload page: a video lands in the library first, and the match page's process step is where the choices are made, so they can be changed before any minutes are spent. Breaking into points is on by default. The detailed analysis is not chosen here: it is generated from Match analysis once the match is scored. Cut strictness changes how much room sits around each rally, and the trim marks which stretch of the recording is the match.",
+    why: "The options moved off the upload page: a video lands in the library first, and the match page's process step is where the choices are made, so they can be changed before any minutes are spent. Breaking into points is on by default. The detailed analysis is not chosen here: it is generated from Match analysis once the match is scored. The trim marks which stretch of the recording is the match.",
     needs: ["A video in the library that has not been processed"],
     steps: [
       "Open the unprocessed match and open the process step.",
-      "Trim the start and end, toggle Break it into points, and move Cut strictness through Tight, Normal and Loose.",
+      "Trim the start and end, and toggle Break it into points.",
       "Leave the match and come back.",
     ],
     expected: [

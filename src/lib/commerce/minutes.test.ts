@@ -6,6 +6,7 @@ import {
   formatClock,
   formatGb,
   formatMinutes,
+  minutesUseLine,
   processWindow,
 } from "./minutes.ts";
 
@@ -98,4 +99,26 @@ test("processWindow without a stored length has nothing to quote", () => {
   assert.equal(none.barS, null);
   assert.equal(none.charge, null);
   assert.equal(none.trimmed, false);
+});
+
+test("the line under Process says what the run uses, out of the balance (Adil, 2026-09-25)", () => {
+  assert.deepEqual(minutesUseLine(12, 250), { text: "Uses 12 of your 250 minutes.", short: false });
+  assert.deepEqual(minutesUseLine(1, 1), { text: "Uses 1 of your 1 minute.", short: false });
+  assert.deepEqual(minutesUseLine(12, 12), { text: "Uses 12 of your 12 minutes.", short: false });
+  // It follows the trim: a shorter window is a smaller number.
+  const whole = processWindow({ storedS: 729, videoS: 728.99, trimStartS: 0, trimEndS: null });
+  const trimmed = processWindow({ storedS: 729, videoS: 728.99, trimStartS: 120, trimEndS: 600 });
+  assert.equal(minutesUseLine(whole.charge, 250)?.text, "Uses 13 of your 250 minutes.");
+  assert.equal(minutesUseLine(trimmed.charge, 250)?.text, "Uses 8 of your 250 minutes.");
+  // No balance to read: the cost alone.
+  assert.deepEqual(minutesUseLine(12, null), { text: "Uses 12 minutes.", short: false });
+  assert.deepEqual(minutesUseLine(1, null), { text: "Uses 1 minute.", short: false });
+  // Not enough, or refused for it: the out-of-minutes sentence, as before.
+  assert.deepEqual(minutesUseLine(30, 20), { text: "Not enough minutes. You have 20 minutes.", short: true });
+  assert.deepEqual(minutesUseLine(12, 250, true), { text: "Not enough minutes. You have 250 minutes.", short: true });
+  // Nothing to quote yet.
+  assert.equal(minutesUseLine(null, 250), null);
+  for (const line of [minutesUseLine(12, 250), minutesUseLine(12, null)]) {
+    assert.doesNotMatch(line!.text, /—|\bAI\b|free/i);
+  }
 });

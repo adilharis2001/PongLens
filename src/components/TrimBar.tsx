@@ -15,9 +15,9 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 
 import { formatClock } from "@/lib/commerce/minutes";
+import { MIN_TRIM_S } from "@/components/trimSeek";
 
-/** Shortest window we will cut to. Below this there is no match left. */
-export const MIN_TRIM_S = 5;
+export { MIN_TRIM_S };
 
 export function TrimBar({
   duration,
@@ -25,13 +25,19 @@ export function TrimBar({
   end,
   onChange,
   onScrub,
+  onScrubEnd,
   clock = formatClock,
 }: {
   duration: number;
   start: number;
   end: number;
   onChange: (start: number, end: number) => void;
+  /** Every move of a handle, with the handle's time: the picture above
+   *  follows it. */
   onScrub: (t: number) => void;
+  /** The handle was let go, where it came to rest: the picture above
+   *  settles on that exact frame. */
+  onScrubEnd?: (t: number) => void;
   /** How the three times under the bar are written. A bar directly under
    *  a player passes the player's own clock, so the two never read a
    *  second apart. */
@@ -39,6 +45,8 @@ export function TrimBar({
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef<"start" | "end" | null>(null);
+  /** Where the handle being dragged last was, for onScrubEnd. */
+  const lastRef = useRef<number | null>(null);
 
   const toSeconds = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
@@ -49,13 +57,15 @@ export function TrimBar({
 
   const move = (which: "start" | "end", t: number) => {
     if (which === "start") {
-      const s = Math.min(t, end - MIN_TRIM_S);
-      onChange(Math.max(0, s), end);
-      onScrub(Math.max(0, s));
+      const s = Math.max(0, Math.min(t, end - MIN_TRIM_S));
+      onChange(s, end);
+      lastRef.current = s;
+      onScrub(s);
     } else {
-      const e = Math.max(t, start + MIN_TRIM_S);
-      onChange(start, Math.min(duration, e));
-      onScrub(Math.min(duration, e));
+      const e = Math.min(duration, Math.max(t, start + MIN_TRIM_S));
+      onChange(start, e);
+      lastRef.current = e;
+      onScrub(e);
     }
   };
 
@@ -75,7 +85,11 @@ export function TrimBar({
     move(draggingRef.current, toSeconds(ev.clientX));
   };
   const endDrag = () => {
+    const was = draggingRef.current;
     draggingRef.current = null;
+    const t = lastRef.current;
+    lastRef.current = null;
+    if (was && t != null) onScrubEnd?.(t);
   };
 
   const leftPct = (start / duration) * 100;

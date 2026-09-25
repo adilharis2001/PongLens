@@ -17,8 +17,9 @@ import {
   formatClock,
   formatGb,
   formatMinutes,
+  minutesUseLine,
 } from "@/lib/commerce/minutes";
-import { TrimBar } from "@/components/TrimBar";
+import { TrimPreview } from "@/components/TrimPreview";
 import { createClient } from "@/lib/supabase/client";
 import { installBackGuard, setUploading } from "@/lib/uploadGuard";
 import { QUOTA_ERRORS } from "@/lib/quota";
@@ -72,7 +73,6 @@ type Phase =
   | "done"
   | "error"
   | "interrupted";
-type Strictness = "tight" | "normal" | "loose";
 type MatchType =
   | ""
   | "drills"
@@ -86,7 +86,6 @@ type FormState = {
   venue: string;
   matchType: MatchType;
   points: boolean;
-  strictness: Strictness;
   /** Which end the uploader played from; rides on meta.user_side. */
   userSide: Side | null;
   /** Who served the first point; rides on meta.first_server. */
@@ -98,7 +97,6 @@ const DEFAULT_FORM: FormState = {
   venue: "",
   matchType: "",
   points: true,
-  strictness: "normal",
   userSide: null,
   firstServer: null,
 };
@@ -106,12 +104,6 @@ const DEFAULT_FORM: FormState = {
 /** A remembered upload, carrying this card's own answers. */
 type PendingUpload = PendingUploadOf<FormState>;
 const readPending = () => readPendingRaw<FormState>();
-
-const STRICTNESS: { value: Strictness; label: string }[] = [
-  { value: "tight", label: "Tight" },
-  { value: "normal", label: "Normal" },
-  { value: "loose", label: "Loose" },
-];
 
 /** The columns the remembered-values query reads. */
 type Row = { venue: string | null; opponent_name: string | null };
@@ -211,16 +203,18 @@ export function posterTimeS(durationS: number, trimStartS: number | null): numbe
 function probeVideo(
   url: string,
   atS: number | null = null
-): Promise<{ durationS: number | null; poster: string | null }> {
+): Promise<{ durationS: number | null; poster: string | null; aspect: number | null }> {
   return new Promise((resolve) => {
     const v = document.createElement("video");
     let settled = false;
+    /** The picture's width over its height, for the trim preview's box. */
+    let aspect: number | null = null;
     const done = (durationS: number | null, poster: string | null) => {
       if (settled) return;
       settled = true;
       v.removeAttribute("src");
       v.load();
-      resolve({ durationS, poster });
+      resolve({ durationS, poster, aspect });
     };
     const timer = window.setTimeout(() => done(null, null), 6000);
     const finish = (durationS: number | null, poster: string | null) => {
@@ -234,6 +228,7 @@ function probeVideo(
     v.onerror = () => finish(null, null);
     v.onloadedmetadata = () => {
       const d = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null;
+      if (v.videoWidth > 0 && v.videoHeight > 0) aspect = v.videoWidth / v.videoHeight;
       // Seek somewhere with play in it, the way the side picker does.
       v.onseeked = () => {
         try {
@@ -453,10 +448,15 @@ export function UploadCard({
   const [trimOpen, setTrimOpen] = useState(false);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState<number | null>(null);
-  /** The picked file decoded far enough to show a frame, so it can be trimmed. */
+  /** The picked file decoded far enough to show a frame, so the trim can
+   *  show it (without one, the trim bar shows alone). */
   const [canTrim, setCanTrim] = useState(false);
-  const previewRef = useRef<HTMLVideoElement | null>(null);
-  const [previewPlaying, setPreviewPlaying] = useState(false);
+  /** Its width over its height, so the preview's box has its shape. */
+  const [probeAspect, setProbeAspect] = useState<number | null>(null);
+  /** The minutes balance, for "Uses N of your M minutes." under the trim.
+   *  Null until read, and where it cannot be: the line then says the cost
+   *  alone. */
+  const [minutesBalance, setMinutesBalance] = useState<number | null>(null);
   // Read by the upload-success handler, which runs outside React's render
   // and would otherwise close over whatever the window was when the
   // listener was built.
@@ -520,14 +520,6 @@ export function UploadCard({
     setLocalVideoUrl(null);
   }, []);
   useEffect(() => () => revokeLocalVideo(), [revokeLocalVideo]);
-  // A <video> taken out of the document keeps playing. Muted here, so it
-  // is silent rather than embarrassing, but it still decodes a whole file
-  // for nobody.
-  useEffect(() => {
-    if (trimOpen) return;
-    previewRef.current?.pause();
-    setPreviewPlaying(false);
-  }, [trimOpen]);
 
   const uppyRef = useRef<Uppy | null>(null);
   const formRef = useRef<FormState>(form);
@@ -760,7 +752,8 @@ export function UploadCard({
       points: f.points,
       // Free on the upload run; see RawMatchView.
       placement: f.points,
-      strictness: f.strictness,
+      // Not a player's choice any more (Adil, 2026-09-25).
+      strictness: "normal",
       meta: {
         opponent_name: f.opponent.trim() || null,
         venue: f.venue.trim() || null,
@@ -906,7 +899,7 @@ export function UploadCard({
       options: {
         points: f.points,
         placement: f.points,
-        strictness: f.strictness,
+        strictness: "normal",
         meta: {
           opponent_name: f.opponent.trim() || null,
           venue: f.venue.trim() || null,
@@ -1280,6 +1273,7 @@ export function UploadCard({
       setTrimStart(0);
       setTrimEnd(probed.durationS);
       setCanTrim(probed.durationS != null && probed.poster != null);
+      setProbeAspect(probed.aspect);
       trimRef.current = null;
       if (probed.durationS != null && probed.durationS > MAX_DURATION_S) {
         errorKindRef.current = "upload";
@@ -1334,7 +1328,7 @@ export function UploadCard({
     setTrimStart(0);
     setTrimEnd(null);
     setCanTrim(false);
-    setPreviewPlaying(false);
+    setProbeAspect(null);
     trimRef.current = null;
     setFileName(null);
     setForm(DEFAULT_FORM);
@@ -1450,7 +1444,7 @@ export function UploadCard({
     setTrimStart(0);
     setTrimEnd(null);
     setCanTrim(false);
-    setPreviewPlaying(false);
+    setProbeAspect(null);
     trimRef.current = null;
     setForm(DEFAULT_FORM);
     formRef.current = DEFAULT_FORM;
@@ -1608,6 +1602,27 @@ export function UploadCard({
   const trimmed =
     durationS != null &&
     (trimStart > 0.5 || (trimEnd != null && trimEnd < durationS - 0.5));
+  const minutesLine = minutesUseLine(quote, minutesBalance, autoState === "short");
+
+  // The balance the line under the trim is read against, fetched when
+  // Automatically is picked (so it is fresh when it matters). A failed
+  // read leaves it unknown, and the line says the cost alone.
+  useEffect(() => {
+    if (!commerceEnabled || orderId || !autoProcess) return;
+    let alive = true;
+    void createClient()
+      .rpc("my_processing_state")
+      .single()
+      .then(({ data }) => {
+        const state = data as { minutes_balance?: number } | null;
+        if (alive && typeof state?.minutes_balance === "number") {
+          setMinutesBalance(state.minutes_balance);
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [commerceEnabled, orderId, autoProcess, autoState]);
 
   /**
    * Is the press still outstanding? Drives the button, and demotes the
@@ -1700,18 +1715,19 @@ export function UploadCard({
             rows={uploadChoiceRows(handCutEnabled)}
             selected={selectedChoice}
             onSelect={setChoice}
-            trailing={{ automatic: quote != null ? `${quote} min` : null }}
+            trailing={{}}
             disabled={committed}
           />
 
           {/* Trim, under the choice and only while Automatically is
             selected, because trimming is a cost decision and nothing else
             spends minutes. Closed by default so the card does not balloon
-            on a phone, and only here once a file is picked and the browser
-            has proved it can decode it — an HEVC .mov that desktop Chrome
-            refuses has no frames to drag against, and the video's own page
-            says so out loud after the upload. */}
-          {autoProcess && canTrim && durationS != null && localVideoUrl && (
+            on a phone, and only here once a file is picked. Inside it is
+            the one trim every surface shows (TrimPreview), previewing the
+            picked file straight off disk while it uploads; a file this
+            browser cannot decode (an HEVC .mov in desktop Chrome) gets the
+            bar alone, and the video's own page says why after the upload. */}
+          {autoProcess && durationS != null && localVideoUrl && (
             <div className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-3.5">
               <button
                 type="button"
@@ -1759,84 +1775,40 @@ export function UploadCard({
               </button>
 
               {trimOpen && autoProcess && !committed && (
-                <div className="mt-3">
-                  {/* A definite height, not an aspect ratio. Phones hand us
-                    both shapes and the box must not change size under a
-                    finger that is already dragging — so the height is
-                    fixed and the picture is contained inside it. Sized on
-                    the wrapper, never the video: a media element has no
-                    intrinsic size until its metadata arrives. */}
-                  <div className="relative h-48 w-full overflow-hidden rounded-lg bg-black sm:h-64">
-                    <video
-                      ref={previewRef}
-                      src={localVideoUrl}
-                      poster={probePoster ?? undefined}
-                      muted
-                      playsInline
-                      preload="metadata"
-                      onPlay={() => setPreviewPlaying(true)}
-                      onPause={() => setPreviewPlaying(false)}
-                      className="h-full w-full object-contain"
-                    />
-                    <button
-                      type="button"
-                      aria-label={previewPlaying ? "Pause" : "Play"}
-                      onClick={() => {
-                        const v = previewRef.current;
-                        if (!v) return;
-                        if (v.paused) void v.play().catch(() => {});
-                        else v.pause();
-                      }}
-                      className="absolute inset-0 flex items-center justify-center"
-                    >
-                      {!previewPlaying && (
-                        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
-                          <svg
-                            viewBox="0 0 24 24"
-                            aria-hidden="true"
-                            className="ml-0.5 h-6 w-6 text-white"
-                            fill="currentColor"
-                          >
-                            <path d="M8 5v14l11-7z" />
-                          </svg>
-                        </span>
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="mt-3">
-                    <TrimBar
-                      duration={durationS}
-                      start={trimStart}
-                      end={trimEnd ?? durationS}
-                      onChange={(s, e) => {
-                        setTrimStart(s);
-                        setTrimEnd(e);
-                      }}
-                      onScrub={(t) => {
-                        const v = previewRef.current;
-                        if (v) v.currentTime = t;
-                      }}
-                    />
-                  </div>
-
-                  {trimmed && (
-                    <div className="mt-3 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTrimStart(0);
-                          setTrimEnd(durationS);
-                        }}
-                        className="text-sm text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline"
-                      >
-                        Reset
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <TrimPreview
+                  className="mt-3"
+                  src={localVideoUrl}
+                  poster={probePoster ?? undefined}
+                  playable={canTrim}
+                  aspect={probeAspect}
+                  duration={durationS}
+                  start={trimStart}
+                  end={trimEnd ?? durationS}
+                  onChange={(s, e) => {
+                    setTrimStart(s);
+                    setTrimEnd(e);
+                  }}
+                  trimmed={trimmed}
+                  onReset={() => {
+                    setTrimStart(0);
+                    setTrimEnd(durationS);
+                  }}
+                />
               )}
             </div>
+          )}
+
+          {/* What the automatic run spends, following the trim: the same
+            line the match page shows under its Process button. The card's
+            own button stays the one below. */}
+          {autoProcess && minutesLine && (
+            <p
+              className={`mt-3 text-xs ${
+                minutesLine.short ? "text-amber-300/90" : "text-zinc-500"
+              }`}
+            >
+              {minutesLine.text}
+            </p>
           )}
 
           {/* Not enough minutes for the automatic run: the way to get more
@@ -2083,27 +2055,6 @@ export function UploadCard({
                   disabled={processingLocked}
                   label="Break it into points"
                 />
-              </div>
-              <div className="p-3.5">
-                <p className="text-sm text-zinc-200">Cut strictness</p>
-                <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-lg border border-edge bg-ink/60 p-1">
-                  {STRICTNESS.map((s) => (
-                    <button
-                      key={s.value}
-                      type="button"
-                      aria-pressed={form.strictness === s.value}
-                      disabled={processingLocked}
-                      onClick={() => setField("strictness", s.value, true)}
-                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                        form.strictness === s.value
-                          ? "bg-cyan-glow/15 text-cyan-glow"
-                          : "text-zinc-400 hover:text-zinc-200"
-                      } ${processingLocked ? "cursor-not-allowed" : ""}`}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
             )}

@@ -2,8 +2,8 @@
 
 /**
  * The two ways to break a video into points, as ONE set of components:
- * "Automatically" (trim, strictness, minutes, Process) and "Mark the
- * points yourself" (the Score switch, Start marking). The unprocessed
+ * "Automatically" (the trim with its preview, the minutes, Process) and
+ * "Mark the points yourself" (the Score switch, Start marking). The unprocessed
  * match page renders them in its "Break it into points" card, and a
  * processed match renders the same rows in its More options sheet, so the
  * two places look and behave the same (Cut again, 2026-09-25). Change the
@@ -12,7 +12,12 @@
  * The two ways are one pick-one group (WayChoice, Adil 2026-09-25, option
  * A), with only the selected way's content under it. They used to be two
  * accordions inside the card's own accordion, which did not read as a
- * choice.
+ * choice. Neither is selected until the player picks one, and nothing
+ * shows under the group until then.
+ *
+ * Cut strictness is no longer a choice anywhere a player sees (Adil,
+ * 2026-09-25): every new run asks for "normal". A match cut before that
+ * keeps its stored strictness, which the clip padding still reads.
  */
 
 import {
@@ -22,22 +27,18 @@ import {
   useState,
   type KeyboardEvent,
   type ReactNode,
-  type RefObject,
 } from "react";
 import { AllowanceRecovery } from "@/components/AllowanceRecovery";
 import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 import { Switch } from "@/components/Switch";
-import { TrimBar } from "@/components/TrimBar";
-import { formatMinutes, processWindow } from "@/lib/commerce/minutes";
+import { TrimPreview } from "@/components/TrimPreview";
+import { minutesUseLine, processWindow } from "@/lib/commerce/minutes";
 import { processingExitMessage, type AvailabilityContext } from "@/lib/processingAvailability";
 import { createClient } from "@/lib/supabase/client";
-import { clock as playerClock } from "./ClipPlayer";
 import { scoreSwitchCopy, type CutMode } from "./handCut";
 import { RadioMark, choiceCellClass } from "./recut/RecutChoice";
 import { WAY_ORDER, type RecutWay } from "./recut/recutView";
-
-export type Strictness = "tight" | "normal" | "loose";
 
 /** The chevron the "Break it into points" card turns when it opens. */
 export function ExpandChevron({ open }: { open: boolean }) {
@@ -80,8 +81,9 @@ const WAY_DETAIL: Record<WayRow, string> = {
 
 /**
  * The two ways as one pick-one group: a radio mark on the left, the title
- * with its one line under it, and the trailing minutes or "{N} marked" on
- * the title's line, dressed and laid out like the Replace / Keep cells
+ * with its one line under it, and a trailing "{N} marked" on the hand
+ * row's title line (the minutes are said once, under the button, not here),
+ * dressed and laid out like the Replace / Keep cells
  * (RecutChoice) so the product's two choices read as one pattern. No
  * chevrons: nothing here opens, the host shows the selected way's content
  * under the group. Shown only when both ways are on offer
@@ -89,8 +91,9 @@ const WAY_DETAIL: Record<WayRow, string> = {
  * (uploadChoice.ts), so the choice reads the same before and after the
  * upload.
  *
- * A radiogroup in the ARIA pattern: one tab stop on the selected row, and
- * the arrow keys move the selection between the rows the player can use.
+ * A radiogroup in the ARIA pattern: one tab stop on the selected row (on
+ * the first usable row while nothing is selected), and the arrow keys move
+ * the selection between the rows the player can use.
  */
 export function WayChoice<W extends WayRow = RecutWay>({
   label,
@@ -107,7 +110,8 @@ export function WayChoice<W extends WayRow = RecutWay>({
   /** The rows, in order. The two ways unless the host says otherwise (the
    *  upload card puts Later first). */
   rows?: readonly W[];
-  selected: W;
+  /** Null until the player picks (the two match surfaces start that way). */
+  selected: W | null;
   onSelect: (way: W) => void;
   trailing: Partial<Record<W, string | null>>;
   /** The hand row shows greyed and cannot be picked. */
@@ -127,10 +131,13 @@ export function WayChoice<W extends WayRow = RecutWay>({
         : e.key === "ArrowUp" || e.key === "ArrowLeft"
           ? -1
           : 0;
-    if (!step || usable.length < 2) return;
+    if (!step || usable.length === 0) return;
     e.preventDefault();
-    const at = Math.max(0, usable.indexOf(selected));
-    const next = usable[(at + step + usable.length) % usable.length];
+    const at = selected == null ? -1 : usable.indexOf(selected);
+    const next =
+      at < 0
+        ? usable[step > 0 ? 0 : usable.length - 1]
+        : usable[(at + step + usable.length) % usable.length];
     onSelect(next);
     refs.current[next]?.focus();
   };
@@ -145,6 +152,7 @@ export function WayChoice<W extends WayRow = RecutWay>({
       {rows.map((way) => {
         const on = selected === way;
         const enabled = !disabled && !(way === "hand" && handDisabled);
+        const tabStop = selected == null || !usable.includes(selected) ? usable[0] === way : on;
         const trail = trailing[way];
         return (
           <button
@@ -155,7 +163,7 @@ export function WayChoice<W extends WayRow = RecutWay>({
             type="button"
             role="radio"
             aria-checked={on}
-            tabIndex={on ? 0 : -1}
+            tabIndex={tabStop ? 0 : -1}
             disabled={!enabled}
             onClick={() => onSelect(way)}
             className={`flex w-full items-start gap-3 text-left outline-none focus-visible:border-cyan-glow ${choiceCellClass(on, enabled)}`}
@@ -180,20 +188,16 @@ export function WayChoice<W extends WayRow = RecutWay>({
 }
 
 /**
- * The window to process, the strictness and the price, and the balance it
- * is paid from. claim_processing recomputes the same charge server-side,
- * so what the button says is what the balance loses.
+ * The window to process and the price, and the balance it is paid from.
+ * claim_processing recomputes the same charge server-side, so what the
+ * line under the button says is what the balance loses.
  */
 export function useProcessQuote({
   durationS,
   minutesBalance,
-  videoRef,
 }: {
   durationS: number | null;
   minutesBalance: number | null;
-  /** The picture the stamps read. Without one there is nothing to stamp
-   *  against, and the buttons do not show. */
-  videoRef?: RefObject<HTMLVideoElement | null>;
 }) {
   /** The stored length (the player's reading when the row has none):
    *  what claim_processing charges from. */
@@ -204,7 +208,6 @@ export function useProcessQuote({
   const [trimStart, setTrimStart] = useState(0);
   /** Where the end handle was put; null while it sits at the end. */
   const [trimEnd, setTrimEnd] = useState<number | null>(null);
-  const [strictness, setStrictness] = useState<Strictness>("normal");
   const [availableMinutes, setAvailableMinutes] = useState(minutesBalance);
   const [minutesShort, setMinutesShort] = useState(false);
   useEffect(() => { setAvailableMinutes(minutesBalance); }, [minutesBalance]);
@@ -223,14 +226,6 @@ export function useProcessQuote({
     trimEndS: trimEnd,
   });
 
-  const stampStart = () => {
-    const t = videoRef?.current?.currentTime ?? 0;
-    setTrimStart(Math.min(t, (win.barEndS ?? t) - 5));
-  };
-  const stampEnd = () => {
-    const t = videoRef?.current?.currentTime ?? 0;
-    setTrimEnd(Math.max(t, trimStart + 5));
-  };
   const resetTrim = () => {
     setTrimStart(0);
     setTrimEnd(null);
@@ -249,16 +244,16 @@ export function useProcessQuote({
     // (the ball is detected and the table found for the cut anyway);
     // generating it later re-detects the whole video.
     placement: true,
-    strictness,
+    // Not a player's choice any more (Adil, 2026-09-25). Sent rather than
+    // left out because claim_auto_recut takes it as a required argument.
+    strictness: "normal" as const,
   });
 
   return {
     duration, setDuration, learnDuration,
     videoDuration, barDuration: win.barS, barEnd: win.barEndS,
     trimStart, trimEnd, setTrim: (s: number, e: number) => { setTrimStart(s); setTrimEnd(e); },
-    stampStart, stampEnd, resetTrim, canStamp: !!videoRef,
-    videoRef,
-    strictness, setStrictness,
+    resetTrim,
     availableMinutes, setAvailableMinutes, minutesShort, setMinutesShort,
     charge, trimmed, enough, request,
   };
@@ -289,18 +284,19 @@ export async function postProcess(
 }
 
 /**
- * "Automatically", selected: what to process, how strictly, and the button
- * that spends the minutes. `picture` sits above the trim bar when the host
- * has no video of its own on screen; `choice` sits directly above the
- * button (Replace or Keep, on a processed match). `className` is the
- * host's spacing: the card pads it, the sheet already has its own.
+ * "Automatically", selected: what to process, with the picture it is cut
+ * against (TrimPreview, the same trim the upload card shows), and the
+ * button that spends the minutes, with what it spends on the line under
+ * it. `choice` sits directly above the button (Replace or Keep, on a
+ * processed match). `className` is the host's spacing: the card pads it,
+ * the sheet already has its own.
  */
 export function AutoProcessPanel({
   quote,
   onProcess,
   busy,
   error,
-  picture,
+  preview,
   choice,
   onBalanceChecked,
   actionLabel = "Process",
@@ -311,129 +307,79 @@ export function AutoProcessPanel({
   onProcess: () => void;
   busy: boolean;
   error: string | null;
-  picture?: ReactNode;
+  /** The video the trim is cut against. `playable` false when the host
+   *  already knows this browser cannot play it (the bar shows alone);
+   *  `unavailable` is the host's line for a video that is gone. */
+  preview: {
+    src: string | null;
+    playable?: boolean;
+    aspect?: number | null;
+    unavailable?: ReactNode;
+  };
   choice?: ReactNode;
-  /** The button's verb: "Process" on the unprocessed page, "Process
-   *  again" in a processed match's More options. The minutes follow it. */
+  /** The button: "Process" on the unprocessed page, "Process again" in a
+   *  processed match's More options. The minutes are on the line under
+   *  it, never on the button. */
   actionLabel?: string;
   /** "Check minutes" read a fresh balance: the host clears its refusal. */
   onBalanceChecked?: () => void;
 }) {
   const q = quote;
+  const line = minutesUseLine(q.charge, q.availableMinutes, q.minutesShort);
   return (
     <div className={className}>
-      {picture}
-      {q.duration == null ? (
-        <p className="text-sm text-zinc-400">
-          Play the video once so we can read its length.
-        </p>
-      ) : (
-        <>
-          {/* No paragraph here. The bar reads 0:00 · 12:04 kept · 12:04
-              under itself and the two buttons say what they do, so a
-              sentence explaining them only pushes the handles further
-              from the picture they are cut against. */}
-          <p className="text-sm font-medium text-zinc-200">
-            What to process
+      {/* No paragraph around the trim. The bar reads 0:00 · 12:04 kept ·
+          12:04 under itself and the two buttons say what they do, so a
+          sentence explaining them only pushes the handles further from
+          the picture they are cut against. */}
+      <TrimPreview
+        src={preview.src}
+        playable={preview.playable}
+        aspect={preview.aspect}
+        unavailable={preview.unavailable}
+        onLoadedMetadata={(el) => {
+          if (Number.isFinite(el.duration) && el.duration > 0) q.learnDuration(el.duration);
+        }}
+        label={
+          <p className="mb-3 text-sm font-medium text-zinc-200">What to process</p>
+        }
+        // Drawn on the file's own length, so the bar's end and the
+        // player's length are the same number (a 728.99 s file is 12:08
+        // in both, not 12:08 over 12:09).
+        duration={q.duration == null ? null : q.barDuration ?? q.duration}
+        noDuration={
+          <p className="text-sm text-zinc-400">
+            Play the video once so we can read its length.
           </p>
-          <div className="mt-3" />
-          <TrimBar
-            duration={q.barDuration ?? q.duration}
-            start={q.trimStart}
-            end={q.barEnd ?? q.duration}
-            onChange={q.setTrim}
-            onScrub={(t) => {
-              if (q.videoRef?.current) q.videoRef.current.currentTime = t;
-            }}
-            // Drawn on the file's own length and written the way the
-            // player above writes it, so the bar's end and the player's
-            // length are the same number (a 728.99 s file is 12:08 in
-            // both, not 12:08 over 12:09).
-            clock={playerClock}
-          />
-
-          {(q.canStamp || q.trimmed) && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {q.canStamp && (
-                <>
-                  <button
-                    onClick={q.stampStart}
-                    className="rounded-full border border-edge px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
-                  >
-                    Start here
-                  </button>
-                  <button
-                    onClick={q.stampEnd}
-                    className="rounded-full border border-edge px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
-                  >
-                    End here
-                  </button>
-                </>
-              )}
-              {q.trimmed && (
-                <button
-                  onClick={q.resetTrim}
-                  className="ml-auto text-sm text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
-                >
-                  Reset
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Same shape as the upload sheet's options: a labelled row
-              with a switch, not a pill that hides what it means. */}
-          <div className="mt-5 divide-y divide-edge/60 rounded-xl border border-edge bg-ink/20">
-            <div className="p-3.5">
-              <p className="text-sm text-zinc-200">Cut strictness</p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                How much room to leave around each point.
-              </p>
-              <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-lg border border-edge bg-ink/40 p-1">
-                {(["tight", "normal", "loose"] as const).map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => q.setStrictness(s)}
-                    aria-pressed={q.strictness === s}
-                    className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
-                      q.strictness === s
-                        ? "bg-cyan-glow text-ink"
-                        : "text-zinc-400 hover:text-zinc-200"
-                    }`}
-                  >
-                    {s === "tight"
-                      ? "Tight"
-                      : s === "loose"
-                        ? "Loose"
-                        : "Normal"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
+        }
+        start={q.trimStart}
+        end={q.barEnd ?? q.duration ?? 0}
+        onChange={q.setTrim}
+        trimmed={q.trimmed}
+        onReset={q.resetTrim}
+      />
+      {q.duration != null && (
+        <>
           {choice && <div className="mt-5">{choice}</div>}
 
-          {/* Full width, with the balance under it rather than
-              floating alongside. A hugging pill beside a loose
-              sentence was the scrappiest thing on this screen. */}
+          {/* Full width, with what it spends under it rather than
+              floating alongside. A hugging pill beside a loose sentence
+              was the scrappiest thing on this screen. */}
           <div className="mt-6">
             <button
               onClick={onProcess}
               disabled={busy || !q.enough}
               className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink transition-opacity disabled:opacity-40"
             >
-              {q.charge != null ? `${actionLabel} · ${q.charge} min` : actionLabel}
+              {actionLabel}
             </button>
-            {q.availableMinutes != null && (
+            {line && (
               <p
                 className={`mt-2 w-full text-center text-xs ${
-                  q.enough ? "text-zinc-500" : "text-amber-300/90"
+                  line.short ? "text-amber-300/90" : "text-zinc-500"
                 }`}
               >
-                {q.enough
-                  ? `${formatMinutes(q.availableMinutes)} left`
-                  : `Not enough minutes. You have ${formatMinutes(q.availableMinutes)}.`}
+                {line.text}
               </p>
             )}
             {q.charge != null && q.availableMinutes != null && !q.enough && (
@@ -482,8 +428,8 @@ export function MarkYourselfPanel({
   const copy = scoreSwitchCopy(mode, scoringAllowed);
   return (
     <div className={className}>
-      {/* Same shape as Cut strictness: a labelled row with the app's
-          switch. */}
+      {/* A labelled row with the app's switch, the shape the upload
+          card's rows have. */}
       <div className="rounded-xl border border-edge bg-ink/20">
         <div className="flex items-center gap-3 p-3.5">
           <span className="min-w-0 flex-1">

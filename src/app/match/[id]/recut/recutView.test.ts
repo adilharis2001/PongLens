@@ -282,42 +282,41 @@ test("start_recut's marks read as marks (tap and rate null, source seconds)", ()
   ]);
 });
 
-test("the two ways are one pick-one group: which is selected (Adil, 2026-09-25)", () => {
-  const both = { automatic: true, hand: true, markedCount: 0, picked: null };
-  // Automatically by default.
-  assert.deepEqual(wayChoiceView(both), { group: true, selected: "automatic" });
-  // The hand row reads "{N} marked": Mark the points yourself, so "Keep
-  // marking" is right there.
-  assert.deepEqual(wayChoiceView({ ...both, markedCount: 3 }), { group: true, selected: "hand" });
+test("the two ways are one pick-one group: nothing selected until the player picks (Adil, 2026-09-25)", () => {
+  const both = { automatic: true, hand: true, picked: null };
+  // Neither way by default, whatever marks are waiting: the hand row's
+  // "{N} marked" says so, and nothing shows under the group until a tap.
+  assert.deepEqual(wayChoiceView(both), { group: true, selected: null });
+  assert.deepEqual(wayChoiceView({ ...both, handDisabled: true }), { group: true, selected: null });
   // The player's own pick holds either way.
   assert.deepEqual(wayChoiceView({ ...both, picked: "hand" }), { group: true, selected: "hand" });
-  assert.deepEqual(wayChoiceView({ ...both, markedCount: 3, picked: "automatic" }), {
+  assert.deepEqual(wayChoiceView({ ...both, picked: "automatic" }), {
     group: true, selected: "automatic",
   });
   // A greyed hand row (the raw page's video will not play here) is never
-  // the selection, whatever the marks or the pick.
-  assert.deepEqual(wayChoiceView({ ...both, handDisabled: true, markedCount: 3 }), {
-    group: true, selected: "automatic",
-  });
+  // the selection, and does not fall back to Automatically either.
   assert.deepEqual(wayChoiceView({ ...both, handDisabled: true, picked: "hand" }), {
+    group: true, selected: null,
+  });
+  assert.deepEqual(wayChoiceView({ ...both, handDisabled: true, picked: "automatic" }), {
     group: true, selected: "automatic",
   });
 });
 
 test("one way on offer: no group, only its content", () => {
   // Everyone without marking by hand: the automatic content alone, even
-  // with marks left over.
+  // with a stale pick.
   assert.deepEqual(
-    wayChoiceView({ automatic: true, hand: false, markedCount: 4, picked: "hand" }),
+    wayChoiceView({ automatic: true, hand: false, picked: "hand" }),
     { group: false, selected: "automatic" },
   );
   // More options where processing is not sold: marking by hand alone.
   assert.deepEqual(
-    wayChoiceView({ automatic: false, hand: true, markedCount: 0, picked: null }),
+    wayChoiceView({ automatic: false, hand: true, picked: null }),
     { group: false, selected: "hand" },
   );
   assert.deepEqual(
-    wayChoiceView({ automatic: false, hand: false, markedCount: 0, picked: null }),
+    wayChoiceView({ automatic: false, hand: false, picked: null }),
     { group: false, selected: null },
   );
 });
@@ -332,7 +331,11 @@ test("the group is a radiogroup with arrow keys, and has no chevrons", () => {
   assert.match(group, /aria-label=\{label\}/);
   assert.match(group, /role="radio"/);
   assert.match(group, /aria-checked=\{on\}/);
-  assert.match(group, /tabIndex=\{on \? 0 : -1\}/);
+  // One tab stop: the selected row, or the first usable one while
+  // nothing is selected.
+  assert.match(group, /selected: W \| null;/);
+  assert.match(group, /tabIndex=\{tabStop \? 0 : -1\}/);
+  assert.match(group, /selected == null \|\| !usable\.includes\(selected\) \? usable\[0\] === way : on/);
   for (const key of ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"]) assert.ok(group.includes(key), key);
   assert.doesNotMatch(group, /ExpandChevron|aria-expanded/);
   // The Replace / Keep cells' own dress and radio mark, so the product's
@@ -356,7 +359,10 @@ test("the group is a radiogroup with arrow keys, and has no chevrons", () => {
     // Only the selected way's content shows.
     assert.match(src, /ways\.selected === "automatic" && \(\s*<AutoProcessPanel/, name);
     assert.match(src, /ways\.selected === "hand" && \([\s\S]{0,40}<MarkYourselfPanel/, name);
-    assert.match(src, /ways\.group && ways\.selected && \(\s*<WayChoice/, name);
+    // The group shows with nothing selected; nothing under it until a pick.
+    assert.match(src, /ways\.group && \(\s*<WayChoice/, name);
+    assert.doesNotMatch(src, /ways\.group && ways\.selected/, name);
+    assert.doesNotMatch(src, /markedCount/, name);
   }
 });
 
@@ -367,10 +373,13 @@ test("the unprocessed page: the group sits inside Break it into points", () => {
   assert.ok(open > 0 && open < card.indexOf("<WayChoice"));
   assert.ok(card.indexOf("<WayChoice") < card.indexOf("<AutoProcessPanel"));
   assert.ok(card.indexOf("<AutoProcessPanel") < card.indexOf("<MarkYourselfPanel"));
-  // The minutes and "{N} marked".
+  // "{N} marked" on the hand row, and no minutes on Automatically: they
+  // are said once, under the button.
   const group = card.slice(card.indexOf("<WayChoice"), card.indexOf("<AutoProcessPanel"));
-  assert.match(group, /`\$\{charge\} min`/);
+  assert.doesNotMatch(group, / min`|automatic:/);
   assert.match(group, /`\$\{draftCount\} marked`/);
+  // The trim previews the same file the player above shows.
+  assert.match(card, /preview=\{\{\s*src: rawUrl,\s*playable: !!rawUrl && !undecodable && hasPicture !== false,\s*aspect: videoAspect,\s*\}\}/);
   // Marking by hand only where the account has it; greyed without a picture.
   assert.match(src, /hand: handCutEnabled && handCutReady,/);
   assert.match(src, /handDisabled: !rawUrl \|\| undecodable,/);
@@ -400,17 +409,78 @@ test("More options says it processes the match again (Adil, 2026-09-25)", () => 
   assert.doesNotMatch(src, /Process automatically/);
   const group = src.slice(src.indexOf("<WayChoice"), src.indexOf("<AutoProcessPanel"));
   assert.match(group, /`\$\{unsent\} marked`/);
+  assert.doesNotMatch(group, / min`|automatic:/);
   // No original to mark on: the hand row greys, as on the unprocessed page.
   assert.match(group, /handDisabled=\{rawMissing\}/);
   assert.match(src, /handDisabled: rawMissing,/);
-  // The button reads "Process again · {N} min"; the unprocessed page keeps "Process".
+  // The button reads just "Process again"; the unprocessed page "Process".
+  // The minutes are on the line under it (minutesUseLine), never on it.
   assert.match(src, /actionLabel="Process again"/);
   assert.match(shared, /actionLabel = "Process"/);
-  assert.match(shared, /`\$\{actionLabel\} · \$\{q\.charge\} min`/);
+  assert.doesNotMatch(shared, /· \$\{q\.charge\} min|\$\{q\.charge\} min/);
+  const panel = shared.slice(shared.indexOf("export function AutoProcessPanel"), shared.indexOf("export function MarkYourselfPanel"));
+  assert.match(panel, />\s*\{actionLabel\}\s*<\/button>/);
+  assert.match(panel, /const line = minutesUseLine\(q\.charge, q\.availableMinutes, q\.minutesShort\);/);
+  assert.ok(panel.indexOf("{actionLabel}") < panel.indexOf("{line.text}"));
+  // The out-of-minutes recovery stays where it was, under the line.
+  assert.ok(panel.indexOf("{line.text}") < panel.indexOf("<AllowanceRecovery"));
   // Report a problem is its own group below, not under the label (as on
   // iOS): the Process again group closes before it opens.
   const group2 = src.indexOf("{processRows && (");
   const report = src.indexOf(">\n              Report a problem");
   assert.ok(group2 > 0 && report > group2);
   assert.match(src.slice(group2, report), /<\/>\s*\)\}[\s\S]*processRows \? "mt-9 border-b" : "mt-4"/);
+});
+
+test("cut strictness is gone from every player surface; new runs ask for normal (Adil, 2026-09-25)", () => {
+  const shared = readMatch("BreakIntoPoints.tsx");
+  const upload = readFileSync(join(process.cwd(), "src/app/dashboard/UploadCard.tsx"), "utf8");
+  for (const [name, src] of [
+    ["BreakIntoPoints.tsx", shared],
+    ["RawMatchView.tsx", readMatch("RawMatchView.tsx")],
+    ["recut/MoreOptions.tsx", readMatch("recut/MoreOptions.tsx")],
+    ["UploadCard.tsx", upload],
+  ] as const) {
+    assert.doesNotMatch(src, /Cut strictness<|setStrictness|STRICTNESS|"Tight"|"Loose"/, name);
+  }
+  // Every request the product makes says "normal": the process body (which
+  // claim_auto_recut also takes, as a required argument), and the legacy
+  // upload job's options.
+  const quote = shared.slice(shared.indexOf("export function useProcessQuote"), shared.indexOf("export type ProcessQuote"));
+  assert.match(quote, /strictness: "normal" as const,/);
+  assert.doesNotMatch(quote, /useState<.*Strictness|strictness,\n/);
+  assert.equal(upload.split('strictness: "normal",').length - 1, 2);
+  assert.doesNotMatch(upload, /f\.strictness|form\.strictness/);
+  // A match cut before keeps its stored strictness for the clip padding.
+  assert.match(readMatch("page.tsx"), /let strictness = "normal";/);
+});
+
+test("one trim with its preview, on all three surfaces (Adil, 2026-09-25)", () => {
+  const shared = readMatch("BreakIntoPoints.tsx");
+  const upload = readFileSync(join(process.cwd(), "src/app/dashboard/UploadCard.tsx"), "utf8");
+  const more = readMatch("recut/MoreOptions.tsx");
+  const panel = shared.slice(shared.indexOf("export function AutoProcessPanel"), shared.indexOf("export function MarkYourselfPanel"));
+  // The unprocessed page and More options both reach it through
+  // AutoProcessPanel; the upload card uses it directly.
+  assert.match(panel, /<TrimPreview/);
+  assert.doesNotMatch(shared, /<TrimBar|<ClipPlayer/);
+  assert.match(upload, /<TrimPreview/);
+  assert.doesNotMatch(upload, /<TrimBar|<video/);
+  assert.doesNotMatch(more, /OriginalPreview|<ClipPlayer|picture=/);
+  assert.match(more, /preview=\{\{\s*src: rawUrl,/);
+  // The component itself: the box on a div in the video's shape, the
+  // player in its cut mode (no native controls), the player's own clock,
+  // seek on drag and exact on release, and the two stamps.
+  const tp = readFileSync(join(process.cwd(), "src/components/TrimPreview.tsx"), "utf8");
+  assert.match(tp, /style=\{\{ aspectRatio: ratio \}\}/);
+  assert.match(tp, /<ClipPlayer[\s\S]*mode="cut"[\s\S]*fill/);
+  assert.doesNotMatch(tp, /<video\s|\scontrols[\s=>{]/);
+  assert.match(tp, /clock=\{playerClock\}/);
+  assert.match(tp, /seeker\.scrub\(v, t\)/);
+  assert.match(tp, /onScrubEnd=\{[\s\S]*seeker\.release\(v, t\)/);
+  assert.match(tp, />\s*Start here\s*</);
+  assert.match(tp, />\s*End here\s*</);
+  // A file the browser cannot play: the bar alone, never a broken player.
+  assert.match(tp, /const showPicture = playable && !failed && !unavailable;/);
+  assert.match(tp, /onMediaError=\{\(\) => setFailed\(true\)\}/);
 });

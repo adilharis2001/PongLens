@@ -107,19 +107,22 @@ export interface WayChoiceView {
   /** Both ways are on offer: the pick-one group shows. With only one, its
    *  content shows on its own and there is nothing to pick. */
   group: boolean;
-  /** The way whose content shows under the group (or alone). Null when
-   *  neither can be used. */
+  /** The way whose content shows under the group (or alone). Null until
+   *  the player picks one from the group, and when neither can be used. */
   selected: RecutWay | null;
 }
 
 /**
  * The two ways as one pick-one group (Adil, 2026-09-25, option A), on the
- * unprocessed page and in More options alike. Exactly one is selected, and
- * only its content shows. Automatically by default, except when the hand
- * row reads "{N} marked": then Mark the points yourself, so "Keep marking"
- * is right there. The player's own pick holds while that way can be used; a
- * greyed hand row (the raw page's video will not play here) can never be
- * the selection.
+ * unprocessed page and in More options alike. Neither is selected until
+ * the player taps one, and nothing shows under the group until then: no
+ * trim and no button (Adil, 2026-09-25, replacing "Automatically by
+ * default, or Mark the points yourself when there are marks"). The "{N}
+ * marked" on the hand row still says there is marking to go back to. The
+ * player's own pick holds while that way can be used; a greyed hand row
+ * (the raw page's video will not play here) can never be the selection.
+ * With only one way on offer there is no choice to make, so its content
+ * shows on its own.
  */
 export function wayChoiceView(s: {
   /** "Automatically" is offered. */
@@ -128,8 +131,6 @@ export function wayChoiceView(s: {
   hand: boolean;
   /** Its row shows, greyed. */
   handDisabled?: boolean;
-  /** The "{N} marked" on the hand row; 0 when it reads nothing. */
-  markedCount: number;
   picked: RecutWay | null;
 }): WayChoiceView {
   const handUsable = s.hand && !s.handDisabled;
@@ -142,7 +143,7 @@ export function wayChoiceView(s: {
   if (s.picked === "automatic" || (s.picked === "hand" && handUsable)) {
     return { group: true, selected: s.picked };
   }
-  return { group: true, selected: handUsable && s.markedCount > 0 ? "hand" : "automatic" };
+  return { group: true, selected: null };
 }
 
 export interface RecutChoiceView {
