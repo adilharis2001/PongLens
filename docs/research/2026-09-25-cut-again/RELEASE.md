@@ -1,7 +1,7 @@
 # Cut again: release plan (database + hand lane only)
 
 Cutting a match again needs hand-lane release #4, then migration
-`20260925170000_cut_again.sql`, in that order; main, fast, the health
+`20260925124616_cut_again.sql`, in that order; main, fast, the health
 monitor and the cloud twin are not touched. The release is safe on today's
 database and from the moment it runs every published hand cut queues its
 own detailed analysis and highlights; the migration then adds the four
@@ -15,7 +15,7 @@ approve.
 | --- | --- | --- |
 | Hand lane (`com.adil.ponglens-worker-hand`) | Release 3, `20d1aaa79c77…` from `b7589b3c` | Release #4 from `codex/ca-server` (worker = `b7589b3c` plus this work only) |
 | Main, fast, health monitor, cloud twin | `a8b08902…` / `bb39d41f…` | Unchanged. None of them reads `jobs_hand` |
-| Database | 20260925105830 | `20260925170000_cut_again.sql` |
+| Database | 20260925105830 | `20260925124616_cut_again.sql` |
 | Web / iOS | | Ship after the migration: before it, the four calls do not exist |
 
 `git diff b7589b3c <release commit> -- worker` is only this work:
@@ -54,7 +54,7 @@ Python touching a staged or live release runs with `-B`.
 | 11 to 14 | Quiet release 3, back up the plist, switch, open | RELEASE-PLAN steps 11 to 14, with release 3's state (`20d1aaa7…`) as the old one | `mac:hand` pulses the new id idle; main and fast still `a8b08902` |
 | 15 | First hand cut after the switch | Any admin hand cut (Mac or phone) | Its match is ready as before, then `/admin/processing` shows "Detailed analysis" on the hand row, then "Share video" if the match is scored past 75% and not practice. `select kind, status from jobs where options->>'match_id' = '<match>' order by created_at` lists `hand_cut done`, `placement_generate`, then `reel` |
 | 16 | Pre-checks for the migration (read only) | See "Checks before the migration" | All as listed |
-| 17 | Apply the migration | `supabase/migrations/20260925170000_cut_again.sql` through the Supabase MCP as version `20260925170000` | Applies; its own postcondition block passes |
+| 17 | Apply the migration | `supabase/migrations/20260925124616_cut_again.sql` through the Supabase MCP as version `20260925124616` | Applies; its own postcondition block passes |
 | 18 | Checks after the migration (read only) | See "Checks after the migration" | All as listed |
 | 19 | Web and iOS | Merge their Cut again work; TestFlight | Their More options sheet reads `recut_options` |
 | 20 | First Replace | On an admin practice match: More options, Mark the points yourself, Replace, Cut the match | The match keeps playing; the hand row shows "Hand cut" through "Saving the match" (and "Making the new cut live" if other work was running); the match switches to the new cut; one "Match ready" bell; the ready email; then detailed analysis queued |
@@ -101,7 +101,7 @@ depends on is missing.
 | --- | --- |
 | Checks fail before step 13 | Nothing is live. Discard the package |
 | Release #4 misbehaves, migration not applied | RELEASE-PLAN's lane rollback: `touch <new state>/drain-hand`, wait for `drained`, `bootout`, restore the plist from `$OPS/launcher-backup/`, `bootstrap`, remove release 3's `drain-hand`. Pulse returns to `20d1aaa7…`. Queued analysis stops with it |
-| After the migration | Database first, so no new candidate is created: see what is in flight with `select v.match_id, v.status, j.status from match_processing_versions v join jobs j on j.id = v.job_id where v.issue_id is null and v.source_version_id is not null and v.status in ('candidate','ready')`, then run `rollback-20260925170000.sql` (this folder, one transaction: in-flight re-cuts discarded and their marks handed back, the nine functions restored exactly, the new calls, trigger, index and switch removed; the `cut_source` column stays). Then roll the lane back as above if needed. Web and iOS calls then fail as "function does not exist" |
+| After the migration | Database first, so no new candidate is created: see what is in flight with `select v.match_id, v.status, j.status from match_processing_versions v join jobs j on j.id = v.job_id where v.issue_id is null and v.source_version_id is not null and v.status in ('candidate','ready')`, then run `rollback-20260925124616.sql` (this folder, one transaction: in-flight re-cuts discarded and their marks handed back, the nine functions restored exactly, the new calls, trigger, index and switch removed; the `cut_source` column stays). Then roll the lane back as above if needed. Web and iOS calls then fail as "function does not exist" |
 | One match stuck on "processing" after a Replace reached release 3 | `update match_processing_versions set status = 'failed' where id = '<candidate>' and status = 'candidate'; update hand_cut_drafts set submitted_at = null where match_id = '<match>';` |
 | Cloud twin | Nothing, in any case |
 

@@ -1,4 +1,4 @@
--- Rollback of 20260925170000_cut_again.sql, in one transaction.
+-- Rollback of 20260925124616_cut_again.sql, in one transaction.
 --
 -- Every function below is the definition production ran on 2026-09-25
 -- before the migration (pulled with pg_get_functiondef; the nine

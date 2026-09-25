@@ -1,4 +1,4 @@
--- What 20260925170000_cut_again.sql needs on top of the device hand-cut
+-- What 20260925124616_cut_again.sql needs on top of the device hand-cut
 -- stubs, for a bare Postgres (no Supabase, no pgmq). The processing-version
 -- layer is production's, copied as it was on 2026-09-25 (the tables, the
 -- initialize and check triggers, the score-stale triggers, request_reclip,
@@ -15,7 +15,7 @@
 --            supabase/migrations/20260925061009_device_hand_cut.sql \
 --            supabase/migrations/20260925105830_device_hand_cut_silent_handoff.sql \
 --            supabase/tests/cut_again_stubs.sql \
---            supabase/migrations/20260925170000_cut_again.sql \
+--            supabase/migrations/20260925124616_cut_again.sql \
 --            supabase/tests/cut_again.sql; do
 --     docker exec -i ca-server-pg psql -q -v ON_ERROR_STOP=1 -U postgres < "$f"
 --   done

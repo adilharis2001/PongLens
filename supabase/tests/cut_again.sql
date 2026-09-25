@@ -1,4 +1,4 @@
--- Behaviour of 20260925170000_cut_again.sql on an isolated database built
+-- Behaviour of 20260925124616_cut_again.sql on an isolated database built
 -- by device_hand_cut_stubs.sql, the two device hand-cut migrations and
 -- cut_again_stubs.sql (the header there has the commands). Every fixture
 -- rolls back. A failure raises 'FAIL: ...'.

@@ -119,6 +119,14 @@ comment on column public.match_processing_versions.cut_source is
   'activate_match_processing_version, so every reader of the match column '
   'keeps working.';
 
+-- One open candidate per match (section 4 says why). Built here, before
+-- the backfill below queues deferred trigger events on this table: with
+-- those pending, CREATE INDEX in the same transaction is refused
+-- (found applying to production, 2026-09-25).
+create unique index if not exists match_processing_versions_one_open_candidate
+  on public.match_processing_versions (match_id)
+  where status in ('candidate', 'ready');
+
 -- Backfill. The live version is the match column; any other version
 -- recorded the match row it was built for in match_state.
 update public.match_processing_versions v
@@ -393,9 +401,9 @@ $function$;
 -- side by side (assumption C), so: at most one open candidate per match,
 -- whoever asked for it. Checked against production on 2026-09-25: no match
 -- has two.
-create unique index if not exists match_processing_versions_one_open_candidate
-  on public.match_processing_versions (match_id)
-  where status in ('candidate', 'ready');
+-- (The index itself is created in section 2, before the backfill: in one
+-- transaction Postgres refuses CREATE INDEX on a table with pending
+-- deferred trigger events, which the backfill's updates queue.)
 
 -- The owner holds INSERT on jobs and UPDATE on jobs.options, so without
 -- this a client could create a hand_cut job by hand, or point one at a

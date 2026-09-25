@@ -7,7 +7,7 @@ import test from "node:test";
 // against a real Postgres by supabase/tests/cut_again.sql (commands in
 // supabase/tests/cut_again_stubs.sql); the hand lane's half by
 // worker/tests/test_hand_recut.py.
-const sql = readFileSync("supabase/migrations/20260925170000_cut_again.sql", "utf8");
+const sql = readFileSync("supabase/migrations/20260925124616_cut_again.sql", "utf8");
 const handoff = readFileSync(
   "supabase/migrations/20260925105830_device_hand_cut_silent_handoff.sql",
   "utf8",
