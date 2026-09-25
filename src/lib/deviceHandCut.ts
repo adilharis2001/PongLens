@@ -2,18 +2,20 @@
  * A hand-marked match cut on the owner's iPhone (spec 2026-09-24, section
  * 7). Contract: docs/superpowers/specs/2026-09-25-device-hand-cut-contract.md.
  *
- * Pure: the object keys a phone job may write, which of them a request may
- * touch, and the words the player sees while the phone works. The route
- * (src/app/api/hand-cut/device/route.ts) and the pages call these; the
- * database (claim_device_hand_cut) hands the phone the same keys.
+ * Pure: the object keys a phone job may write and which of them a request
+ * may touch. The route (src/app/api/hand-cut/device/route.ts) calls these;
+ * the database (claim_device_hand_cut) hands the phone the same keys.
+ *
+ * What the player reads while the phone works is not here: it is the hand
+ * cut's own stage names (processingFeedback.ts), the same words wherever
+ * the cut runs. A phone that stops reporting is handed to the server by
+ * the database after 15 minutes (20260925200000), with nothing offered to
+ * the player and nothing said.
  */
 
 /** Stages the phone reports through report_device_hand_cut. */
 export const DEVICE_STAGES = ["device_cut", "device_clips", "device_upload", "device_paused"] as const;
 export type DeviceStage = (typeof DEVICE_STAGES)[number];
-
-/** How long without a report before the raw page offers the Mac instead. */
-export const DEVICE_OFFER_MAC_AFTER_S = 24 * 3600;
 
 export interface DeviceCutKeys {
   cut: string;
@@ -94,25 +96,4 @@ export function manifestClipKeys(
     out.push(key);
   }
   return { keys: out };
-}
-
-/** What the player reads while the phone works on the cut. */
-export function deviceStageLabel(stage: string | null | undefined): string {
-  if (stage === "device_upload") return "Uploading from your iPhone";
-  if (stage === "device_paused") return "Paused on your iPhone";
-  return "Cutting on your iPhone";
-}
-
-/** Seconds since the phone last reported (or was handed the job). */
-export function deviceQuietSeconds(seenAt: string | null | undefined, now: number = Date.now()): number | null {
-  if (!seenAt) return null;
-  const at = Date.parse(seenAt);
-  if (!Number.isFinite(at)) return null;
-  return Math.max(0, Math.round((now - at) / 1000));
-}
-
-/** Whether the raw page offers "Cut on the Mac instead". */
-export function offerMacInstead(seenAt: string | null | undefined, now: number = Date.now()): boolean {
-  const quiet = deviceQuietSeconds(seenAt, now);
-  return quiet !== null && quiet >= DEVICE_OFFER_MAC_AFTER_S;
 }

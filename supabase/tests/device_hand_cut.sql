@@ -1,6 +1,8 @@
--- Behaviour of 20260925061009_device_hand_cut.sql, on an isolated database
--- built by device_hand_cut_stubs.sql (the header there has the commands).
--- Every fixture rolls back. A failure raises 'FAIL: ...'.
+-- Behaviour of 20260925061009_device_hand_cut.sql and
+-- 20260925200000_device_hand_cut_silent_handoff.sql, applied in that
+-- order, on an isolated database built by device_hand_cut_stubs.sql (the
+-- header there has the commands). Every fixture rolls back. A failure
+-- raises 'FAIL: ...'.
 \set ON_ERROR_STOP on
 
 create function pg_temp.act(p_user uuid, p_admin boolean default false)
@@ -234,7 +236,9 @@ begin
   if r->>'phase' <> 'mac' then raise exception 'FAIL: to mac %', r; end if;
   select * into v from public.jobs where id = j2;
   if v.status <> 'queued' or v.options->>'cutter' <> 'mac'
-     or v.options->>'phase' <> 'mac' or v.progress <> 0 then
+     or v.options->>'phase' <> 'mac' or v.progress <> 0
+     or v.options->>'device_note' <> 'switched to the Mac by the owner'
+     or v.options->>'device_fallback_at' is null then
     raise exception 'FAIL: to mac row %', row_to_json(v);
   end if;
   if (select count(*) from pgmq.sent) <> sent + 1
@@ -283,59 +287,128 @@ begin
   update public.jobs set status = 'done' where id = (r->>'job_id')::uuid;
 
   -- --------------------------------------------------- a quiet phone
+  -- Fifteen minutes without a report and the job is the server's: the
+  -- same move as release_device_hand_cut(p_job, true), with no bell, no
+  -- email and nothing handed back (20260925200000).
   r := public.claim_device_hand_cut(m4, pg_temp.marks());
   j := (r->>'job_id')::uuid;
   r := public.claim_device_hand_cut(m5, pg_temp.marks());
   j2 := (r->>'job_id')::uuid;
-  -- m4: never reported, claimed 73 hours ago. m5: claimed 100 hours ago
-  -- but reported an hour ago; alive.
-  update public.jobs set created_at = now() - interval '73 hours' where id = j;
+  -- m4: never reported, claimed 16 minutes ago. m5: claimed 100 hours ago
+  -- but reported 14 minutes ago; alive. now() is fixed for the whole
+  -- transaction, so the edge is exact.
+  update public.jobs set created_at = now() - interval '16 minutes' where id = j;
   update public.jobs set created_at = now() - interval '100 hours',
-         options = options || jsonb_build_object('device_reported_at', now() - interval '1 hour')
+         options = options || jsonb_build_object('device_reported_at', now() - interval '14 minutes')
    where id = j2;
+  select count(*) into sent from pgmq.sent;
   if public.release_stale_device_hand_cuts() <> 1 then
     raise exception 'FAIL: stale sweep count';
   end if;
   select * into v from public.jobs where id = j;
-  if v.status <> 'failed' or v.options->>'phase' <> 'released'
-     or v.user_message <> 'The cut on your iPhone didn''t finish. Your marks are saved.' then
-    raise exception 'FAIL: stale job row %', row_to_json(v);
+  if v.status <> 'queued' or v.progress <> 0
+     or v.options->>'cutter' <> 'mac' or v.options->>'phase' <> 'mac'
+     or v.options->>'device_note' <> 'switched to the Mac: no report from the iPhone for 15 minutes'
+     or v.options->>'device_fallback_at' is null
+     or v.user_message is not null or v.error is not null then
+    raise exception 'FAIL: quiet phone row %', row_to_json(v);
   end if;
-  if (select count(*) from public.notifications
-       where title = 'Cut failed'
-         and body = 'The cut on your iPhone didn''t finish. Your marks are saved.'
-         and href = '/match/' || m4) <> 1 then
-    raise exception 'FAIL: stale release did not ring the Cut failed bell';
+  if (select count(*) from pgmq.sent) <> sent + 1
+     or (select queue from pgmq.sent order by id desc limit 1) <> 'jobs_hand'
+     or (select message->>'job_id' from pgmq.sent order by id desc limit 1) <> j::text
+     or (select message->'options'->>'phase' from pgmq.sent order by id desc limit 1) <> 'mac'
+     or (select delay from pgmq.sent order by id desc limit 1) <> 0 then
+    raise exception 'FAIL: the quiet phone was not queued for the server';
   end if;
-  if (select job_id from public.matches where id = m4) is not null
-     or (select submitted_at from public.hand_cut_drafts where match_id = m4) is not null then
-    raise exception 'FAIL: stale release kept the marks';
+  if exists (select 1 from public.notifications) then
+    raise exception 'FAIL: the handover rang a bell %',
+      (select jsonb_agg(to_jsonb(n)) from public.notifications n);
   end if;
-  if (select status from public.jobs where id = j2) <> 'processing' then
-    raise exception 'FAIL: a reporting phone was released';
+  if (select job_id from public.matches where id = m4) <> j
+     or (select cut_source from public.matches where id = m4) <> 'manual'
+     or (select submitted_at from public.hand_cut_drafts where match_id = m4) is null then
+    raise exception 'FAIL: the handover handed the marks back';
   end if;
+  if (select status from public.jobs where id = j2) <> 'processing'
+     or (select options->>'phase' from public.jobs where id = j2) <> 'device' then
+    raise exception 'FAIL: a reporting phone was taken over';
+  end if;
+  -- Nothing left to move, and the phone coming back is told to stop and
+  -- can neither take it back nor hand the marks back.
+  if public.release_stale_device_hand_cuts() <> 0 then
+    raise exception 'FAIL: a second sweep moved something';
+  end if;
+  r := public.report_device_hand_cut(j, 'device_cut', 50);
+  if (r->>'accepted')::boolean or r->>'phase' <> 'mac' then
+    raise exception 'FAIL: report after the handover %', r;
+  end if;
+  begin
+    perform public.submit_device_hand_cut(j, jsonb_build_object(
+      'key', 'results/' || admin || '/' || j || '.manifest.json'));
+    raise exception 'FAIL: submitted after the handover';
+  exception when raise_exception then
+    if sqlerrm <> 'bad_state' then raise; end if;
+  end;
+  r := public.release_device_hand_cut(j, true);
+  if r->>'phase' <> 'mac' or (select count(*) from pgmq.sent) <> sent + 1 then
+    raise exception 'FAIL: to mac after the handover %', r;
+  end if;
+  begin
+    perform public.release_device_hand_cut(j, false);
+    raise exception 'FAIL: handed back after the handover';
+  exception when raise_exception then
+    if sqlerrm <> 'bad_state' then raise; end if;
+  end;
+  -- Out of the way of the fairness cap below.
+  update public.jobs set status = 'done' where id = j;
+
   -- A report time written as garbage falls back to the claim time, and
   -- cannot break the sweep for everyone else.
   r := public.claim_device_hand_cut(m7, pg_temp.marks());
-  update public.jobs set created_at = now() - interval '100 hours',
+  update public.jobs set created_at = now() - interval '20 minutes',
          options = options || '{"device_reported_at": "soon"}'
    where id = (r->>'job_id')::uuid;
   sent := public.release_stale_device_hand_cuts();
   if sent <> 1
-     or (select status from public.jobs where id = (r->>'job_id')::uuid) <> 'failed'
+     or (select options->>'phase' from public.jobs where id = (r->>'job_id')::uuid) <> 'mac'
      or (select status from public.jobs where id = j2) <> 'processing' then
-    raise exception 'FAIL: garbage report time was not read as the claim time (% released; %)',
+    raise exception 'FAIL: garbage report time was not read as the claim time (% moved; %)',
       sent, (select jsonb_agg(jsonb_build_object('id', id, 'status', status, 'phase', options->>'phase', 'rep', options->>'device_reported_at', 'created', created_at)) from public.jobs where kind = 'hand_cut');
   end if;
+  update public.jobs set status = 'done' where id = (r->>'job_id')::uuid;
 
-  -- A claim over a quiet phone releases it first.
+  -- A claim over a quiet phone is refused like any claim over running
+  -- work, and moves nothing itself: the sweep does that.
   r := public.claim_device_hand_cut(m6, pg_temp.marks());
   j := (r->>'job_id')::uuid;
   update public.jobs set created_at = now() - interval '80 hours' where id = j;
-  r := public.claim_hand_cut(m6, pg_temp.marks());
-  if (select status from public.jobs where id = j) <> 'failed'
-     or (select job_id from public.matches where id = m6) <> (r->>'job_id')::uuid then
-    raise exception 'FAIL: the claim did not release the quiet phone';
+  begin
+    perform public.claim_hand_cut(m6, pg_temp.marks());
+    raise exception 'FAIL: claimed over a quiet phone';
+  exception when raise_exception then
+    if sqlerrm <> 'already_processing' then raise; end if;
+  end;
+  begin
+    perform public.claim_device_hand_cut(m6, pg_temp.marks());
+    raise exception 'FAIL: a second phone claim over a quiet phone';
+  exception when raise_exception then
+    if sqlerrm <> 'already_processing' then raise; end if;
+  end;
+  if (select options->>'phase' from public.jobs where id = j) <> 'device'
+     or (select job_id from public.matches where id = m6) <> j then
+    raise exception 'FAIL: the claim touched the quiet phone';
+  end if;
+  -- Swept into a variable first: an IF's subqueries are free to run
+  -- before a function call beside them.
+  sent := public.release_stale_device_hand_cuts();
+  if sent <> 1
+     or (select status from public.jobs where id = j) <> 'queued'
+     or (select options->>'phase' from public.jobs where id = j) <> 'mac'
+     or (select job_id from public.matches where id = m6) <> j then
+    raise exception 'FAIL: the sweep did not move the quiet phone on m6 (% moved)', sent;
+  end if;
+  if exists (select 1 from public.notifications) then
+    raise exception 'FAIL: a handover rang a bell';
   end if;
 
   -- ------------------------------------------------ everything else queues
@@ -402,7 +475,8 @@ end $$;
 -- ------------------------------------------------------------ privileges
 do $$ begin
   if has_function_privilege('authenticated', 'public._hand_cut_claim_checks(uuid, jsonb)', 'execute')
-     or has_function_privilege('authenticated', 'public._release_stale_device_hand_cuts(uuid)', 'execute')
+     or has_function_privilege('authenticated', 'public._hand_over_stale_device_hand_cuts()', 'execute')
+     or has_function_privilege('authenticated', 'public._device_hand_cut_to_server(uuid, text)', 'execute')
      or has_function_privilege('authenticated', 'public.release_stale_device_hand_cuts()', 'execute')
      or has_function_privilege('authenticated', 'public._hand_cut_hand_back(uuid)', 'execute')
      or has_function_privilege('authenticated', 'public._send_job_message(public.jobs, integer)', 'execute')
@@ -415,6 +489,9 @@ do $$ begin
           and has_function_privilege('authenticated', 'public.release_device_hand_cut(uuid, boolean)', 'execute')
           and has_function_privilege('service_role', 'public.release_stale_device_hand_cuts()', 'execute')) then
     raise exception 'FAIL: a phone call is not callable';
+  end if;
+  if to_regprocedure('public._release_stale_device_hand_cuts(uuid)') is not null then
+    raise exception 'FAIL: the per-match release is still defined';
   end if;
 end $$;
 

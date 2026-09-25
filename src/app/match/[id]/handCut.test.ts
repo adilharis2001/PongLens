@@ -14,6 +14,8 @@ import {
   lastClosedEnd,
   normalizeMarks,
   openAs,
+  openingMode,
+  scoringAsksFirstServer,
   INVALID,
   LEAD_MAX_S,
   LEAD_MIN_S,
@@ -508,6 +510,36 @@ test("draftMode takes the recorded choice, and infers one only where none was re
   assert.equal(draftMode([closed("a", 10, 15, null, true)], null), "score");
   assert.equal(draftMode(uncalled, null), "cut");
   assert.equal(draftMode([], null), "cut");
+});
+
+test("Score starts on for a fresh match, off for practice, and a draft keeps its pass", () => {
+  const uncalled = [closed("a", 10, 15), closed("b", 30, 35)];
+  const called = [closed("a", 10, 15, "user"), closed("b", 30, 35)];
+  // Fresh: on for a match, off where there is no score to keep.
+  assert.equal(openingMode([], null, true), "score");
+  assert.equal(openingMode([], null, false), "cut");
+  // A draft keeps the pass it recorded, both ways.
+  assert.equal(openingMode(uncalled, "cut", true), "cut");
+  assert.equal(openingMode(uncalled, "score", true), "score");
+  assert.equal(openingMode(called, "cut", true), "cut");
+  // A draft saved before the pass was recorded is inferred as before.
+  assert.equal(openingMode(called, null, true), "score");
+  assert.equal(openingMode(uncalled, null, true), "cut");
+  // Practice is never scored, whatever its draft says; winners stay on
+  // the marks, the switch is just off.
+  assert.equal(openingMode(called, "score", false), "cut");
+});
+
+test("turning Score on asks who served first only where the answer is missing and no rally is open", () => {
+  const done = [closed("a", 10, 15)];
+  const rallyOpen = [...done, { ...closed("b", 30, 35), t1: null }];
+  assert.equal(scoringAsksFirstServer([], true, false), true);
+  assert.equal(scoringAsksFirstServer(done, true, false), true);
+  // Known already, or no rotation to set.
+  assert.equal(scoringAsksFirstServer(done, true, true), false);
+  assert.equal(scoringAsksFirstServer(done, false, false), false);
+  // Never over a rally being marked.
+  assert.equal(scoringAsksFirstServer(rallyOpen, true, false), false);
 });
 
 test("a cut-only pass never opens as a scoring pass", () => {

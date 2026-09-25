@@ -247,33 +247,79 @@ test("an invalid selected window cannot create a warning", () => {
 });
 
 
-test("a hand cut on the owner's iPhone says what the phone is doing, whatever the Mac is doing", () => {
+/** Every word a player can read about a hand cut, from queue to publish,
+ *  wherever it runs. The owner's rule (2026-09-25): nothing says where. */
+const WHERE = /iphone|phone|\bmac\b|device|paused|on your/i;
+
+test("a hand cut on the owner's phone reads exactly as it would on the server", () => {
   const phone = (over: Partial<ProcessingFeedback>) => feedback({
     job_kind: "hand_cut", job_status: "processing", cutter: "device", phase: "device",
     stage: null, worker_state: "missing", ...over,
   });
-  assert.equal(processingStageLabel(phone({ device_stage: "device_cut" })), "Cutting on your iPhone");
-  assert.equal(processingStageLabel(phone({ device_stage: "device_clips" })), "Cutting on your iPhone");
-  assert.equal(processingStageLabel(phone({ device_stage: "device_upload" })), "Uploading from your iPhone");
-  assert.equal(processingStageLabel(phone({ device_stage: "device_paused" })), "Paused on your iPhone");
-  assert.equal(processingStageLabel(phone({ device_stage: null })), "Cutting on your iPhone");
+  const cases: [string | null, string][] = [
+    ["device_cut", "Cutting the video"],
+    ["device_clips", "Cutting the video"],
+    ["device_paused", "Cutting the video"],
+    ["device_upload", "Uploading the result"],
+    [null, "Cutting the video"],
+    ["device_something_new", "Cutting the video"],
+  ];
+  for (const [device_stage, want] of cases) {
+    const got = processingStageLabel(phone({ device_stage }));
+    assert.equal(got, want, String(device_stage));
+    assert.doesNotMatch(got ?? "", WHERE, String(device_stage));
+  }
+  // The server's own stages for the same two steps say the same.
+  assert.equal(processingStageLabel(feedback({ job_kind: "hand_cut", stage: "cut" })), "Cutting the video");
+  assert.equal(processingStageLabel(feedback({ job_kind: "hand_cut", stage: "upload" })), "Uploading the result");
   // The hand lane being down or silent is nothing to do with the phone.
-  assert.equal(processingStageLabel(phone({ service_state: "unavailable" })), "Cutting on your iPhone");
-  assert.equal(processingStageLabel(phone({ worker_state: "silent" })), "Cutting on your iPhone");
+  assert.equal(processingStageLabel(phone({ service_state: "unavailable" })), "Cutting the video");
+  assert.equal(processingStageLabel(phone({ worker_state: "silent" })), "Cutting the video");
   assert.ok(onDevice(phone({})));
   assert.ok(!onDevice(feedback({ job_kind: "hand_cut", phase: "verify" })));
 });
 
-test("the Mac checking a phone's cut says so, then uses the hand cut's own stages", () => {
+test("the server checking a phone's cut is the save, and its queue is the hand cut's queue", () => {
   const verify = (over: Partial<ProcessingFeedback>) => feedback({
     job_kind: "hand_cut", cutter: "device", phase: "verify", ...over,
   });
-  assert.equal(processingStageLabel(verify({ job_status: "queued", stage: null })), "Waiting to check the cut");
-  assert.equal(processingStageLabel(verify({ stage: "device_verify" })), "Checking the cut");
+  assert.equal(processingStageLabel(verify({ job_status: "queued", stage: null })), "Waiting to prepare clips");
+  assert.equal(processingStageLabel(verify({ stage: "device_verify" })), "Saving the match");
+  assert.equal(processingStageLabel(verify({ stage: "points" })), "Building the points");
   assert.equal(processingStageLabel(verify({ stage: "publish" })), "Saving the match");
-  // Handed to the Mac: an ordinary hand cut again.
-  assert.equal(
-    processingStageLabel(feedback({ job_kind: "hand_cut", cutter: "mac", phase: "mac", job_status: "queued", stage: null })),
+  // Handed to the server, by the phone or because it went quiet: an
+  // ordinary hand cut again, and nothing about the move is said.
+  for (const cutter of ["mac", "device"] as const) {
+    assert.equal(
+      processingStageLabel(feedback({ job_kind: "hand_cut", cutter, phase: "mac", job_status: "queued", stage: null })),
+      "Waiting to prepare clips",
+    );
+  }
+});
+
+test("no hand-cut label a player can read says where the cut runs", () => {
+  const stages = [null, "marks", "download", "cut", "upload", "points", "publish", "device_verify",
+    "device_cut", "device_clips", "device_upload", "device_paused"];
+  const labels = new Set<string>();
+  for (const phase of [null, "device", "verify", "mac"] as const) {
+    for (const job_status of ["queued", "processing"]) {
+      for (const stage of stages) {
+        const label = processingStageLabel(feedback({
+          job_kind: "hand_cut", job_status, phase, stage, device_stage: stage,
+        }));
+        if (label) labels.add(label);
+      }
+    }
+  }
+  for (const label of labels) assert.doesNotMatch(label, WHERE, label);
+  assert.deepEqual([...labels].sort(), [
+    "Building the points",
+    "Cutting the video",
+    "Preparing clips",
+    "Preparing video",
+    "Reading the marks",
+    "Saving the match",
+    "Uploading the result",
     "Waiting to prepare clips",
-  );
+  ]);
 });

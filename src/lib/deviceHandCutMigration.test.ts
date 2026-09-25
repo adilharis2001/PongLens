@@ -2,23 +2,43 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-// The guards that make a phone cut safe, read out of the migration so a
+// The guards that make a phone cut safe, read out of the migrations so a
 // later edit cannot quietly drop one. Behaviour is checked against a real
 // Postgres by supabase/tests/device_hand_cut.sql (commands in
 // supabase/tests/device_hand_cut_stubs.sql).
-const sql = readFileSync(
+//
+// Two migrations, in the order they apply: the phone cut itself, then the
+// silent move to the server of a phone that stops reporting (owner
+// decision 2026-09-25). A function's definition is its LAST one, which is
+// what production runs once both are applied.
+const first = readFileSync(
   "supabase/migrations/20260925061009_device_hand_cut.sql",
   "utf8",
 );
+const handoff = readFileSync(
+  "supabase/migrations/20260925200000_device_hand_cut_silent_handoff.sql",
+  "utf8",
+);
+const sql = first;
+const files = [first, handoff];
 
-function fn(name: string): string {
-  const start = sql.search(
+function definitionIn(text: string, name: string): string | null {
+  const start = text.search(
     new RegExp(`create or replace function public\\.${name}\\(`, "i"),
   );
-  assert.ok(start >= 0, `${name} is defined`);
-  const rest = sql.slice(start);
+  if (start < 0) return null;
+  const rest = text.slice(start);
   const end = rest.search(/\n\$(function)?\$;/);
   return rest.slice(0, end);
+}
+
+/** The definition production runs: the last migration that writes it. */
+function fn(name: string): string {
+  const found = files
+    .map((text) => definitionIn(text, name))
+    .filter((body): body is string => body !== null);
+  assert.ok(found.length > 0, `${name} is defined`);
+  return found[found.length - 1];
 }
 
 test("a phone cut is never queued, and everything else is sent as before", () => {
@@ -47,7 +67,9 @@ test("both claims make the same checks", () => {
     assert.match(checks, new RegExp(`raise exception '${code}'`), code);
   }
   assert.match(checks, /for update;/);
-  assert.match(checks, /_release_stale_device_hand_cuts\(p_match_id\)/);
+  // A claim no longer releases a quiet phone first: nothing is handed
+  // back any more, so a phone job is simply something already running.
+  assert.doesNotMatch(checks, /_release_stale_device_hand_cuts|_hand_over_stale/);
   assert.match(fn("claim_hand_cut"), /_hand_cut_claim_checks\(p_match_id, p_marks\)/);
   const device = fn("claim_device_hand_cut");
   assert.match(device, /device_hand_cut_enabled\(v_me\)/);
@@ -73,21 +95,31 @@ test("only the owner's phone moves a phone job, and only forward", () => {
   assert.match(submit, /'phase', 'verify'/);
   assert.match(submit, /_send_job_message\(v_job, 0\)/);
   const release = fn("release_device_hand_cut");
-  assert.match(release, /'cutter', 'mac', 'phase', 'mac'/);
+  assert.match(release, /_device_hand_cut_to_server\(\s*p_job, 'switched to the Mac by the owner'\)/);
   assert.match(release, /set status = 'cancelled'/);
   assert.match(release, /_hand_cut_hand_back\(p_job\)/);
+  // The move to the server is stated once, for the owner and the sweep.
+  const toServer = fn("_device_hand_cut_to_server");
+  assert.match(toServer, /set status = 'queued',\s+progress = 0/);
+  assert.match(toServer, /'cutter', 'mac', 'phase', 'mac'/);
+  assert.match(toServer, /_send_job_message\(v_job, 0\)/);
 });
 
-test("a quiet phone is released with the Cut failed bell and its marks handed back", () => {
-  const stale = fn("_release_stale_device_hand_cuts");
-  assert.match(stale, /interval '72 hours'/);
-  assert.match(stale, /_try_timestamptz\(j\.options->>'device_reported_at'\)/);
-  assert.match(stale, /for update of j skip locked/);
-  assert.match(stale, /set status = 'failed'/);
-  assert.match(
-    stale,
-    /The cut on your iPhone didn''t finish\. Your marks are saved\./,
-  );
+test("a quiet phone is handed to the server after 15 minutes, silently", () => {
+  const sweep = fn("_hand_over_stale_device_hand_cuts");
+  assert.match(sweep, /j\.options->>'phase' = 'device'/);
+  assert.match(sweep, /_try_timestamptz\(j\.options->>'device_reported_at'\),\s+j\.created_at\) < now\(\) - interval '15 minutes'/);
+  assert.match(sweep, /for update of j skip locked/);
+  assert.match(sweep, /_device_hand_cut_to_server\(/);
+  // No bell (a failed job rings it), no email, nothing handed back, and
+  // nothing a player could read.
+  assert.doesNotMatch(sweep, /'failed'|user_message|_hand_cut_hand_back|notifications/);
+  assert.doesNotMatch(fn("_device_hand_cut_to_server"), /'failed'|user_message|notifications/);
+  assert.match(fn("release_stale_device_hand_cuts"), /select public\._hand_over_stale_device_hand_cuts\(\);/);
+  // The player-facing failure text of the 72-hour release is gone from
+  // everything that runs (the header comment still quotes it as history).
+  assert.doesNotMatch(handoff.replace(/--.*$/gm, ""), /iPhone didn|Your marks are saved/);
+  assert.match(handoff, /drop function if exists public\._release_stale_device_hand_cuts\(uuid\);/);
   const back = fn("_hand_cut_hand_back");
   assert.match(back, /where job_id = p_job/);
   assert.match(back, /cut_source = 'auto', job_id = null/);
@@ -95,20 +127,22 @@ test("a quiet phone is released with the Cut failed bell and its marks handed ba
 });
 
 test("private helpers are private and the phone's calls are the owner's", () => {
-  for (const signature of [
-    "_try_timestamptz\\(text\\)",
-    "_send_job_message\\(public\\.jobs, integer\\)",
-    "_hand_cut_hand_back\\(uuid\\)",
-    "_release_stale_device_hand_cuts\\(uuid\\)",
-    "release_stale_device_hand_cuts\\(\\)",
-    "_hand_cut_claim_checks\\(uuid, jsonb\\)",
-  ]) {
+  for (const [text, signature] of [
+    [first, "_try_timestamptz\\(text\\)"],
+    [first, "_send_job_message\\(public\\.jobs, integer\\)"],
+    [first, "_hand_cut_hand_back\\(uuid\\)"],
+    [first, "_hand_cut_claim_checks\\(uuid, jsonb\\)"],
+    [handoff, "_device_hand_cut_to_server\\(uuid, text\\)"],
+    [handoff, "_hand_over_stale_device_hand_cuts\\(\\)"],
+    [handoff, "release_stale_device_hand_cuts\\(\\)"],
+  ] as const) {
     assert.match(
-      sql,
+      text,
       new RegExp(`revoke all on function public\\.${signature}\\s+from public, anon, authenticated`),
       signature,
     );
   }
+  assert.match(handoff, /grant execute on function public\.release_stale_device_hand_cuts\(\) to service_role;/);
   for (const signature of [
     "claim_device_hand_cut\\(uuid, jsonb\\)",
     "report_device_hand_cut\\(uuid, text, integer\\)",

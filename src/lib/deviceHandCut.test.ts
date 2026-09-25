@@ -4,11 +4,9 @@ import {
   clipIndex,
   clipName,
   deviceCutKeys,
-  deviceStageLabel,
   isPhoneJob,
   isWritableKey,
   manifestClipKeys,
-  offerMacInstead,
 } from "./deviceHandCut.ts";
 
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -68,20 +66,4 @@ test("a manifest names only this cut's clips", () => {
   assert.ok("error" in manifestClipKeys({ points: [] }, keys, 3));
   assert.ok("error" in manifestClipKeys([], keys, 3));
   assert.ok("error" in manifestClipKeys({ points: new Array(4).fill({ clip: null }) }, keys, 3));
-});
-
-test("the player's words while the phone works", () => {
-  assert.equal(deviceStageLabel("device_cut"), "Cutting on your iPhone");
-  assert.equal(deviceStageLabel("device_clips"), "Cutting on your iPhone");
-  assert.equal(deviceStageLabel(null), "Cutting on your iPhone");
-  assert.equal(deviceStageLabel("device_upload"), "Uploading from your iPhone");
-  assert.equal(deviceStageLabel("device_paused"), "Paused on your iPhone");
-});
-
-test("the Mac is offered after a day without a report", () => {
-  const now = Date.parse("2026-09-26T12:00:00Z");
-  assert.ok(!offerMacInstead("2026-09-25T12:00:01Z", now));
-  assert.ok(offerMacInstead("2026-09-25T12:00:00Z", now));
-  assert.ok(!offerMacInstead(null, now));
-  assert.ok(!offerMacInstead("soon", now));
 });
