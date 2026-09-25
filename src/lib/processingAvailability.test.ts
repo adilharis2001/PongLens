@@ -122,7 +122,9 @@ test("a hand cut on the owner's iPhone is never blocked by a Mac lane", () => {
   ]);
   assert.equal(phone.blockedCount, 0);
   assert.equal(phone.notice, null);
-  assert.equal(phone.continuingLabel, "Cutting on your iPhone");
+  // The same words as the server's own cut: a player is never told where it runs.
+  assert.equal(phone.continuingLabel, "Cutting the video");
+  assert.doesNotMatch(phone.continuingLabel ?? "", /iphone|phone|mac|device/i);
   assert.equal(phone.exitMessage, "We’ll email you when your match is ready.");
   // The same job handed to the Mac is blocked like any hand cut.
   const mac = summarizeProcessingWork(handDown, [{ kind: "hand_cut", status: "queued", videoSaved: true }]);

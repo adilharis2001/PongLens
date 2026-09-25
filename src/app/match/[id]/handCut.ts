@@ -361,6 +361,43 @@ export function draftMode(marks: Mark[], recorded: CutMode | null): CutMode {
   return marks.some((m) => m.isLet || m.winner !== null) ? "score" : "cut";
 }
 
+/**
+ * Where the Score switch starts (Adil, 2026-09-25): on the raw match
+ * page's "Mark the points yourself" panel, and so in the marker it opens.
+ *
+ * Score is a switch the player can flip at any time, not a question asked
+ * first, so this only decides its opening position. A fresh draft starts
+ * with it on for a match, league or tournament and off for practice or
+ * drills; a draft with marks keeps the pass it recorded (draftMode). A
+ * match that cannot be scored (tracksServe false) is always off, whatever
+ * its draft says, and its switch cannot be turned on.
+ *
+ * The iPhone reads the same rule; handCut.test.ts holds the cases.
+ */
+export function openingMode(
+  marks: Mark[],
+  recorded: CutMode | null,
+  scoringAllowed: boolean
+): CutMode {
+  if (!scoringAllowed) return "cut";
+  return marks.length === 0 ? "score" : draftMode(marks, recorded);
+}
+
+/**
+ * Whether turning Score on (at the gate or mid-pass) asks "Who served
+ * first?". Only where a rotation exists and nobody has said who served,
+ * and never over a rally still being marked; it is not asked later for
+ * that rally either, and the match page asks it after the cut, as it
+ * does for an automatic match.
+ */
+export function scoringAsksFirstServer(
+  marks: Mark[],
+  scoringAllowed: boolean,
+  firstServerKnown: boolean
+): boolean {
+  return scoringAllowed && !firstServerKnown && openMark(marks) === null;
+}
+
 /** What the pad is on the way in. */
 export type OpenAs =
   /** Nothing marked: the cutting gate. */

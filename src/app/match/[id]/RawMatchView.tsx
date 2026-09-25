@@ -29,27 +29,45 @@ import { availabilityNotice, serviceLane, processingContext, processingExitMessa
 import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 import { cameraViewWarning, onDevice, processingStageLabel } from "@/lib/processingFeedback";
-import { offerMacInstead } from "@/lib/deviceHandCut";
 import { NoteComposer, NoteItem } from "./Notes";
 
 import { chargeMinutes, formatClock, formatMinutes } from "@/lib/commerce/minutes";
-import { deriveMatchTitleParts } from "@/lib/matchTitle";
+import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, NoteAuthor } from "@/lib/types";
 import { NameCombobox } from "@/app/dashboard/NameCombobox";
 import { SectionHeading } from "@/components/SectionHeading";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
+import { Switch } from "@/components/Switch";
 import { TrimBar } from "@/components/TrimBar";
 import { ClipPlayer } from "./ClipPlayer";
 import { MatchFeedbackLink } from "./feedback/MatchFeedback";
 import { MarkPoints, type DraftSave } from "./MarkPoints";
-import { normalizeMarks, submittable, type CutMode, type Mark } from "./handCut";
+import { normalizeMarks, openingMode, submittable, type CutMode, type Mark } from "./handCut";
 import { userFirstServerUpdate } from "./matchStructure";
 import type { MatchServer } from "./serving";
 import { RawExportRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 
 const MATCH_TYPES = ["drills", "practice", "match", "league", "tournament"] as const;
+
+/** The chevron an accordion row in this card turns when it opens. */
+function ExpandChevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
+        open ? "rotate-180" : ""
+      }`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
 
 interface ActiveJob {
   id: string;
@@ -119,13 +137,12 @@ export function RawMatchView({
   const serviceState = services[feedback?.lane ?? serviceLane(feedback?.job_kind ?? job?.kind)];
   const availabilityContext = processingContext(feedback?.job_kind ?? job?.kind, !!match.raw_path);
   // A hand cut the owner's iPhone is cutting (claim_device_hand_cut). No
-  // Mac lane is involved until the phone hands it over, so no lane's
-  // outage applies, and after a day without word from the phone the owner
-  // can hand it to the Mac instead.
+  // server lane is involved until the phone hands it over, so no lane's
+  // outage applies. Nothing here says where it runs or offers to move it:
+  // a phone that goes quiet is handed to the server by the database
+  // (20260925200000), and the stage names read the same either way.
   const phoneCut = onDevice(feedback);
   const serviceNotice = phoneCut ? null : availabilityNotice(serviceState, availabilityContext);
-  const [movingToMac, setMovingToMac] = useState(false);
-  const [moveError, setMoveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [availableMinutes, setAvailableMinutes] = useState(minutesBalance);
@@ -140,8 +157,13 @@ export function RawMatchView({
       || (initialJob?.kind === "hand_cut" && initialJob.status === "failed"),
   );
   /** Which of the two ways is open. Neither, until the reader picks one:
-   *  the card's job is to show that there IS a choice. */
+   *  the card's job is to show that there IS a choice. Each row opens and
+   *  closes on its own, the same way. A hand cut that failed opens its
+   *  own row, because its marks and the way back into them are the point. */
   const [autoOpen, setAutoOpen] = useState(false);
+  const [handOpen, setHandOpen] = useState(
+    initialJob?.kind === "hand_cut" && initialJob.status === "failed",
+  );
   /** The hand-marking takeover, and whatever marking is already done. */
   const [marking, setMarking] = useState(false);
   /**
@@ -208,6 +230,19 @@ export function RawMatchView({
   const [opponent, setOpponent] = useState(match.opponent_name ?? "");
   const [venue, setVenue] = useState(match.venue ?? "");
   const [matchType, setMatchType] = useState(match.match_type ?? "");
+  /**
+   * The Score switch on "Mark the points yourself", the same switch the
+   * marker carries (Adil, 2026-09-25). It starts where the marker's rule
+   * says (openingMode: on for a match, off for practice, a draft's own
+   * recorded pass) until the player flips it here or in the marker, and
+   * the marker opens in whatever it reads. Practice and drills can never
+   * turn it on, whatever was chosen before the type changed.
+   */
+  const markScoringAllowed = tracksServe(matchType || null);
+  const [markModeChoice, setMarkModeChoice] = useState<CutMode | null>(null);
+  const markMode: CutMode = !markScoringAllowed
+    ? "cut"
+    : markModeChoice ?? openingMode(draftMarks, draftMode, true);
   /** Who served first, answered on the pad while marking a scored match
    *  and saved straight onto the row, the way the match page saves it. */
   const [firstServer, setFirstServer] = useState<MatchServer | null>(
@@ -529,32 +564,6 @@ export function RawMatchView({
     [match.id, router],
   );
 
-  const cutOnMac = useCallback(async () => {
-    const jobId = feedback?.job_id;
-    if (!jobId || movingToMac) return;
-    setMovingToMac(true);
-    setMoveError(null);
-    try {
-      const res = await fetch("/api/hand-cut/device", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "release", jobId, toMac: true }),
-      });
-      // 409 means the phone finished or it has already moved; either way
-      // the page's next read shows where it is now.
-      if (!res.ok && res.status !== 409) {
-        setMoveError("That didn't go through. Try again.");
-        return;
-      }
-      setJob((current) => current && { ...current, status: "queued", progress: 0 });
-      router.refresh();
-    } catch {
-      setMoveError("That didn't go through. Try again.");
-    } finally {
-      setMovingToMac(false);
-    }
-  }, [feedback?.job_id, movingToMac, router]);
-
   const stampStart = () => {
     const t = videoRef.current?.currentTime ?? 0;
     setTrimStart(Math.min(t, (trimEnd ?? duration ?? t) - 5));
@@ -863,22 +872,6 @@ export function RawMatchView({
             {processingExitMessage(availabilityContext)}
           </p>
           <ProcessingEstimateNote estimate={feedback?.estimate} jobStatus={feedback?.job_status ?? job?.status ?? null} serviceState={serviceState} />
-          {phoneCut && isOwner && offerMacInstead(feedback?.device_seen_at) && (
-            <>
-              <p className="mt-4 text-sm text-zinc-300">
-                No update from your iPhone for over a day.
-              </p>
-              <button
-                type="button"
-                onClick={cutOnMac}
-                disabled={movingToMac}
-                className="mt-3 min-h-11 w-full rounded-full border border-edge px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-500 disabled:opacity-50 sm:w-auto"
-              >
-                Cut on the Mac instead
-              </button>
-              {moveError && <p className="mt-2 text-sm text-amber-300/90">{moveError}</p>}
-            </>
-          )}
           </>}
           {cameraWarning && <p className="mt-3 text-sm text-amber-300/90">{cameraWarning}</p>}
         </section>
@@ -896,8 +889,8 @@ export function RawMatchView({
           <p className="mt-3 text-sm text-zinc-300">
             {job?.user_message ?? "The cut didn't finish."}
           </p>
-          {/* A phone cut released after 72 hours already says the marks
-              are saved; the same sentence twice reads as a mistake. */}
+          {/* A failure message that already says the marks are saved
+              must not be followed by the same sentence again. */}
           <p className="mt-2 text-sm text-zinc-400">
             {(job?.user_message ?? "").includes("Your marks are saved")
               ? "Open them, check them and send them again."
@@ -937,18 +930,7 @@ export function RawMatchView({
                 Every rally as its own clip
               </span>
             </span>
-            <svg
-              viewBox="0 0 24 24"
-              className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
-                processOpen ? "rotate-180" : ""
-              }`}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
-            </svg>
+            <ExpandChevron open={processOpen} />
           </button>
 
           {cameraWarning && (
@@ -990,18 +972,7 @@ export function RawMatchView({
                 {charge} min
               </span>
             )}
-            <svg
-              viewBox="0 0 24 24"
-              className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
-                autoOpen ? "rotate-180" : ""
-              }`}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
-            </svg>
+            <ExpandChevron open={autoOpen} />
           </button>
           {autoOpen && (
           <div className="border-t border-edge/60 p-5">
@@ -1125,15 +1096,19 @@ export function RawMatchView({
           </div>
           )}
           {/* Desktop web and mobile web, on an unprocessed match, which is
-              the only place this card renders. Not the iOS app, by
-              decision (2026-09-08): the marker is a web surface for now.
-              On a phone the pad sits under the video; on a desktop it is
-              the floating card the scorekeeper uses. */}
+              the only place this card renders. The same accordion row as
+              "Automatically": it opens in place on the choice that matters
+              before marking (Score on or off) and the button that starts,
+              rather than dropping straight into the marker. Nothing here
+              is priced, and it never says so: "Free" read as a sales line
+              beside a row that is simply another way to do it. */}
           {handCutEnabled && handCutReady && (
+          <>
           <button
             type="button"
-            onClick={() => void openMarker()}
-            disabled={!rawUrl || undecodable || openingMarker}
+            onClick={() => setHandOpen((v) => !v)}
+            aria-expanded={handOpen}
+            disabled={!rawUrl || undecodable}
             className="flex w-full items-center gap-3 border-t border-edge/60 p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40"
           >
             <span className="min-w-0 flex-1">
@@ -1144,13 +1119,55 @@ export function RawMatchView({
                 You tap where each point starts and who won.
               </span>
             </span>
-            <span className="shrink-0 text-sm font-semibold text-zinc-300">
-              {draftCount > 0
-                ? `${draftCount} marked`
-                : "Free"}
-            </span>
-            <ToolRowChevron />
+            {draftCount > 0 && (
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-300">
+                {draftCount} marked
+              </span>
+            )}
+            <ExpandChevron open={handOpen && !!rawUrl && !undecodable} />
           </button>
+          {handOpen && rawUrl && !undecodable && (
+          <div className="border-t border-edge/60 p-5">
+            {/* Same shape as Cut strictness above: a labelled row with the
+                app's switch. Practice and drills show it off and greyed,
+                with the reason in two words. */}
+            <div className="rounded-xl border border-edge bg-ink/20">
+              <div className="flex items-center gap-3 p-3.5">
+                <span className="min-w-0 flex-1">
+                  <span
+                    className={`block text-sm ${
+                      markScoringAllowed ? "text-zinc-200" : "text-zinc-500"
+                    }`}
+                  >
+                    Score
+                  </span>
+                  {!markScoringAllowed && (
+                    <span className="mt-0.5 block text-xs text-zinc-500">
+                      Matches only
+                    </span>
+                  )}
+                </span>
+                <Switch
+                  on={markMode === "score"}
+                  onChange={(on) => setMarkModeChoice(on ? "score" : "cut")}
+                  label={markScoringAllowed ? "Score" : "Score, matches only"}
+                  disabled={!markScoringAllowed}
+                />
+              </div>
+            </div>
+            <div className="mt-6">
+              <button
+                type="button"
+                onClick={() => void openMarker()}
+                disabled={openingMarker}
+                className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink transition-opacity disabled:opacity-40"
+              >
+                {draftMarks.length > 0 ? "Keep marking" : "Start marking"}
+              </button>
+            </div>
+          </div>
+          )}
+          </>
           )}
           </div>
           )}
@@ -1456,7 +1473,12 @@ export function RawMatchView({
           youLabel="Me"
           themLabel={(opponent.trim().split(/\s+/)[0] || "Them").slice(0, 12)}
           initialMarks={draftMarks}
-          initialMode={draftMode}
+          startMode={markMode}
+          onModeChange={(mode) => {
+            // A practice pass is always off; recording that would leave
+            // the switch off if the type later changes to a match.
+            if (markScoringAllowed) setMarkModeChoice(mode);
+          }}
           saveDraft={saveDraft}
           submit={submitHandCut}
           onClose={() => {

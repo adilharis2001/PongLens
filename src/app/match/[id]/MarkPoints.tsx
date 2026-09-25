@@ -20,10 +20,14 @@
  * it is not to touch it. What is shared is shared by IMPORT (ClipPlayer,
  * serving, gameScore), so the ITTF rotation stays one implementation.
  *
- * TWO MODES, asked once on the way in. "Cut only" wants the rallies as
- * clips and nothing else, so it never shows a score, a server or an answer
- * row: a scoreboard nobody is filling in is furniture. "Cut and score"
- * is the full three-tap loop.
+ * ONE SWITCH, "Score", not a question asked first (Adil, 2026-09-25). On,
+ * it is the full three-tap loop. Off, the pass wants the rallies as clips
+ * and nothing else, so it never shows a score, a server or an answer row:
+ * a scoreboard nobody is filling in is furniture. The raw match page sets
+ * it before the marker opens (on for a match, off for practice, a draft's
+ * own pass: openingMode), and here it sits in the footer (in the bottom
+ * bar on a phone held sideways) from the gate on, and can be flipped at
+ * any time without losing a winner already called.
  *
  * WHAT THIS FILE NEVER COMPUTES: cut_t0, cut segments, or which seconds the
  * cut keeps. The worker does that once, through the same three functions
@@ -62,7 +66,6 @@ import {
   type Outcome,
   asPoints,
   clearAwaiting,
-  draftMode,
   firstUnscored,
   gapsAround,
   insertMark,
@@ -70,6 +73,7 @@ import {
   type CutMode,
   type Gap,
   openAs,
+  scoringAsksFirstServer,
   MIN_POINT_S,
   emptyState,
   endMark,
@@ -129,7 +133,6 @@ const ICON = {
   star: "M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z",
   again: "M4 12a8 8 0 0 1 14-5.3M20 4v4h-4M20 12a8 8 0 0 1-14 5.3M4 20v-4h4",
   remove: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
-  toggle: "M8 7h8a5 5 0 0 1 0 10H8A5 5 0 0 1 8 7zM16 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z",
 } as const;
 
 /** Shown once a newer draft has been found, for the rest of the session. */
@@ -296,7 +299,8 @@ export function MarkPoints({
   youLabel,
   themLabel,
   initialMarks,
-  initialMode,
+  startMode,
+  onModeChange,
   saveDraft,
   submit,
   onClose,
@@ -312,9 +316,14 @@ export function MarkPoints({
   youLabel: string;
   themLabel: string;
   initialMarks: Mark[];
-  /** The pass this draft was, as recorded on the row. Null on a draft
-   *  saved before the choice was kept, and on a match never opened. */
-  initialMode: CutMode | null;
+  /** Where the Score switch starts: the switch on the raw match page's
+   *  "Mark the points yourself" panel, which starts from openingMode (on
+   *  for a fresh match, off for practice, a draft's recorded pass). A
+   *  match that cannot be scored opens with it off whatever this says. */
+  startMode: CutMode;
+  /** Told the switch's position on the way in and on every flip, so the
+   *  page's own switch shows what the pass was left in. */
+  onModeChange?: (mode: CutMode) => void;
   /**
    * Best effort, debounced, and flushed on close. Never blocks a tap.
    * Resolves "conflict" when a newer draft was saved elsewhere, after
@@ -333,9 +342,10 @@ export function MarkPoints({
   /**
    * Can this match be scored at all? Practice and drills have no rotation
    * and no score (tracksServe, the same test the iPhone uses), so they are
-   * only ever cut: "Cut and score" is shown greyed on the first sheet, the
-   * footer switch is gone, and a draft reopens as a cut-only pass whatever
-   * it was saved as. Winners already on its marks are kept, not cleared.
+   * only ever cut: the Score switch is shown off, greyed and untappable,
+   * with "Matches only" beside it, and a draft reopens as a cut-only pass
+   * whatever it was saved as. Winners already on its marks are kept, not
+   * cleared.
    */
   const scoringAllowed = tracksServe(matchType);
   /**
@@ -351,16 +361,13 @@ export function MarkPoints({
    * the scoring pass it had. Read once on the way in, so a draft saved
    * during the session cannot change what the screen was opened as.
    */
-  /** The pass this draft is, decided once on the way in. */
-  const openedMode = useRef<CutMode | null>(
-    resumed
-      ? scoringAllowed
-        ? draftMode(initialMarks, initialMode)
-        : "cut"
-      : null
+  /** Where the Score switch starts, decided once on the way in by the
+   *  page's switch; never on for a match that cannot be scored. */
+  const openedMode = useRef<CutMode>(
+    scoringAllowed ? startMode : "cut"
   ).current;
   const openedAs = useRef(
-    openAs(initialMarks, durationS, openedMode ?? "score")
+    openAs(initialMarks, durationS, openedMode)
   ).current;
   const openedCalled = openedAs === "review" || openedAs === "choice";
   const openedFinished = openedAs === "review";
@@ -376,9 +383,14 @@ export function MarkPoints({
         }
       : emptyState
   );
-  /** Cut only, or cut and score? Asked once, before anything else, so the
-   *  pad can drop the half of itself the answer does not need. */
-  const [mode, setMode] = useState<CutMode | null>(openedMode);
+  /** Is Score on? "cut" is off: the pad drops the half of itself that
+   *  only scoring needs. The player flips it whenever they like. */
+  const [mode, setMode] = useState<CutMode>(openedMode);
+  const onModeChangeRef = useRef(onModeChange);
+  onModeChangeRef.current = onModeChange;
+  useEffect(() => {
+    onModeChangeRef.current?.(mode);
+  }, [mode]);
   /** Who served first, if known. Comes in from the match row and is set
    *  here the moment the player answers, so the rotation shows at once. */
   const [firstServer, setFirstServer] = useState<MatchServer | null>(
@@ -387,7 +399,7 @@ export function MarkPoints({
   useEffect(() => {
     if (initialFirstServer) setFirstServer(initialFirstServer);
   }, [initialFirstServer]);
-  /** The second question on the way in, where a rotation exists. */
+  /** Asked on the way in when Score starts on and a rotation exists. */
   const [serveStep, setServeStep] = useState(
     openedMode === "score" &&
       tracksServe(matchType) &&
@@ -786,14 +798,6 @@ export function MarkPoints({
    * somewhere in the tape and a jump would throw away their place.
    */
   const serveStepCue = useRef(true);
-  const chooseScore = useCallback(() => {
-    if (!scoringAllowed) return;
-    setMode("score");
-    if (tracksServe(matchType) && firstServer === null) {
-      serveStepCue.current = true;
-      setServeStep(true);
-    }
-  }, [scoringAllowed, matchType, firstServer]);
   const closeServeStep = useCallback(() => {
     setServeStep(false);
     if (!serveStepCue.current) {
@@ -1096,17 +1100,15 @@ export function MarkPoints({
   }, [mode, playMark]);
 
   /**
-   * Cutting only, or cutting and calling: switched mid-pass, both ways.
+   * The Score switch: on or off, from the gate on, both ways.
    *
-   * The choice was asked once on the way in and then fixed for the life
-   * of the draft, so someone ten rallies into a cut-only pass who decided
-   * they wanted the score had to finish the cut and score the match
-   * afterwards. It is one difference — whether the pad asks who won — and
-   * it should be one tap.
+   * It used to be a question asked once on the way in ("Cut only, or cut
+   * and score?") and then a pill mid-pass. It is one difference, whether
+   * the pad asks who won, so it is one switch, always in the same place.
    *
    * Nothing is thrown away either way. Winners already called stay on
-   * their points and come back the moment scoring is on again; a
-   * cut-only pass simply stops asking.
+   * their points and come back the moment scoring is on again; a pass
+   * with Score off simply stops asking.
    */
   const toggleScoring = useCallback(() => {
     const next: CutMode = mode === "score" ? "cut" : "score";
@@ -1120,20 +1122,28 @@ export function MarkPoints({
         pausedForAnswer.current = false;
         playApi.current?.play();
       }
+      // "Who served first?" belongs to scoring. The switch is there from
+      // the gate, where the question is already up on a fresh match, so
+      // turning Score off puts the question away with it, closing as
+      // "Not sure yet" would.
+      if (serveStep) closeServeStep();
       return;
     }
     // Scoring with no first server has no rotation to show, so ask the
-    // same question the way in asks — but never over an open rally, and
-    // without moving the playhead, because this happens mid-pass.
+    // same question the way in asks, but never over an open rally. Mid-
+    // pass, closing it leaves the playhead where it is; before the pass
+    // has started, it hands back to the cue, as on the way in.
     if (
-      tracksServe(matchType) &&
-      firstServer === null &&
-      openMark(stateRef.current.marks) === null
+      scoringAsksFirstServer(
+        stateRef.current.marks,
+        scoringAllowed,
+        firstServer !== null
+      )
     ) {
-      serveStepCue.current = false;
+      serveStepCue.current = !started;
       setServeStep(true);
     }
-  }, [mode, scoringAllowed, matchType, firstServer]);
+  }, [mode, scoringAllowed, firstServer, serveStep, closeServeStep, started]);
 
   /** Back to where the marking had got to: the rally still open, wherever
    *  it sits, or else the end of the last point. */
@@ -1258,9 +1268,6 @@ export function MarkPoints({
       if (t instanceof HTMLElement && t.closest("input, textarea, select")) return;
 
       if (!started) {
-        // Behind the first sheet nothing has been chosen yet, so there is
-        // nothing to begin: the sheet's two buttons are the only way on.
-        if (mode === null) return;
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
           if (openedPartial) beginMarking();
@@ -1987,18 +1994,72 @@ export function MarkPoints({
     </div>
   );
 
+  /** Done opens the review sheet, which is where the cut is sent: it is
+   *  the pass's submit, so it wears the primary button (Adil, 2026-09-25).
+   *  Without a closed point it cannot open anything, and a disabled
+   *  primary that still glows reads as live, so it loses the glow too. */
+  const openReview = () => {
+    playApi.current?.pause();
+    setReviewing(true);
+  };
   const doneButton = (
     <button
       type="button"
-      onClick={() => {
-        playApi.current?.pause();
-        setReviewing(true);
-      }}
+      onClick={openReview}
       disabled={sum.total === 0}
-      className="shrink-0 rounded-full border border-edge px-4 py-2 text-xs font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 disabled:opacity-40"
+      className={`h-11 shrink-0 rounded-full bg-cyan-glow px-6 text-sm font-bold text-ink transition-opacity active:scale-[0.99] disabled:opacity-40 ${
+        sum.total === 0 ? "" : "glow-cta"
+      }`}
     >
       Done
     </button>
+  );
+
+  /**
+   * The Score switch (portrait and desktop footer), from the gate on.
+   * Practice and drills have no score to keep: the switch is shown off,
+   * greyed and cannot be turned on, with the reason in two words beside
+   * it rather than a sentence.
+   */
+  const scoring = mode === "score";
+  const scoreTrack = (small: boolean) => (
+    <span
+      aria-hidden="true"
+      className={`relative block shrink-0 rounded-full border transition-colors ${
+        small ? "h-[12px] w-[22px]" : "h-6 w-11"
+      } ${scoring ? "border-cyan-glow/60 bg-cyan-glow/30" : "border-edge bg-surface-2"}`}
+    >
+      <span
+        className={`absolute rounded-full transition-all ${
+          small ? "top-px h-2 w-2" : "top-0.5 h-[1.125rem] w-[1.125rem]"
+        } ${
+          scoring
+            ? `${small ? "left-[11px]" : "left-5"} bg-cyan-glow`
+            : `${small ? "left-px" : "left-0.5"} bg-zinc-500`
+        }`}
+      />
+    </span>
+  );
+  const scoreSwitch = (
+    <div className="flex shrink-0 items-center gap-2">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={scoring}
+        aria-describedby={scoringAllowed ? undefined : "mark-score-matches-only"}
+        onClick={toggleScoring}
+        disabled={!scoringAllowed}
+        className="flex min-h-11 shrink-0 items-center gap-2 text-[12px] font-semibold text-zinc-300 transition-colors enabled:hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        Score
+        {scoreTrack(false)}
+      </button>
+      {!scoringAllowed && (
+        <span id="mark-score-matches-only" className="whitespace-nowrap text-[11px] text-zinc-500">
+          Matches only
+        </span>
+      )}
+    </div>
   );
 
   const beginCuttingButton = openedPartial ? (
@@ -2189,21 +2250,8 @@ export function MarkPoints({
                 ? `${sum.total} ${sum.total === 1 ? "point" : "points"} · ${sum.unscored} to score`
                 : `${sum.total} ${sum.total === 1 ? "point" : "points"}`}
           </span>
-          <div className="flex shrink-0 items-center gap-2">
-            {started && mode !== null && scoringAllowed && (
-              <button
-                type="button"
-                onClick={toggleScoring}
-                aria-label={
-                  mode === "score"
-                    ? "Stop calling who won each point"
-                    : "Also call who won each point"
-                }
-                className="shrink-0 rounded-full border border-edge px-3 py-2 text-[11px] font-semibold text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-zinc-100"
-              >
-                {mode === "score" ? "Stop scoring" : "Score them too"}
-              </button>
-            )}
+          <div className="flex shrink-0 items-center gap-3">
+            {scoreSwitch}
             {doneButton}
           </div>
         </div>
@@ -2222,8 +2270,8 @@ export function MarkPoints({
    * nothing permanent on it. Every size and colour below is the board's
    * (docs/superpowers/specs/2026-09-24-ios-hand-cut-landscape-mockup.dc.html).
    *
-   * Cut only keeps the same layout with the answers greyed out, so the
-   * pair never moves between the two passes.
+   * With Score off the layout stays the same and the answers grey out,
+   * so the pair never moves when the switch is flipped.
    */
   const landChrome = (() => {
     if (!land) return null;
@@ -2262,7 +2310,7 @@ export function MarkPoints({
     };
 
     // Answers: lit only while there is a point to answer in a scoring
-    // pass; greyed out, and still there, in Cut only.
+    // pass; greyed out, and still there, with Score off.
     const answersOn = mode === "score" && canAnswer;
     const pulse = mode === "score" && awaiting;
     const answer = (
@@ -2375,23 +2423,37 @@ export function MarkPoints({
         !reviewing_
       ),
       tool("remove", "Remove", ICON.remove, removeSelected, !reviewing_),
-      ...(scoringAllowed
-        ? [
-            tool(
-              "mode",
-              mode === "score" ? "Stop scoring" : "Score them too",
-              ICON.toggle,
-              toggleScoring,
-              !started || mode === null,
-              {
-                aria:
-                  mode === "score"
-                    ? "Stop calling who won each point"
-                    : "Also call who won each point",
-              }
-            ),
-          ]
-        : []),
+      // The Score switch as a tile: its state where the other tiles have
+      // an icon. On practice it is there, off and greyed, and says why;
+      // the reason stays readable while the switch and its word dim.
+      <button
+        key="score"
+        type="button"
+        role="switch"
+        aria-checked={scoring}
+        aria-label="Score"
+        aria-describedby={scoringAllowed ? undefined : "mark-score-matches-only-land"}
+        onClick={toggleScoring}
+        disabled={!scoringAllowed}
+        className={`flex h-[34px] min-w-0 flex-col items-center justify-center overflow-hidden rounded-[9px] bg-surface-2 px-0.5 text-zinc-200 transition-colors active:scale-[0.98] ${
+          scoringAllowed ? "gap-[3px]" : "gap-px"
+        }`}
+      >
+        <span className={`flex flex-col items-center gap-[3px] ${scoringAllowed ? "" : "opacity-35"}`}>
+          {scoreTrack(true)}
+          <span className="whitespace-nowrap text-[10px] font-medium leading-[1.1]">
+            Score
+          </span>
+        </span>
+        {!scoringAllowed && (
+          <span
+            id="mark-score-matches-only-land"
+            className="whitespace-nowrap text-[9px] leading-none text-zinc-400"
+          >
+            Matches only
+          </span>
+        )}
+      </button>,
       stepping
         ? tool("step-fwd", "Next", ICON.next, () => stepMark(1), !hasNext, {
             aria: "Next point",
@@ -2465,12 +2527,11 @@ export function MarkPoints({
             </div>
             <button
               type="button"
-              onClick={() => {
-                playApi.current?.pause();
-                setReviewing(true);
-              }}
+              onClick={openReview}
               disabled={sum.total === 0}
-              className="shrink-0 rounded-full border border-edge px-3.5 py-[7px] text-xs font-semibold text-zinc-200 transition-colors disabled:opacity-40"
+              className={`h-[34px] shrink-0 rounded-full bg-cyan-glow px-5 text-sm font-bold text-ink transition-opacity active:scale-[0.99] disabled:opacity-40 ${
+                sum.total === 0 ? "" : "glow-cta"
+              }`}
             >
               Done
             </button>
@@ -2668,53 +2729,6 @@ export function MarkPoints({
           </div>
         ))}
 
-      {/* The one question asked on the way in, in the same dress as the
-          scorekeeper's own setup sheet: bottom-anchored on a phone,
-          centred on a desktop, one card on a dimmed backdrop. */}
-      {mode === null && (
-        <div className="absolute inset-0 z-30 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
-          <div className="ks-fade w-full rounded-t-2xl border border-edge bg-surface p-5 pb-8 sm:max-w-sm sm:rounded-2xl sm:pb-5">
-            <h2 className="text-base font-semibold">
-              Cut only, or cut and score?
-            </h2>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              You can score it later either way.
-            </p>
-            <div className="mt-4 grid grid-cols-1 gap-2">
-              {/* Practice and drills have no score to keep, so the choice
-                  is shown and cannot be taken. */}
-              <button
-                type="button"
-                onClick={chooseScore}
-                disabled={!scoringAllowed}
-                className={`rounded-lg border border-edge bg-ink/40 px-4 py-3 text-left transition-colors ${
-                  scoringAllowed ? "hover:border-cyan-glow/40" : "opacity-40"
-                }`}
-              >
-                <span className="block text-sm font-semibold text-zinc-100">
-                  Cut and score
-                </span>
-                <span className="mt-0.5 block text-xs text-zinc-500">
-                  {scoringAllowed ? "Say who won each point as you go." : "Matches only"}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("cut")}
-                className="rounded-lg border border-edge bg-ink/40 px-4 py-3 text-left transition-colors hover:border-cyan-glow/40"
-              >
-                <span className="block text-sm font-semibold text-zinc-100">
-                  Cut only
-                </span>
-                <span className="mt-0.5 block text-xs text-zinc-500">
-                  Mark where each rally starts and ends.
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {serveStep && (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-end justify-center">
           <div
@@ -2805,9 +2819,6 @@ export function MarkPoints({
                 minutes long. Check you did not miss an ending.
               </p>
             )}
-            <p className="mt-3 text-sm text-zinc-400">
-              This match cannot be processed automatically afterwards.
-            </p>
             {submitError && (
               <p className="mt-3 text-sm text-amber-300/90">{submitError}</p>
             )}

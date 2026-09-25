@@ -60,7 +60,7 @@ export interface ProcessingWork {
   videoSaved: boolean;
   lane?: ServiceLane;
   stageLabel?: string | null;
-  /** A hand cut the owner's iPhone is cutting. No Mac lane is involved
+  /** A hand cut the owner's phone is cutting. No server lane is involved
    *  until the phone hands it over, so no lane's outage blocks it. */
   onDevice?: boolean;
 }
@@ -76,7 +76,7 @@ export function summarizeProcessingWork(services: ProcessingServiceStatus, work:
   const queued = continuing.length > 0 && continuing.every((job) => job.status === "queued");
   const continuingLabel = continuing.length === 1 ? first.stageLabel
     ?? (first.kind === "youtube_import" ? queued ? "Waiting to import video" : "Importing video"
-      : first.kind === "hand_cut" ? first.onDevice ? "Cutting on your iPhone" : queued ? "Waiting to prepare clips" : "Preparing clips"
+      : first.kind === "hand_cut" ? first.onDevice ? "Cutting the video" : queued ? "Waiting to prepare clips" : "Preparing clips"
       : queued ? "Waiting to process" : "Your match is processing")
     : `${continuing.length} videos are ${queued ? "waiting to process" : "processing"}`;
   const sendsEmail = continuing.length > 0 && continuing.every((job) => (job.kind === "deadspace_cut" || job.kind === "hand_cut") && job.videoSaved);
