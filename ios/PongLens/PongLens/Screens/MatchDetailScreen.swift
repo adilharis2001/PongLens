@@ -789,9 +789,18 @@ struct MatchDetailScreen: View {
         /// and the original does not share that clock. Defaulted so the
         /// six existing call sites keep saying what they already said.
         var source: PlayerSource = .cut
+        /// Mark the points: the session the takeover drives in `.mark`.
+        var marker: HandCutMarker? = nil
     }
 
     @State private var playerRequest: PlayerRequest?
+    /// Mark the points yourself: this match's draft, and whether the
+    /// account may hand cut at all.
+    @State private var handCut = HandCutDraftStore()
+    /// "Automatically" is open inside Break it into points.
+    @State private var autoOpen = false
+    /// The marker's video link is being minted.
+    @State private var openingMarker = false
     /// The Original pill is mid-flight (the presigned URL is a round trip).
     @State private var openingOriginal = false
     /// The original could not be reached. Only possible on matches
@@ -1159,6 +1168,18 @@ struct MatchDetailScreen: View {
                 // A failed match opens itself: the reason and the retry
                 // are why anyone is on this screen.
                 if match.status == .failed { processOpen = true }
+                if isOwner, let uid = app.userId {
+                    await handCut.load(matchId: match.id, userId: uid)
+                }
+                // A hand cut that died opens the card too: its marks and
+                // the way back into them are why anyone is here.
+                if handCutFailed { processOpen = true }
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--dev-open-marker") {
+                    processOpen = true
+                    await openMarker()
+                }
+                #endif
                 watchKick += 1
             }
             if let pointId = openPointId,
@@ -1248,7 +1269,8 @@ struct MatchDetailScreen: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                         playerRequest = PlayerRequest(url: url, startAt: at, mode: .score)
                     }
-                }
+                },
+                marker: request.marker
             )
         }
         .sheet(isPresented: $pointSheetOpen, onDismiss: {
@@ -1672,6 +1694,7 @@ struct MatchDetailScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .plCard()
         } else if isOwner {
+            if handCutFailed { handCutFailedCard }
             processCard
         }
 
@@ -1736,8 +1759,9 @@ struct MatchDetailScreen: View {
                     }
                     Spacer(minLength: 8)
                     // The price, before the tap. It is what decides whether
-                    // anyone opens this at all.
-                    if let charge = minutesCharge {
+                    // anyone opens this at all. With two ways in, the price
+                    // belongs to the automatic one and sits on its row.
+                    if !handCutAvailable, let charge = minutesCharge {
                         Text("\(charge) min")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(PL.text300)
@@ -1781,115 +1805,305 @@ struct MatchDetailScreen: View {
             if processOpen {
                 Rectangle().fill(PL.edge).frame(height: 1)
 
-                VStack(alignment: .leading, spacing: 18) {
-                    if let duration = current.durationS, duration > 10 {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text("What to process")
-                                    .font(.plRowTitle)
-                                    .foregroundStyle(PL.text100)
-                                Spacer()
-                                if trimmed {
-                                    Button("Reset") {
-                                        trimStart = 0
-                                        trimEnd = nil
-                                    }
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(PL.cyan)
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            RawTrimBar(
-                                duration: duration,
-                                start: $trimStart,
-                                end: Binding(
-                                    get: { trimEnd ?? duration },
-                                    set: { trimEnd = $0 }
-                                )
-                            )
-                        }
+                if handCutAvailable {
+                    // Two ways to do this, stated as two rows (the web's
+                    // RawMatchView). The automatic one carries the price and
+                    // the trim; marking by hand has neither.
+                    autoRow
+                    if autoOpen {
+                        Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
+                        autoControls
                     }
-
-                    Divider().overlay(PL.edge)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Cut strictness")
-                            .font(.plRowTitle)
-                            .foregroundStyle(PL.text100)
-                        Text("How much room to leave around each point.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
-                        HStack(spacing: 4) {
-                            ForEach(["tight", "normal", "loose"], id: \.self) { level in
-                                let active = strictness == level
-                                Button(level.capitalized) {
-                                    withAnimation(.easeOut(duration: 0.15)) { strictness = level }
-                                }
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(active ? PL.ink : PL.text400)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 9)
-                                .background(
-                                    active ? PL.cyan : .clear,
-                                    in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
-                                )
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(3)
-                        .background(PL.ink.opacity(0.5), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                        .padding(.top, 8)
-                    }
-
-                    if let processError {
-                        Text(processError)
-                            .font(.plCaption)
-                            .foregroundStyle(PL.warningText)
-                    }
-
-                    // Full width, with the balance under it rather than
-                    // floating alongside. A hugging pill beside a loose
-                    // sentence was the single scrappiest thing on this
-                    // screen.
-                    VStack(spacing: 8) {
-                        Button {
-                            Task { await runProcess() }
-                        } label: {
-                            // The width has to be on the LABEL, not on the
-                            // Button: PLPrimaryButtonStyle paints its
-                            // capsule around whatever the label measures,
-                            // so a frame outside the style stretches the
-                            // tap target and leaves the pill hugging in
-                            // the middle. That was the "not optimised"
-                            // look — a small capsule adrift in a wide card.
-                            Text(processBusy ? "Starting…" : chargeLabel)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(PLPrimaryButtonStyle())
-                        .disabled(processBusy || !enoughMinutes)
-                        if let balance = model.minutesBalance {
-                            Text(
-                                enoughMinutes
-                                    ? "\(balance) minutes left"
-                                    : "Not enough minutes. You have \(balance)."
-                            )
-                            .font(.plCaption)
-                            .foregroundStyle(enoughMinutes ? PL.text500 : PL.warningText)
-                        }
-                        if !enoughMinutes {
-                            AllowanceRecoveryView(resource: "minutes", retryLabel: "Check minutes") {
-                                try await model.refreshMinutes()
-                                processError = nil
-                            }
-                        }
-                    }
-                    .padding(.top, 2)
+                    Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1)
+                    markRow
+                } else {
+                    autoControls
                 }
-                .padding(20)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 0)
+    }
+
+    // MARK: - Mark the points yourself
+
+    /// The web's gate: the account may hand cut AND the draft table
+    /// answered. A failed read hides the row rather than offering a pass
+    /// that cannot be saved.
+    private var handCutAvailable: Bool { isOwner && handCut.enabled && handCut.ready }
+
+    /// The latest hand cut on this match died for good.
+    private var handCutFailed: Bool {
+        !model.jobRunning && model.job?.kind == "hand_cut" && model.job?.status == "failed"
+    }
+
+    /// The match is back to 'uploaded', so nothing else here says anything
+    /// went wrong; the job does. The marks are still there: the row below
+    /// reads "N marked".
+    private var handCutFailedCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Marked by hand")
+                .font(.plSection)
+                .textCase(.uppercase)
+                .tracking(0.6)
+                .foregroundStyle(PL.text500)
+            Text(model.job?.userMessage ?? "The cut didn't finish.")
+                .font(.plBody)
+                .foregroundStyle(PL.text300)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 12)
+            Text("Your marks are saved. Open them, check them and send them again.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard()
+    }
+
+    private var autoRow: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.22)) { autoOpen.toggle() }
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Automatically")
+                        .font(.plRowTitle)
+                        .foregroundStyle(PL.text100)
+                    Text("We find the rallies and cut them for you.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                }
+                Spacer(minLength: 8)
+                if let charge = minutesCharge {
+                    Text("\(charge) min")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(PL.text300)
+                        .monospacedDigit()
+                }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.text500)
+                    .rotationEffect(.degrees(autoOpen ? 180 : 0))
+            }
+            .padding(20)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var markRow: some View {
+        let count = handCut.markedCount
+        let usable = hasOriginal && !openingMarker
+        return Button {
+            Task { await openMarker() }
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Mark the points yourself")
+                        .font(.plRowTitle)
+                        .foregroundStyle(PL.text100)
+                    Text("You tap where each point starts and who won.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                }
+                Spacer(minLength: 8)
+                if openingMarker {
+                    ProgressView().controlSize(.small).tint(PL.text400)
+                } else {
+                    Text(count > 0 ? "\(count) marked" : "Free")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(PL.text300)
+                        .monospacedDigit()
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.text500)
+            }
+            .padding(20)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!usable)
+        .opacity(hasOriginal ? 1 : 0.4)
+    }
+
+    /// Open the marker on the original: a file already on the phone when
+    /// there is one (HandCutVideo), else a presigned link minted now and
+    /// frozen for the session, as the web freezes its own. The draft is
+    /// checked against the server first, so the newer copy is the one
+    /// that opens.
+    private func openMarker() async {
+        guard !openingMarker, isOwner else { return }
+        openingMarker = true
+        defer { openingMarker = false }
+        async let refreshed: Void = handCut.beginSession()
+        let url: URL?
+        if let local = HandCutVideo.localFile(current.id) {
+            url = local
+        } else {
+            switch await model.originalLink(current) {
+            case .url(let u): url = u
+            case .gone: url = nil; originalMissing = true
+            case .failed: url = nil; originalFailed = true
+            }
+        }
+        await refreshed
+        guard let url, handCut.ready else { return }
+        let marker = HandCutMarker(
+            match: current,
+            store: handCut,
+            submitMarks: { marks in await submitHandCut(marks) },
+            saveFirstServer: { value in await model.setFirstServer(matchId: current.id, value: value) }
+        )
+        playerRequest = PlayerRequest(
+            url: url, startAt: nil, mode: .mark, source: .original, marker: marker
+        )
+    }
+
+    /// claim_hand_cut with the marks, exactly as the web sends them, and the
+    /// web's sentences for each refusal. On success the job is known at once
+    /// and the ordinary processing card takes over.
+    private func submitHandCut(_ marks: [HandCutMark]) async -> String? {
+        nonisolated struct Claim: Encodable {
+            let p_match_id: String
+            let p_marks: [HandCutSubmission]
+        }
+        nonisolated struct Claimed: Decodable { let job_id: String? }
+        do {
+            let res: Claimed = try await supa.rpc(
+                "claim_hand_cut",
+                params: Claim(
+                    p_match_id: current.id.uuidString.lowercased(),
+                    p_marks: HandCut.submittable(marks)
+                )
+            ).execute().value
+            model.job = MatchJob(
+                id: res.job_id.flatMap(UUID.init(uuidString:)) ?? UUID(),
+                status: "queued", progress: 0, userMessage: nil, kind: "hand_cut"
+            )
+            await refreshMatch(refreshLibrary: true)
+            watchKick += 1
+            return nil
+        } catch {
+            let m = (error as? PostgrestError)?.message ?? error.localizedDescription
+            if m.contains("already_cut") { return "This match already has points." }
+            if m.contains("already_processing") { return "Something is already running on this match." }
+            if m.contains("queue_full") { return "Your queue is full. Wait for a video to finish." }
+            if m.contains("check_pending") { return "Still checking the video. Try again in a moment." }
+            if m.contains("invalid_marks") { return "Some marks are not valid. Check for very short points." }
+            return "That didn't send. Check your connection and try again."
+        }
+    }
+
+    /// Trim, strictness and the charge: the automatic cut's controls.
+    private var autoControls: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if let duration = current.durationS, duration > 10 {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("What to process")
+                            .font(.plRowTitle)
+                            .foregroundStyle(PL.text100)
+                        Spacer()
+                        if trimmed {
+                            Button("Reset") {
+                                trimStart = 0
+                                trimEnd = nil
+                            }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(PL.cyan)
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    RawTrimBar(
+                        duration: duration,
+                        start: $trimStart,
+                        end: Binding(
+                            get: { trimEnd ?? duration },
+                            set: { trimEnd = $0 }
+                        )
+                    )
+                }
+            }
+
+            Divider().overlay(PL.edge)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Cut strictness")
+                    .font(.plRowTitle)
+                    .foregroundStyle(PL.text100)
+                Text("How much room to leave around each point.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+                HStack(spacing: 4) {
+                    ForEach(["tight", "normal", "loose"], id: \.self) { level in
+                        let active = strictness == level
+                        Button(level.capitalized) {
+                            withAnimation(.easeOut(duration: 0.15)) { strictness = level }
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(active ? PL.ink : PL.text400)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background(
+                            active ? PL.cyan : .clear,
+                            in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+                        )
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(3)
+                .background(PL.ink.opacity(0.5), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                .padding(.top, 8)
+            }
+
+            if let processError {
+                Text(processError)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.warningText)
+            }
+
+            // Full width, with the balance under it rather than
+            // floating alongside. A hugging pill beside a loose
+            // sentence was the single scrappiest thing on this
+            // screen.
+            VStack(spacing: 8) {
+                Button {
+                    Task { await runProcess() }
+                } label: {
+                    // The width has to be on the LABEL, not on the
+                    // Button: PLPrimaryButtonStyle paints its
+                    // capsule around whatever the label measures,
+                    // so a frame outside the style stretches the
+                    // tap target and leaves the pill hugging in
+                    // the middle. That was the "not optimised"
+                    // look — a small capsule adrift in a wide card.
+                    Text(processBusy ? "Starting…" : chargeLabel)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .disabled(processBusy || !enoughMinutes)
+                if let balance = model.minutesBalance {
+                    Text(
+                        enoughMinutes
+                            ? "\(balance) minutes left"
+                            : "Not enough minutes. You have \(balance)."
+                    )
+                    .font(.plCaption)
+                    .foregroundStyle(enoughMinutes ? PL.text500 : PL.warningText)
+                }
+                if !enoughMinutes {
+                    AllowanceRecoveryView(resource: "minutes", retryLabel: "Check minutes") {
+                        try await model.refreshMinutes()
+                        processError = nil
+                    }
+                }
+            }
+            .padding(.top, 2)
+        }
+        .padding(20)
     }
 
     /// The kept window's length — what the charge is quoted on. The

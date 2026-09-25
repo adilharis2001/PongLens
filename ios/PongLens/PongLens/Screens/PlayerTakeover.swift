@@ -4,6 +4,10 @@ import Supabase
 
 enum PlayerMode {
     case watch, score
+    /// Mark the points by hand, on the original upload
+    /// (PlayerTakeoverMark.swift). Always paired with `.original` and a
+    /// `HandCutMarker`.
+    case mark
 }
 
 /// WHICH FILE is on screen, which is not the same question as what the
@@ -142,6 +146,8 @@ struct PlayerTakeover: View {
     /// Dedicated one-item highlight mode. Its times are output-video times,
     /// not cut-video times, and no automatic boundary seeks are installed.
     var highlightManifest: AutomaticHighlightManifest? = nil
+    /// The marking session, in `.mark` mode only.
+    var marker: HandCutMarker? = nil
     /// The Share pill's tap; the host presents the share sheet.
     var onShareHighlight: (() -> Void)?
 
@@ -644,6 +650,7 @@ struct PlayerTakeover: View {
             Task { await loadOwnClips() }
         }
         .onChange(of: isPlaying) { _, playing in
+            if mode == .mark { marker?.playbackChanged(playing: playing) }
             if playing {
                 if chromeVisible { scheduleChromeHide() }
             } else {
@@ -655,6 +662,9 @@ struct PlayerTakeover: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { scorePlaybackRun.invalidate() }
+            // Leaving the app mid-pass sends what is not yet sent; the
+            // phone's own copy already has every tap.
+            if phase == .background, let marker { Task { await marker.store.flush() } }
         }
         // A game closing is an announcement, not an event to acknowledge.
         .onChange(of: runningScore.games.count) { _, _ in watchGameBoundary() }
@@ -669,6 +679,7 @@ struct PlayerTakeover: View {
             scorePlaybackRun.invalidate()
             player.pause()
             releaseForcedLandscape()
+            if let marker { Task { await marker.store.flush() } }
         }
         .sheet(item: $winnerAsk) { ask in
             winnerAskSheet(ask)
@@ -778,7 +789,9 @@ struct PlayerTakeover: View {
         GeometryReader { geo in
             let landscape = geo.size.width > geo.size.height
             Group {
-                if mode == .score, phase == .play, landscape {
+                if mode == .mark {
+                    markLayout(geo)
+                } else if mode == .score, phase == .play, landscape {
                     landscapeScoreLayout(geo)
                         .overlay { analysisLayer(landscape: true) }
                 } else {
@@ -1047,7 +1060,7 @@ struct PlayerTakeover: View {
                 VStack(spacing: 0) {
                     Spacer()
                     if inBands {
-                        landscapeVideoTransport(size: box)
+                        landscapeVideoTransport(size: box, landscape: landscape)
                     } else {
                         watchTransport(landscape: landscape, size: geo.size)
                     }
@@ -2086,8 +2099,8 @@ struct PlayerTakeover: View {
 
     /// The scrubber over the video's bottom edge, sideways. The same row
     /// portrait draws, and it comes and goes with the same chrome.
-    func landscapeVideoTransport(size: CGSize) -> some View {
-        scrubRow(landscape: true, size: size)
+    func landscapeVideoTransport(size: CGSize, landscape: Bool = true) -> some View {
+        scrubRow(landscape: landscape, size: size)
             .padding(.horizontal, 12)
             .padding(.top, 6)
             .padding(.bottom, 8)
@@ -3605,7 +3618,7 @@ struct PlayerTakeover: View {
         // a second in the wrong file. Both call sites open the original in
         // watch mode; this catches a future one that forgets.
         assert(
-            isCut || mode == .watch,
+            isCut || mode == .watch || mode == .mark,
             "the original has no cut clock to score against"
         )
         try? AVAudioSession.sharedInstance().setCategory(.playback)
@@ -3647,6 +3660,12 @@ struct PlayerTakeover: View {
             MainActor.assumeIsolated { tick(time.seconds) }
         }
         firstServer = match.firstServer.flatMap(Winner.init(rawValue:))
+        if mode == .mark {
+            // Starts paused, as the web's cut player does: Begin Cutting
+            // is what starts playback, in the same tap.
+            markDidOpen()
+            return
+        }
         prevGamesCount = runningScore.games.count
         if mode == .score {
             // Resume where scoring stopped: the first unscored point. Also
@@ -3720,6 +3739,7 @@ struct PlayerTakeover: View {
         let prev = lastTick
         currentT = t
         isPlaying = player.rate > 0
+        if mode == .mark { markTick(t) }
         observeScorePlayback()
         // The buffered bar reads the CUT's ranges; a clip's would paint at
         // the wrong offset, so a detour just leaves the bar alone.
@@ -3974,6 +3994,9 @@ struct PlayerTakeover: View {
     /// play SHOWED it mid-rally.
     func togglePlay() {
         scorerSessionEffects.navigate()
+        // Taking playback in hand releases a picture held for an answer,
+        // either way (the web's Space key).
+        if mode == .mark { marker?.pausedForAnswer = false }
         if player.rate > 0 {
             player.pause()
             showChrome(autoHide: false)
@@ -4230,7 +4253,9 @@ struct PlayerTakeover: View {
             Task { @MainActor in
                 guard item.status == .failed else { return }
                 scorePlaybackRun.invalidate()
-                if remintedCut {
+                // The original is never swapped for the cut: reminting
+                // would quietly put a different file on screen.
+                if remintedCut || isOriginal {
                     loadFailed = true
                     return
                 }
