@@ -830,15 +830,16 @@ private struct TagSheet: View {
                     }
                 }
 
-                Section {
+                // On the sheet, not in a clear row, which cut the button's
+                // glow off square (see PLSheetActionRow).
+                Section {} footer: {
                     Button(point == nil ? "New pattern" : "New pattern with this point") {
                         onNewPattern(point?.id, "")
                         dismiss()
                     }
                     .buttonStyle(PLPrimaryButtonStyle())
                     .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                    .plFormBlock()
                 }
             }
         }

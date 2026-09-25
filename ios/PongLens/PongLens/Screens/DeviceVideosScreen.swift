@@ -6,7 +6,9 @@ import SwiftUI
 /// nothing else: the match, the upload and the copy in Photos all stay.
 ///
 /// Built like the Processing page: a Form over the arena with the page's
-/// own header as its first row.
+/// own header above the rows, as a block in the first section's footer
+/// slot (a clear row is clipped to the section's corners, which shaved the
+/// Back pill and the title's first letter).
 struct DeviceVideosScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
@@ -17,7 +19,7 @@ struct DeviceVideosScreen: View {
         ZStack {
             ArenaBackground()
             Form {
-                Section {
+                Section {} footer: {
                     VStack(alignment: .leading, spacing: 16) {
                         Button { dismiss() } label: {
                             HStack(spacing: 6) {
@@ -34,9 +36,7 @@ struct DeviceVideosScreen: View {
                             .foregroundStyle(PL.textBody)
                     }
                     .padding(.vertical, 4)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
+                    .plFormBlock()
                 }
 
                 Section {

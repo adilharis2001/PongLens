@@ -42,8 +42,10 @@ struct HandCutBenchmarkScreen: View {
 
     // MARK: - Header
 
+    /// Above the rows as a block in the footer slot, not a clear row: a
+    /// row is clipped to the section's corners.
     private var header: some View {
-        Section {
+        Section {} footer: {
             VStack(alignment: .leading, spacing: 16) {
                 Button { dismiss() } label: {
                     HStack(spacing: 6) {
@@ -60,9 +62,7 @@ struct HandCutBenchmarkScreen: View {
                     .foregroundStyle(PL.textBody)
             }
             .padding(.vertical, 4)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
-            .listRowSeparator(.hidden)
+            .plFormBlock()
         }
     }
 
@@ -133,10 +133,11 @@ struct HandCutBenchmarkScreen: View {
         }
     }
 
-    /// Full width and stacked, like every form action on a phone; their
-    /// own clear section so the card above keeps its shape.
+    /// Full width and stacked, like every form action on a phone; a block
+    /// in their own section's footer slot so the card above keeps its
+    /// shape and the pills keep theirs (a row clips them to its corners).
     private var runButtons: some View {
-        Section {
+        Section {} footer: {
             VStack(spacing: 10) {
                 Button {
                     bench.runForeground()
@@ -151,8 +152,7 @@ struct HandCutBenchmarkScreen: View {
                 }
                 .buttonStyle(PLSecondaryButtonStyle())
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
+            .plFormBlock()
         }
     }
 

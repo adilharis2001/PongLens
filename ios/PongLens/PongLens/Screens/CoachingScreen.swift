@@ -803,6 +803,12 @@ struct AllMatchesCoachInvite: View {
     @State private var showQR = false
     @State private var copied = false
 
+    private var linkFooter: some View {
+        Text(allMatches
+             ? "They can watch all your matches, point by point, and leave coach notes."
+             : "They can watch the matches you share with them, point by point, and leave coach notes.")
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -824,14 +830,18 @@ struct AllMatchesCoachInvite: View {
                             }
                         }
                         Toggle("Show QR", isOn: $showQR)
-                        if showQR {
-                            QRCodeView(url: link)
-                                .listRowBackground(Color.clear)
-                        }
                     } footer: {
-                        Text(allMatches
-                             ? "They can watch all your matches, point by point, and leave coach notes."
-                             : "They can watch the matches you share with them, point by point, and leave coach notes.")
+                        // The code on the sheet under the rows, not a clear
+                        // last row, which left the rows above ending square.
+                        if showQR {
+                            PLCaptionedBlock(top: nil) {
+                                QRCodeView(url: link)
+                            } caption: {
+                                linkFooter
+                            }
+                        } else {
+                            linkFooter
+                        }
                     }
                 } else {
                     Section {
@@ -877,6 +887,8 @@ struct AllMatchesCoachInvite: View {
                 }
             }
             .tint(PL.cyan)
+            // The QR code's words sit at the footer's inset (PLCaptionedBlock).
+            .plFormOrigin()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

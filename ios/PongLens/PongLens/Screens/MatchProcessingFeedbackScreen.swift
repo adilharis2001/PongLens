@@ -80,13 +80,15 @@ struct MatchIssuePanel: View {
                 // sheet reads as one form rather than rows and a button.
                 let reportOnly = state.choices == [.problem]
                 noteSection(reportOnly: reportOnly, cut: state.isOwnerCut)
-                Section {
+                // On the sheet, not in a row (see PLSheetActionRow).
+                Section {} footer: {
                     PLSheetActionRow(
                         label: model.busy ? "Sending…" : reportOnly ? "Send report" : "Send request",
                         disabled: !model.canSubmit
                     ) {
                         Task { await model.submit() }
                     }
+                    .plFormBlock()
                 }
             }
             if !state.events.isEmpty {
@@ -212,9 +214,12 @@ struct MatchProcessingFeedbackScreen: View {
             ArenaBackground()
             // The panel is Form sections, so the page is a Form too: the
             // same cells the sheet shows, drawn over the arena, with the
-            // page's own header as a clear first row.
+            // page's own header above them. The header is a block in the
+            // first section's footer slot, not a clear row: a row is
+            // clipped to the section's corners, which cut the match
+            // thumbnail's corner and the Back pill's edge.
             Form {
-                Section {
+                Section {} footer: {
                     VStack(alignment: .leading, spacing: 16) {
                         // Same route back control as FeedbackScreen and Starred.
                         Button { dismiss() } label: {
@@ -244,9 +249,7 @@ struct MatchProcessingFeedbackScreen: View {
                             }
                         }
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
+                    .plFormBlock()
                 }
 
                 MatchIssuePanel(

@@ -519,6 +519,8 @@ struct CameraPlacementSheet: View {
     var context: Context = .general
 
     @Environment(\.dismiss) private var dismiss
+    /// Real setups that worked, opened. Closed by default, as everywhere.
+    @State private var setupsOpen = false
 
     var body: some View {
         PLSheetScaffold(title: "Where to place the camera", showDone: false) {
@@ -554,9 +556,21 @@ struct CameraPlacementSheet: View {
                     .padding(.vertical, 2)
                 }
 
+                // The line stays a row; the photos it opens stand under it
+                // on the sheet, where their corners are their own.
                 Section {
-                    CameraRealSetups()
+                    CameraRealSetupsToggle(open: $setupsOpen)
+                        .padding(.vertical, 4)
                         .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                } footer: {
+                    if setupsOpen {
+                        CameraRealSetupsPhotos()
+                            // Height from the width alone: a footer can be
+                            // offered a height a little short of it, which
+                            // narrowed the first photo.
+                            .fixedSize(horizontal: false, vertical: true)
+                            .plFormBlock(top: nil)
+                    }
                 }
 
                 if let note = viewfinderNote {
@@ -819,6 +833,48 @@ struct CameraDiagram: View {
 struct CameraRealSetups: View {
     @State private var open = false
 
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            CameraRealSetupsToggle(open: $open)
+            if open {
+                CameraRealSetupsPhotos()
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// The line that opens and closes the three photos. Its own piece so the
+/// camera sheet can keep it as a row and stand the photos under it on the
+/// sheet: in the row, a photo's corners sat inside the cell's larger ones.
+struct CameraRealSetupsToggle: View {
+    @Binding var open: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) { open.toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Text("Real setups that worked")
+                    .font(.plRowTitle)
+                    .foregroundStyle(PL.text100)
+                Spacer()
+                Text("3 photos")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.text500)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// The three photos, each with the pose it was taken from.
+struct CameraRealSetupsPhotos: View {
     private static let setups: [(file: String, caption: String)] = [
         ("camera-ref-4",
          "Diagonal, from behind the next table. The whole table is still in the picture."),
@@ -837,50 +893,27 @@ struct CameraRealSetups: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) { open.toggle() }
-            } label: {
-                HStack(spacing: 8) {
-                    Text("Real setups that worked")
-                        .font(.plRowTitle)
-                        .foregroundStyle(PL.text100)
-                    Spacer()
-                    Text("3 photos")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(PL.text500)
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if open {
-                ForEach(Self.setups, id: \.file) { setup in
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let ui = image(setup.file) {
-                            Image(uiImage: ui)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                        }
-                        Text(setup.caption)
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text400)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
+            ForEach(Self.setups, id: \.file) { setup in
+                VStack(alignment: .leading, spacing: 0) {
+                    if let ui = image(setup.file) {
+                        Image(uiImage: ui)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
                     }
-                    .background(PL.ink)
-                    .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                            .strokeBorder(PL.edge, lineWidth: 1)
-                    )
+                    Text(setup.caption)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text400)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
                 }
+                .background(PL.ink)
+                .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                        .strokeBorder(PL.edge, lineWidth: 1)
+                )
             }
         }
-        .padding(.vertical, 4)
     }
 }

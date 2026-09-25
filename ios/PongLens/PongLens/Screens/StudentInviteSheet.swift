@@ -37,6 +37,14 @@ struct StudentInviteSheet: View {
         workspace.activeStudents.filter { !$0.linked }
     }
 
+    /// What the link does, under the code (or under the row that stands
+    /// in for it while the link loads).
+    private var inviteFooter: some View {
+        Text(target == nil
+             ? "For someone not on your list yet. Whoever opens this link and signs in joins as your student; a student already listed gets their own link from their page. They choose whether you see all their matches or only the ones they share, and the entries you share reach their journal."
+             : "Opening this link and signing in connects \(target!.displayName) to this row. They choose whether you see all their matches or only the ones they share, and the entries you share reach their journal.")
+    }
+
     var body: some View {
         PLSheetScaffold(title: target.map { "Invite \($0.displayName)" } ?? "Invite a new student") {
             Form {
@@ -63,26 +71,32 @@ struct StudentInviteSheet: View {
                     }
                 }
 
-                Section {
-                    if let url {
-                        QRCodeView(url: url)
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
-                    } else if failed {
-                        Text("Couldn't get the link. Close this and try again.")
-                            .foregroundStyle(PL.dangerText)
-                    } else {
-                        HStack {
-                            Spacer()
-                            ProgressView().tint(PL.cyan)
-                            Spacer()
+                if let url {
+                    // The code on the sheet itself, not a clear row, which
+                    // cut its corners to the section's larger curve.
+                    Section {} footer: {
+                        PLCaptionedBlock {
+                            QRCodeView(url: url)
+                        } caption: {
+                            inviteFooter
                         }
-                        .padding(.vertical, 24)
                     }
-                } footer: {
-                    Text(target == nil
-                         ? "For someone not on your list yet. Whoever opens this link and signs in joins as your student; a student already listed gets their own link from their page. They choose whether you see all their matches or only the ones they share, and the entries you share reach their journal."
-                         : "Opening this link and signing in connects \(target!.displayName) to this row. They choose whether you see all their matches or only the ones they share, and the entries you share reach their journal.")
+                } else {
+                    Section {
+                        if failed {
+                            Text("Couldn't get the link. Close this and try again.")
+                                .foregroundStyle(PL.dangerText)
+                        } else {
+                            HStack {
+                                Spacer()
+                                ProgressView().tint(PL.cyan)
+                                Spacer()
+                            }
+                            .padding(.vertical, 24)
+                        }
+                    } footer: {
+                        inviteFooter
+                    }
                 }
 
                 if let url {

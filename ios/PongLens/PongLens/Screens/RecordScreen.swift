@@ -1718,21 +1718,20 @@ struct MatchDetailsSheet: View {
                     }
                 }
 
-                // The match page's own choice cells, one row per answer,
+                // The match page's own choice cells, one per answer,
                 // standing on the sheet rather than inside a form cell.
-                // One row holds all three: separate buttons in a single
-                // Form row need .plain, which each cell has, or a tap
-                // anywhere fires every one of them.
-                Section {
+                // In the section's footer slot, not a row: a row is
+                // clipped to the section's corners, which cut the first
+                // and last cards with a larger curve (build 244).
+                Section {} header: {
+                    Text("Break it into points")
+                } footer: {
                     VStack(spacing: 10) {
                         ForEach(UploadCutWay.offered(marking: markingOffered), id: \.self) { way in
                             cutWayCell(way)
                         }
                     }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                } header: {
-                    Text("Break it into points")
+                    .plFormBlock()
                 }
 
                 if processOn, let minutesBalance, sessionMinutes > minutesBalance {
@@ -1764,19 +1763,25 @@ struct MatchDetailsSheet: View {
                 // eight seconds long". Under it, what processing uses, as
                 // under the match page's Process button.
                 if processOn, trimDuration != nil || usesLine != nil {
-                    Section {
-                        if let duration = trimDuration {
+                    if let duration = trimDuration {
+                        // The row stays a row; the preview it opens stands
+                        // under it on the sheet, the way the cards do, with
+                        // the words under the preview.
+                        Section {
                             trimRow(duration: duration)
-                        }
-                    } footer: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            if trimDuration != nil {
-                                Text("Most videos open with a warm-up. Trim it off and it will not be processed.")
+                        } footer: {
+                            if trimOpen {
+                                PLCaptionedBlock(top: nil) {
+                                    trimPreview(duration: duration)
+                                } caption: {
+                                    trimFooter
+                                }
+                            } else {
+                                trimFooter
                             }
-                            if let usesLine {
-                                Text(usesLine).monospacedDigit()
-                            }
                         }
+                    } else {
+                        Section {} footer: { trimFooter }
                     }
                 }
 
@@ -1791,13 +1796,17 @@ struct MatchDetailsSheet: View {
                     }
                 }
 
-                Section {
-                    sidePicker
-                        .listRowInsets(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
-                } header: {
+                // The frame on the sheet itself, not in a cell: a cell put a
+                // second, larger curve round its corners and cut the
+                // bottom two (build 244).
+                Section {} header: {
                     Text("Your side")
                 } footer: {
-                    Text("Tap the side you played at the start of the video. Players swap ends between games, so this is about the first game only.")
+                    PLCaptionedBlock {
+                        sidePicker
+                    } caption: {
+                        Text("Tap the side you played at the start of the video. Players swap ends between games, so this is about the first game only.")
+                    }
                 }
 
                 if tracksServe {
@@ -1902,51 +1911,54 @@ struct MatchDetailsSheet: View {
     /// when Call out the score was on for this recording, so an owner who
     /// never turned it on never sees this section.
     ///
-    /// Both rows sit on a clear background. ScoreBoard already draws its
+    /// Both stand on the sheet, not in cells. ScoreBoard already draws its
     /// own material card, sized to the games it holds, so a Form row
     /// background underneath put a second full-width rounded rectangle
     /// behind a card that did not fill it — and "Add a game" below, on a
     /// normal row, read as a stray rectangle floating under the board
-    /// rather than as an action belonging to it.
+    /// rather than as an action belonging to it. A clear row was still
+    /// clipped to the section's corners, so they are a block in the
+    /// footer slot, level with the cards and the side frame above.
     @ViewBuilder
     private var spokenScoreSection: some View {
         if let spoken = draft.spokenScores {
-            Section {
-                if !spoken.isEmpty {
-                    ScoreBoard(scores: spoken,
-                               youLabel: youLabel,
-                               missed: nil,
-                               onTap: { game in
-                                   spokenEdit = SpokenEditTarget(game: game)
-                               })
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .listRowInsets(EdgeInsets(top: 10, leading: 12,
-                                                  bottom: 6, trailing: 12))
-                        .listRowBackground(Color.clear)
-                }
-                if spoken.count < SpokenScore.maxGame {
-                    Button {
-                        spokenEdit = SpokenEditTarget(game: nil)
-                    } label: {
-                        Text("Add a game")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(PL.cyan)
-                    }
-                    // Left edge lines up with the board above, so the
-                    // action reads as belonging to that card.
-                    .listRowInsets(EdgeInsets(top: spoken.isEmpty ? 10 : 2,
-                                              leading: 12,
-                                              bottom: 10, trailing: 12))
-                    .listRowBackground(Color.clear)
-                }
-            } header: {
+            Section {} header: {
                 Text("Spoken score")
             } footer: {
-                Text(spoken.contains { !$0.known }
-                     ? "What you called out during the match. A game showing ?? was heard but not understood. Tap a game to type it in."
-                     : spoken.isEmpty
-                     ? "Nothing was caught this match. You can add the games by hand."
-                     : "What you called out during the match. Tap a game to correct it.")
+                PLCaptionedBlock {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if !spoken.isEmpty {
+                            ScoreBoard(scores: spoken,
+                                       youLabel: youLabel,
+                                       missed: nil,
+                                       onTap: { game in
+                                           spokenEdit = SpokenEditTarget(game: game)
+                                       })
+                        }
+                        if spoken.count < SpokenScore.maxGame {
+                            // Left edge lines up with the board above, so the
+                            // action reads as belonging to that card. The
+                            // row's tap area (full width, 44pt) kept on the
+                            // label.
+                            Button {
+                                spokenEdit = SpokenEditTarget(game: nil)
+                            } label: {
+                                Text("Add a game")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(PL.cyan)
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                } caption: {
+                    Text(spoken.contains { !$0.known }
+                         ? "What you called out during the match. A game showing ?? was heard but not understood. Tap a game to type it in."
+                         : spoken.isEmpty
+                         ? "Nothing was caught this match. You can add the games by hand."
+                         : "What you called out during the match. Tap a game to correct it.")
+                }
             }
         }
     }
@@ -1993,36 +2005,58 @@ struct MatchDetailsSheet: View {
         trimStart > 0.5 || ((trimEnd ?? duration) < duration - 0.5)
     }
 
+    /// The words under the trim: what the warm-up cut is for, and what
+    /// processing uses.
+    private var trimFooter: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if trimDuration != nil {
+                Text("Most videos open with a warm-up. Trim it off and it will not be processed.")
+            }
+            if let usesLine {
+                Text(usesLine).monospacedDigit()
+            }
+        }
+    }
+
+    /// The match page's trim with its preview: this phone's own file,
+    /// silent, the handles moving the picture. The box is drawn at the
+    /// shape the poster already read from the track. Under the Trim it
+    /// first row when it is open, on the sheet rather than in a cell.
+    private func trimPreview(duration: Double) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TrimPreview(
+                source: firstItem.map { queue.fileURL($0) },
+                duration: duration,
+                start: $trimStart,
+                end: $trimEnd,
+                aspect: posterAspect,
+                muted: true
+            )
+
+            if trimmed(duration: duration) {
+                // Plain, with the outlined look drawn on the label.
+                Button {
+                    trimStart = 0
+                    trimEnd = nil
+                } label: {
+                    OutlinedActionLabel(title: "Use the whole video")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        // Height from the width alone: a footer can be offered a height a
+        // little short of it, which would narrow the picture.
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The Trim it first row. It opens and closes as a disclosure row; what
+    /// it opens is drawn under it by the section (`trimPreview`), because
+    /// a disclosure's contents are rows, and a row clips the preview to
+    /// the section's corners.
     @ViewBuilder
     private func trimRow(duration: Double) -> some View {
         DisclosureGroup(isExpanded: $trimOpen) {
-            VStack(alignment: .leading, spacing: 12) {
-                // The match page's trim with its preview: this phone's own
-                // file, silent, the handles moving the picture. The box is
-                // drawn at the shape the poster already read from the track.
-                TrimPreview(
-                    source: firstItem.map { queue.fileURL($0) },
-                    duration: duration,
-                    start: $trimStart,
-                    end: $trimEnd,
-                    aspect: posterAspect,
-                    muted: true
-                )
-
-                if trimmed(duration: duration) {
-                    // Plain, with the outlined look drawn on the label: in
-                    // one Form row with the preview's own buttons, any other
-                    // style lets a tap on the row fire them all.
-                    Button {
-                        trimStart = 0
-                        trimEnd = nil
-                    } label: {
-                        OutlinedActionLabel(title: "Use the whole video")
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 6)
+            EmptyView()
         } label: {
             HStack {
                 Text("Trim it first")

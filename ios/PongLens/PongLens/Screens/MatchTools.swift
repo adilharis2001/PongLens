@@ -418,19 +418,22 @@ struct ShareLinksSheet: View {
                             }
                         }
                         Toggle("Show QR", isOn: $showQR)
+                    } footer: {
+                        // Under the rows on the sheet, not a clear last row,
+                        // which left the rows above ending square.
                         if showQR {
-                            QRCodeView(url: link)
-                                .listRowBackground(Color.clear)
+                            QRCodeView(url: link).plFormBlock(top: nil)
                         }
                     }
                 } else if !starredEmpty {
-                    Section {
+                    Section {} footer: {
                         PLSheetActionRow(
                             label: creating ? "Creating…" : "Create the link",
                             disabled: creating
                         ) {
                             Task { await mint() }
                         }
+                        .plFormBlock()
                     }
                     if let errorMessage {
                         Section {
@@ -549,36 +552,55 @@ struct PlacementRequestSheet: View {
     var body: some View {
         PLSheetScaffold(title: "Detailed analysis") {
             Form {
-                Section {
-                    if started {
-                        Label(
-                            "Started. It takes a few minutes.",
-                            systemImage: "checkmark.circle.fill"
-                        )
-                        .font(.plBody)
-                        .foregroundStyle(PL.text300)
-                    } else if running {
-                        HStack(spacing: 10) {
-                            ProgressView().tint(PL.cyan)
-                            Text(status == "retrying" ? "Retrying…" : "Generating…")
-                                .font(.plBody)
-                                .foregroundStyle(PL.text300)
-                        }
-                    } else if let actionLabel {
-                        PLSheetActionRow(
-                            label: submitting ? "Starting…" : actionLabel,
-                            disabled: submitting
-                        ) {
-                            Task { await request() }
-                        }
+                if !started, !running, let actionLabel {
+                    // The action on the sheet, not in a row (see
+                    // PLSheetActionRow), with the words under it. An error
+                    // is a row under the action, and the words follow it.
+                    let action = PLSheetActionRow(
+                        label: submitting ? "Starting…" : actionLabel,
+                        disabled: submitting
+                    ) {
+                        Task { await request() }
                     }
                     if let errorMessage {
-                        Text(errorMessage)
-                            .font(.plCaption)
-                            .foregroundStyle(PL.dangerText)
+                        Section {} footer: { action.plFormBlock() }
+                        Section {
+                            Text(errorMessage)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.dangerText)
+                        } footer: {
+                            Text(body_)
+                        }
+                    } else {
+                        Section {} footer: {
+                            PLCaptionedBlock { action } caption: { Text(body_) }
+                        }
                     }
-                } footer: {
-                    Text(body_)
+                } else {
+                    Section {
+                        if started {
+                            Label(
+                                "Started. It takes a few minutes.",
+                                systemImage: "checkmark.circle.fill"
+                            )
+                            .font(.plBody)
+                            .foregroundStyle(PL.text300)
+                        } else if running {
+                            HStack(spacing: 10) {
+                                ProgressView().tint(PL.cyan)
+                                Text(status == "retrying" ? "Retrying…" : "Generating…")
+                                    .font(.plBody)
+                                    .foregroundStyle(PL.text300)
+                            }
+                        }
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.dangerText)
+                        }
+                    } footer: {
+                        Text(body_)
+                    }
                 }
             }
         }
@@ -788,16 +810,7 @@ struct CoachInviteSheet: View {
                             Text("Send the link")
                         }
                         Toggle("Show QR", isOn: $showQR)
-                        if showQR {
-                            QRCodeView(url: link)
-                                .listRowBackground(Color.clear)
-                        }
-                        Button("Invite someone else") {
-                            self.link = nil
-                            inviteName = ""
-                            showQR = false
-                        }
-                        .foregroundStyle(PL.text400)
+                        if !showQR { inviteSomeoneElse }
                     }
                 } header: {
                     // The header has to describe what is in the section.
@@ -810,7 +823,18 @@ struct CoachInviteSheet: View {
                             ? "Invite a coach"
                             : "Invite another coach")
                 } footer: {
-                    if link != nil {
+                    // The code on the sheet under the rows, not a clear
+                    // row between them, which cut the section in two with
+                    // square ends. Invite someone else follows it.
+                    if let link, showQR {
+                        QRCodeView(url: link).plFormBlock(top: nil)
+                    } else if link != nil {
+                        Text("It is waiting above until they open it.")
+                    }
+                }
+
+                if link != nil, showQR {
+                    Section { inviteSomeoneElse } footer: {
                         Text("It is waiting above until they open it.")
                     }
                 }
@@ -824,15 +848,17 @@ struct CoachInviteSheet: View {
                         named: !inviteName.trimmingCharacters(in: .whitespaces).isEmpty
                     )
 
-                    Section {
-                        PLSheetActionRow(
-                            label: creating ? "Creating…" : "Create invite link",
-                            disabled: creating
-                        ) {
-                            Task { await create() }
+                    Section {} footer: {
+                        PLCaptionedBlock {
+                            PLSheetActionRow(
+                                label: creating ? "Creating…" : "Create invite link",
+                                disabled: creating
+                            ) {
+                                Task { await create() }
+                            }
+                        } caption: {
+                            Text("For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
                         }
-                    } footer: {
-                        Text("For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
                     }
                     if let errorMessage {
                         Section {
@@ -877,6 +903,16 @@ struct CoachInviteSheet: View {
     }
 
     @ViewBuilder
+    /// Back to a fresh invite: the name, the scope and the button again.
+    private var inviteSomeoneElse: some View {
+        Button("Invite someone else") {
+            self.link = nil
+            inviteName = ""
+            showQR = false
+        }
+        .foregroundStyle(PL.text400)
+    }
+
     private func coachRow(_ coach: ConnectedCoach) -> some View {
         HStack(spacing: 12) {
             PLRowLabel(
@@ -1364,18 +1400,18 @@ struct MatchDetailsEditor: View {
 
     // MARK: Your side
 
-    /// The still in its own clear section with the label over it, then
-    /// the two choices: the old Your side sheet's layout under a field
-    /// label. Without a still the label sits on the choices.
+    /// The still on the sheet itself with the label over it, then the two
+    /// choices: the old Your side sheet's layout under a field label.
+    /// Without a still the label sits on the choices. The still is a block
+    /// in the section's footer slot, not a clear row: a row is clipped to
+    /// the section's corners, which cut the frame's own (build 244).
     @ViewBuilder
     private var sideSections: some View {
         if videoURL != nil, !frameFailed {
-            Section {
-                frameView
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            } header: {
+            Section {} header: {
                 Text("Your side")
+            } footer: {
+                frameView.plFormBlock()
             }
             Section { sideRows }
         } else {

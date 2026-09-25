@@ -1373,6 +1373,10 @@ struct EntryShareSheet: View {
     @State private var showQR = false
     @State private var errorMessage: String?
 
+    private var shareFooter: some View {
+        Text("Anyone with the link can read this entry, and it always shows the latest version.")
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -1394,12 +1398,18 @@ struct EntryShareSheet: View {
                             }
                         }
                         Toggle("Show QR", isOn: $showQR)
-                        if showQR {
-                            QRCodeView(url: link)
-                                .listRowBackground(Color.clear)
-                        }
                     } footer: {
-                        Text("Anyone with the link can read this entry, and it always shows the latest version.")
+                        // The code on the sheet under the rows, not a clear
+                        // last row, which left the rows above ending square.
+                        if showQR {
+                            PLCaptionedBlock(top: nil) {
+                                QRCodeView(url: link)
+                            } caption: {
+                                shareFooter
+                            }
+                        } else {
+                            shareFooter
+                        }
                     }
                     // "Revoke" is the product's one word for killing a
                     // link — Account and the match sheet both use it.
@@ -1435,6 +1445,8 @@ struct EntryShareSheet: View {
                 }
             }
             .tint(PL.cyan)
+            // The QR code's words sit at the footer's inset (PLCaptionedBlock).
+            .plFormOrigin()
             .navigationTitle("Share this entry")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

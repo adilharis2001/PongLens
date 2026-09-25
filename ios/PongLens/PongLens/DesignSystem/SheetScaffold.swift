@@ -46,6 +46,8 @@ struct PLSheetScaffold<Content: View>: View {
                 // glass version shipped in build 201 (Adil, 2026-09-14).
                 // The toolbar keeps its glass; only the ground is solid.
                 .scrollContentBackground(.hidden)
+                // Where the Form starts, for a block's words (PLCaptionedBlock).
+                .plFormOrigin()
                 .presentationBackground(PL.surface)
                 .tint(PL.cyan)
                 .navigationTitle(title)
@@ -102,8 +104,12 @@ struct PLRowLabel: View {
 }
 
 /// The primary action on a sheet: one full-width cyan capsule, standing
-/// in its own clear row so it reads as the button it is rather than as a
+/// on the sheet's ground so it reads as the button it is rather than as a
 /// cell with a button inside it. A sheet has at most one of these.
+///
+/// A block, not a row: place it in a section's footer with
+/// `plFormBlock`. As a clear row it had its glow trimmed to the row's
+/// rounded rectangle, a second curve drawn around the capsule (build 244).
 struct PLSheetActionRow: View {
     let label: String
     var disabled = false
@@ -115,11 +121,146 @@ struct PLSheetActionRow: View {
         }
         .buttonStyle(PLPrimaryButtonStyle())
         .disabled(disabled)
-        // Room for the glow, which the cell would otherwise trim.
+        // The gap it kept as a row, so the words under it sit where they did.
         .padding(.vertical, 4)
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets())
-        .listRowSeparator(.hidden)
+    }
+}
+
+// MARK: - Blocks that keep their own shape
+
+extension View {
+    /// Stands a block that draws its own shape (choice cards, a video
+    /// frame, a QR tile, a row of chips, the sheet's primary action) on a
+    /// Form, in a section's footer slot instead of in a row.
+    ///
+    /// Why not a row: on iOS 26 a Form row is clipped to its section's
+    /// corners, about 26pt, whatever the row's background. A clear row
+    /// does not help. The Later card's top corners and the Mark card's
+    /// bottom ones came out cut by that larger curve, the Your side frame
+    /// likewise, and the primary action's glow was trimmed to a rounded
+    /// rectangle (build 244; "let it take the natural shape", Adil). The
+    /// header and footer slots are never clipped, so a block there keeps
+    /// its own corners and its own glow. Ordinary rows stay rows.
+    ///
+    /// The block runs the full width of the cells above and below it.
+    /// `top: 0`, the default, is for a block that opens its section: the
+    /// gap above it is then exactly a row's, under a header or after the
+    /// section before. `top: nil` keeps the footer's own gap, for a block
+    /// under a section's rows (the gap a caption keeps from its rows).
+    /// A block with words under it is a `PLCaptionedBlock`.
+    func plFormBlock(top: CGFloat? = 0) -> some View {
+        self
+            .plBlockDress()
+            .listRowInsets(.horizontal, 0)
+            .listRowInsets(.top, top)
+    }
+
+    /// The footer slot sets its content in the caption style; a block gets
+    /// back what it had as a row.
+    fileprivate func plBlockDress() -> some View {
+        self
+            .font(.body)
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A block with the words that belong under it (what was its section's
+/// footer), both in the section's footer slot: the block at the cells'
+/// full width, the words in the footer's own type at the footer's own
+/// inset and gap, exactly where they sat under the rows.
+///
+/// The inset is read, not written down, because it is not one number: 16
+/// on a Pro and 20 on a Pro Max, and in a floating medium sheet the cells
+/// also sit a further 7 or so in from the sheet's edge while the words do
+/// not. What holds everywhere (measured, iOS 26, both phones, both
+/// detents) is that the words sit as far in from the cells' edge as the
+/// cells sit from the Form's, to the next whole point. So the block reads
+/// its own edge against the Form's (`plFormOrigin`, which
+/// `PLSheetScaffold` applies).
+///
+/// A separate section for the words would keep the inset but not the gap:
+/// section spacing is shared by both sides of a section, so pulling the
+/// words up also pulled the section above down onto the block's header.
+struct PLCaptionedBlock<Block: View, Caption: View>: View {
+    /// As `plFormBlock(top:)`.
+    var top: CGFloat?
+    var block: Block
+    var caption: Caption
+
+    @Environment(\.plFormLeading) private var formLeading
+    /// The block's leading edge on screen, once laid out.
+    @State private var blockLeading: CGFloat?
+
+    init(
+        top: CGFloat? = 0,
+        @ViewBuilder block: () -> Block,
+        @ViewBuilder caption: () -> Caption
+    ) {
+        self.top = top
+        self.block = block()
+        self.caption = caption()
+    }
+
+    /// The cells' side margin; 16 until the first layout reads it. A Form
+    /// without `plFormOrigin` is taken to start at the screen's edge.
+    private var inset: CGFloat {
+        guard let blockLeading else { return 16 }
+        return max(0, (blockLeading - (formLeading ?? 0) - 0.01).rounded(.up))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            block
+                .plBlockDress()
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.frame(in: .global).minX
+                } action: { minX in
+                    blockLeading = minX
+                }
+            caption
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, inset)
+                // A footer's own gap under its rows (measured, iOS 26).
+                .padding(.top, 8)
+        }
+        .listRowInsets(.horizontal, 0)
+        .listRowInsets(.top, top)
+    }
+}
+
+extension View {
+    /// On a Form holding a `PLCaptionedBlock`: where the Form starts on
+    /// screen, so the block can tell the cells' margin from the sheet's
+    /// own offset. `PLSheetScaffold` applies it to every sheet.
+    func plFormOrigin() -> some View {
+        modifier(PLFormOrigin())
+    }
+}
+
+private struct PLFormOrigin: ViewModifier {
+    @State private var leading: CGFloat?
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .global).minX
+            } action: { minX in
+                leading = minX
+            }
+            .environment(\.plFormLeading, leading)
+    }
+}
+
+private struct PLFormLeadingKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension EnvironmentValues {
+    /// The Form's leading edge on screen (`plFormOrigin`); nil outside one.
+    var plFormLeading: CGFloat? {
+        get { self[PLFormLeadingKey.self] }
+        set { self[PLFormLeadingKey.self] = newValue }
     }
 }
 

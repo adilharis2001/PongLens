@@ -77,23 +77,27 @@ struct SpokenScoreSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var editing: SpokenEditTarget?
 
+    private var footer: some View {
+        Text("What was called out at the phone during the match. Tap a game to correct it. This is kept as a reference and never changes the scored result.")
+    }
+
     var body: some View {
         PLSheetScaffold(title: "Spoken score") {
             Form {
-                Section {
+                // The board on the sheet itself, not a clear row: a row is
+                // clipped to its section's corners, and it left Add a game
+                // under it as a cell with square top corners.
+                let board = ScoreBoard(scores: rows,
+                                       youLabel: youLabel,
+                                       missed: nil,
+                                       onTap: { game in
+                                           editing = SpokenEditTarget(game: game)
+                                       })
+                if rows.count < SpokenScore.maxGame {
                     if !rows.isEmpty {
-                        ScoreBoard(scores: rows,
-                                   youLabel: youLabel,
-                                   missed: nil,
-                                   onTap: { game in
-                                       editing = SpokenEditTarget(game: game)
-                                   })
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .listRowInsets(EdgeInsets(top: 10, leading: 12,
-                                                      bottom: 10, trailing: 12))
-                            .listRowBackground(Color.clear)
+                        Section {} footer: { board.plFormBlock() }
                     }
-                    if rows.count < SpokenScore.maxGame {
+                    Section {
                         Button {
                             editing = SpokenEditTarget(game: nil)
                         } label: {
@@ -101,9 +105,13 @@ struct SpokenScoreSheet: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(PL.cyan)
                         }
+                    } footer: {
+                        footer
                     }
-                } footer: {
-                    Text("What was called out at the phone during the match. Tap a game to correct it. This is kept as a reference and never changes the scored result.")
+                } else {
+                    Section {} footer: {
+                        PLCaptionedBlock { board } caption: { footer }
+                    }
                 }
             }
             .scrollContentBackground(.hidden)

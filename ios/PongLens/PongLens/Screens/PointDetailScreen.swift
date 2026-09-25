@@ -1142,15 +1142,19 @@ struct TagPickerSheet: View {
                     }
                 }
 
-                Section {
-                    if tagsStore.vocab.isEmpty {
+                if tagsStore.vocab.isEmpty {
+                    Section {
                         Text("No tags yet. Add one above and it stays in your vocabulary for every match.")
                             .font(.plBody)
                             .foregroundStyle(PL.text500)
-                    } else {
-                        // Chips keep their own shape: a tag is a small
-                        // thing you can have several of on one line, and
-                        // a row each would make ten tags a long list.
+                    }
+                } else {
+                    // Chips keep their own shape: a tag is a small thing
+                    // you can have several of on one line, and a row each
+                    // would make ten tags a long list. On the sheet in the
+                    // footer slot, not a clear row, which clipped the
+                    // corner chips to the section's corners.
+                    Section {} footer: {
                         FlowLayout(spacing: 8) {
                             ForEach(tagsStore.vocab) { tag in
                                 let applied = tagsStore.tags(for: point.id).contains(tag)
@@ -1175,9 +1179,7 @@ struct TagPickerSheet: View {
                                 .buttonStyle(.plain)
                             }
                         }
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
+                        .plFormBlock()
                     }
                 }
             }

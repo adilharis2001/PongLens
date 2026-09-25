@@ -26,34 +26,56 @@ struct HighlightsSheet: View {
                 // Nothing to play yet: the one thing to do, and why.
                 PLSheetScaffold(title: requestView.title) {
                     Form {
-                        Section {
-                            if requestView.running {
-                                HStack(spacing: 10) {
-                                    ProgressView().tint(PL.cyan)
-                                    Text("Updating rally clips…")
-                                        .font(.plBody)
-                                        .foregroundStyle(PL.text300)
-                                }
-                            } else if let actionLabel = requestView.actionLabel {
-                                PLSheetActionRow(
-                                    label: submitting ? "Starting…" : actionLabel,
-                                    disabled: submitting
-                                ) {
-                                    if requestView.action == .score {
-                                        dismiss()
-                                        DispatchQueue.main.async { onScore() }
-                                    } else {
-                                        Task { await requestUpdate() }
-                                    }
+                        if !requestView.running, let actionLabel = requestView.actionLabel {
+                            // The action on the sheet, not in a row (see
+                            // PLSheetActionRow), with the words under it.
+                            // An error is a row under the action, and the
+                            // words follow it.
+                            let action = PLSheetActionRow(
+                                label: submitting ? "Starting…" : actionLabel,
+                                disabled: submitting
+                            ) {
+                                if requestView.action == .score {
+                                    dismiss()
+                                    DispatchQueue.main.async { onScore() }
+                                } else {
+                                    Task { await requestUpdate() }
                                 }
                             }
                             if let errorMessage {
-                                Text(errorMessage)
-                                    .font(.plCaption)
-                                    .foregroundStyle(PL.dangerText)
+                                Section {} footer: { action.plFormBlock() }
+                                Section {
+                                    Text(errorMessage)
+                                        .font(.plCaption)
+                                        .foregroundStyle(PL.dangerText)
+                                } footer: {
+                                    Text(requestView.body)
+                                }
+                            } else {
+                                Section {} footer: {
+                                    PLCaptionedBlock { action } caption: {
+                                        Text(requestView.body)
+                                    }
+                                }
                             }
-                        } footer: {
-                            Text(requestView.body)
+                        } else {
+                            Section {
+                                if requestView.running {
+                                    HStack(spacing: 10) {
+                                        ProgressView().tint(PL.cyan)
+                                        Text("Updating rally clips…")
+                                            .font(.plBody)
+                                            .foregroundStyle(PL.text300)
+                                    }
+                                }
+                                if let errorMessage {
+                                    Text(errorMessage)
+                                        .font(.plCaption)
+                                        .foregroundStyle(PL.dangerText)
+                                }
+                            } footer: {
+                                Text(requestView.body)
+                            }
                         }
                     }
                 }
