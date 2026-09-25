@@ -208,6 +208,22 @@ export function processErrorMessage(code: unknown): string {
 }
 
 /**
+ * A refused `claim_auto_recut` (Replace, processed automatically). The
+ * contract's codes read as for the hand claim (`coach_review` is not an
+ * error to show; a running cut or support request, and a missing original,
+ * have their sentences); the charge's refusals read as the unprocessed
+ * page's Process button reads them, since this is the same charge.
+ */
+export function autoRecutClaimError(message: string): { code: string | null; text: string | null } {
+  const m = message || "";
+  const recut = recutClaimError(m);
+  if (recut.code) return recut;
+  const charge = m.match(/\b(insufficient_minutes|queue_full)\b/);
+  if (charge) return { code: charge[1], text: processErrorMessage(charge[1]) };
+  return { code: null, text: processErrorMessage(null) };
+}
+
+/**
  * The trailing "{N} marked" on "Mark the points yourself": closed marks in
  * a draft nobody has sent. A sent draft (the cut that made this match) is
  * history, not work in progress, and shows nothing. Neither does a

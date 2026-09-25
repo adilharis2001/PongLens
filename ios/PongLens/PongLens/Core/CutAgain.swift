@@ -40,6 +40,9 @@ enum CutAgainCopy {
     static let noSource = "The original video is no longer stored."
     /// The raw page's own sentence for a process call that went wrong.
     static let somethingWrong = "Something went wrong. Try again."
+    /// The raw page's sentences for a process call the charge refused.
+    static let notEnoughMinutes = "Not enough minutes for this video."
+    static let queueFull = "Your queue is full. Wait for a video to finish."
 }
 
 // MARK: - What the server allows (recut_options)
@@ -280,6 +283,23 @@ enum CutAgainErrors {
         }
         if raw.contains("no_source") { return .message(CutAgainCopy.noSource) }
         return .message(handCut(raw))
+    }
+
+    /// `claim_auto_recut` (Replace, processed automatically): the
+    /// contract's codes as for the hand claim, then the charge's refusals
+    /// in the raw page's words, since it is the same charge as its Process
+    /// button. Never a hand cut's sentence: there are no marks here. The
+    /// web's autoRecutClaimError in recutView.ts.
+    static func autoRecut(_ raw: String) -> RecutRefusal {
+        if raw.contains("coach_review") { return .coachReview }
+        if raw.contains("support_request") || raw.contains("already_processing")
+            || code(raw) == "processing" {
+            return .message(CutAgainCopy.busy)
+        }
+        if raw.contains("no_source") { return .message(CutAgainCopy.noSource) }
+        if raw.contains("insufficient_minutes") { return .message(CutAgainCopy.notEnoughMinutes) }
+        if raw.contains("queue_full") { return .message(CutAgainCopy.queueFull) }
+        return .message(CutAgainCopy.somethingWrong)
     }
 
     /// `copy_match_for_recut`, before any minutes are spent.

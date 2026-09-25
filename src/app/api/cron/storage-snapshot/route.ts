@@ -4,8 +4,10 @@ import { isAdminEmail } from "@/lib/config";
 import { listObjects, MEDIA_BUCKET, RAW_BUCKET } from "@/lib/r2";
 import {
   reelReferences,
+  retiredMediaKeys,
   summarize,
   type BucketObject,
+  type RetiredVersion,
   type UnattributedSample,
 } from "@/lib/storage/inventory";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -77,6 +79,35 @@ async function ownersOf(
   return owners;
 }
 
+/**
+ * The files of retired versions nobody uses: a cut the player replaced
+ * with a re-cut of their own, or a re-cut of theirs that failed. Their
+ * storage stopped counting when that happened (the ledger was uncounted
+ * then), so the measurement must not count them back overnight; the
+ * worker removes them 30 days on. Any failure here (before the migration,
+ * say) returns nothing, and the measurement counts them as before.
+ */
+async function retiredKeys(
+  admin: ReturnType<typeof createAdminClient>,
+  objects: BucketObject[],
+): Promise<Set<string>> {
+  const { data, error } = await admin.rpc("retired_processing_versions");
+  if (error || !Array.isArray(data) || data.length === 0) return new Set();
+  const versions = data as RetiredVersion[];
+  const candidates = retiredMediaKeys(objects, versions);
+  const retiring = versions.map((v) => v.version_id);
+  const inUse = new Set<string>();
+  for (let i = 0; i < candidates.length; i += 500) {
+    const { data: used, error: usedError } = await admin.rpc("media_keys_in_use", {
+      p_keys: candidates.slice(i, i + 500).map((key) => `r2://ponglens-media/${key}`),
+      p_retiring: retiring,
+    });
+    if (usedError) return new Set();
+    for (const key of (used ?? []) as string[]) inUse.add(key);
+  }
+  return new Set(candidates.filter((key) => !inUse.has(`r2://ponglens-media/${key}`)));
+}
+
 async function measure() {
   const admin = createAdminClient();
   const startedAt = new Date();
@@ -104,7 +135,8 @@ async function measure() {
       ownersOf(admin, "matches", refs.matchIds),
       ownersOf(admin, "tags", refs.tagIds),
     ]);
-    const inventory = summarize(objects, { matchOwner, tagOwner });
+    const retired = await retiredKeys(admin, objects);
+    const inventory = summarize(objects, { matchOwner, tagOwner }, 12, retired);
 
     // The tally's answer at the same moment, recorded beside the
     // measurement so the admin page can show how far the two have drifted.
@@ -168,6 +200,8 @@ async function measure() {
       bytes: inventory.totalBytes,
       accounts: rows.filter((r) => r.objects > 0).length,
       platform_bytes: inventory.platformBytes,
+      // Replaced cuts waiting out their 30 days: stored, counted to nobody.
+      retired: { objects: inventory.retiredObjects, bytes: inventory.retiredBytes },
       unattributed: {
         objects: unattributedObjects,
         bytes: unattributedBytes,

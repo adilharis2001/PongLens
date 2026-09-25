@@ -70,11 +70,23 @@ enum ProcessAPI {
     /// The raw page's sentences for a refused process call.
     static func message(_ code: String?) -> String {
         switch code {
-        case "insufficient_minutes": "Not enough minutes for this video."
-        case "queue_full": "Your queue is full. Wait for a video to finish."
+        case "insufficient_minutes": CutAgainCopy.notEnoughMinutes
+        case "queue_full": CutAgainCopy.queueFull
         default: CutAgainCopy.somethingWrong
         }
     }
+}
+
+/// What pressing Process again did, for the sheet.
+enum ProcessAgainOutcome: Equatable {
+    /// Replace was claimed: the sheet closes, the match keeps playing and
+    /// More options shows the ordinary progress.
+    case replacing
+    /// Keep made a new match: the sheet closes and opens it.
+    case opened(UUID)
+    /// Refused (the sentence is in `error`), or Replace went grey over a
+    /// coach review and the choice is back on Keep: the sheet stays.
+    case stayed
 }
 
 struct CutAgainClient {
@@ -88,9 +100,12 @@ struct CutAgainClient {
     var claimHandRecut: (UUID, [HandCutSubmission], Bool) async throws -> HandRecutClaim
     var copyForRecut: (UUID) async throws -> UUID
     var process: (UUID, ProcessSettings) async -> ProcessStart
-    /// Phase 2 only (Replace under Automatically, in More options). The design names
-    /// `claim_auto_recut(match, replace, trim, strictness)`; the contract
-    /// has not pinned its parameters yet, so this is the design's reading.
+    /// Replace under Automatically, in More options (phase 2):
+    /// `claim_auto_recut(p_match_id, p_replace, p_trim_start_s,
+    /// p_trim_end_s, p_strictness)` returning `{job_id, match_id}`
+    /// (20260925200000_cut_again_auto_replace.sql). Charged as /api/process
+    /// charges; the detailed analysis rides along, as on every processed
+    /// upload. Keep does not come here: it is the copy plus /api/process.
     var claimAutoRecut: (UUID, ProcessSettings) async throws -> UUID?
 
     static let live = CutAgainClient(
@@ -230,10 +245,15 @@ final class CutAgainModel {
 
     /// That lane is paused or down: said in place of the stage, as on the
     /// unprocessed page. None while the owner's phone is doing the cut.
+    /// A re-cut running here is the player's own automatic Replace, which
+    /// ends in the ordinary ready email, as a processed upload does (the
+    /// web's MoreOptions reads it the same way).
     var serviceNotice: ProcessingAvailabilityNotice? {
         guard jobRunning, feedback?.onDevice != true else { return nil }
+        let kind = feedback?.jobKind ?? job?.kind
         return ProcessingServiceStore.shared.notice(
-            lane: lane, context: processingContext(kind: feedback?.jobKind ?? job?.kind))
+            lane: lane,
+            context: processingContext(kind: kind == "match_reprocess" ? "deadspace_cut" : kind))
     }
 
     var serviceState: String {
@@ -323,15 +343,16 @@ final class CutAgainModel {
 
     // MARK: - Process again, automatically
 
+    /// Replace: `claim_auto_recut` builds the new cut beside this one; the
+    /// match keeps playing and this model polls the ordinary progress.
     /// Keep: a copy of this match, then the ordinary process call on the
-    /// copy. Returns the match to open (the copy), or nil when this match
-    /// is the one now processing (Replace) or when it failed (`error` set).
+    /// copy, which is then opened.
     ///
     /// Once the copy exists it is a real match: if processing it is then
     /// refused, the copy is still opened, where its own page offers the
     /// process again, rather than making a second copy from here.
-    func processAutomatically(durationS: Double?) async -> UUID? {
-        guard !busy else { return nil }
+    func processAutomatically(durationS: Double?) async -> ProcessAgainOutcome {
+        guard !busy else { return .stayed }
         busy = true
         error = nil
         defer { busy = false }
@@ -344,25 +365,43 @@ final class CutAgainModel {
         if autoChoice?.replace == true {
             do {
                 _ = try await client.claimAutoRecut(matchId, settings)
-                await refreshRunning()
-                updatePolling()
             } catch {
-                self.error = CutAgainErrors.copy(CutAgainServerError.from(error).message)
+                let raw = CutAgainServerError.from(error).message
+                let charge = raw.contains("insufficient_minutes") || raw.contains("queue_full")
+                if raw.contains("insufficient_minutes") { needsMoreMinutes = true }
+                switch CutAgainErrors.autoRecut(raw) {
+                case .coachReview:
+                    // Not an error to show: Replace greys with its reason
+                    // and the choice is back on Keep, for the player to
+                    // press again (the web's setAutoPick("keep")).
+                    break
+                case .message(let sentence):
+                    self.error = sentence
+                }
+                if !charge, let fresh = try? await client.options(matchId) {
+                    options = fresh
+                    var next = RecutChoiceState.automatic(fresh)
+                    if let old = autoChoice { next.select(old.selected) }
+                    autoChoice = next
+                }
+                return .stayed
             }
-            return nil
+            await refreshRunning()
+            updatePolling()
+            return .replacing
         }
         let copy: UUID
         do {
             copy = try await client.copyForRecut(matchId)
         } catch {
             self.error = CutAgainErrors.copy(CutAgainServerError.from(error).message)
-            return nil
+            return .stayed
         }
         if case .refused(let code) = await client.process(copy, settings) {
             if code == "insufficient_minutes" { needsMoreMinutes = true }
             // The copy is opened anyway; its page says what to do next.
         }
-        return copy
+        return .opened(copy)
     }
 
     // MARK: - Mark the points yourself

@@ -8,6 +8,7 @@ import {
   COACH_REVIEW_NOTE,
   MATCH_NOTES_LINE,
   REPLACE_LINE,
+  autoRecutClaimError,
   moreOptionsView,
   processErrorMessage,
   readCopiedMatchId,
@@ -160,6 +161,46 @@ test("refusals become the contract's sentences", () => {
   assert.equal(processErrorMessage("insufficient_minutes"), "Not enough minutes for this video.");
   assert.equal(processErrorMessage("queue_full"), "Your queue is full. Wait for a video to finish.");
   assert.equal(processErrorMessage(undefined), "Something went wrong. Try again.");
+});
+
+test("an automatic Replace's refusals: the contract's, then the charge's", () => {
+  assert.deepEqual(autoRecutClaimError("coach_review"), { code: "coach_review", text: null });
+  for (const code of ["support_request", "processing", "already_processing"]) {
+    assert.deepEqual(autoRecutClaimError(`P0001: ${code}`), {
+      code,
+      text: "Something is already running on this match.",
+    });
+  }
+  assert.deepEqual(autoRecutClaimError("no_source"), {
+    code: "no_source", text: "The original video is no longer stored.",
+  });
+  // The same charge as Process on the unprocessed page, in its words.
+  assert.deepEqual(autoRecutClaimError("insufficient_minutes"), {
+    code: "insufficient_minutes", text: "Not enough minutes for this video.",
+  });
+  assert.deepEqual(autoRecutClaimError("queue_full"), {
+    code: "queue_full", text: "Your queue is full. Wait for a video to finish.",
+  });
+  // Never a hand cut's sentence: there are no marks here.
+  for (const other of ["", "not_enabled", "trim_too_short", "bad_state", "commerce_disabled"]) {
+    assert.deepEqual(autoRecutClaimError(other), { code: null, text: "Something went wrong. Try again." });
+  }
+});
+
+test("More options: Replace under Automatically calls claim_auto_recut as the contract names it", () => {
+  const src = readMatch("recut/MoreOptions.tsx");
+  const call = src.slice(src.indexOf('rpc("claim_auto_recut"'), src.indexOf('rpc("claim_auto_recut"') + 400);
+  for (const arg of ["p_match_id: match.id", "p_replace: true", "p_trim_start_s: req.trimStartS",
+                     "p_trim_end_s: req.trimEndS", "p_strictness: req.strictness"]) {
+    assert.ok(call.includes(arg), arg);
+  }
+  assert.match(src, /const refused = autoRecutClaimError\(error\.message\);/);
+  // After Replace the sheet closes and the row shows the running re-cut.
+  const after = src.slice(src.indexOf("readRecutClaim(data);", src.indexOf('rpc("claim_auto_recut"')));
+  assert.match(after.slice(0, 300), /kind: "match_reprocess"[\s\S]*setOpen\(false\)/);
+  // Keep keeps its path: the copy, then /api/process.
+  assert.match(src, /rpc\("copy_match_for_recut"/);
+  assert.match(src, /postProcess\(target, quote\.request\(\)\)/);
 });
 
 test("the Score switch names the pass (Adil, 2026-09-25)", () => {
