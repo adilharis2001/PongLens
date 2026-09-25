@@ -33,6 +33,7 @@ Task { @MainActor in
         runScoredCardsChecks()
         runFeedbackBoardChecks()
         runHandCutParityChecks()
+        runMarkLandscapeChecks()
     }
 
     print("\n\(checks - failures)/\(checks) checks passed")
