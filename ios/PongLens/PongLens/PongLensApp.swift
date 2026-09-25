@@ -32,6 +32,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             LessonVideoQueue.shared.handleBackgroundSessionEvents(completionHandler: completionHandler)
             return
         }
+        if identifier == DeviceCutSession.identifier {
+            DeviceHandCutQueue.shared.handleBackgroundSessionEvents(completionHandler: completionHandler)
+            return
+        }
         guard identifier == RecordingQueue.sessionIdentifier else {
             completionHandler()
             return
@@ -53,11 +57,18 @@ struct PongLensApp: App {
             return
         }
         if ScorekeeperQAFixture.isEnabled || ProcessingAvailabilityFixture.isEnabled { return }
+        if DeviceCutQA.isEnabled {
+            Task { @MainActor in await DeviceCutQA.run() }
+            return
+        }
         #endif
         // Wake the queue at launch: it reattaches to in-flight background
         // uploads and resumes anything the last run left unfinished.
         _ = RecordingQueue.shared
         _ = LessonVideoQueue.shared
+        // A phone cut in progress: its background uploads reattach, and the
+        // work resumes once the account is known (RootView).
+        _ = DeviceHandCutQueue.shared
     }
 
     var body: some Scene {

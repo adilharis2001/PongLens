@@ -364,3 +364,40 @@ func runDeviceCutChecks() {
         check(!line.contains("\u{2014}") && !line.contains(" AI"), "no em dash in \"\(line)\"")
     }
 }
+
+func runDeviceCutRouteChecks() {
+    print("\n— cutting on the iPhone: the route's answers —")
+    func body(_ s: String) -> Data { s.data(using: .utf8)! }
+    eq(DeviceCutRouteAnswer(status: 200, data: body("{\"ok\":true,\"phase\":\"verify\"}")).decode(DeviceCutRouteBodies.Phase.self)?.phase,
+       "verify", "submit's answer reads")
+    eq(DeviceCutRouteAnswer(status: 409, data: body("{\"error\":\"Some files did not finish uploading\",\"missing\":[\"points/u/m/03.mp4\"]}")),
+       .missing(["points/u/m/03.mp4"]), "409 with missing keys names them")
+    eq(DeviceCutRouteAnswer(status: 409, data: body("{\"error\":\"This cut is no longer on the iPhone.\",\"phase\":\"mac\"}")),
+       .notOnPhone(phase: "mac"), "409 without keys means the job moved on")
+    eq(DeviceCutRouteAnswer(status: 409, data: body("{\"error\":\"This cut is no longer on the iPhone.\",\"phase\":null}")),
+       .notOnPhone(phase: nil), "a null phase reads as none")
+    eq(DeviceCutRouteAnswer(status: 404, data: body("{\"error\":\"Job not found\"}")), .notFound, "404")
+    eq(DeviceCutRouteAnswer(status: 403, data: body("{\"error\":\"Those keys do not belong to this cut\",\"refused\":[\"x\"]}")),
+       .refused(status: 403, message: "Those keys do not belong to this cut"), "403 keeps the sentence")
+    eq(DeviceCutRouteAnswer(status: 500, data: Data()), .refused(status: 500, message: ""), "an empty 500")
+    let listed = DeviceCutRouteAnswer(status: 200, data: body("{\"parts\":[{\"PartNumber\":2,\"Size\":67108864,\"ETag\":\"\\\"b\\\"\"}]}"))
+        .decode(DeviceCutRouteBodies.Listed.self)
+    eq(listed?.parts.first?.PartNumber, 2, "list-parts decodes")
+    let signed = DeviceCutRouteAnswer(status: 200, data: body("{\"urls\":{\"results/u/j.manifest.json\":\"https://r2/x\"}}"))
+        .decode(DeviceCutRouteBodies.SignedKeys.self)
+    eq(signed?.urls["results/u/j.manifest.json"], "https://r2/x", "sign decodes")
+
+    let job = UUID(uuidString: "5d1c0000-0000-4000-8000-00000000000a")!
+    let name = DeviceCutFlow.transferName(job, kind: "clip", number: 12)
+    eq(name, "5d1c0000-0000-4000-8000-00000000000a|clip|12", "transfer names")
+    check(DeviceCutFlow.transfer(name).map { $0.jobId == job && $0.kind == "clip" && $0.number == 12 } ?? false,
+          "and they read back")
+    check(DeviceCutFlow.transfer("\(job.uuidString)|part|3")?.number == 3, "part names read back")
+    check(DeviceCutFlow.transfer("garbage") == nil && DeviceCutFlow.transfer("\(job.uuidString)|other|1") == nil,
+          "anything else is not ours")
+
+    let answer = try? JSONDecoder().decode(DeviceCutReportAnswer.self,
+                                           from: body("{\"accepted\":false,\"phase\":\"mac\",\"status\":\"queued\"}"))
+    eq(answer?.accepted, false, "a refused report reads")
+    eq(answer?.phase, "mac", "with where the job went")
+}

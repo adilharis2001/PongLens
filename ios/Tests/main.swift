@@ -36,6 +36,7 @@ Task { @MainActor in
         runHandCutParityChecks()
         runCutPlanParityChecks()
         runDeviceCutChecks()
+        runDeviceCutRouteChecks()
         runMarkLandscapeChecks()
     }
 

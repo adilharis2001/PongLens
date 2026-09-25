@@ -646,7 +646,7 @@ nonisolated enum DeviceCutCopy {
     static let uploading = "Uploading from your iPhone"
     static let paused = "Paused on your iPhone"
     static let keepOpen = "Keep PongLens open while it cuts."
-    static let cooling = "Paused while your iPhone cools down."
+    static let cooling = "Waiting for your iPhone to cool down."
     static let waitingForApp = "Paused. It carries on when you open PongLens."
     static let offline = "Waiting for a connection."
     static let cutOnMac = "Cut on the Mac instead"
@@ -701,5 +701,97 @@ nonisolated enum DeviceCutClaimOutcome: Equatable, Sendable {
         if m.contains("check_pending") { return .refused("Still checking the video. Try again in a moment.") }
         if m.contains("invalid_marks") { return .refused("Some marks are not valid. Check for very short points.") }
         return .refused("That didn't send. Check your connection and try again.")
+    }
+}
+
+// MARK: - The route's answers (contract section 4)
+
+nonisolated enum DeviceCutRouteAnswer: Equatable, Sendable {
+    case ok(Data)
+    /// 409 on submit: these objects never arrived. Send them again.
+    case missing([String])
+    /// 409: the job is no longer the phone's (submitted, moved to the Mac,
+    /// released). The phone stops.
+    case notOnPhone(phase: String?)
+    /// 404: no such job for this account.
+    case notFound
+    /// Anything else, with the route's sentence.
+    case refused(status: Int, message: String)
+
+    init(status: Int, data: Data) {
+        let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        switch status {
+        case 200..<300:
+            self = .ok(data)
+        case 404:
+            self = .notFound
+        case 409:
+            if let missing = body["missing"] as? [String], !missing.isEmpty {
+                self = .missing(missing)
+            } else {
+                self = .notOnPhone(phase: body["phase"] as? String)
+            }
+        default:
+            self = .refused(status: status, message: body["error"] as? String ?? "")
+        }
+    }
+
+    func decode<T: Decodable>(_ type: T.Type) -> T? {
+        guard case .ok(let data) = self else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+}
+
+/// report_device_hand_cut's answer (contract 3.2). `accepted: false` means
+/// the job is no longer the phone's, and the phone stops.
+nonisolated struct DeviceCutReportAnswer: Decodable, Equatable, Sendable {
+    var accepted: Bool
+    var phase: String?
+    var status: String?
+}
+
+/// The route's bodies the phone reads.
+nonisolated enum DeviceCutRouteBodies {
+    struct Created: Decodable, Sendable { let bucket: String?; let key: String?; let uploadId: String }
+    struct Signed: Decodable, Sendable { let url: String }
+    struct SignedKeys: Decodable, Sendable { let urls: [String: String] }
+    struct Listed: Decodable, Sendable {
+        struct Part: Decodable, Sendable {
+            let PartNumber: Int?
+            let ETag: String?
+            let Size: Int64?
+        }
+        let parts: [Part]
+        let gone: Bool?
+    }
+    struct Phase: Decodable, Sendable { let phase: String? }
+}
+
+extension DeviceCutFlow {
+    /// Parts R2 already holds (list-parts), banked so they are not sent
+    /// again after a relaunch. `gone` means the upload itself vanished.
+    static func reconcile(_ job: inout DeviceCutJob, listed: DeviceCutRouteBodies.Listed) {
+        if listed.gone == true {
+            uploadLost(&job)
+            return
+        }
+        for part in listed.parts {
+            if let n = part.PartNumber, let etag = part.ETag, job.etags[n] == nil {
+                job.etags[n] = etag
+            }
+        }
+    }
+
+    /// Where a transfer's completion belongs: "<job>|part|<n>" or
+    /// "<job>|clip|<idx>".
+    static func transfer(_ description: String) -> (jobId: UUID, kind: String, number: Int)? {
+        let pieces = description.split(separator: "|")
+        guard pieces.count == 3, let job = UUID(uuidString: String(pieces[0])),
+              pieces[1] == "part" || pieces[1] == "clip", let n = Int(pieces[2]) else { return nil }
+        return (job, String(pieces[1]), n)
+    }
+
+    static func transferName(_ jobId: UUID, kind: String, number: Int) -> String {
+        "\(jobId.uuidString.lowercased())|\(kind)|\(number)"
     }
 }

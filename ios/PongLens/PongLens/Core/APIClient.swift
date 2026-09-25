@@ -99,6 +99,24 @@ enum API {
         return try JSONDecoder().decode(Response.self, from: data)
     }
 
+    /// POST that hands back the status and the body instead of throwing on
+    /// an error status, for a route whose refusals carry more than one
+    /// sentence (the phone cut's submit names the objects it found
+    /// missing). A 401 is still recovered once, as everywhere else.
+    static func postForStatus<Body: Encodable>(
+        _ path: String, _ body: Body
+    ) async throws -> (status: Int, data: Data) {
+        let encoded = try JSONEncoder().encode(body)
+        return try await exchange(throwOnStatus: false) { token in
+            var request = URLRequest(url: AppConfig.apiBase.appendingPathComponent(path))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.httpBody = encoded
+            return request
+        }
+    }
+
     // MARK: - Sending
 
     /// Builds the request around the current access token and sends it. A
@@ -108,6 +126,13 @@ enum API {
     private static func send(
         _ build: (_ accessToken: String) -> URLRequest
     ) async throws -> Data {
+        try await exchange(throwOnStatus: true, build).data
+    }
+
+    private static func exchange(
+        throwOnStatus: Bool,
+        _ build: (_ accessToken: String) -> URLRequest
+    ) async throws -> (status: Int, data: Data) {
         var recovered = false
         var consentAsked = false
         while true {
@@ -129,6 +154,7 @@ enum API {
                 recovered = true
                 if await recoverUnauthorized() { continue }
             }
+            if !throwOnStatus { return (http.statusCode, data) }
             guard (200..<300).contains(http.statusCode) else {
                 // Two error dialects: older routes {error: "sentence"}, newer
                 // commerce/review routes {code: "stable_code"}.
@@ -157,7 +183,7 @@ enum API {
                 }
                 throw APIError.http(http.statusCode, code)
             }
-            return data
+            return (http.statusCode, data)
         }
     }
 
