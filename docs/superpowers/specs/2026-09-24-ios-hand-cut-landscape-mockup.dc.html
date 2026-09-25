@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mark the points, landscape</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div style="{{rootStyle}}">
+
+  <!-- Top bar -->
+  <div style="{{topBarStyle}}">
+    <div style="{{topInnerStyle}}">
+      <sc-if value="{{isScore}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; align-items: center; gap: 10px; flex: none">
+          <span style="font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap"><span style="color: #22d3ee">{{youScore}}</span><span style="color: #52525c"> - </span><span style="color: #f0abfc">{{themScore}}</span></span>
+          <span style="border: 1px solid #262633; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; color: #d4d4d8; font-variant-numeric: tabular-nums">1-0</span>
+          <span style="display: flex; align-items: center; gap: 5px; font-size: 13px; color: #d4d4d8; white-space: nowrap"><span style="width: 7px; height: 7px; border-radius: 999px; background: #f0abfc"></span>Alex serves</span>
+        </div>
+      </sc-if>
+      <sc-if value="{{isCut}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; align-items: baseline; gap: 6px; flex: none">
+          <span style="font-size: 20px; font-weight: 700; color: #e4e4e7; font-variant-numeric: tabular-nums">{{pointCount}}</span>
+          <span style="font-size: 11px; color: #71717b">points</span>
+        </div>
+      </sc-if>
+      <div style="flex-grow: 1; min-width: 0; height: 42px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; overflow: hidden; padding: 0 6px">
+        <sc-if value="{{noChips}}" hint-placeholder-val="{{false}}">
+          <span style="font-size: 12px; color: #71717b; white-space: nowrap">Nothing marked yet.</span>
+        </sc-if>
+        <sc-for list="{{chips}}" as="c" hint-placeholder-count="10">
+          <sc-if value="{{c.isPlus}}" hint-placeholder-val="{{false}}">
+            <button aria-label="Add a rally after this point" style="flex: none; width: 24px; height: 32px; border-radius: 999px; border: 1px dashed #52525c; background: transparent; color: #71717b; display: flex; align-items: center; justify-content: center; padding: 0">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+            </button>
+          </sc-if>
+          <sc-if value="{{c.isChip}}" hint-placeholder-val="{{true}}">
+            <button aria-label="{{c.aria}}" style="{{c.style}}">{{c.n}}<sc-if value="{{c.star}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: 1px; top: -3px; font-size: 9px; color: #ffd230">★</span></sc-if></button>
+          </sc-if>
+        </sc-for>
+      </div>
+      <button style="{{doneStyle}}">Done</button>
+      <button aria-label="Close" style="flex: none; width: 32px; height: 32px; border-radius: 999px; background: #1B1B26; border: none; color: #e4e4e7; display: flex; align-items: center; justify-content: center; padding: 0">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Left rail -->
+  <div style="{{leftRailStyle}}">
+    <sc-for list="{{leftTiles}}" as="t" hint-placeholder-count="3">
+      <button style="{{t.style}}">{{t.label}}</button>
+    </sc-for>
+  </div>
+
+  <!-- Picture -->
+  <div style="{{picStyle}}">
+    <svg width="100%" height="100%" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="display: block">
+      <rect x="0" y="0" width="160" height="46" fill="#22262f"></rect>
+      <rect x="0" y="46" width="160" height="44" fill="#3a2a2c"></rect>
+      <rect x="0" y="40" width="160" height="6" fill="#2b2f39"></rect>
+      <polygon points="36,72 124,72 105,46 55,46" fill="#1d4f8f" stroke="#e8edf5" stroke-width="0.7"></polygon>
+      <line x1="80" y1="72" x2="80" y2="46" stroke="#e8edf5" stroke-width="0.35"></line>
+      <rect x="44" y="55.5" width="72" height="3" fill="#0d0f14" opacity="0.55"></rect>
+      <line x1="44" y1="58.5" x2="116" y2="58.5" stroke="#e8edf5" stroke-width="0.5"></line>
+      <line x1="44" y1="72" x2="44" y2="80" stroke="#15171d" stroke-width="1.2"></line>
+      <line x1="116" y1="72" x2="116" y2="80" stroke="#15171d" stroke-width="1.2"></line>
+      <circle cx="92" cy="30" r="2.6" fill="#11131a"></circle>
+      <rect x="89.2" y="32.6" width="5.6" height="10" rx="1.6" fill="#11131a"></rect>
+      <circle cx="66" cy="70" r="4.4" fill="#0c0d12"></circle>
+      <rect x="60.5" y="74.4" width="11" height="18" rx="3" fill="#0c0d12"></rect>
+      <circle cx="101" cy="41" r="0.9" fill="#fff4d6"></circle>
+    </svg>
+    <sc-if value="{{showGlyph}}" hint-placeholder-val="{{false}}">
+      <div style="position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.15); background: rgba(10,10,15,0.6); display: flex; align-items: center; justify-content: center">
+        <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style="margin-left: 2px"><path d="M8 5v14l11-7z" fill="#f4f4f5"></path></svg>
+      </div>
+    </sc-if>
+    <sc-if value="{{showScrub}}" hint-placeholder-val="{{false}}">
+      <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 44px; background: linear-gradient(rgba(10,10,15,0), rgba(10,10,15,0.85)); display: flex; align-items: center; gap: 10px; padding: 0 14px; box-sizing: border-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="#f4f4f5"></path></svg>
+        <span style="font-size: 11px; color: #d4d4d8; font-variant-numeric: tabular-nums">6:41</span>
+        <div style="flex-grow: 1; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.2); position: relative">
+          <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 38%; border-radius: 999px; background: #22d3ee"></div>
+          <div style="position: absolute; left: 38%; top: -4px; width: 12px; height: 12px; margin-left: -6px; border-radius: 999px; background: #22d3ee"></div>
+        </div>
+        <span style="font-size: 11px; color: #9f9fa9; font-variant-numeric: tabular-nums">17:32</span>
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- Right rail -->
+  <div style="{{rightRailStyle}}">
+    <sc-for list="{{rightTiles}}" as="t" hint-placeholder-count="2">
+      <button style="{{t.style}}">{{t.label}}</button>
+    </sc-for>
+  </div>
+
+  <!-- Bottom bar -->
+  <div style="{{botBarStyle}}">
+    <sc-if value="{{notAdjusting}}" hint-placeholder-val="{{true}}">
+      <div style="{{botGridStyle}}">
+        <sc-for list="{{tools}}" as="t" hint-placeholder-count="8">
+          <button aria-label="{{t.aria}}" style="{{t.style}}">
+            <sc-if value="{{t.isText}}" hint-placeholder-val="{{false}}"><span style="font-size: 13px; font-weight: 700; line-height: 1">{{t.text}}</span></sc-if>
+            <sc-if value="{{t.hasIcon}}" hint-placeholder-val="{{true}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.icon}}"></path></svg></sc-if>
+            <span style="font-size: 10px; font-weight: 500; line-height: 1.1; white-space: nowrap">{{t.label}}</span>
+          </button>
+        </sc-for>
+      </div>
+    </sc-if>
+    <sc-if value="{{isAdjust}}" hint-placeholder-val="{{false}}">
+      <div style="{{rangeRowStyle}}">
+        <span style="width: 22px; font-size: 11px; font-weight: 600; color: #e4e4e7; text-align: center; font-variant-numeric: tabular-nums">7</span>
+        <div style="flex-grow: 1; position: relative; height: 34px">
+          <div style="position: absolute; left: 0; right: 0; top: 14px; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.1)"></div>
+          <div style="position: absolute; left: 30%; width: 32%; top: 14px; height: 6px; background: rgba(34,211,238,0.45)"></div>
+          <div style="position: absolute; left: 44%; top: 11px; width: 12px; height: 12px; margin-left: -6px; border-radius: 999px; background: #22d3ee; box-shadow: 0 0 8px rgba(34,211,238,0.7)"></div>
+          <button aria-label="Start of point" style="position: absolute; left: 30%; top: 1px; width: 36px; height: 32px; margin-left: -18px; background: transparent; border: none; padding: 0">
+            <span style="position: absolute; left: 17px; top: 0; width: 2px; height: 32px; background: #22d3ee"></span>
+            <span style="position: absolute; left: 10px; top: 8px; width: 16px; height: 16px; border-radius: 999px; border: 2px solid #22d3ee; background: #0a0a0f; box-sizing: border-box; box-shadow: 0 0 8px rgba(34,211,238,0.6)"></span>
+          </button>
+          <button aria-label="End of point" style="position: absolute; left: 62%; top: 1px; width: 36px; height: 32px; margin-left: -18px; background: transparent; border: none; padding: 0">
+            <span style="position: absolute; left: 17px; top: 0; width: 2px; height: 32px; background: #22d3ee"></span>
+            <span style="position: absolute; left: 10px; top: 8px; width: 16px; height: 16px; border-radius: 999px; border: 2px solid #22d3ee; background: #0a0a0f; box-sizing: border-box; box-shadow: 0 0 8px rgba(34,211,238,0.6)"></span>
+          </button>
+        </div>
+        <span style="width: 34px; font-size: 10px; color: #9f9fa9; font-variant-numeric: tabular-nums">4.2s</span>
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- First question -->
+  <sc-if value="{{showModeSheet}}" hint-placeholder-val="{{false}}">
+    <div style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(10,10,15,0.7); display: flex; align-items: center; justify-content: center">
+      <div style="width: 384px; border-radius: 16px; border: 1px solid #262633; background: #14141C; padding: 20px; box-sizing: border-box">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #f4f4f5">Cut only, or cut and score?</h2>
+        <p style="margin: 2px 0 0; font-size: 12px; color: #71717b">You can score it later either way.</p>
+        <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px">
+          <button disabled="{{isPractice}}" style="{{scoreOptStyle}}">
+            <span style="display: block; font-size: 14px; font-weight: 600; color: #f4f4f5">Cut and score</span>
+            <span style="display: block; margin-top: 2px; font-size: 12px; color: #71717b">{{scoreOptSub}}</span>
+          </button>
+          <button style="display: block; width: 100%; text-align: left; border-radius: 8px; border: 1px solid #262633; background: rgba(10,10,15,0.4); padding: 12px 16px; font-family: inherit; box-sizing: border-box">
+            <span style="display: block; font-size: 14px; font-weight: 600; color: #f4f4f5">Cut only</span>
+            <span style="display: block; margin-top: 2px; font-size: 12px; color: #71717b">Mark where each rally starts and ends.</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- Who served first -->
+  <sc-if value="{{showServeSheet}}" hint-placeholder-val="{{false}}">
+    <div style="{{serveSheetStyle}}">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #f4f4f5">Who served first?</h2>
+      <p style="margin: 2px 0 0; font-size: 12px; color: #71717b; line-height: 1.4">Sets the serve rotation for the whole match. Play the start if you need to check.</p>
+      <div style="margin-top: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <button style="border-radius: 8px; border: 1px solid #262633; background: rgba(10,10,15,0.4); padding: 12px 16px; font-family: inherit; font-size: 14px; font-weight: 600; color: #d4d4d8">Me</button>
+        <button style="border-radius: 8px; border: 1px solid #262633; background: rgba(10,10,15,0.4); padding: 12px 16px; font-family: inherit; font-size: 14px; font-weight: 600; color: #d4d4d8">Alex</button>
+      </div>
+      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center">
+        <button style="border-radius: 999px; border: 1px solid #262633; background: transparent; padding: 8px 16px; font-family: inherit; font-size: 12px; font-weight: 600; color: #e4e4e7">Play from the start</button>
+        <button style="border-radius: 999px; border: 1px solid #262633; background: transparent; padding: 8px 16px; font-family: inherit; font-size: 12px; color: #9f9fa9">Not sure yet</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- Review sheet -->
+  <sc-if value="{{showReview}}" hint-placeholder-val="{{false}}">
+    <div style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(10,10,15,0.7); display: flex; align-items: center; justify-content: center">
+      <div style="width: 384px; border-radius: 16px; border: 1px solid #262633; background: #14141C; padding: 24px; box-sizing: border-box">
+        <p style="margin: 0; font-size: 18px; font-weight: 600; color: #f4f4f5">11 points marked.</p>
+        <p style="margin: 8px 0 0; font-size: 14px; color: #9f9fa9">1 has no winner yet. You can score it from the match.</p>
+        <p style="margin: 12px 0 0; font-size: 14px; color: #9f9fa9">This match cannot be processed automatically afterwards.</p>
+        <button style="margin-top: 20px; width: 100%; border-radius: 999px; border: none; background: #22d3ee; color: #0a0a0f; padding: 12px; font-family: inherit; font-size: 14px; font-weight: 600; box-shadow: 0 0 0 1px rgba(34,211,238,0.4), 0 0 24px rgba(34,211,238,0.35)">Cut the match</button>
+        <button style="margin-top: 8px; width: 100%; border-radius: 999px; border: 1px solid #262633; background: transparent; color: #e4e4e7; padding: 10px; font-family: inherit; font-size: 14px; font-weight: 600">Keep marking</button>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"st":{"editor":"enum","options":["sheet","practice","serve","gate","choice","idle","open","held","selected","adjust","review"],"default":"open"},"mode":{"editor":"enum","options":["score","cut"],"default":"score"},"layout":{"editor":"enum","options":["A","B"],"default":"A"},"w":{"editor":"int","default":844},"h":{"editor":"int","default":390},"sl":{"editor":"int","default":47},"sr":{"editor":"int","default":47},"sb":{"editor":"int","default":21},"radius":{"editor":"int","default":32},"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var p = this.props;
+    function num(v, d) { var n = Number(v); return (v === undefined || v === null || v === '' || !isFinite(n)) ? d : n; }
+    var w = num(p.w, 844), h = num(p.h, 390), sl = num(p.sl, 47), sr = num(p.sr, 47), sb = num(p.sb, 21), rad = num(p.radius, 32);
+    var mode = p.mode === 'cut' ? 'cut' : 'score';
+    var st = p.st || 'open';
+    var layout = p.layout === 'B' ? 'B' : 'A';
+    var isPractice = st === 'practice';
+    var base = ({ sheet: 'gate', practice: 'gate', serve: 'gate', review: 'idle' })[st] || st;
+
+    var topH = 42, botH = 41, gap = 8;
+    var avail = w - sl - sr - 24;
+    var midH = h - sb - topH - botH;
+    var boxW = Math.min(avail - 192, midH * 16 / 9);
+    var boxH = boxW * 9 / 16;
+    var rail = Math.max(96, (avail - boxW) / 2);
+    var tileW = rail - gap;
+    var x0 = sl + 12;
+    var yMid = topH + (midH - boxH) / 2;
+    var leftX = x0, picX = x0 + rail, rightX = picX + boxW + gap;
+
+    // Chips
+    var score = mode === 'score';
+    var kinds = ['you', 'them', 'you', 'you', 'let', 'them', 'them', 'you', 'none', 'them', 'you'];
+    var stars = { 9: true };
+    var chipBase = 'flex: none; height: 36px; min-width: 36px; width: 36px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-family: inherit; font-size: 13px; font-weight: 600; box-sizing: border-box; position: relative; padding: 0; font-variant-numeric: tabular-nums;';
+    var look = {
+      you: 'border: 1px solid rgba(34,211,238,0.6); background: rgba(34,211,238,0.2); color: #22d3ee;',
+      them: 'border: 1px solid rgba(232,121,249,0.6); background: rgba(232,121,249,0.2); color: #f0abfc;',
+      let: 'border: 1px solid rgba(255,185,0,0.5); background: rgba(255,185,0,0.1); color: rgba(255,210,48,0.9);',
+      none: 'border: 1px dashed #52525c; background: transparent; color: #71717b;',
+      open: 'border: 1px solid #22d3ee; background: rgba(34,211,238,0.1); color: #22d3ee; width: 54px; transform: scale(1.1); box-shadow: 0 0 12px rgba(255,255,255,0.35);'
+    };
+    var words = { you: 'you won', them: 'they won', let: 'let', none: 'not called', open: 'in progress' };
+    var chips = [];
+    var selectedN = (base === 'selected' || base === 'adjust') ? 7 : (base === 'choice' ? 1 : 0);
+    if (base !== 'gate') {
+      for (var i = 0; i < kinds.length; i++) {
+        var n = i + 1;
+        var k = score ? kinds[i] : 'none';
+        var s = chipBase + look[k];
+        var aria = 'Point ' + n + ', ' + words[k];
+        if (n === selectedN && base !== 'choice') {
+          s += ' box-shadow: 0 0 0 2px #22d3ee, 0 0 12px rgba(34,211,238,0.55); transform: scale(1.1);';
+          aria += ', playing';
+        } else if (n === selectedN) {
+          s += ' box-shadow: 0 0 0 2px rgba(255,255,255,0.9);';
+        }
+        chips.push({ isChip: true, isPlus: false, n: n, style: s, aria: aria, star: !!stars[n] });
+        if (n === selectedN && base === 'selected') chips.push({ isChip: false, isPlus: true });
+      }
+      if (base === 'open') chips.push({ isChip: true, isPlus: false, n: 12, style: chipBase + look.open, aria: 'Point 12, in progress', star: false });
+      if (base === 'held') chips.push({ isChip: true, isPlus: false, n: 12, style: chipBase + look.none + ' transform: scale(1.1); box-shadow: 0 0 12px rgba(255,255,255,0.35);', aria: 'Point 12, not called', star: false });
+    }
+    var youScore = 0, themScore = 0;
+    for (var j = 0; j < kinds.length; j++) { if (kinds[j] === 'you') youScore++; if (kinds[j] === 'them') themScore++; }
+
+    // Tiles
+    var bigFs = tileW >= 150 ? 22 : (tileW >= 100 ? 19 : 16);
+    var tileBase = function (hh, fs) {
+      return 'height: ' + hh + 'px; width: 100%; flex: none; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-family: inherit; font-weight: 700; font-size: ' + fs + 'px; line-height: 1.12; text-align: center; padding: 0 8px; box-sizing: border-box;';
+    };
+    var prim = function (label, kind, hh) {
+      var s = tileBase(hh, bigFs);
+      if (kind === 'lit') s += ' background: #22d3ee; color: #0a0a0f; border: 2px solid #22d3ee; box-shadow: 0 0 0 1px rgba(34,211,238,0.4), 0 0 24px rgba(34,211,238,0.35), 0 4px 40px rgba(34,211,238,0.18);';
+      else s += ' background: #1B1B26; color: #d4d4d8; border: 2px solid #262633;' + (kind === 'off' ? ' opacity: 0.35;' : '');
+      return { label: label, style: s };
+    };
+    var ans = function (label, rgb, text, hh, fs, on, pulse) {
+      var s = tileBase(hh, fs) + ' color: ' + text + ';';
+      if (!on) s += ' background: #1B1B26; border: 1px solid rgba(' + rgb + ',0.35); opacity: 0.3;';
+      else s += ' background-color: #1B1B26; background-image: linear-gradient(rgba(' + rgb + ',0.28), rgba(' + rgb + ',0.28)); border: 2px solid rgba(' + rgb + ',0.9); box-shadow: 0 0 16px rgba(' + rgb + ',0.35);' + (pulse ? ' outline: 2px solid rgba(255,255,255,0.6); outline-offset: 2px;' : '');
+      return { label: label, style: s };
+    };
+
+    var half = (boxH - gap) / 2;
+    var pair = {
+      gate: [['Begin Cutting', 'lit', boxH]],
+      choice: [['Keep marking', 'lit', (boxH - gap) * 0.58], ['Review the points', 'unlit', (boxH - gap) * 0.42]],
+      idle: [['Begin Point', 'lit', half], ['End Point', 'off', half]],
+      open: [['Reset', 'unlit', half], ['End Point', 'lit', half]],
+      held: [['Begin Point', 'lit', half], ['End Point', 'off', half]],
+      selected: [['Adjust', 'lit', half], ['Resume', 'unlit', half]],
+      adjust: [['Confirm', 'lit', half], ['Resume', 'off', half]]
+    }[base] || [];
+
+    var leftTiles, rightTiles;
+    var splitB = mode === 'cut' && layout === 'B' && pair.length === 2 && base !== 'choice';
+    if (splitB) {
+      leftTiles = [prim(pair[0][0], pair[0][1], boxH)];
+      rightTiles = [prim(pair[1][0], pair[1][1], boxH)];
+    } else {
+      rightTiles = pair.map(function (q) { return prim(q[0], q[1], q[2]); });
+      var on = score && (base === 'held' || base === 'selected' || base === 'adjust');
+      var letH = 44;
+      var aH = (boxH - 2 * gap - letH) / 2;
+      var aFs = tileW >= 150 ? 30 : (tileW >= 100 ? 26 : 22);
+      leftTiles = [
+        ans('Me', '34,211,238', '#22d3ee', aH, aFs, on, base === 'held'),
+        ans('Alex', '232,121,249', '#f0abfc', aH, aFs, on, base === 'held'),
+        ans('Let', '255,185,0', '#ffd230', letH, 17, on, base === 'held')
+      ];
+    }
+
+    // Bottom tools
+    var toolBase = 'height: 34px; min-width: 0; border-radius: 9px; background: #1B1B26; border: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #e4e4e7; font-family: inherit; padding: 0 2px;';
+    var off = ' opacity: 0.35;';
+    var started = base !== 'gate' && base !== 'choice';
+    var sel = base === 'selected' || base === 'adjust';
+    var tool = function (label, icon, enabled, extra, text) {
+      return { label: label, aria: label, icon: icon || '', hasIcon: !!icon, isText: !!text, text: text || '', style: toolBase + (enabled ? '' : off) + (extra || '') };
+    };
+    var ICON = {
+      back: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5',
+      fwd: 'M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5',
+      prev: 'M15 18l-6-6 6-6',
+      next: 'M9 18l6-6-6-6',
+      undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
+      star: 'M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z',
+      again: 'M4 12a8 8 0 0 1 14-5.3M20 4v4h-4M20 12a8 8 0 0 1-14 5.3M4 20v-4h4',
+      remove: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+      toggle: 'M8 7h8a5 5 0 0 1 0 10H8A5 5 0 0 1 8 7zM16 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z'
+    };
+    var tools = [
+      sel ? tool('Prev', ICON.prev, true) : tool('−5s', ICON.back, true),
+      tool('Undo', ICON.undo, started),
+      tool('Speed', '', true, '', '1.5x'),
+      tool('Star', ICON.star, started),
+      tool('Mark again', ICON.again, sel),
+      tool('Remove', ICON.remove, sel),
+      tool(score ? 'Stop scoring' : 'Score them too', ICON.toggle, started),
+      sel ? tool('Next', ICON.next, true) : tool('+5s', ICON.fwd, true)
+    ];
+
+    return {
+      rootStyle: 'width: ' + w + 'px; height: ' + h + 'px; position: relative; overflow: hidden; background: #000; border-radius: ' + rad + 'px; font-family: Geist, -apple-system, system-ui, sans-serif; color: #e4e4e7;',
+      topBarStyle: 'position: absolute; left: 0; top: 0; width: ' + w + 'px; height: ' + topH + 'px; background: #14141C; border-bottom: 1px solid #262633; box-sizing: border-box;',
+      topInnerStyle: 'position: absolute; left: ' + x0 + 'px; width: ' + avail + 'px; top: 0; height: ' + topH + 'px; display: flex; align-items: center; gap: 10px;',
+      leftRailStyle: 'position: absolute; left: ' + leftX + 'px; top: ' + yMid + 'px; width: ' + tileW + 'px; height: ' + boxH + 'px; display: flex; flex-direction: column; gap: ' + gap + 'px;',
+      rightRailStyle: 'position: absolute; left: ' + rightX + 'px; top: ' + yMid + 'px; width: ' + tileW + 'px; height: ' + boxH + 'px; display: flex; flex-direction: column; gap: ' + gap + 'px;',
+      picStyle: 'position: absolute; left: ' + picX + 'px; top: ' + yMid + 'px; width: ' + boxW + 'px; height: ' + boxH + 'px; border-radius: 8px; overflow: hidden; background: #111;',
+      botBarStyle: 'position: absolute; left: 0; top: ' + (topH + midH) + 'px; width: ' + w + 'px; height: ' + (botH + sb) + 'px; background: #14141C; border-top: 1px solid #262633; box-sizing: border-box;',
+      botGridStyle: 'position: absolute; left: ' + x0 + 'px; width: ' + avail + 'px; top: 3px; height: 34px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px;',
+      rangeRowStyle: 'position: absolute; left: ' + x0 + 'px; width: ' + avail + 'px; top: 3px; height: 34px; display: flex; align-items: center; gap: 10px;',
+      serveSheetStyle: 'position: absolute; left: ' + (picX + (boxW - 384) / 2) + 'px; bottom: ' + (botH + sb + 10) + 'px; width: 384px; border-radius: 16px; border: 1px solid #262633; background: #14141C; padding: 20px; box-sizing: border-box; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);',
+      doneStyle: 'flex: none; border-radius: 999px; border: 1px solid #262633; background: transparent; padding: 7px 14px; font-family: inherit; font-size: 12px; font-weight: 600; color: #e4e4e7;' + (base === 'gate' ? ' opacity: 0.4;' : ''),
+      scoreOptStyle: 'display: block; width: 100%; text-align: left; border-radius: 8px; border: 1px solid #262633; background: rgba(10,10,15,0.4); padding: 12px 16px; font-family: inherit; box-sizing: border-box;' + (isPractice ? ' opacity: 0.4;' : ''),
+      scoreOptSub: isPractice ? 'Matches only' : 'Say who won each point as you go.',
+      isPractice: isPractice,
+      isScore: score,
+      isCut: !score,
+      youScore: youScore,
+      themScore: themScore,
+      pointCount: base === 'gate' ? 0 : 11,
+      noChips: chips.length === 0,
+      chips: chips,
+      leftTiles: leftTiles,
+      rightTiles: rightTiles,
+      tools: tools,
+      isAdjust: base === 'adjust',
+      notAdjusting: base !== 'adjust',
+      showGlyph: base === 'held' || base === 'gate',
+      showScrub: base === 'selected',
+      showModeSheet: st === 'sheet' || st === 'practice',
+      showServeSheet: st === 'serve',
+      showReview: st === 'review'
+    };
+  }
+}
+</script>
+</body>
+</html>
