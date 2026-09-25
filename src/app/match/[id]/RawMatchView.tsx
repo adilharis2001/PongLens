@@ -42,15 +42,15 @@ import { MatchFeedbackLink } from "./feedback/MatchFeedback";
 import { MarkPoints } from "./MarkPoints";
 import { handCutClaimError, openingMode, submittable, type CutMode, type Mark } from "./handCut";
 import {
-  AccordionRow,
   AutoProcessPanel,
   ExpandChevron,
   MarkYourselfPanel,
   ProcessingProgress,
+  WayChoice,
   postProcess,
   useProcessQuote,
 } from "./BreakIntoPoints";
-import { processErrorMessage } from "./recut/recutView";
+import { processErrorMessage, wayChoiceView, type RecutWay } from "./recut/recutView";
 import { useHandCutDraft } from "./useHandCutDraft";
 import { userFirstServerUpdate } from "./matchStructure";
 import type { MatchServer } from "./serving";
@@ -140,25 +140,11 @@ export function RawMatchView({
     match.status === "failed"
       || (initialJob?.kind === "hand_cut" && initialJob.status === "failed"),
   );
-  /** Which of the two ways is open. Neither, until the reader picks one:
-   *  the card's job is to show that there IS a choice. One at a time:
-   *  each ends in a cyan button, and two primaries open together leave the
-   *  reader to work out which is meant, so opening one closes the other
-   *  (More options does the same). A hand cut that failed opens its own
-   *  row, because its marks and the way back into them are the point. */
-  const [autoOpen, setAutoOpen] = useState(false);
-  const [handOpen, setHandOpen] = useState(
-    initialJob?.kind === "hand_cut" && initialJob.status === "failed",
-  );
-  const toggleWay = (way: "automatic" | "hand") => {
-    if (way === "automatic") {
-      setAutoOpen(!autoOpen);
-      if (!autoOpen) setHandOpen(false);
-    } else {
-      setHandOpen(!handOpen);
-      if (!handOpen) setAutoOpen(false);
-    }
-  };
+  /** The way the player picked in the pick-one group, if any. Until they
+   *  pick, wayChoiceView selects one (Automatically, or Mark the points
+   *  yourself when there are marks to go back to: a hand cut that failed
+   *  keeps its marks, so it lands there). Local state only. */
+  const [pickedWay, setPickedWay] = useState<RecutWay | null>(null);
   /** The hand-marking takeover, and whatever marking is already done. */
   const [marking, setMarking] = useState(false);
   /**
@@ -189,6 +175,16 @@ export function RawMatchView({
   const spokenRows = cleanSpoken(match.spoken_scores);
   /** The browser refused the raw file (usually HEVC in a .mov). */
   const [undecodable, setUndecodable] = useState(false);
+  // The two ways: Automatically always here (the card shows only where
+  // processing is sold), marking by hand where the account has it. Its row
+  // greys when this browser has no picture to mark on.
+  const ways = wayChoiceView({
+    automatic: true,
+    hand: handCutEnabled && handCutReady,
+    handDisabled: !rawUrl || undecodable,
+    markedCount: draftCount,
+    picked: pickedWay,
+  });
 
   /**
    * The file behind this row is gone for good, which today means the
@@ -768,21 +764,32 @@ export function RawMatchView({
 
           {processOpen && (
           <div className="border-t border-edge/60">
-          {/* Two ways to do this, stated as two rows rather than hidden
-              behind a setting. The automatic one carries the price and the
-              trim, because a charge is computed from the window it will
-              process; marking by hand has neither, so offering a trim there
-              would be a control that changes nothing. Both rows and what
-              they open are shared with a processed match's More options
-              (BreakIntoPoints), so the two places cannot drift. */}
-          <AccordionRow
-            title="Automatically"
-            detail="We find the rallies and cut them for you."
-            trailing={charge != null ? `${charge} min` : null}
-            open={autoOpen}
-            onToggle={() => toggleWay("automatic")}
-          />
-          {autoOpen && (
+          {/* Two ways to do this, as one pick-one group (Adil, 2026-09-25,
+              option A), with only the selected way's content under it. The
+              automatic one carries the price and the trim, because a charge
+              is computed from the window it will process; marking by hand
+              has neither, so offering a trim there would be a control that
+              changes nothing. Nothing about marking is priced, and it never
+              says so: "Free" read as a sales line beside a row that is
+              simply another way to do it. The group, the rows and what they
+              show are shared with a processed match's More options
+              (BreakIntoPoints), so the two places cannot drift. An account
+              without marking by hand has one way and sees no group, only
+              the automatic content. */}
+          {ways.group && ways.selected && (
+            <WayChoice
+              className="px-5 pt-5"
+              label="Break it into points"
+              selected={ways.selected}
+              onSelect={setPickedWay}
+              trailing={{
+                automatic: charge != null ? `${charge} min` : null,
+                hand: draftCount > 0 ? `${draftCount} marked` : null,
+              }}
+              handDisabled={!rawUrl || undecodable}
+            />
+          )}
+          {ways.selected === "automatic" && (
             <AutoProcessPanel
               quote={quote}
               onProcess={() => void process()}
@@ -791,25 +798,7 @@ export function RawMatchView({
               onBalanceChecked={() => setError(null)}
             />
           )}
-          {/* Desktop web and mobile web, on an unprocessed match. The same
-              accordion row as "Automatically": it opens in place on the
-              choice that matters before marking (the Score switch) and the
-              button that starts, rather than dropping straight into the
-              marker. Nothing here is priced, and it never says so: "Free"
-              read as a sales line beside a row that is simply another way
-              to do it. */}
-          {handCutEnabled && handCutReady && (
-          <>
-          <AccordionRow
-            bordered
-            title="Mark the points yourself"
-            detail="You mark where each point starts and ends."
-            trailing={draftCount > 0 ? `${draftCount} marked` : null}
-            open={handOpen && !!rawUrl && !undecodable}
-            onToggle={() => toggleWay("hand")}
-            disabled={!rawUrl || undecodable}
-          />
-          {handOpen && rawUrl && !undecodable && (
+          {ways.selected === "hand" && (
             <MarkYourselfPanel
               mode={markMode}
               scoringAllowed={markScoringAllowed}
@@ -818,8 +807,6 @@ export function RawMatchView({
               opening={openingMarker}
               onStart={() => void openMarker()}
             />
-          )}
-          </>
           )}
           </div>
           )}
