@@ -8,6 +8,7 @@ import { SectionHeading } from "@/components/SectionHeading";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { failedHandCutMatchIds, matchDisplayStatus } from "@/lib/primaryMatchJob";
 import type { Job, SharedPlayer } from "@/lib/types";
 import { formatClock } from "@/lib/commerce/minutes";
 import { deriveMatchTitle, deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
@@ -142,6 +143,8 @@ export function MatchLibrary({
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const processingFeedback = useProcessingFeedback((matches ?? []).filter((m) => m.user_id === userId).map((m) => m.id));
   const [jobs, setJobs] = useState<Job[] | null>(null);
+  /** Matches whose latest hand cut failed; they wear Failed and filter as failed. */
+  const [failedHandCuts, setFailedHandCuts] = useState<Set<string>>(new Set());
   const [sharedPlayers, setSharedPlayers] = useState<SharedPlayer[]>([]);
   // Points are fetched per visible card (see chipTargets), so they're held
   // by match id: "Show more" merges the new page in rather than replacing
@@ -179,7 +182,7 @@ export function MatchLibrary({
     // Notes come back id-less (match_id only) purely for the per-card count.
     // Point rows are NOT here: they're the one payload that grows with the
     // library, so they load per visible card in their own effect below.
-    const [matchRes, jobRes, playersRes, noteRows, reelRes] =
+    const [matchRes, jobRes, playersRes, noteRows, reelRes, handCutRes] =
       await Promise.all([
         supabase
           .from("matches")
@@ -211,8 +214,29 @@ export function MatchLibrary({
           "notes"
         ),
         supabase.from("match_reels").select("match_id, status"),
+        // Hand cuts, finished ones included: a failed hand cut puts its
+        // match back to 'uploaded', and the job is the only record that it
+        // failed. Only accounts that can hand cut have any, so this is a
+        // handful of rows.
+        supabase
+          .from("jobs")
+          .select("kind, status, options, created_at")
+          .eq("kind", "hand_cut")
+          .order("created_at", { ascending: false }),
       ]);
     if (matchRes.data) setMatches(matchRes.data as MatchRow[]);
+    if (handCutRes.data) {
+      setFailedHandCuts(
+        failedHandCutMatchIds(
+          handCutRes.data as {
+            kind: string;
+            status: string;
+            created_at: string;
+            options: { match_id?: string | null } | null;
+          }[],
+        ),
+      );
+    }
     if (jobRes.data) setJobs(jobRes.data as Job[]);
     if (playersRes.data) setSharedPlayers(playersRes.data as SharedPlayer[]);
     {
@@ -341,7 +365,12 @@ export function MatchLibrary({
         .filter(
           (m) =>
             matchesQuery(m) &&
-            (statusFilter === "all" || m.status === statusFilter) &&
+            (statusFilter === "all" ||
+              matchDisplayStatus(
+                m.status,
+                liveJobFor(m.id, m.job_id, jobs) !== null,
+                failedHandCuts.has(m.id),
+              ) === statusFilter) &&
             (typeFilter === "all" || m.match_type === typeFilter)
         )
         .sort((a, b) =>
@@ -349,7 +378,7 @@ export function MatchLibrary({
             ? b.played_at.localeCompare(a.played_at)
             : b.created_at.localeCompare(a.created_at)
         ),
-    [matchesQuery, statusFilter, typeFilter, sort]
+    [matchesQuery, statusFilter, typeFilter, sort, jobs, failedHandCuts]
   );
 
   const applyScoreFilter = useCallback(
@@ -732,7 +761,7 @@ export function MatchLibrary({
     const live = liveJobFor(m.id, m.job_id, jobs);
     const job = live ?? (m.job_id ? jobById.get(m.job_id) : undefined);
     const processing = m.status === "processing" || live != null;
-    const s = chipForMatch(m.status, live);
+    const s = chipForMatch(m.status, live, failedHandCuts.has(m.id));
     const chip = scoreChipByMatch.get(m.id);
     const notes = noteCounts.get(m.id) ?? 0;
     const parts = isSampleMatch(m)

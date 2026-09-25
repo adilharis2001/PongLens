@@ -1111,10 +1111,9 @@ struct MatchDetailScreen: View {
                             pointsSection(proxy: proxy)
                             // One section: the serve maps are cards of the
                             // analysis deck now, so a practice with maps gets
-                            // the section too, holding just those.
-                            if tracksServe || showPlacementAggregate || current.cutSource != "manual" {
-                                analysisSection(coachView: !isOwner)
-                            }
+                            // the section too, holding just those. A hand-cut
+                            // match gets the same deck as an automatic one.
+                            analysisSection(coachView: !isOwner)
                             overallNotesSection
                         } else {
                             rawSection(proxy: proxy)
@@ -1157,8 +1156,9 @@ struct MatchDetailScreen: View {
             if match.status != .ready {
                 await model.loadRawState(match, isOwner: isOwner)
                 // A failed match opens itself: the reason and the retry
-                // are why anyone is on this screen.
-                if match.status == .failed { processOpen = true }
+                // are why anyone is on this screen. A failed hand cut too,
+                // as on the web.
+                if match.status == .failed || handCutFailed { processOpen = true }
                 watchKick += 1
             }
             if let pointId = openPointId,
@@ -1655,7 +1655,8 @@ struct MatchDetailScreen: View {
                 stageLabel: model.processingFeedback?.stageLabel,
                 warning: model.processingFeedback?.cameraWarning(trimStart: trimStart, trimEnd: trimEnd ?? .infinity),
                 progress: model.job?.progress,
-                sendsReadyEmail: (model.processingFeedback?.jobKind ?? model.job?.kind) == "deadspace_cut",
+                // A hand cut ends in the same ready email as an automatic cut.
+                sendsReadyEmail: ["deadspace_cut", "hand_cut"].contains(model.processingFeedback?.jobKind ?? model.job?.kind ?? ""),
                 estimate: model.processingFeedback?.estimate,
                 jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
                 serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: model.processingFeedback?.jobKind ?? model.job?.kind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue
@@ -1672,6 +1673,7 @@ struct MatchDetailScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .plCard()
         } else if isOwner {
+            if handCutFailed { handCutFailedCard }
             processCard
         }
 
@@ -1693,6 +1695,50 @@ struct MatchDetailScreen: View {
         // Notes were the invisible half of the raw player: its note button
         // saved a real match note, and this page had nowhere to show it.
         overallNotesSection
+    }
+
+    /// The latest hand cut on this match died for good. The worker hands
+    /// the marks back and puts the match back to 'uploaded', so nothing
+    /// else on this page says anything went wrong; the job does. The web's
+    /// handCutFailed in RawMatchView.
+    private var handCutFailed: Bool {
+        model.job?.kind == "hand_cut" && model.job?.status == "failed"
+    }
+
+    /// HOOK for the iPhone marker (spec 2026-09-24, section 3): opens the
+    /// owner's saved marks again after a failed hand cut, so they can check
+    /// them and send them again. Nil until that work lands and sets it; the
+    /// failure card then carries the web's own entry label. Until then the
+    /// card states the failure and the marks stay safe on the server.
+    private var reopenHandCutMarks: (() -> Void)? { nil }
+
+    /// A hand cut that did not finish, worded exactly as the web's raw page.
+    private var handCutFailedCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Marked by hand")
+                .font(.plCardTitle)
+                .foregroundStyle(PL.text100)
+            Text(model.job?.userMessage ?? "The cut didn't finish.")
+                .font(.plBody)
+                .foregroundStyle(PL.text300)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Your marks are saved. Open them, check them and send them again.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+                .fixedSize(horizontal: false, vertical: true)
+            if let reopenHandCutMarks {
+                Button(action: reopenHandCutMarks) {
+                    Text("Mark the points yourself")
+                        .font(.plButton)
+                        .foregroundStyle(PL.ink)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .background(PL.cyan, in: Capsule())
+                .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard()
     }
 
     private var processingAvailabilityNotice: ProcessingAvailabilityNotice? {
@@ -2049,7 +2095,16 @@ struct MatchDetailScreen: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                             pointSheetOpen = true
                         }
-                    }
+                    },
+                    // The same write the pad's first-server sheet makes, then
+                    // the row is read again so the rotation and the card follow.
+                    onSetFirstServer: isOwner
+                        ? { value in
+                            let saved = await model.setFirstServer(matchId: current.id, value: value)
+                            if saved { await refreshMatch(refreshLibrary: true) }
+                            return saved
+                        }
+                        : nil
                 )
             )
         }

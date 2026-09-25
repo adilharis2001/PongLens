@@ -8,6 +8,9 @@ final class LibraryStore {
     var matches: [MatchRow] = []
     var activeJobs: [JobRow] = []
     var processingFeedback: [UUID: MatchProcessingFeedback] = [:]
+    /// Matches whose latest hand cut failed (lowercased ids). They wear
+    /// Failed and filter as failed, like an automatic failure.
+    var failedHandCuts: Set<String> = []
     var loaded = false
     var lastError: String?
 
@@ -48,6 +51,16 @@ final class LibraryStore {
             ($0.kind == "deadspace_cut" || $0.kind == "hand_cut" || $0.kind == "youtube_import")
                 && $0.options?.matchId?.lowercased() == id
         }
+    }
+
+    /// A hand cut that failed and put its match back to 'uploaded'.
+    func handCutFailed(_ match: MatchRow) -> Bool {
+        failedHandCuts.contains(match.id.uuidString.lowercased())
+    }
+
+    /// The status the card shows and the library filters on.
+    func displayStatus(for match: MatchRow) -> MatchStatus {
+        match.displayStatus(hasLiveJob: liveJob(for: match) != nil, handCutFailed: handCutFailed(match))
     }
 
     /// Deletes through /api/delete-match, never straight through PostgREST.
@@ -91,6 +104,17 @@ final class LibraryStore {
             matches = m
             activeJobs = j
             lastError = nil
+            // Hand cuts, finished ones included: a failed hand cut puts its
+            // match back to 'uploaded', and the job is the only record that
+            // it failed. Only accounts that can hand cut have any.
+            let handCuts: [JobRow]? = try? await supa
+                .from("jobs")
+                .select("id,status,kind,progress,original_name,options,created_at")
+                .eq("kind", value: "hand_cut")
+                .order("created_at", ascending: false)
+                .execute()
+                .value
+            if let handCuts { failedHandCuts = JobRow.failedHandCutMatchIds(handCuts) }
             struct FeedbackRequest: Encodable { let p_match_ids: [UUID] }
             let ownMatches = supa.auth.currentUser.map { user in m.filter { $0.userId == user.id } } ?? []
             let feedback: [MatchProcessingFeedback]? = try? await supa

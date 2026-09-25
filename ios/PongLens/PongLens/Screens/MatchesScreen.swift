@@ -103,9 +103,10 @@ struct MatchesScreen: View {
         switch statusFilter {
         case .all: break
         case .ready: list = list.filter { $0.status == .ready }
-        case .notProcessed: list = list.filter { $0.status == .uploaded }
+        // A hand cut that failed filters as failed, not as untouched.
+        case .notProcessed: list = list.filter { library.displayStatus(for: $0) == .uploaded }
         case .processing: list = list.filter { $0.status == .processing }
-        case .failed: list = list.filter { $0.status == .failed }
+        case .failed: list = list.filter { library.displayStatus(for: $0) == .failed }
         }
 
         if typeFilter != .any {
@@ -321,6 +322,7 @@ struct MatchesScreen: View {
                             match: match,
                             score: scores.scores[match.id],
                             liveJob: library.liveJob(for: match),
+                            handCutFailed: library.handCutFailed(match),
                             processingLabel: library.processingLabel(for: match),
                             processingUnavailable: library.availabilityNotice(for: match) != nil,
                             processingFeedback: owned ? library.processingFeedback[match.id] : nil,

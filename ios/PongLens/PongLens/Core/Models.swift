@@ -558,6 +558,39 @@ struct JobRow: Codable, Identifiable, Hashable {
     }
 }
 
+extension JobRow {
+    /// Matches whose latest primary job is a hand cut that failed for good.
+    ///
+    /// A terminal hand-cut failure hands the marks back and puts the match
+    /// row back as it was: status 'uploaded', job_id nil. Nothing on the row
+    /// says anything went wrong, so read by its status alone the match looks
+    /// like an untouched upload. The job is the only record. `jobs` newest
+    /// first, as every jobs query in the app orders them; with only hand
+    /// cuts in the list, the latest hand cut stands for the latest primary
+    /// job. The web's failedHandCutMatchIds in src/lib/primaryMatchJob.ts.
+    static func failedHandCutMatchIds(_ jobs: [JobRow]) -> Set<String> {
+        let primary: Set<String> = ["deadspace_cut", "youtube_import", "hand_cut"]
+        var seen = Set<String>()
+        var failed = Set<String>()
+        for job in jobs where primary.contains(job.kind) {
+            guard let id = job.options?.matchId?.lowercased(), !seen.contains(id) else { continue }
+            seen.insert(id)
+            if job.kind == "hand_cut" && job.status == "failed" { failed.insert(id) }
+        }
+        return failed
+    }
+}
+
+extension MatchRow {
+    /// The status a match card shows and the library filters on: a match
+    /// back at 'uploaded' after its hand cut failed reads as failed, exactly
+    /// like an automatic failure, unless a job is working on it again. The
+    /// web's matchDisplayStatus.
+    func displayStatus(hasLiveJob: Bool, handCutFailed: Bool) -> MatchStatus {
+        status == .uploaded && !hasLiveJob && handCutFailed ? .failed : status
+    }
+}
+
 struct NoteRow: Codable, Identifiable, Hashable {
     let id: UUID
     let matchId: UUID

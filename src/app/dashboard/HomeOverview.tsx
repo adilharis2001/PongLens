@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CameraGuide } from "@/components/CameraGuide";
 import { TitleRow, UploadAction } from "@/components/Fab";
 import { createClient } from "@/lib/supabase/client";
+import { failedHandCutMatchIds } from "@/lib/primaryMatchJob";
 import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
@@ -324,6 +325,9 @@ export function HomeOverview({
   );
   const matchById = new Map((matches ?? []).map((m) => [m.id, m]));
   const jobById = new Map((jobs ?? []).map((j) => [j.id, j]));
+  // Home holds the job history, so a hand cut that failed and put its
+  // match back to 'uploaded' is found here and wears Failed.
+  const failedHandCuts = failedHandCutMatchIds(jobs);
 
   // Jobs that asked for points but whose match row doesn't exist yet are
   // the "currently processing" signal alongside processing match rows.
@@ -600,7 +604,7 @@ export function HomeOverview({
               // match whose job was already running showed "Not processed"
               // directly under a banner saying it was processing.
               const live = liveJobFor(m.id, m.job_id, jobs);
-              const s = chipForMatch(m.status, live);
+              const s = chipForMatch(m.status, live, failedHandCuts.has(m.id));
               const count = m.points?.[0]?.count ?? 0;
               const job = live ?? (m.job_id ? jobById.get(m.job_id) : undefined);
               const bits: string[] = [formatDate(m.played_at)];

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { selectPrimaryMatchJob } from "./primaryMatchJob.ts";
+import {
+  failedHandCutMatchIds,
+  matchDisplayStatus,
+  selectPrimaryMatchJob,
+} from "./primaryMatchJob.ts";
 
 type Job = {
   id: string;
@@ -71,4 +75,39 @@ test("derived jobs cannot become the match's primary processing status", () => {
 
 test("an empty list has no primary match job", () => {
   assert.equal(selectPrimaryMatchJob<Job>([]), null);
+});
+
+const forMatch = (matchId: string, kind: string, status: string, created_at: string) => ({
+  kind,
+  status,
+  created_at,
+  options: { match_id: matchId },
+});
+
+test("a match whose latest primary job is a failed hand cut is found", () => {
+  const failed = failedHandCutMatchIds([
+    forMatch("a", "hand_cut", "failed", "2026-09-24T10:00:00Z"),
+    // Sent again and it worked: not failed any more.
+    forMatch("b", "hand_cut", "failed", "2026-09-24T10:00:00Z"),
+    forMatch("b", "hand_cut", "done", "2026-09-24T11:00:00Z"),
+    // Processed automatically after the hand cut failed.
+    forMatch("c", "hand_cut", "failed", "2026-09-24T10:00:00Z"),
+    forMatch("c", "deadspace_cut", "queued", "2026-09-24T11:00:00Z"),
+    // An automatic failure is the match row's own business.
+    forMatch("d", "deadspace_cut", "failed", "2026-09-24T10:00:00Z"),
+    // Housekeeping after the failure does not hide it.
+    forMatch("e", "hand_cut", "failed", "2026-09-24T10:00:00Z"),
+    forMatch("e", "content_check", "done", "2026-09-24T11:00:00Z"),
+    forMatch("e", "reclip", "done", "2026-09-24T12:00:00Z"),
+  ]);
+  assert.deepEqual([...failed].sort(), ["a", "e"]);
+  assert.equal(failedHandCutMatchIds(null).size, 0);
+});
+
+test("a failed hand cut reads as failed only while the match sits at uploaded with nothing running", () => {
+  assert.equal(matchDisplayStatus("uploaded", false, true), "failed");
+  assert.equal(matchDisplayStatus("uploaded", true, true), "uploaded");
+  assert.equal(matchDisplayStatus("uploaded", false, false), "uploaded");
+  assert.equal(matchDisplayStatus("ready", false, true), "ready");
+  assert.equal(matchDisplayStatus("processing", false, true), "processing");
 });
