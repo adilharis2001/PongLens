@@ -29,7 +29,18 @@ import type { Side } from "@/app/match/[id]/sides";
 import type { MatchServer } from "@/app/match/[id]/serving";
 import { userFirstServerUpdate } from "@/app/match/[id]/matchStructure";
 import { FirstServerPicker } from "@/components/FirstServerPicker";
+import { WayChoice } from "@/app/match/[id]/BreakIntoPoints";
 import { NameCombobox } from "./NameCombobox";
+import {
+  DEFAULT_UPLOAD_CHOICE,
+  selectedUploadChoice,
+  type UploadChoice,
+  uploadChoicePlan,
+  uploadChoiceRows,
+  uploadLanding,
+  uploadProcessBody,
+  uploadedMatchHref,
+} from "./uploadChoice";
 import {
   PENDING_BEAT_MS,
   PENDING_EXPIRY_MS,
@@ -370,10 +381,14 @@ export function UploadCard({
   commerceEnabled = false,
   uploadConfirmed = true,
   orderId = null,
+  handCutEnabled = false,
 }: {
   userId: string;
   // 096: uploads become library rows instead of enqueuing processing.
   commerceEnabled?: boolean;
+  // hand_cut_enabled for this account, the check the match page makes:
+  // "Mark the points yourself" is offered only where it is true.
+  handCutEnabled?: boolean;
   // player_profiles.upload_confirmed_at is set. False shows the one-time
   // checkbox above the button and keeps the button off until it is
   // ticked (new accounts only; existing rows were backfilled).
@@ -399,7 +414,7 @@ export function UploadCard({
   const libraryMatchIdRef = useRef<string | null>(null);
   const durationRef = useRef<number | null>(null);
   // What happens when the upload lands, and whether it has been asked
-  // for. The toggle is the "what"; the button below is the "when", and
+  // for. The choice is the "what"; the button below is the "when", and
   // nothing is spent without it.
   //
   // The claim used to fire on the last byte, which made the upload
@@ -418,9 +433,17 @@ export function UploadCard({
   // watchable. Anyone who wants the old behaviour turns it on before the
   // upload finishes, and the button under it says which one they are
   // getting: "Process video" or "Save video in library".
-  const [autoProcess, setAutoProcess] = useState(false);
-  const autoProcessRef = useRef(false);
-  autoProcessRef.current = autoProcess;
+  //
+  // The switch became a pick-one choice (2026-09-25, uploadChoice.ts):
+  // Later is the switch off, Automatically is the switch on, and Mark the
+  // points yourself is off plus the marker opening when the upload lands.
+  // Later every time, never remembered.
+  const [choice, setChoice] = useState<UploadChoice>(DEFAULT_UPLOAD_CHOICE);
+  const selectedChoice = selectedUploadChoice(choice, handCutEnabled);
+  const autoProcess = uploadChoicePlan(selectedChoice).autoProcess;
+  // Read by the upload-success handler, which is built once.
+  const selectedChoiceRef = useRef<UploadChoice>(DEFAULT_UPLOAD_CHOICE);
+  selectedChoiceRef.current = selectedChoice;
   // Trim, decided here rather than after the fact. The browser can play
   // the picked file straight off disk, so the whole video is scrubbable
   // before a byte moves — the same trick the side picker already uses —
@@ -835,19 +858,8 @@ export function UploadCard({
       const res = await fetch("/api/process", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          matchId,
-          placement: true,
-          // Only when they actually moved a handle. Sending the full
-          // window would be the same charge, but the job would then
-          // record a trim nobody asked for.
-          ...(trimRef.current
-            ? {
-                trimStartS: trimRef.current.start,
-                trimEndS: trimRef.current.end,
-              }
-            : {}),
-        }),
+        // The trim only when they actually moved a handle.
+        body: JSON.stringify(uploadProcessBody(matchId, trimRef.current)),
       });
       const data = await res.json().catch(() => null);
       if (res.ok) {
@@ -1093,14 +1105,28 @@ export function UploadCard({
           // Anything typed or tapped between the completion payload going
           // out and the row id coming back was written to a match that did
           // not exist yet. Now that it does, put the form on it.
-          if (matchId) void persistMatchDetails();
+          const saved = matchId ? persistMatchDetails() : Promise.resolve();
           // The press is what spends the minutes, not the last byte. Given
           // early it carries over to here; not given, the video simply
           // waits in the library with the button still on screen.
-          if (committedRef.current && autoProcessRef.current && !orderId) {
+          const landing = uploadLanding({
+            choice: selectedChoiceRef.current,
+            committed: committedRef.current,
+            orderId,
+            matchId,
+          });
+          if (landing.kind === "process") {
             void claimRef.current();
           } else {
             setAutoState("manual");
+            // "Mark the points yourself": nothing is processed, and the
+            // player goes straight to the marker once the details are on
+            // the row, so the match page opens with them.
+            if (landing.kind === "marker") {
+              void saved
+                .catch(() => undefined)
+                .then(() => router.push(landing.href));
+            }
           }
           return;
         }
@@ -1301,6 +1327,8 @@ export function UploadCard({
     setProbePoster(null);
     setCommitted(false);
     committedRef.current = false;
+    // Each upload starts on Later.
+    setChoice(DEFAULT_UPLOAD_CHOICE);
     setTrimOpen(false);
     setTrimStart(0);
     setTrimEnd(null);
@@ -1415,6 +1443,8 @@ export function UploadCard({
     setProbePoster(null);
     setCommitted(false);
     committedRef.current = false;
+    // "Upload another" starts on Later, like the first.
+    setChoice(DEFAULT_UPLOAD_CHOICE);
     setTrimOpen(false);
     setTrimStart(0);
     setTrimEnd(null);
@@ -1651,37 +1681,37 @@ export function UploadCard({
 
   const processOptions =
     commerceEnabled && !orderId && autoState !== "started" ? (
-      /* Locked once the press is given: a decision that keeps quietly
-         editing itself is how the trim race happened in the first place.
-         "Not yet" is the way back, and it is in the row beside it. */
-      <div className="mt-6 divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40">
-          <div className="flex items-center justify-between gap-4 p-3.5">
-            <div className="min-w-0">
-              <p className="text-sm text-zinc-200">
-                Process when the upload finishes
-              </p>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                {quote != null
-                  ? `Uses ${formatMinutes(quote)} of your balance.`
-                  : "Its length in minutes comes off your balance."}
-              </p>
-            </div>
-            <Toggle
-              on={autoProcess}
-              onChange={setAutoProcess}
-              disabled={committed}
-              label="Process when the upload finishes"
-            />
-          </div>
+      /* "Break it into points": Later, Automatically, and Mark the points
+         yourself where the account has it, as the same pick-one group the
+         match page uses (WayChoice), so the choice reads the same before
+         and after the upload (Adil, 2026-09-25). It replaced the "Process
+         when the upload finishes" switch; uploadChoice.ts says what each
+         row does when the upload lands.
 
-          {/* Trim, in the block that already carries the cost, because
-            trimming is a cost decision. Closed by default so the card does
-            not balloon on a phone, and only here once a file is picked and
-            the browser has proved it can decode it — an HEVC .mov that
-            desktop Chrome refuses has no frames to drag against, and the
-            video's own page says so out loud after the upload. */}
-          {canTrim && durationS != null && localVideoUrl && (
-            <div className="p-3.5">
+         Locked once the press is given: a decision that keeps quietly
+         editing itself is how the trim race happened in the first place.
+         "Not yet" is the way back, and it is in the row below. */
+      <div className="mt-6">
+          <h3 className="text-sm text-zinc-200">Break it into points</h3>
+          <WayChoice
+            className="mt-3"
+            label="Break it into points"
+            rows={uploadChoiceRows(handCutEnabled)}
+            selected={selectedChoice}
+            onSelect={setChoice}
+            trailing={{ automatic: quote != null ? `${quote} min` : null }}
+            disabled={committed}
+          />
+
+          {/* Trim, under the choice and only while Automatically is
+            selected, because trimming is a cost decision and nothing else
+            spends minutes. Closed by default so the card does not balloon
+            on a phone, and only here once a file is picked and the browser
+            has proved it can decode it — an HEVC .mov that desktop Chrome
+            refuses has no frames to drag against, and the video's own page
+            says so out loud after the upload. */}
+          {autoProcess && canTrim && durationS != null && localVideoUrl && (
+            <div className="mt-3 rounded-xl border border-edge bg-surface-2/40 p-3.5">
               <button
                 type="button"
                 onClick={() => setTrimOpen((o) => !o)}
@@ -1700,9 +1730,9 @@ export function UploadCard({
                     Trim it first
                   </span>
                   {/* The row worked from the day it shipped; nothing told
-                    anyone why they would open it. Same hint line the two
-                    rows above carry, and the reason 18 of the jobs that
-                    carried a window had cut their head off by hand. */}
+                    anyone why they would open it. Same hint line the rows
+                    above carry, and the reason 18 of the jobs that carried
+                    a window had cut their head off by hand. */}
                   <span className="mt-0.5 block text-xs text-zinc-500">
                     Most videos open with a warm-up. Trim it off and it will
                     not be processed.
@@ -1807,6 +1837,14 @@ export function UploadCard({
               )}
             </div>
           )}
+
+          {/* Not enough minutes for the automatic run: the way to get more
+            and try again, under the choice it belongs to, and only while
+            Automatically is selected. Later and marking by hand spend
+            nothing, so they have nothing to recover. */}
+          {autoProcess && autoState === "short" && (
+            <AllowanceRecovery resource="minutes" onRetry={claimProcessing} retryLabel="Try processing again" />
+          )}
       </div>
     ) : null;
 
@@ -1869,7 +1907,6 @@ export function UploadCard({
                     : "Your video is saved. You can continue once you have enough minutes."}
                 </p>
               )}
-              {autoState === "short" && <AllowanceRecovery resource="minutes" onRetry={claimProcessing} retryLabel="Try processing again" />}
             </>
           ) : (
             <>
@@ -2132,7 +2169,7 @@ export function UploadCard({
                        to be pressed — turning the toggle off leaves this as
                        the only thing left to do. */
                     <a
-                      href={`/match/${libraryMatchId}`}
+                      href={uploadedMatchHref(libraryMatchId, selectedChoice)}
                       className={
                         showCommitButton
                           ? "rounded-full border border-edge px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"

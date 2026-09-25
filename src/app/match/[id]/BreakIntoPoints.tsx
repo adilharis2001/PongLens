@@ -57,14 +57,23 @@ export function ExpandChevron({ open }: { open: boolean }) {
   );
 }
 
-const WAY_TITLE: Record<RecutWay, string> = {
+/**
+ * Every row the group can show: the two ways, and "Later", which only the
+ * upload card offers (it leaves the choice to the match page; Adil,
+ * 2026-09-25). The unprocessed page and More options list the two ways.
+ */
+export type WayRow = RecutWay | "later";
+
+const WAY_TITLE: Record<WayRow, string> = {
+  later: "Later",
   automatic: "Automatically",
   hand: "Mark the points yourself",
 };
 
-/** The line under each title, on the unprocessed page and in More options
- *  alike (as on iOS). */
-const WAY_DETAIL: Record<RecutWay, string> = {
+/** The line under each title, on the upload card, the unprocessed page and
+ *  in More options alike (as on iOS). */
+const WAY_DETAIL: Record<WayRow, string> = {
+  later: "Choose on the match page when you're ready.",
   automatic: "We find the rallies and cut them for you.",
   hand: "You mark where each point starts and ends.",
 };
@@ -76,30 +85,40 @@ const WAY_DETAIL: Record<RecutWay, string> = {
  * (RecutChoice) so the product's two choices read as one pattern. No
  * chevrons: nothing here opens, the host shows the selected way's content
  * under the group. Shown only when both ways are on offer
- * (wayChoiceView).
+ * (wayChoiceView). The upload card shows the same group with Later first
+ * (uploadChoice.ts), so the choice reads the same before and after the
+ * upload.
  *
  * A radiogroup in the ARIA pattern: one tab stop on the selected row, and
  * the arrow keys move the selection between the rows the player can use.
  */
-export function WayChoice({
+export function WayChoice<W extends WayRow = RecutWay>({
   label,
+  rows = WAY_ORDER as readonly WayRow[] as readonly W[],
   selected,
   onSelect,
   trailing,
   handDisabled = false,
+  disabled = false,
   className = "",
 }: {
   /** The group's accessible name: the heading it sits under. */
   label: string;
-  selected: RecutWay;
-  onSelect: (way: RecutWay) => void;
-  trailing: Partial<Record<RecutWay, string | null>>;
+  /** The rows, in order. The two ways unless the host says otherwise (the
+   *  upload card puts Later first). */
+  rows?: readonly W[];
+  selected: W;
+  onSelect: (way: W) => void;
+  trailing: Partial<Record<W, string | null>>;
   /** The hand row shows greyed and cannot be picked. */
   handDisabled?: boolean;
+  /** Every row shows greyed and none can be picked (the upload card, once
+   *  its button has been pressed). */
+  disabled?: boolean;
   className?: string;
 }) {
-  const refs = useRef<Partial<Record<RecutWay, HTMLButtonElement | null>>>({});
-  const usable = WAY_ORDER.filter((w) => !(w === "hand" && handDisabled));
+  const refs = useRef<Partial<Record<W, HTMLButtonElement | null>>>({});
+  const usable = rows.filter((w) => !disabled && !(w === "hand" && handDisabled));
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const step =
@@ -123,9 +142,9 @@ export function WayChoice({
       onKeyDown={onKeyDown}
       className={`grid gap-2.5 ${className}`}
     >
-      {WAY_ORDER.map((way) => {
+      {rows.map((way) => {
         const on = selected === way;
-        const enabled = !(way === "hand" && handDisabled);
+        const enabled = !disabled && !(way === "hand" && handDisabled);
         const trail = trailing[way];
         return (
           <button

@@ -53,13 +53,19 @@ export default async function UploadPage({
   // backfilled) is read here for the same reason: the checkbox and the
   // disabled button have to be there in the first frame, not appear
   // after the page has painted an enabled one.
-  const [{ count: matchCount }, { data: profile }] = await Promise.all([
+  //
+  // Marking the points by hand is rolled out per account, and the upload
+  // card offers "Mark the points yourself" only where the match page would
+  // (the same hand_cut_enabled check). Read here so the row is there in
+  // the first frame rather than appearing under a finger.
+  const [{ count: matchCount }, { data: profile }, { data: handCut }] = await Promise.all([
     supabase.from("matches").select("id", { head: true, count: "exact" }),
     supabase
       .from("player_profiles")
       .select("upload_confirmed_at")
       .eq("user_id", user.id)
       .maybeSingle(),
+    supabase.rpc("hand_cut_enabled", { p_user: user.id }),
   ]);
 
   return (
@@ -106,6 +112,7 @@ export default async function UploadPage({
           userId={user.id}
           commerceEnabled={commerceEnabled}
           uploadConfirmed={!!profile?.upload_confirmed_at}
+          handCutEnabled={handCut === true}
           orderId={
             commerceEnabled && order && /^[0-9a-f-]{36}$/i.test(order)
               ? order

@@ -34,6 +34,7 @@ import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, NoteAuthor } from "@/lib/types";
 import { NameCombobox } from "@/app/dashboard/NameCombobox";
+import { MARK_ON_OPEN_PARAM, wantsMarkerOnOpen } from "@/app/dashboard/uploadChoice";
 import { SectionHeading } from "@/components/SectionHeading";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
@@ -483,6 +484,38 @@ export function RawMatchView({
   /** The latest hand cut on this match died for good. */
   const handCutFailed =
     job?.kind === "hand_cut" && job.status === "failed";
+
+  /**
+   * Arrived from the upload card with "Mark the points yourself" chosen
+   * (?mark=1, uploadChoice.ts): open the marker once, as soon as the draft
+   * has been read, with that way selected in Break it into points so
+   * closing the marker lands on it. The flag comes off the address the
+   * moment it is read, so a reload or Back does not open the marker again.
+   * Where marking cannot happen here (no picture, not the owner, a cut
+   * already running) the page simply opens as it always does.
+   */
+  const markOnArrival = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (markOnArrival.current === null) {
+      markOnArrival.current = wantsMarkerOnOpen(window.location.search);
+      if (markOnArrival.current) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete(MARK_ON_OPEN_PARAM);
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+    }
+    if (!markOnArrival.current) return;
+    if (!isOwner || !handCutEnabled || !rawUrl || sourceGone || jobRunning) {
+      markOnArrival.current = false;
+      return;
+    }
+    // The draft read doubles as the check that marking by hand exists.
+    if (!handCutReady) return;
+    markOnArrival.current = false;
+    setProcessOpen(true);
+    setPickedWay("hand");
+    void openMarker();
+  }, [isOwner, handCutEnabled, rawUrl, sourceGone, jobRunning, handCutReady, openMarker]);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-6">
