@@ -112,43 +112,40 @@ private func runSameMarksChecks() {
     check(!HandCut.sameMarks(base, [base[0], base[1], mark("c", 30, 33)]), "an unskipped let is a change")
 }
 
-/// The two ways are one choice (owner's option A, 2026-09-25): exactly one
-/// selected, Automatically unless unsent marks are waiting.
+/// The two ways are one choice (owner's option A, 2026-09-25), and neither
+/// is selected until the player taps one (owner, later the same day): no
+/// default, not even for unsent marks.
 private func runCutWayChecks() {
     let untouched = CutWayChoice()
     eq(untouched.chosen, nil, "nothing is picked until the player taps")
-    eq(untouched.selected(draftCount: 0), .automatic, "Automatically is selected by default")
-    eq(untouched.selected(draftCount: 7), .byHand,
-       "unsent marks (the row reads \"7 marked\") select Mark the points yourself")
-    eq(untouched.selected(draftCount: 1), .byHand, "one unsent mark is enough")
+    eq(untouched.selected(), nil, "neither way is selected by default")
+    eq(untouched.selected(markingSelectable: false), nil,
+       "not Automatically either when marking cannot be chosen")
 
-    // The count is the one the row trails, so a draft that is not waiting
-    // to be sent never moves the default.
-    let prefilled = MoreOptionsPlan.draftCount(markedCount: 12, submitted: false, prefilled: true)
-    eq(untouched.selected(draftCount: prefilled), .automatic,
-       "a prefilled draft (the live cut's points) keeps Automatically")
-    let submitted = MoreOptionsPlan.draftCount(markedCount: 12, submitted: true, prefilled: false)
-    eq(untouched.selected(draftCount: submitted), .automatic,
-       "a submitted draft (the cut already live) keeps Automatically")
+    // Unsent marks still say so on their row, but no longer pick it.
     let unsent = MoreOptionsPlan.draftCount(markedCount: 12, submitted: false, prefilled: false)
-    eq(untouched.selected(draftCount: unsent), .byHand, "an unsent draft selects marking")
     eq(MoreOptionsPlan.markingTrailing(draftCount: unsent), "12 marked",
-       "the default follows the same count the row shows")
+       "the row still reads \"12 marked\"")
+    eq(untouched.selected(), nil, "and the waiting draft selects nothing")
 
     var picked = CutWayChoice()
     picked.choose(.byHand)
-    eq(picked.selected(draftCount: 0), .byHand, "a tap wins over the default")
+    eq(picked.selected(), .byHand, "a tap selects Mark the points yourself")
     picked.choose(.automatic)
-    eq(picked.selected(draftCount: 7), .automatic, "including over a waiting draft")
+    eq(picked.selected(), .automatic, "a tap on Automatically moves the choice")
     picked.choose(.automatic)
-    eq(picked.selected(draftCount: 0), .automatic, "tapping the selected way keeps it selected")
+    eq(picked.selected(), .automatic, "tapping the selected way keeps it selected")
+    eq(picked.selected(markingSelectable: false), .automatic,
+       "Automatically stays chosen when marking goes grey")
 
     // No original to mark: the row is greyed and cannot be the choice.
-    eq(untouched.selected(draftCount: 7, markingSelectable: false), .automatic,
-       "marking that cannot be chosen is never selected by a draft")
     picked.choose(.byHand)
-    eq(picked.selected(draftCount: 0, markingSelectable: false), .automatic,
-       "nor by an earlier tap")
+    eq(picked.selected(markingSelectable: false), nil,
+       "an earlier tap on marking that can no longer be chosen selects nothing")
+
+    // The arrival from the upload sheet's Mark the points yourself is an
+    // explicit pick, the only way the page ever opens on a way.
+    eq(CutWayChoice(chosen: .byHand).selected(), .byHand, "a carried pick is kept")
 }
 
 private func runRecutChoiceChecks() {
@@ -259,12 +256,27 @@ private func runProcessChargeChecks() {
     eq(ProcessCharge.minutes(durationS: 20, trimStart: 0, trimEnd: nil), 1, "never less than one")
     eq(ProcessCharge.minutes(durationS: 1240, trimStart: 100, trimEnd: 700), 10, "the kept window")
     eq(ProcessCharge.minutes(durationS: nil, trimStart: 0, trimEnd: nil), nil, "no length, no quote")
-    eq(ProcessCharge.label(minutes: 12), "Process · 12 min", "the button")
-    eq(ProcessCharge.label(minutes: nil), "Process", "the button without a length")
-    eq(ProcessCharge.label(minutes: 12, again: true), "Process again · 12 min",
-       "More options' button says it processes the match again")
-    eq(ProcessCharge.label(minutes: nil, again: true), "Process again",
-       "More options' button without a length")
+    eq(ProcessCharge.label(), "Process", "the unprocessed page's button, no price on it")
+    eq(ProcessCharge.label(again: true), "Process again",
+       "More options' button says it processes the match again, no price on it")
+
+    // The cost is the line under the button, and it follows the trim.
+    eq(ProcessCharge.usesLine(minutes: 12, balance: 300), "Uses 12 of your 300 minutes.",
+       "what this run uses, out of the balance")
+    let trimmed = ProcessCharge.minutes(durationS: 1240, trimStart: 100, trimEnd: 700)
+    eq(ProcessCharge.usesLine(minutes: trimmed, balance: 300), "Uses 10 of your 300 minutes.",
+       "the line quotes the trimmed window")
+    eq(ProcessCharge.usesLine(minutes: 12, balance: nil), "Uses 12 minutes.",
+       "an unknown balance: only the cost")
+    eq(ProcessCharge.usesLine(minutes: 1, balance: nil), "Uses 1 minute.", "one minute, singular")
+    eq(ProcessCharge.usesLine(minutes: 1, balance: 1), "Uses 1 of your 1 minute.",
+       "a balance of one, singular")
+    eq(ProcessCharge.usesLine(minutes: nil, balance: 300), nil, "no length, no line")
+    eq(ProcessCharge.usesLine(minutes: UploadCutWay.minutes([(durationS: 600, trimStartS: 60, trimEndS: 300),
+                                                             (durationS: 130, trimStartS: nil, trimEndS: nil)]),
+                              balance: 40),
+       "Uses 7 of your 40 minutes.",
+       "the upload sheet: every file of the session, the first one's trim included")
     eq(CutAgainCopy.processAgain, "Process again", "More options' label over the two ways")
     eq(CutAgainCopy.automatically, "Automatically", "the first way, as on the unprocessed page")
     eq(ProcessCharge.trimmed(durationS: 600, trimStart: 0.4, trimEnd: 599.8), false,
@@ -276,6 +288,38 @@ private func runProcessChargeChecks() {
        "an unknown balance does not block (the server decides)")
     eq(ProcessCharge.enough(minutes: 1, balance: 100, needsMore: true), false,
        "the server said not enough")
+
+    runStrictnessChecks()
+}
+
+/// Cut strictness is gone from every player surface (owner, 2026-09-25):
+/// whatever the trim, a request carries "normal".
+private func runStrictnessChecks() {
+    let id = UUID(uuidString: "6D0CEA7A-0000-4000-8000-000000000001")!
+    func json<T: Encodable>(_ value: T) -> [String: Any] {
+        let data = try! JSONEncoder().encode(value)
+        return try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+    }
+    let whole = json(ProcessRequestBody(matchId: id, settings: ProcessSettings()))
+    eq(whole["strictness"] as? String, "normal", "/api/process always sends normal")
+    eq(whole["matchId"] as? String, id.uuidString.lowercased(), "the match, lowercased")
+    eq(whole["points"] as? Bool, true, "points are always asked for")
+    eq(whole["placement"] as? Bool, true, "the analysis rides along by default")
+    check(whole["trimStartS"] == nil && whole["trimEndS"] == nil,
+          "an untrimmed request sends no window, as before")
+
+    let window = json(ProcessRequestBody(
+        matchId: id, settings: ProcessSettings(trimStart: 12, trimEnd: 100), placement: false))
+    eq(window["strictness"] as? String, "normal", "a trimmed request still sends normal")
+    eq(window["trimStartS"] as? Double, 12, "the window's start")
+    eq(window["trimEndS"] as? Double, 100, "the window's end")
+    eq(window["placement"] as? Bool, false, "placement as the caller says")
+
+    let replace = json(AutoRecutParams(matchId: id, settings: ProcessSettings(trimStart: 5, trimEnd: nil)))
+    eq(replace["p_strictness"] as? String, "normal", "claim_auto_recut always sends normal")
+    eq(replace["p_replace"] as? Bool, true, "Replace")
+    eq(replace["p_trim_start_s"] as? Double, 5, "Replace's window start")
+    eq(ProcessSettings.strictness, "normal", "the one strictness a new request carries")
 }
 
 private func job(_ id: UUID, _ kind: String, _ status: String, match: UUID?) -> JobRow {

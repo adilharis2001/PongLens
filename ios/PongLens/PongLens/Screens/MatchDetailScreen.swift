@@ -488,11 +488,11 @@ final class MatchDetailModel {
     /// set), or the sentence to show.
     func process(
         _ match: MatchRow, placement: Bool,
-        trimStart: Double?, trimEnd: Double?, strictness: String
+        trimStart: Double?, trimEnd: Double?
     ) async -> String? {
         let result = await ProcessAPI.start(
             matchId: match.id,
-            settings: ProcessSettings(trimStart: trimStart, trimEnd: trimEnd, strictness: strictness),
+            settings: ProcessSettings(trimStart: trimStart, trimEnd: trimEnd),
             placement: placement
         )
         switch result {
@@ -782,6 +782,7 @@ struct MatchDetailScreen: View {
     @State private var handCut = HandCutDraftStore()
     /// Which of "Automatically" and "Mark the points yourself" the player
     /// picked inside Break it into points, if they have (`selectedWay`).
+    /// Neither until a tap: there is no default.
     @State private var way = CutWayChoice()
     /// The Score switch on that row, once the player has flipped it. Nil
     /// means untouched: the marker opens as the draft (or its default) says.
@@ -826,7 +827,6 @@ struct MatchDetailScreen: View {
     // trimEnd). End nil = untouched = the whole video.
     @State private var trimStart: Double = 0
     @State private var trimEnd: Double?
-    @State private var strictness = "normal"
     @State private var processBusy = false
     @State private var processError: String?
     /// Is the process card open? Closed on a fresh upload, open on a
@@ -1807,10 +1807,10 @@ struct MatchDetailScreen: View {
     ///
     /// COLLAPSED BY DEFAULT. It used to sit permanently open, so a screen
     /// whose job is "watch this and decide" led with a trim bar, two
-    /// settings and a price. Closed it states the offer and the cost in
-    /// one line and gets out of the way; the controls are one tap down for
-    /// the person who actually wants them. Same shape as the details card
-    /// below it.
+    /// settings and a price. Closed it states the offer in one line and
+    /// gets out of the way; the controls, and what processing uses, are one
+    /// tap down for the person who actually wants them. Same shape as the
+    /// details card below it.
     ///
     /// The exception is a match that FAILED. Its reason and its retry are
     /// the whole point of the screen, so that one opens itself.
@@ -1829,15 +1829,8 @@ struct MatchDetailScreen: View {
                             .foregroundStyle(PL.text500)
                     }
                     Spacer(minLength: 8)
-                    // The price, before the tap. It is what decides whether
-                    // anyone opens this at all. With two ways in, the price
-                    // belongs to the automatic one and sits on its row.
-                    if !handCutAvailable, let charge = minutesCharge {
-                        Text("\(charge) min")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(PL.text300)
-                            .monospacedDigit()
-                    }
+                    // No price here: what processing uses is the line under
+                    // the Process button, where it follows the trim.
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(PL.text500)
@@ -1877,12 +1870,12 @@ struct MatchDetailScreen: View {
                 Rectangle().fill(PL.edge).frame(height: 1)
 
                 if handCutAvailable {
-                    // Two ways to do this, as one choice, then only the
-                    // chosen way's controls. The automatic one carries the
-                    // price and the trim; marking by hand has neither.
+                    // Two ways to do this, as one choice with neither picked,
+                    // then only the chosen way's controls. The automatic one
+                    // carries the trim and what it uses; marking by hand has
+                    // neither.
                     CutWayPicker(
                         selected: selectedWay,
-                        automaticTrailing: minutesCharge.map { "\($0) min" },
                         markingTrailing: MoreOptionsPlan.markingTrailing(draftCount: handCut.rawDraftCount),
                         markingEnabled: hasOriginal,
                         onSelect: { way.choose($0) },
@@ -1939,11 +1932,11 @@ struct MatchDetailScreen: View {
         .plCard()
     }
 
-    /// Automatically, unless unsent marks are waiting ("{N} marked"); the
-    /// player's own pick once they make one. Marking greys out, and cannot
-    /// be the choice, when there is no original to mark.
-    private var selectedWay: CutWay {
-        way.selected(draftCount: handCut.rawDraftCount, markingSelectable: hasOriginal)
+    /// The player's own pick, and nothing until they make one, unsent marks
+    /// included (their row reads "{N} marked"). Marking greys out, and
+    /// cannot be the choice, when there is no original to mark.
+    private var selectedWay: CutWay? {
+        way.selected(markingSelectable: hasOriginal)
     }
 
     /// Practice and drills cannot be scored (the marker's own rule).
@@ -2057,13 +2050,16 @@ struct MatchDetailScreen: View {
         }
     }
 
-    /// Trim, strictness and the charge: the automatic cut's controls.
+    /// The trim over its preview, and what processing uses: the automatic
+    /// cut's controls. The preview is this phone's own copy when it kept
+    /// one, else the original's link the page already holds.
     private var autoControls: some View {
         AutoProcessControls(
             durationS: current.durationS,
             trimStart: $trimStart,
             trimEnd: $trimEnd,
-            strictness: $strictness,
+            previewURL: HandCutVideo.localFile(current.id) ?? model.videoURL,
+            previewLoading: !model.loaded,
             error: processError,
             busy: processBusy,
             balance: model.minutesBalance,
@@ -2076,15 +2072,11 @@ struct MatchDetailScreen: View {
         )
     }
 
-    /// The kept window's length — what the charge is quoted on. The
-    /// server recomputes the same number at claim time, so this label can
-    /// only ever be wrong in the direction of an error message.
+    /// Whether the handles moved off the ends: only a window the player
+    /// chose travels with the request. The server recomputes the charge
+    /// from it at claim time.
     private var trimmed: Bool {
         ProcessCharge.trimmed(durationS: current.durationS, trimStart: trimStart, trimEnd: trimEnd)
-    }
-
-    private var minutesCharge: Int? {
-        ProcessCharge.minutes(durationS: current.durationS, trimStart: trimStart, trimEnd: trimEnd)
     }
 
     private func runProcess() async {
@@ -2092,8 +2084,7 @@ struct MatchDetailScreen: View {
         processError = await model.process(
             current, placement: true,
             trimStart: trimmed ? trimStart : nil,
-            trimEnd: trimmed ? trimEnd : nil,
-            strictness: strictness
+            trimEnd: trimmed ? trimEnd : nil
         )
         if processError != nil { try? await model.refreshMinutes() }
         if processError == nil {
@@ -2153,7 +2144,12 @@ struct MatchDetailScreen: View {
                 pendingRecutPlayer = nil
                 playerRequest = request
             },
-            openMatch: { id in router.openMatchId = id }
+            openMatch: { id in router.openMatchId = id },
+            originalURL: {
+                if let local = HandCutVideo.localFile(current.id) { return local }
+                if case .url(let url) = await model.originalLink(current) { return url }
+                return nil
+            }
         )
     }
 

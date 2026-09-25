@@ -20,13 +20,6 @@ struct CutAgainServerError: Error, Equatable {
     }
 }
 
-/// The automatic cut's settings, as /api/process takes them.
-struct ProcessSettings: Equatable {
-    var trimStart: Double?
-    var trimEnd: Double?
-    var strictness: String
-}
-
 /// What /api/process said.
 enum ProcessStart: Equatable {
     case started(UUID?)
@@ -38,14 +31,6 @@ enum ProcessAPI {
     /// Spend minutes on a match: the raw page's call, unchanged. Every
     /// processed upload asks for the analysis too (Adil, 2026-09-16).
     static func start(matchId: UUID, settings: ProcessSettings, placement: Bool = true) async -> ProcessStart {
-        struct Req: Encodable {
-            let matchId: String
-            let trimStartS: Double?
-            let trimEndS: Double?
-            let points = true
-            let placement: Bool
-            let strictness: String
-        }
         struct Res: Decodable {
             let jobId: String?
             enum CodingKeys: String, CodingKey { case jobId = "job_id" }
@@ -53,11 +38,7 @@ enum ProcessAPI {
         do {
             let res: Res = try await API.post(
                 "api/process",
-                Req(
-                    matchId: matchId.uuidString.lowercased(),
-                    trimStartS: settings.trimStart, trimEndS: settings.trimEnd,
-                    placement: placement, strictness: settings.strictness
-                )
+                ProcessRequestBody(matchId: matchId, settings: settings, placement: placement)
             )
             return .started(res.jobId.flatMap(UUID.init(uuidString:)))
         } catch let APIError.http(_, code) {
@@ -167,20 +148,11 @@ struct CutAgainClient {
         },
         process: { id, settings in await ProcessAPI.start(matchId: id, settings: settings) },
         claimAutoRecut: { id, settings in
-            struct P: Encodable {
-                let p_match_id: String
-                let p_replace: Bool
-                let p_trim_start_s: Double?
-                let p_trim_end_s: Double?
-                let p_strictness: String
-            }
             struct R: Decodable { let job_id: UUID? }
             do {
-                let r: R = try await supa.rpc("claim_auto_recut", params: P(
-                    p_match_id: id.uuidString.lowercased(), p_replace: true,
-                    p_trim_start_s: settings.trimStart, p_trim_end_s: settings.trimEnd,
-                    p_strictness: settings.strictness
-                )).execute().value
+                let r: R = try await supa.rpc(
+                    "claim_auto_recut", params: AutoRecutParams(matchId: id, settings: settings)
+                ).execute().value
                 return r.job_id
             } catch { throw CutAgainServerError.from(error) }
         }
@@ -205,7 +177,6 @@ final class CutAgainModel {
     // page keeps its trim while the card is folded.
     var trimStart: Double = 0
     var trimEnd: Double?
-    var strictness = "normal"
     var autoChoice: RecutChoiceState?
     /// Which of the two ways the player picked, if they have.
     var way = CutWayChoice()
@@ -215,6 +186,17 @@ final class CutAgainModel {
     var error: String?
     var markError: String?
     var openingMarker = false
+    /// The original, for the trim's preview: fetched once Automatically
+    /// shows, then held, so a sheet opened again does not reload the
+    /// picture (the web's MoreOptions holds its signed link the same way).
+    private(set) var previewURL: URL?
+    /// The last fetch came back empty: the trim shows its bar alone.
+    private(set) var previewMissed = false
+    @ObservationIgnored private var resolvingPreview = false
+
+    /// The preview's box holds its place until the video is fetched or
+    /// known to be missing, so it does not appear under the player's eyes.
+    var previewLoading: Bool { previewURL == nil && !previewMissed }
 
     @ObservationIgnored private let client: CutAgainClient
     @ObservationIgnored private var pollTask: Task<Void, Never>?
@@ -304,6 +286,18 @@ final class CutAgainModel {
         }
     }
 
+    /// Fetch the preview's video through the page (the phone's own copy,
+    /// else the original's link), unless it is already here or on its way.
+    /// A miss is tried again the next time Automatically shows.
+    func resolvePreview(_ resolve: () async -> URL?) async {
+        guard previewURL == nil, !resolvingPreview else { return }
+        resolvingPreview = true
+        let url = await resolve()
+        previewURL = url
+        previewMissed = url == nil
+        resolvingPreview = false
+    }
+
     func recheckMinutes() async throws {
         minutesBalance = try await client.minutes()
         needsMoreMinutes = false
@@ -359,8 +353,7 @@ final class CutAgainModel {
         let trimmed = ProcessCharge.trimmed(durationS: durationS, trimStart: trimStart, trimEnd: trimEnd)
         let settings = ProcessSettings(
             trimStart: trimmed ? trimStart : nil,
-            trimEnd: trimmed ? trimEnd : nil,
-            strictness: strictness
+            trimEnd: trimmed ? trimEnd : nil
         )
         if autoChoice?.replace == true {
             do {

@@ -1653,9 +1653,6 @@ struct MatchDetailsSheet: View {
     @State private var trimOpen = false
     @State private var trimStart: Double = 0
     @State private var trimEnd: Double?
-    /// The frame under the bar, refreshed as the start handle moves.
-    @State private var trimFrame: UIImage?
-    @State private var trimFrameTask: Task<Void, Never>?
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
@@ -1738,8 +1735,7 @@ struct MatchDetailsSheet: View {
                     Text("Break it into points")
                 }
 
-                if processOn, let minutesBalance,
-                   queue.items.filter({ $0.sessionId == sessionId }).reduce(0, { $0 + max(1, Int(ceil($1.durationS / 60))) }) > minutesBalance {
+                if processOn, let minutesBalance, sessionMinutes > minutesBalance {
                     Section {
                         Text("Your video can upload, but it needs more minutes to process.")
                             .font(.plBody).foregroundStyle(PL.warningText)
@@ -1759,19 +1755,28 @@ struct MatchDetailsSheet: View {
                     }
                 }
 
-                // Only once there is a length to draw against, and only
-                // when the bar could actually keep a window inside it. The
-                // threshold is the bar's own floor rather than a number
+                // The trim only once there is a length to draw against, and
+                // only when the bar could actually keep a window inside it.
+                // The threshold is the bar's own floor rather than a number
                 // invented here: a made-up 10s floor meant a short clip
                 // silently had no trim row, which read as "recording does
                 // not get this feature" when it was really "this video was
-                // eight seconds long".
-                if processOn, let duration = firstItemDuration,
-                   duration > RawTrimBar.minWindow {
+                // eight seconds long". Under it, what processing uses, as
+                // under the match page's Process button.
+                if processOn, trimDuration != nil || usesLine != nil {
                     Section {
-                        trimRow(duration: duration)
+                        if let duration = trimDuration {
+                            trimRow(duration: duration)
+                        }
                     } footer: {
-                        Text("Most videos open with a warm-up. Trim it off and it will not be processed.")
+                        VStack(alignment: .leading, spacing: 6) {
+                            if trimDuration != nil {
+                                Text("Most videos open with a warm-up. Trim it off and it will not be processed.")
+                            }
+                            if let usesLine {
+                                Text(usesLine).monospacedDigit()
+                            }
+                        }
                     }
                 }
 
@@ -1969,11 +1974,17 @@ struct MatchDetailsSheet: View {
         return d
     }
 
+    /// The first file's length, when the bar could keep a window inside it.
+    private var trimDuration: Double? {
+        guard let d = firstItemDuration, d > TrimWindow.minWindow else { return nil }
+        return d
+    }
+
     /// What the collapsed row says on its right. "Whole video" until the
-    /// handles have actually been moved off the ends.
+    /// handles have actually been moved off the ends. The preview's clock.
     private func trimSummary(duration: Double) -> String {
         guard trimmed(duration: duration) else { return "Whole video" }
-        return "\(RawTrimBar.clock((trimEnd ?? duration) - trimStart)) kept"
+        return "\(TrimWindow.clock((trimEnd ?? duration) - trimStart)) kept"
     }
 
     /// Half a second of slack at each end, so a handle nudged and put back
@@ -1985,42 +1996,30 @@ struct MatchDetailsSheet: View {
     @ViewBuilder
     private func trimRow(duration: Double) -> some View {
         DisclosureGroup(isExpanded: $trimOpen) {
-            VStack(alignment: .leading, spacing: 10) {
-                // Where processing will start. A still rather than a
-                // player: this question is "which frame", the picture
-                // follows the handle exactly as the web's does, and
-                // nothing is left playing when the sheet goes away.
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(PL.ink.opacity(0.5))
-                    if let trimFrame {
-                        Image(uiImage: trimFrame)
-                            .resizable()
-                            .scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    } else {
-                        ProgressView().tint(PL.cyan)
-                    }
-                }
-                .aspectRatio(posterAspect, contentMode: .fit)
-                .frame(maxWidth: .infinity)
-
-                RawTrimBar(
+            VStack(alignment: .leading, spacing: 12) {
+                // The match page's trim with its preview: this phone's own
+                // file, silent, the handles moving the picture. The box is
+                // drawn at the shape the poster already read from the track.
+                TrimPreview(
+                    source: firstItem.map { queue.fileURL($0) },
                     duration: duration,
                     start: $trimStart,
-                    end: Binding(
-                        get: { trimEnd ?? duration },
-                        set: { trimEnd = $0 }
-                    )
+                    end: $trimEnd,
+                    aspect: posterAspect,
+                    muted: true
                 )
 
                 if trimmed(duration: duration) {
-                    Button("Use the whole video") {
+                    // Plain, with the outlined look drawn on the label: in
+                    // one Form row with the preview's own buttons, any other
+                    // style lets a tap on the row fire them all.
+                    Button {
                         trimStart = 0
                         trimEnd = nil
+                    } label: {
+                        OutlinedActionLabel(title: "Use the whole video")
                     }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.vertical, 6)
@@ -2034,7 +2033,6 @@ struct MatchDetailsSheet: View {
             }
         }
         .onChange(of: trimStart) {
-            refreshTrimFrame()
             pushTrim(duration: duration)
             // The side picker's frame follows the trim: the owner has just
             // said where play begins.
@@ -2042,7 +2040,6 @@ struct MatchDetailsSheet: View {
                 if let image = await posterAttempt() { poster = image }
             }
         }
-        .onChange(of: trimOpen) { _, open in if open { refreshTrimFrame() } }
         .onChange(of: trimEnd) { pushTrim(duration: duration) }
     }
 
@@ -2056,32 +2053,6 @@ struct MatchDetailsSheet: View {
             start: on ? trimStart : nil,
             end: on ? (trimEnd ?? duration) : nil
         )
-    }
-
-    /// Generous tolerance on purpose. A scrub that demands exact frames
-    /// issues a seek per drag tick and takes the app down with no crash
-    /// report — and the worker's own cut is a stream copy that lands on a
-    /// keyframe anyway, so a keyframe-accurate preview is the honest one.
-    private func refreshTrimFrame() {
-        trimFrameTask?.cancel()
-        let at = trimStart
-        guard let item = firstItem else { return }
-        let url = queue.fileURL(item)
-        trimFrameTask = Task {
-            try? await Task.sleep(for: .milliseconds(120))
-            if Task.isCancelled { return }
-            let asset = AVURLAsset(url: url)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 900, height: 900)
-            generator.requestedTimeToleranceBefore = CMTime(seconds: 1, preferredTimescale: 600)
-            generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
-            guard let cg = try? await generator.image(
-                at: CMTime(seconds: at, preferredTimescale: 600)
-            ).image else { return }
-            if Task.isCancelled { return }
-            trimFrame = UIImage(cgImage: cg)
-        }
     }
 
     // MARK: - Break it into points
@@ -2099,11 +2070,7 @@ struct MatchDetailsSheet: View {
         return Button {
             withAnimation(.easeOut(duration: 0.15)) { processingChoice.choose(way) }
         } label: {
-            ChoiceLabel(
-                on: on,
-                title: words.title,
-                trailing: way == .automatic ? automaticTrailing : nil
-            ) {
+            ChoiceLabel(on: on, title: words.title) {
                 Text(words.detail)
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
@@ -2114,14 +2081,24 @@ struct MatchDetailsSheet: View {
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
-    /// "{N} min": what the switch's line used to quote, trim included.
-    /// Nothing until a file is in the queue to measure.
-    private var automaticTrailing: String? {
-        let files = queue.items
+    /// What processing the session uses: every file, each at least a
+    /// minute, the first one's trim window included. The number the charge
+    /// will match, and the one the not-enough warning compares. Zero until a
+    /// file is in the queue to measure.
+    private var sessionMinutes: Int {
+        UploadCutWay.minutes(queue.items
             .filter { $0.sessionId == sessionId }
-            .map { (durationS: $0.durationS, trimStartS: $0.trimStartS, trimEndS: $0.trimEndS) }
-        let minutes = UploadCutWay.minutes(files)
-        return minutes > 0 ? "\(minutes) min" : nil
+            .map { (durationS: $0.durationS, trimStartS: $0.trimStartS, trimEndS: $0.trimEndS) })
+    }
+
+    /// "Uses {N} of your {M} minutes." under the trim while Automatically
+    /// is chosen, following the handles. Nothing before a file is measured,
+    /// and nothing when the minutes fall short: the warning above says so.
+    private var usesLine: String? {
+        let minutes = sessionMinutes
+        guard minutes > 0 else { return nil }
+        if let minutesBalance, minutes > minutesBalance { return nil }
+        return ProcessCharge.usesLine(minutes: minutes, balance: minutesBalance)
     }
 
     /// Mark the points yourself is offered on the same answer the match
