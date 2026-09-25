@@ -46,7 +46,8 @@ export function readRecutOptions(raw: unknown): RecutOptions | null {
 }
 
 export interface MoreOptionsView {
-  /** "Automatically", under "Process again". */
+  /** "Automatically", under "Process again" (wayChoiceView picks between
+   *  the two when both show). */
   automatic: boolean;
   /** "Mark the points yourself". */
   hand: boolean;
@@ -98,6 +99,51 @@ export function moreOptionsView(s: {
 
 export type RecutChoice = "replace" | "keep";
 export type RecutWay = "automatic" | "hand";
+
+/** The two ways in the order the pick-one group lists them. */
+export const WAY_ORDER: readonly RecutWay[] = ["automatic", "hand"];
+
+export interface WayChoiceView {
+  /** Both ways are on offer: the pick-one group shows. With only one, its
+   *  content shows on its own and there is nothing to pick. */
+  group: boolean;
+  /** The way whose content shows under the group (or alone). Null when
+   *  neither can be used. */
+  selected: RecutWay | null;
+}
+
+/**
+ * The two ways as one pick-one group (Adil, 2026-09-25, option A), on the
+ * unprocessed page and in More options alike. Exactly one is selected, and
+ * only its content shows. Automatically by default, except when the hand
+ * row reads "{N} marked": then Mark the points yourself, so "Keep marking"
+ * is right there. The player's own pick holds while that way can be used; a
+ * greyed hand row (the raw page's video will not play here) can never be
+ * the selection.
+ */
+export function wayChoiceView(s: {
+  /** "Automatically" is offered. */
+  automatic: boolean;
+  /** "Mark the points yourself" is offered (its row shows). */
+  hand: boolean;
+  /** Its row shows, greyed. */
+  handDisabled?: boolean;
+  /** The "{N} marked" on the hand row; 0 when it reads nothing. */
+  markedCount: number;
+  picked: RecutWay | null;
+}): WayChoiceView {
+  const handUsable = s.hand && !s.handDisabled;
+  if (!s.automatic || !s.hand) {
+    return {
+      group: false,
+      selected: s.automatic ? "automatic" : handUsable ? "hand" : null,
+    };
+  }
+  if (s.picked === "automatic" || (s.picked === "hand" && handUsable)) {
+    return { group: true, selected: s.picked };
+  }
+  return { group: true, selected: handUsable && s.markedCount > 0 ? "hand" : "automatic" };
+}
 
 export interface RecutChoiceView {
   replaceEnabled: boolean;

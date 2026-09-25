@@ -17,6 +17,7 @@ import {
   recutClaimError,
   recutStartMode,
   unsentMarkCount,
+  wayChoiceView,
   type RecutOptions,
 } from "./recutView.ts";
 
@@ -240,22 +241,135 @@ test("start_recut's marks read as marks (tap and rate null, source seconds)", ()
   ]);
 });
 
+test("the two ways are one pick-one group: which is selected (Adil, 2026-09-25)", () => {
+  const both = { automatic: true, hand: true, markedCount: 0, picked: null };
+  // Automatically by default.
+  assert.deepEqual(wayChoiceView(both), { group: true, selected: "automatic" });
+  // The hand row reads "{N} marked": Mark the points yourself, so "Keep
+  // marking" is right there.
+  assert.deepEqual(wayChoiceView({ ...both, markedCount: 3 }), { group: true, selected: "hand" });
+  // The player's own pick holds either way.
+  assert.deepEqual(wayChoiceView({ ...both, picked: "hand" }), { group: true, selected: "hand" });
+  assert.deepEqual(wayChoiceView({ ...both, markedCount: 3, picked: "automatic" }), {
+    group: true, selected: "automatic",
+  });
+  // A greyed hand row (the raw page's video will not play here) is never
+  // the selection, whatever the marks or the pick.
+  assert.deepEqual(wayChoiceView({ ...both, handDisabled: true, markedCount: 3 }), {
+    group: true, selected: "automatic",
+  });
+  assert.deepEqual(wayChoiceView({ ...both, handDisabled: true, picked: "hand" }), {
+    group: true, selected: "automatic",
+  });
+});
+
+test("one way on offer: no group, only its content", () => {
+  // Everyone without marking by hand: the automatic content alone, even
+  // with marks left over.
+  assert.deepEqual(
+    wayChoiceView({ automatic: true, hand: false, markedCount: 4, picked: "hand" }),
+    { group: false, selected: "automatic" },
+  );
+  // More options where processing is not sold: marking by hand alone.
+  assert.deepEqual(
+    wayChoiceView({ automatic: false, hand: true, markedCount: 0, picked: null }),
+    { group: false, selected: "hand" },
+  );
+  assert.deepEqual(
+    wayChoiceView({ automatic: false, hand: false, markedCount: 0, picked: null }),
+    { group: false, selected: null },
+  );
+});
+
+const matchDir = join(process.cwd(), "src/app/match/[id]");
+const readMatch = (name: string) => readFileSync(join(matchDir, name), "utf8");
+
+test("the group is a radiogroup with arrow keys, and has no chevrons", () => {
+  const shared = readMatch("BreakIntoPoints.tsx");
+  const group = shared.slice(shared.indexOf("export function WayChoice"), shared.indexOf("export function useProcessQuote"));
+  assert.match(group, /role="radiogroup"/);
+  assert.match(group, /aria-label=\{label\}/);
+  assert.match(group, /role="radio"/);
+  assert.match(group, /aria-checked=\{on\}/);
+  assert.match(group, /tabIndex=\{on \? 0 : -1\}/);
+  for (const key of ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"]) assert.ok(group.includes(key), key);
+  assert.doesNotMatch(group, /ExpandChevron|aria-expanded/);
+  // The Replace / Keep cells' own dress and radio mark, so the product's
+  // two choices read as one pattern.
+  assert.match(group, /choiceCellClass\(on, enabled\)/);
+  assert.match(group, /<RadioMark on=\{on\} \/>/);
+  // The titles and their lines, unchanged, under every title in both
+  // places (as on iOS).
+  assert.match(shared, /automatic: "Automatically"/);
+  assert.match(shared, /hand: "Mark the points yourself"/);
+  assert.match(shared, /"We find the rallies and cut them for you\."/);
+  assert.match(shared, /"You mark where each point starts and ends\."/);
+  assert.match(group, /<span className="mt-0\.5 block text-xs text-zinc-500">\{WAY_DETAIL\[way\]\}<\/span>/);
+  assert.doesNotMatch(group, /details &&/);
+  // The accordion rows and the one-open-at-a-time logic are gone.
+  assert.doesNotMatch(shared, /export function AccordionRow/);
+  for (const name of ["RawMatchView.tsx", "recut/MoreOptions.tsx"]) {
+    const src = readMatch(name);
+    assert.doesNotMatch(src, /AccordionRow|toggleWay|autoOpen|handOpen/, name);
+    assert.match(src, /wayChoiceView\(/, name);
+    // Only the selected way's content shows.
+    assert.match(src, /ways\.selected === "automatic" && \(\s*<AutoProcessPanel/, name);
+    assert.match(src, /ways\.selected === "hand" && \([\s\S]{0,40}<MarkYourselfPanel/, name);
+    assert.match(src, /ways\.group && ways\.selected && \(\s*<WayChoice/, name);
+  }
+});
+
+test("the unprocessed page: the group sits inside Break it into points", () => {
+  const src = readMatch("RawMatchView.tsx");
+  const card = src.slice(src.indexOf("Break it into points\n"), src.indexOf("<SectionHeading>Tools</SectionHeading>"));
+  const open = card.indexOf("{processOpen && (");
+  assert.ok(open > 0 && open < card.indexOf("<WayChoice"));
+  assert.ok(card.indexOf("<WayChoice") < card.indexOf("<AutoProcessPanel"));
+  assert.ok(card.indexOf("<AutoProcessPanel") < card.indexOf("<MarkYourselfPanel"));
+  // The minutes and "{N} marked".
+  const group = card.slice(card.indexOf("<WayChoice"), card.indexOf("<AutoProcessPanel"));
+  assert.match(group, /`\$\{charge\} min`/);
+  assert.match(group, /`\$\{draftCount\} marked`/);
+  // Marking by hand only where the account has it; greyed without a picture.
+  assert.match(src, /hand: handCutEnabled && handCutReady,/);
+  assert.match(src, /handDisabled: !rawUrl \|\| undecodable,/);
+});
+
+test("Replace / Keep share the ways' layout: radio left, title, lines under it", () => {
+  const src = readMatch("recut/RecutChoice.tsx");
+  const cell = src.slice(src.indexOf("<label"), src.indexOf("</label>"));
+  assert.match(cell, /flex items-start gap-3/);
+  assert.ok(cell.indexOf("<RadioMark on={on} />") < cell.indexOf("{label}"));
+  assert.ok(cell.indexOf("{label}") < cell.indexOf("{lines.map"));
+  // The wording is unchanged.
+  assert.match(src, /"Replace this match"/);
+  assert.match(src, /"Keep this match and add a new one"/);
+  const ways = readMatch("BreakIntoPoints.tsx");
+  assert.match(ways, /flex w-full items-start gap-3/);
+});
+
 test("More options says it processes the match again (Adil, 2026-09-25)", () => {
-  const src = readFileSync(join(process.cwd(), "src/app/match/[id]/recut/MoreOptions.tsx"), "utf8");
-  const shared = readFileSync(join(process.cwd(), "src/app/match/[id]/BreakIntoPoints.tsx"), "utf8");
+  const src = readMatch("recut/MoreOptions.tsx");
+  const shared = readMatch("BreakIntoPoints.tsx");
   // A section label over the two ways, in the page's own label style.
   assert.match(src, /<SectionHeading[^>]*>Process again<\/SectionHeading>/);
-  assert.ok(src.indexOf(">Process again<") < src.indexOf('title="Automatically"'));
-  assert.ok(src.indexOf('title="Automatically"') < src.indexOf('title="Mark the points yourself"'));
-  assert.doesNotMatch(src, /title="Process automatically"/);
+  assert.ok(src.indexOf(">Process again<") < src.indexOf("<WayChoice"));
+  assert.ok(src.indexOf("<WayChoice") < src.indexOf("<AutoProcessPanel"));
+  assert.ok(src.indexOf("<AutoProcessPanel") < src.indexOf("<MarkYourselfPanel"));
+  assert.doesNotMatch(src, /Process automatically/);
+  const group = src.slice(src.indexOf("<WayChoice"), src.indexOf("<AutoProcessPanel"));
+  assert.match(group, /`\$\{unsent\} marked`/);
+  // No original to mark on: the hand row greys, as on the unprocessed page.
+  assert.match(group, /handDisabled=\{rawMissing\}/);
+  assert.match(src, /handDisabled: rawMissing,/);
   // The button reads "Process again · {N} min"; the unprocessed page keeps "Process".
   assert.match(src, /actionLabel="Process again"/);
   assert.match(shared, /actionLabel = "Process"/);
   assert.match(shared, /`\$\{actionLabel\} · \$\{q\.charge\} min`/);
   // Report a problem is its own group below, not under the label (as on
   // iOS): the Process again group closes before it opens.
-  const group = src.indexOf('<div className="-mx-5 mt-2 border-y border-edge/60">');
+  const group2 = src.indexOf("{processRows && (");
   const report = src.indexOf(">\n              Report a problem");
-  assert.ok(group > 0 && report > group);
-  assert.match(src.slice(group, report), /<\/div>\s*<\/>\s*\)\}[\s\S]*processRows \? "mt-9 border-b" : "mt-4"/);
+  assert.ok(group2 > 0 && report > group2);
+  assert.match(src.slice(group2, report), /<\/>\s*\)\}[\s\S]*processRows \? "mt-9 border-b" : "mt-4"/);
 });

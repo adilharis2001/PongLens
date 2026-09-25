@@ -8,9 +8,22 @@
  * processed match renders the same rows in its More options sheet, so the
  * two places look and behave the same (Cut again, 2026-09-25). Change the
  * rows here, never in one of their hosts.
+ *
+ * The two ways are one pick-one group (WayChoice, Adil 2026-09-25, option
+ * A), with only the selected way's content under it. They used to be two
+ * accordions inside the card's own accordion, which did not read as a
+ * choice.
  */
 
-import { useCallback, useEffect, useState, type ReactNode, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { AllowanceRecovery } from "@/components/AllowanceRecovery";
 import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
@@ -21,10 +34,12 @@ import { processingExitMessage, type AvailabilityContext } from "@/lib/processin
 import { createClient } from "@/lib/supabase/client";
 import { clock as playerClock } from "./ClipPlayer";
 import { scoreSwitchCopy, type CutMode } from "./handCut";
+import { RadioMark, choiceCellClass } from "./recut/RecutChoice";
+import { WAY_ORDER, type RecutWay } from "./recut/recutView";
 
 export type Strictness = "tight" | "normal" | "loose";
 
-/** The chevron an accordion row in this card turns when it opens. */
+/** The chevron the "Break it into points" card turns when it opens. */
 export function ExpandChevron({ open }: { open: boolean }) {
   return (
     <svg
@@ -42,49 +57,106 @@ export function ExpandChevron({ open }: { open: boolean }) {
   );
 }
 
+const WAY_TITLE: Record<RecutWay, string> = {
+  automatic: "Automatically",
+  hand: "Mark the points yourself",
+};
+
+/** The line under each title, on the unprocessed page and in More options
+ *  alike (as on iOS). */
+const WAY_DETAIL: Record<RecutWay, string> = {
+  automatic: "We find the rallies and cut them for you.",
+  hand: "You mark where each point starts and ends.",
+};
+
 /**
- * One of the two ways, as a row that opens in place. `detail` is the
- * unprocessed page's line under the title; the More options sheet carries
- * none (no explanations there, per the Cut again spec).
+ * The two ways as one pick-one group: a radio mark on the left, the title
+ * with its one line under it, and the trailing minutes or "{N} marked" on
+ * the title's line, dressed and laid out like the Replace / Keep cells
+ * (RecutChoice) so the product's two choices read as one pattern. No
+ * chevrons: nothing here opens, the host shows the selected way's content
+ * under the group. Shown only when both ways are on offer
+ * (wayChoiceView).
+ *
+ * A radiogroup in the ARIA pattern: one tab stop on the selected row, and
+ * the arrow keys move the selection between the rows the player can use.
  */
-export function AccordionRow({
-  title,
-  detail,
+export function WayChoice({
+  label,
+  selected,
+  onSelect,
   trailing,
-  open,
-  onToggle,
-  bordered = false,
-  disabled,
+  handDisabled = false,
+  className = "",
 }: {
-  title: string;
-  detail?: string;
-  trailing?: ReactNode;
-  open: boolean;
-  onToggle: () => void;
-  bordered?: boolean;
-  disabled?: boolean;
+  /** The group's accessible name: the heading it sits under. */
+  label: string;
+  selected: RecutWay;
+  onSelect: (way: RecutWay) => void;
+  trailing: Partial<Record<RecutWay, string | null>>;
+  /** The hand row shows greyed and cannot be picked. */
+  handDisabled?: boolean;
+  className?: string;
 }) {
+  const refs = useRef<Partial<Record<RecutWay, HTMLButtonElement | null>>>({});
+  const usable = WAY_ORDER.filter((w) => !(w === "hand" && handDisabled));
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const step =
+      e.key === "ArrowDown" || e.key === "ArrowRight"
+        ? 1
+        : e.key === "ArrowUp" || e.key === "ArrowLeft"
+          ? -1
+          : 0;
+    if (!step || usable.length < 2) return;
+    e.preventDefault();
+    const at = Math.max(0, usable.indexOf(selected));
+    const next = usable[(at + step + usable.length) % usable.length];
+    onSelect(next);
+    refs.current[next]?.focus();
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      disabled={disabled}
-      className={`flex w-full items-center gap-3 ${
-        bordered ? "border-t border-edge/60 " : ""
-      }p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40`}
+    <div
+      role="radiogroup"
+      aria-label={label}
+      onKeyDown={onKeyDown}
+      className={`grid gap-2.5 ${className}`}
     >
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-zinc-100">{title}</span>
-        {detail && <span className="mt-0.5 block text-xs text-zinc-500">{detail}</span>}
-      </span>
-      {trailing != null && trailing !== "" && (
-        <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-300">
-          {trailing}
-        </span>
-      )}
-      <ExpandChevron open={open} />
-    </button>
+      {WAY_ORDER.map((way) => {
+        const on = selected === way;
+        const enabled = !(way === "hand" && handDisabled);
+        const trail = trailing[way];
+        return (
+          <button
+            key={way}
+            ref={(el) => {
+              refs.current[way] = el;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            tabIndex={on ? 0 : -1}
+            disabled={!enabled}
+            onClick={() => onSelect(way)}
+            className={`flex w-full items-start gap-3 text-left outline-none focus-visible:border-cyan-glow ${choiceCellClass(on, enabled)}`}
+          >
+            <RadioMark on={on} />
+            <span className="min-w-0 flex-1">
+              <span className={`block text-sm font-semibold ${on ? "text-cyan-glow" : "text-zinc-100"}`}>
+                {WAY_TITLE[way]}
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-500">{WAY_DETAIL[way]}</span>
+            </span>
+            {trail && (
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-300">
+                {trail}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -198,10 +270,11 @@ export async function postProcess(
 }
 
 /**
- * "Automatically", opened: what to process, how strictly, and the button
+ * "Automatically", selected: what to process, how strictly, and the button
  * that spends the minutes. `picture` sits above the trim bar when the host
  * has no video of its own on screen; `choice` sits directly above the
- * button (Replace or Keep, on a processed match).
+ * button (Replace or Keep, on a processed match). `className` is the
+ * host's spacing: the card pads it, the sheet already has its own.
  */
 export function AutoProcessPanel({
   quote,
@@ -212,7 +285,9 @@ export function AutoProcessPanel({
   choice,
   onBalanceChecked,
   actionLabel = "Process",
+  className = "p-5",
 }: {
+  className?: string;
   quote: ProcessQuote;
   onProcess: () => void;
   busy: boolean;
@@ -227,7 +302,7 @@ export function AutoProcessPanel({
 }) {
   const q = quote;
   return (
-    <div className="border-t border-edge/60 p-5">
+    <div className={className}>
       {picture}
       {q.duration == null ? (
         <p className="text-sm text-zinc-400">
@@ -361,10 +436,10 @@ export function AutoProcessPanel({
 }
 
 /**
- * "Mark the points yourself", opened: the Score switch and the button into
- * the marker. The switch's label names the pass ("Cut and score" / "Cut
- * only") with one line under it (Adil, 2026-09-25); practice and drills
- * show it off and greyed, and the line gives the reason.
+ * "Mark the points yourself", selected: the Score switch and the button
+ * into the marker. The switch's label names the pass ("Cut and score" /
+ * "Cut only") with one line under it (Adil, 2026-09-25); practice and
+ * drills show it off and greyed, and the line gives the reason.
  */
 export function MarkYourselfPanel({
   mode,
@@ -373,7 +448,10 @@ export function MarkYourselfPanel({
   resume,
   opening,
   onStart,
+  className = "p-5",
 }: {
+  /** The host's spacing, as on AutoProcessPanel. */
+  className?: string;
   mode: CutMode;
   scoringAllowed: boolean;
   onMode: (mode: CutMode) => void;
@@ -384,7 +462,7 @@ export function MarkYourselfPanel({
 }) {
   const copy = scoreSwitchCopy(mode, scoringAllowed);
   return (
-    <div className="border-t border-edge/60 p-5">
+    <div className={className}>
       {/* Same shape as Cut strictness: a labelled row with the app's
           switch. */}
       <div className="rounded-xl border border-edge bg-ink/20">

@@ -4,18 +4,23 @@
  * More options: the Tools row that took the place of "Processing" on a
  * processed match (Cut again, 2026-09-25), and the sheet it opens.
  *
- *   PROCESS AGAIN                      a section label over the two ways
- *   Automatically            12 min   the raw page's "Automatically", then
- *                                     the choice, then Process again
- *   Mark the points yourself 14 marked the raw page's switch and Start
- *                                     marking, into the marker on the
- *                                     ORIGINAL, prefilled from this cut
+ *   PROCESS AGAIN                        a section label over the two ways
+ *   (o) Automatically            12 min  one pick-one group (WayChoice)
+ *   ( ) Mark the points yourself 14 marked
+ *   the selected way's content:          Automatically: the raw page's
+ *                                        trim and strictness, the choice,
+ *                                        then Process again. By hand: the
+ *                                        raw page's switch and Start
+ *                                        marking, into the marker on the
+ *                                        ORIGINAL, prefilled from this cut
  *
- *   Report a problem                  its own group, no label; today's
- *                                     request form, unchanged
+ *   Report a problem                     its own group, no label; today's
+ *                                        request form, unchanged
  *
- * The first two are the raw page's own components (BreakIntoPoints), so
- * the two places look and behave the same. At the last step of either the
+ * The group and both contents are the raw page's own components
+ * (BreakIntoPoints), so the two places look and behave the same. With only
+ * one way on offer there is no group, just that way's content. At the last
+ * step of either the
  * player picks Replace this match or Keep this match and add a new one
  * (RecutChoice). Replace builds the new cut beside this one; the match
  * keeps playing and this row shows the ordinary progress until the new cut
@@ -44,10 +49,10 @@ import type { Match } from "@/lib/types";
 import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
 import { useProcessingService } from "@/lib/useProcessingService";
 import {
-  AccordionRow,
   AutoProcessPanel,
   MarkYourselfPanel,
   ProcessingProgress,
+  WayChoice,
   postProcess,
   useProcessQuote,
 } from "../BreakIntoPoints";
@@ -70,8 +75,10 @@ import {
   recutClaimError,
   recutStartMode,
   unsentMarkCount,
+  wayChoiceView,
   type RecutChoice as Choice,
   type RecutOptions,
+  type RecutWay,
 } from "./recutView";
 
 interface RunningJob {
@@ -238,7 +245,6 @@ export function MoreOptions({
     minutesBalance,
     videoRef: previewRef,
   });
-  const [autoOpen, setAutoOpen] = useState(false);
   const [autoPick, setAutoPick] = useState<Choice | null>(null);
   const autoChoice = recutChoiceView("automatic", options, autoPick);
   const [busy, setBusy] = useState(false);
@@ -260,9 +266,6 @@ export function MoreOptions({
       });
   }, [open, live, loadOptions, loadJob]);
 
-  useEffect(() => {
-    if (autoOpen && open) void originalUrl();
-  }, [autoOpen, open, originalUrl]);
 
   const processAutomatically = async () => {
     if (busy || quote.charge == null) return;
@@ -322,7 +325,6 @@ export function MoreOptions({
 
   /* --------------------------------------------- Mark the points yourself */
 
-  const [handOpen, setHandOpen] = useState(false);
   const [handPick, setHandPick] = useState<Choice | null>(null);
   const handChoice = recutChoiceView("hand", options, handPick);
   const handChoiceRef = useRef(handChoice.selected);
@@ -341,6 +343,27 @@ export function MoreOptions({
         scoringAllowed,
       });
   const unsent = unsentMarkCount(draft.marks, draft.submitted, draft.prefilled);
+
+  /** The way the player picked, if any; until then wayChoiceView selects
+   *  Automatically, or Mark the points yourself when the row reads
+   *  "{N} marked". Local state only. */
+  const [pickedWay, setPickedWay] = useState<RecutWay | null>(null);
+  // No original to mark on: the hand row greys and cannot be picked, as
+  // on the unprocessed page. (A match with no stored original never gets
+  // here: moreOptionsView says so in place of both rows.)
+  const ways = wayChoiceView({
+    automatic: view.automatic,
+    hand: view.hand,
+    handDisabled: rawMissing,
+    markedCount: unsent,
+    picked: pickedWay,
+  });
+
+  // The trim's preview reads the original, so it is signed as soon as
+  // Automatically shows in an open sheet.
+  useEffect(() => {
+    if (ways.selected === "automatic" && open && live) void originalUrl();
+  }, [ways.selected, open, live, originalUrl]);
 
   const [opening, setOpening] = useState(false);
   const [marking, setMarking] = useState<{
@@ -439,22 +462,6 @@ export function MoreOptions({
     [match.id, loadOptions, loadJob, router],
   );
 
-  /**
-   * The two ways open one at a time: each ends in a cyan button, and two
-   * primaries on one sheet leave the player to work out which one is
-   * meant. Opening one closes the other; the unprocessed page does the
-   * same.
-   */
-  const toggleWay = (way: "automatic" | "hand") => {
-    if (way === "automatic") {
-      setAutoOpen(!autoOpen);
-      if (!autoOpen) setHandOpen(false);
-    } else {
-      setHandOpen(!handOpen);
-      if (!handOpen) setAutoOpen(false);
-    }
-  };
-
   /* ------------------------------------------------------------- render */
 
   const trailing = running ? (
@@ -522,63 +529,58 @@ export function MoreOptions({
         {processRows && (
           <>
             <SectionHeading className="mt-5">Process again</SectionHeading>
-            <div className="-mx-5 mt-2 border-y border-edge/60">
-              {view.automatic && (
-                <>
-                  <AccordionRow
-                    title="Automatically"
-                    trailing={quote.charge != null ? `${quote.charge} min` : null}
-                    open={autoOpen}
-                    onToggle={() => toggleWay("automatic")}
+            {/* One pick-one group, then only the selected way's content,
+                as on the unprocessed page (Adil, 2026-09-25, option A).
+                Each way ends in one cyan button, so exactly one shows. */}
+            {ways.group && ways.selected && (
+              <WayChoice
+                className="mt-3"
+                label="Process again"
+                selected={ways.selected}
+                onSelect={setPickedWay}
+                trailing={{
+                  automatic: quote.charge != null ? `${quote.charge} min` : null,
+                  hand: unsent > 0 ? `${unsent} marked` : null,
+                }}
+                handDisabled={rawMissing}
+              />
+            )}
+            {ways.selected === "automatic" && (
+              <AutoProcessPanel
+                className="mt-5"
+                quote={quote}
+                onProcess={() => void processAutomatically()}
+                actionLabel="Process again"
+                busy={busy}
+                error={autoError}
+                picture={picture}
+                choice={
+                  <RecutChoice
+                    name="recut-automatic"
+                    view={autoChoice}
+                    onChange={setAutoPick}
+                    disabled={busy}
                   />
-                  {autoOpen && (
-                    <AutoProcessPanel
-                      quote={quote}
-                      onProcess={() => void processAutomatically()}
-                      actionLabel="Process again"
-                      busy={busy}
-                      error={autoError}
-                      picture={picture}
-                      choice={
-                        <RecutChoice
-                          name="recut-automatic"
-                          view={autoChoice}
-                          onChange={setAutoPick}
-                          disabled={busy}
-                        />
-                      }
-                      onBalanceChecked={() => setAutoError(null)}
-                    />
-                  )}
-                </>
-              )}
-              {view.hand && (
-                <>
-                  <AccordionRow
-                    bordered={view.automatic}
-                    title="Mark the points yourself"
-                    trailing={unsent > 0 ? `${unsent} marked` : null}
-                    open={handOpen}
-                    onToggle={() => toggleWay("hand")}
-                  />
-                  {handOpen && (
-                    <>
-                      <MarkYourselfPanel
-                        mode={markMode}
-                        scoringAllowed={scoringAllowed}
-                        onMode={setModeChoice}
-                        resume={unsent > 0}
-                        opening={opening}
-                        onStart={() => void startMarking()}
-                      />
-                      {handError && (
-                        <p className="-mt-2 px-5 pb-5 text-sm text-amber-300/90">{handError}</p>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-            </div>
+                }
+                onBalanceChecked={() => setAutoError(null)}
+              />
+            )}
+            {ways.selected === "hand" && (
+              <>
+                <MarkYourselfPanel
+                  className="mt-5"
+                  mode={markMode}
+                  scoringAllowed={scoringAllowed}
+                  onMode={setModeChoice}
+                  resume={unsent > 0}
+                  opening={opening}
+                  onStart={() => void startMarking()}
+                />
+                {handError && (
+                  <p className="mt-3 text-sm text-amber-300/90">{handError}</p>
+                )}
+              </>
+            )}
           </>
         )}
         {/* Report a problem stands apart from Process again, as on iOS,
