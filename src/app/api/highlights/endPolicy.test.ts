@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   automaticHighlightEvidenceRefreshNeeded,
   automaticHighlightReadDecision,
   automaticHighlightRequestDecision,
   automaticHighlightEnd,
+  handCutClipPreS,
   highlightManifestIsFresh,
   highlightPointsRevision,
   supportsScoredHighlights,
+  type AutomaticHighlightEndPoint,
 } from "./endPolicy.ts";
 
 test("only scored match types can request new highlights", () => {
@@ -376,5 +379,68 @@ test("a scored-only manifest becomes stale when a rally is unscored, not when it
   points[0].confirmed_winner = "opponent";
   assert.equal(highlightManifestIsFresh(points, manifest), true);
   points[0].confirmed_winner = null;
+  assert.equal(highlightManifestIsFresh(points, manifest), false);
+});
+
+// The parity pair: worker/tests/test_hand_cut_highlights.py reads the same
+// file and checks highlights._segment_bounds against every case.
+const endCases = JSON.parse(
+  readFileSync(new URL("./fixtures/hand-cut-end-cases.json", import.meta.url), "utf8"),
+) as {
+  cases: {
+    name: string;
+    clip_pre: number | null;
+    point: AutomaticHighlightEndPoint;
+    expected_end: number;
+  }[];
+};
+
+test("the highlight end rule matches the shared hand-cut fixture", () => {
+  assert.ok(endCases.cases.length >= 7);
+  for (const item of endCases.cases) {
+    const end = automaticHighlightEnd(item.point, item.clip_pre);
+    assert.ok(end !== null, item.name);
+    assert.ok(Math.abs(end - item.expected_end) < 1e-9, `${item.name}: ${end}`);
+  }
+});
+
+test("a hand cut's evidence end is no longer a clip pad early", () => {
+  const point = {
+    t0: 20, cut_t0: 10, scored_at_cut_s: null, rally_end_cut_s: null,
+    highlight_evidence: { observed_end_s: 27 },
+  };
+  const automatic = automaticHighlightEnd(point)!;
+  const handCut = automaticHighlightEnd(point, 1.2)!;
+  assert.ok(Math.abs(handCut - automatic - 1.2) < 1e-9);
+  // Without a pad the rule is exactly the established expression.
+  assert.equal(automatic, point.cut_t0 + 27 - point.t0 + 0.25);
+  assert.equal(automaticHighlightEnd(point, null), automatic);
+});
+
+test("only a hand-cut match has a clip pad for the end rule", () => {
+  assert.equal(handCutClipPreS({ cut_source: "auto", clip_pads: { pre: 1, post: 2 } }), null);
+  assert.equal(handCutClipPreS({ cut_source: null }), null);
+  assert.equal(handCutClipPreS({ cut_source: "manual", clip_pads: { pre: 1.2, post: 1.3 } }), 1.2);
+  assert.equal(handCutClipPreS({ cut_source: "manual", clip_pads: { pre: 0.9, post: 1.3 } }), 0.9);
+  assert.equal(handCutClipPreS({ cut_source: "manual", clip_pads: null }), 1.2);
+  assert.equal(handCutClipPreS({ cut_source: "manual", clip_pads: { pre: "x" } }), 1.2);
+});
+
+test("a hand cut's stored reel is fresh only against the pad-aware end", () => {
+  const points = [{
+    id: "hand", idx: 1, t0: 20, t1: 28, cut_t0: 10,
+    scored_at_cut_s: null, rally_end_cut_s: null,
+    clip_path: "r2://bucket/hand.mp4", deleted: false, edited: false,
+    is_let: false, confirmed_winner: "user",
+    highlight_evidence: { v: 2, status: "ready", n_hits: null,
+      connected_crossings: 6, alternating_table_landings: 2,
+      table_bounces: 3, observed_end_s: 27 },
+  }];
+  const manifest = {
+    scored_only: true,
+    points_revision: highlightPointsRevision(points, true),
+    points: [{ point_id: "hand", cut_start_s: 10, cut_end_s: 18.45 }],
+  };
+  assert.equal(highlightManifestIsFresh(points, manifest, 1.2), true);
   assert.equal(highlightManifestIsFresh(points, manifest), false);
 });

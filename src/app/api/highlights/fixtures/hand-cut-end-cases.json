@@ -1,0 +1,47 @@
+{
+  "about": "The highlight end rule on both sides of the parity pair: worker/highlights.py _segment_bounds and src/app/api/highlights/endPolicy.ts automaticHighlightEnd. clip_pre is null for an automatic match (the established rule, unchanged) and the match's clip pad for a hand cut, where cut_t0 is the padded clip start. expected_end is the segment's end on the cut clock, tail included.",
+  "cases": [
+    {
+      "name": "automatic match keeps the established rule",
+      "clip_pre": null,
+      "point": {"t0": 20, "cut_t0": 10, "scored_at_cut_s": null, "rally_end_cut_s": null, "highlight_evidence": {"observed_end_s": 27}},
+      "expected_end": 17.25
+    },
+    {
+      "name": "automatic tight start is ignored without a pad",
+      "clip_pre": null,
+      "point": {"t0": 20, "cut_t0": 10, "tight_start": true, "scored_at_cut_s": null, "rally_end_cut_s": null, "highlight_evidence": {"observed_end_s": 27}},
+      "expected_end": 17.25
+    },
+    {
+      "name": "hand cut counts the end from the padded clip start",
+      "clip_pre": 1.2,
+      "point": {"t0": 20, "cut_t0": 10, "scored_at_cut_s": null, "rally_end_cut_s": null, "highlight_evidence": {"observed_end_s": 27}},
+      "expected_end": 18.45
+    },
+    {
+      "name": "hand cut tight start uses the adjust_point pad",
+      "clip_pre": 1.2,
+      "point": {"t0": 20, "cut_t0": 10, "tight_start": true, "scored_at_cut_s": null, "rally_end_cut_s": null, "highlight_evidence": {"observed_end_s": 27}},
+      "expected_end": 17.55
+    },
+    {
+      "name": "hand cut point in the first second clamps its clip start at zero",
+      "clip_pre": 1.2,
+      "point": {"t0": 0.5, "cut_t0": 0.15, "scored_at_cut_s": null, "rally_end_cut_s": null, "highlight_evidence": {"observed_end_s": 3}},
+      "expected_end": 3.4
+    },
+    {
+      "name": "hand cut with an observed cut-clock end uses it",
+      "clip_pre": 1.2,
+      "point": {"t0": 20, "cut_t0": 10, "scored_at_cut_s": null, "rally_end_cut_s": 17, "highlight_evidence": {"observed_end_s": 27}},
+      "expected_end": 17.25
+    },
+    {
+      "name": "hand cut scoring tap stays authoritative",
+      "clip_pre": 1.2,
+      "point": {"t0": 20, "cut_t0": 10, "scored_at_cut_s": 15.4, "rally_end_cut_s": 17, "highlight_evidence": {"observed_end_s": 27}},
+      "expected_end": 15.6
+    }
+  ]
+}

@@ -34,13 +34,20 @@ test("highlight route is authenticated, owner-only, availability guarded, and sc
 
 const matchId = "10000000-0000-4000-8000-000000000001";
 
-function readyRoute(key: string) {
+function readyRoute(key: string, handCut = false) {
+  // A hand cut has no detector end (rally_end_cut_s), so its reel ends at
+  // the evidence end counted from the padded clip start: 1 + 18 - (10 - 1.2)
+  // plus the 0.25 s tail.
   const points = [{ id: "70000000-0000-4000-8000-000000000007", idx: 0, t0: 10, t1: 20,
-    cut_t0: 1, rally_end_cut_s: 5, clip_path: "r2://media/clip.mp4", deleted: false, edited: false,
+    cut_t0: 1, rally_end_cut_s: handCut ? null : 5, clip_path: "r2://media/clip.mp4", deleted: false, edited: false,
     is_let: false, confirmed_winner: "user", highlight_evidence: { v: 2, status: "ready", n_hits: 8, connected_crossings: 7,
-      table_bounces: 4, alternating_table_landings: 5 } }];
+      table_bounces: 4, alternating_table_landings: 5, ...(handCut ? { observed_end_s: 18 } : {}) } }];
   const manifest = { v: 2, rule: "quality-first-v2", points_revision: endPolicy.highlightPointsRevision(points),
-    duration_s: 4.25, points: [{ point_id: points[0].id, cut_start_s: 1, cut_end_s: 5.25 }] };
+    duration_s: 4.25, points: [{ point_id: points[0].id, cut_start_s: 1, cut_end_s: handCut ? 10.45 : 5.25 }] };
+  const matchRow = handCut
+    ? { id: matchId, user_id: "owner", cut_path: "cut", status: "ready", cut_source: "manual",
+        clip_pads: { pre: 1.2, post: 1.3 } }
+    : { id: matchId, user_id: "owner", cut_path: "cut", status: "ready" };
   const signs: { bucket: string; key: string; options: unknown }[] = [];
   function query(data: unknown) {
     const result = { data, error: null };
@@ -54,7 +61,7 @@ function readyRoute(key: string) {
       auth: { getUser: async () => ({ data: { user: { id: "owner" } } }) },
       from: (table: string) => {
         assert.ok(["matches", "match_reels", "points"].includes(table));
-        return query(table === "matches" ? { id: matchId, user_id: "owner", cut_path: "cut", status: "ready" }
+        return query(table === "matches" ? matchRow
           : table === "match_reels" ? { status: "ready", r2_key: key, manifest } : points);
       },
     }) },
@@ -66,6 +73,8 @@ function readyRoute(key: string) {
     "@/lib/r2": { MEDIA_BUCKET: "media", presignGet: async (bucket: string, key: string, options: unknown) => {
       signs.push({ bucket, key, options }); return "https://signed.example/highlights.mp4";
     } },
+    // The route reads the shared sample match; none of these fixtures is it.
+    "@/lib/sampleMatch": { isSampleMatch: () => false },
     "./access": access,
     "./endPolicy": endPolicy,
     "../share/highlightShare": highlightShare,
@@ -92,6 +101,16 @@ test("ready legacy and versioned highlight attempts are signed inline", async ()
     assert.equal((await response.json()).status, "ready", key);
     assert.deepEqual(handler.signs, [{ bucket: "media", key, options: { expiresSeconds: 6 * 3600, disposition: "inline" } }]);
   }
+});
+
+test("a hand-cut match reads its highlights like any other match", async () => {
+  assert.doesNotMatch(route, /cut_source === "manual"/);
+  const key = `reels/${matchId}-highlights-abcdef0123456789.mp4`;
+  const handler = readyRoute(key, true);
+  const response = await handler.get();
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, "ready");
+  assert.equal(handler.signs.length, 1);
 });
 
 test("ready highlights never sign another match or an unrelated artifact", async () => {
