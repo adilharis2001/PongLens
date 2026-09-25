@@ -86,7 +86,7 @@ func summarizeProcessingWork(_ services: ProcessingServiceStatus, work: [Process
     if continuing.count == 1, let first = continuing.first {
         if let stage = first.stageLabel { label = stage }
         else if first.kind == "youtube_import" { label = queued ? "Waiting to import video" : "Importing video" }
-        else if first.kind == "hand_cut" { label = first.onDevice ? "Cutting on your iPhone" : queued ? "Waiting to prepare clips" : "Preparing clips" }
+        else if first.kind == "hand_cut" { label = first.onDevice ? "Cutting the video" : queued ? "Waiting to prepare clips" : "Preparing clips" }
         else { label = queued ? "Waiting to process" : "Your match is processing" }
     } else { label = "\(continuing.count) videos are \(queued ? "waiting to process" : "processing")" }
     // A hand cut ends in the same ready email as an automatic cut.

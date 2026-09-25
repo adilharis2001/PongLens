@@ -425,7 +425,10 @@ final class HandCutMarker {
             }
         }
     }
-    var mode: HandCutMode? {
+    /// The Score switch: on, the pass also says who won each point. Never
+    /// empty: a fresh match starts with it on, practice and drills with it
+    /// off (HandCut.openingMode).
+    var mode: HandCutMode {
         didSet { if mode != oldValue { store.edited(state.marks, mode: mode) } }
     }
     var firstServer: Winner?
@@ -467,9 +470,12 @@ final class HandCutMarker {
     @ObservationIgnored var scrubPending: Double?
     @ObservationIgnored private var seq = 0
 
+    /// `mode` is the Score switch as the player left it on the match page;
+    /// nil opens as the draft (or the default) says.
     init(
         match: MatchRow,
         store: HandCutDraftStore,
+        mode chosen: HandCutMode? = nil,
         submitMarks: @escaping ([HandCutMark]) async -> String?,
         saveFirstServer: @escaping (Winner) async -> Bool
     ) {
@@ -498,12 +504,13 @@ final class HandCutMarker {
         let initial = store.marks
         let resumed = !initial.isEmpty
         // Practice and drills can only ever be cut: a draft reopens as a
-        // cut-only pass whatever it was saved as, winners kept.
+        // cut-only pass whatever it was saved as, winners kept. A match
+        // opens as the player chose on the match page, else with Score on,
+        // or as its draft recorded.
         let scoringAllowed = MatchTitle.tracksServe((type?.isEmpty ?? true) ? nil : type)
-        let openedMode: HandCutMode? = resumed
-            ? (scoringAllowed ? HandCut.draftMode(initial, recorded: store.mode) : .cut)
-            : nil
-        openedAs = HandCut.openAs(initial, durationS: match.durationS, mode: openedMode ?? .score)
+        let openedMode = HandCut.openingMode(
+            initial, recorded: store.mode, tracksServe: scoringAllowed, chosen: chosen)
+        openedAs = HandCut.openAs(initial, durationS: match.durationS, mode: openedMode)
         let openedCalled = openedAs == .review || openedAs == .choice
         state = resumed
             ? HandCutState(
@@ -512,8 +519,15 @@ final class HandCutMarker {
             )
             : HandCutState()
         mode = openedMode
+        // Score on, a rotation to follow and nobody named as first server:
+        // "Who served first?" on the way in, fresh or resumed.
         serveStep = openedMode == .score && MatchTitle.tracksServe(matchType) && first == nil
         started = resumed && !openedCalled
+        // A switch flipped on the match page is the draft's mode from now
+        // on. The store writes nothing for a draft that does not exist yet.
+        if chosen != nil, openedMode != store.mode {
+            store.edited(initial, mode: openedMode)
+        }
     }
 
     // MARK: Derived

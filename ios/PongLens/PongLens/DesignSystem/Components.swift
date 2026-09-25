@@ -203,8 +203,12 @@ private struct PLShimmer: ViewModifier {
 // MARK: - Buttons
 
 struct PLPrimaryButtonStyle: ButtonStyle {
+    /// Less padding, for a bar with no room for the full 44pt (the marker's
+    /// landscape top bar). Everything else is the same button.
+    var compact = false
+
     func makeBody(configuration: Configuration) -> some View {
-        StyledLabel(configuration: configuration)
+        StyledLabel(configuration: configuration, compact: compact)
     }
 
     /// A `ButtonStyle` is not a `View`, so it cannot read `isEnabled` itself.
@@ -216,14 +220,15 @@ struct PLPrimaryButtonStyle: ButtonStyle {
     /// button since it was written.
     private struct StyledLabel: View {
         let configuration: Configuration
+        let compact: Bool
         @Environment(\.isEnabled) private var isEnabled
 
         var body: some View {
             configuration.label
                 .font(.plButton)
                 .foregroundStyle(PL.ink)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+                .padding(.horizontal, compact ? 18 : 20)
+                .padding(.vertical, compact ? 9 : 12)
                 .background(PL.cyan, in: Capsule())
                 .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.4), lineWidth: 1))
                 // The glow is what reads as "live", so a disabled button

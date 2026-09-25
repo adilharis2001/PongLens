@@ -36,29 +36,6 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     /// The owner's iPhone is cutting this match; no Mac lane is involved yet.
     var onDevice: Bool { jobKind == "hand_cut" && phase == "device" }
 
-    /// Seconds since the phone last reported (or was handed the job). The
-    /// web's deviceQuietSeconds.
-    func deviceQuietSeconds(now: Date = Date()) -> Double? {
-        guard let deviceSeenAtString, let at = Self.stamp(deviceSeenAtString) else { return nil }
-        return max(0, now.timeIntervalSince(at))
-    }
-
-    /// A phone job with no word for a day: offer "Cut on the Mac instead",
-    /// as the web's offerMacInstead does.
-    func offersMacInstead(now: Date = Date()) -> Bool {
-        guard onDevice, let quiet = deviceQuietSeconds(now: now) else { return false }
-        return quiet >= 24 * 3600
-    }
-
-    /// A Postgres timestamp as JSON carries it ("2026-09-25T10:00:00.123456+00:00").
-    /// The fraction is dropped: a second is plenty for "over a day".
-    static func stamp(_ text: String) -> Date? {
-        let whole = text.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f.date(from: whole)
-    }
-
     struct CameraCheck: Decodable, Hashable {
         let statusString: String
         let changes: [Change]
@@ -83,10 +60,9 @@ struct MatchProcessingFeedback: Decodable, Hashable {
         if onDevice { return Self.deviceStageLabel(deviceStage) }
         if workerState == "silent" { return "Processing is delayed" }
         let handCut = jobKind == "hand_cut"
-        if jobStatus == "queued" {
-            if !handCut { return "Waiting to process" }
-            return phase == "verify" ? "Waiting to check the cut" : "Waiting to prepare clips"
-        }
+        // A hand cut waits in the same words whoever cut it: a phone's cut
+        // waiting for its check is not told apart.
+        if jobStatus == "queued" { return handCut ? "Waiting to prepare clips" : "Waiting to process" }
         guard workerState == "fresh" else { return nil }
         if handCut { return Self.handCutStageLabel(stage) }
         switch stage {
@@ -102,31 +78,29 @@ struct MatchProcessingFeedback: Decodable, Hashable {
         }
     }
 
-    /// A hand cut runs its own stages on the Mac (worker.py
-    /// process_hand_cut), named the way /admin/processing names them. None of
+    /// A hand cut runs its own stages (worker.py process_hand_cut). None of
     /// them finds points or removes dead time: the owner's marks already did
-    /// both. The web's HAND_CUT_STAGES in src/lib/processingFeedback.ts.
+    /// both. The words are the same wherever the cut runs, so a player never
+    /// learns where that is: the Mac checking a phone's cut is "Saving the
+    /// match", as its publish is. The web's HAND_CUT_STAGES in
+    /// src/lib/processingFeedback.ts.
     static func handCutStageLabel(_ stage: String?) -> String {
         switch stage {
         case "marks": return "Reading the marks"
-        case "device_verify": return "Checking the cut"
         case "download": return "Preparing video"
         case "cut": return "Cutting the video"
         case "upload": return "Uploading the result"
         case "points": return "Building the points"
-        case "publish": return "Saving the match"
+        case "publish", "device_verify": return "Saving the match"
         default: return "Preparing clips"
         }
     }
 
-    /// What the player reads while the phone works on the cut. The web's
-    /// deviceStageLabel in src/lib/deviceHandCut.ts.
+    /// The phone's own stages, in the hand cut's words: its encoding (and a
+    /// pause in it) is "Cutting the video", its upload "Uploading the
+    /// result". The web's deviceStageLabel in src/lib/deviceHandCut.ts.
     static func deviceStageLabel(_ stage: String?) -> String {
-        switch stage {
-        case "device_upload": return "Uploading from your iPhone"
-        case "device_paused": return "Paused on your iPhone"
-        default: return "Cutting on your iPhone"
-        }
+        handCutStageLabel(stage == "device_upload" ? "upload" : "cut")
     }
 
     func cameraWarning(trimStart: Double = 0, trimEnd: Double = .infinity) -> String? {
