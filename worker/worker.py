@@ -2250,12 +2250,14 @@ def run_blurball_windowed(
     return output, frames
 
 
-def video_source_geometry(path: str | Path) -> dict | None:
+def video_source_geometry(path: str | Path,
+                          probe: dict | None = None) -> dict | None:
     """fps, width and height the way points_pipeline.probe reads them
     (first video stream, avg_frame_rate, 29.97 when it has no rate), or
-    None when the file cannot be probed."""
+    None when the file cannot be probed. `probe` is an ffprobe reading
+    already in hand, so a remote file is not read twice."""
     try:
-        streams = _ffprobe_streams(str(path))["streams"]
+        streams = (probe or _ffprobe_streams(str(path)))["streams"]
         video = next(s for s in streams if s.get("codec_type") == "video")
         num, den = str(video["avg_frame_rate"]).split("/")
         fps = float(num) / float(den) if float(den) else 29.97
@@ -7090,33 +7092,22 @@ def verify_worker_database_contract(conn) -> None:
         raise RuntimeError("sealed worker database contract is incompatible")
 
 
-def _hand_cut_segments(marks: list[dict], dur: float, pre: float, post: float):
-    """Cut segments and per-mark cut_t0, through the pipeline's own maths.
+def _hand_cut_plan(marks: list[dict], dur: float, pre: float, post: float):
+    """Cut segments and every point's place in the cut, through the
+    pipeline's own maths (hand_cut_device.plan_hand_cut).
 
-    Mirrors cmd_points' plays branch exactly: the CLIP pads go inside each
-    window and SEGMENT_PADS (0.15) are the head/tail handed to
-    play_cut_segments. That 0.15 is described in points_pipeline as a
-    rounding whisker, and it is what keeps a clip's anchor INSIDE its
-    segment rather than exactly on the boundary, where an ffmpeg seek can
-    shave the first frames of the pre pad.
+    The CLIP pads go inside each window and SEGMENT_PADS (0.15) are the
+    head/tail handed to play_cut_segments, exactly as cmd_points' plays
+    branch does. That 0.15 is described in points_pipeline as a rounding
+    whisker, and it is what keeps a clip's anchor INSIDE its segment rather
+    than exactly on the boundary, where an ffmpeg seek can shave the first
+    frames of the pre pad. The same function plans a cut made on the
+    iPhone and writes the iPhone planner's parity fixture, so the Mac, the
+    phone and the check between them read one statement of the rules.
     """
     sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
-    from points_pipeline import (  # noqa: E402
-        SEGMENT_PADS, play_cut_segments, segment_cut_offsets, cut_position,
-    )
-    seg_head, seg_tail = SEGMENT_PADS["normal"]
-    windows = [
-        (max(0.0, float(m["t0"]) - pre), min(dur, float(m["t1"]) + post))
-        for m in marks
-    ]
-    segments = play_cut_segments(windows, dur, seg_head, seg_tail)
-    offsets = segment_cut_offsets(segments)
-    anchors = [
-        round(cut_position(segments, offsets,
-                           max(0.0, float(m["t0"]) - pre)), 2)
-        for m in marks
-    ]
-    return segments, offsets, anchors
+    import hand_cut_device  # noqa: E402
+    return hand_cut_device.plan_hand_cut(marks, dur, pre, post)
 
 
 def hand_cut_match_source(duration: float, geometry: dict | None) -> dict:
@@ -7192,6 +7183,308 @@ def hand_cut_release(conn, job_id: str, payload: dict) -> None:
         _hand_cut_rollback(conn, str(match_id), str(job_id), release=True)
 
 
+def _publish_hand_cut(conn, *, match_id: str, user_id: str, job_id: str,
+                      played_at, result_path: str, points: list[dict],
+                      marks: list[dict], r2_prefix: str,
+                      thumb_path: str | None, failed_clips: set[int],
+                      pre: float, post: float) -> dict:
+    """The one publication of a hand cut, whoever cut the video: the Mac
+    (process_hand_cut) or the owner's iPhone (_publish_device_hand_cut).
+    `points` are match.json's points with the clip named relative to
+    r2_prefix; `marks` are the plan's marks in the same order, which carry
+    the winners, lets and stars the owner called while marking."""
+    pulse_stage("publish")
+    update_job(conn, job_id, progress=90)
+    with canonical_publication_transaction(conn):
+        create_match(conn, match_id, user_id, job_id, result_path,
+                     played_at=played_at, existing=True,
+                     hand_cut=True)
+        for p in points:
+            p["rally_end_cut_s"] = None
+            p["highlight_evidence"] = None
+        inserted = insert_points(conn, match_id, points, r2_prefix)
+        with conn.cursor() as cur:
+            for p, m in zip(points, marks):
+                row_id = (inserted.get(int(p["idx"])) or {}).get("id")
+                if not row_id:
+                    continue
+                is_let = bool(m.get("let"))
+                winner = None if is_let else m.get("w")
+                # edited=true on a point with no clip is the reclip
+                # request: the trigger fires on that update and queues
+                # one re-cut for the match.
+                cur.execute(
+                    "update public.points set confirmed_winner = %s, "
+                    "is_let = %s, confirmed_how = %s, starred = %s, "
+                    "edited = (edited or %s) "
+                    "where id = %s",
+                    (winner, is_let, "let" if is_let else None,
+                     bool(m.get("star")), int(p["idx"]) in failed_clips,
+                     row_id),
+                )
+            cur.execute(
+                "update public.matches set clip_pads = %s where id = %s",
+                (json.dumps({"pre": pre, "post": post}), match_id),
+            )
+        receipt = finalize_canonical_publication(
+            conn, "publish_hand_cut_v2", match_id, job_id
+        )
+        # Ready is deliberately after the checked receipt, and still in
+        # the same transaction. Nobody can observe the processing state
+        # between these two statements.
+        finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json",
+                     thumb_path=thumb_path)
+    return receipt
+
+
+# ---------------------------------------------------------------------------
+# A hand cut made on the iPhone (2026-09-25)
+# ---------------------------------------------------------------------------
+# The phone cut the video and its clips from the frozen marks and uploaded
+# them with a manifest (docs/superpowers/specs/
+# 2026-09-25-device-hand-cut-contract.md). The Mac does not trust it: it
+# plans the marks itself, re-derives every position through _CutMap, probes
+# the cut, and only then publishes it through _publish_hand_cut, the same
+# path as its own cut. Anything that disagrees is a DeviceCutMismatch: the
+# job says why, and the same run cuts the marks on the Mac, so the player
+# never sees a failure the phone caused.
+#
+# A job the phone holds (options.phase 'device') is never queued. A phone
+# that never comes back is released by public.release_stale_device_hand_cuts,
+# which this hand lane calls every DEVICE_STALE_SWEEP_EVERY_S.
+DEVICE_STALE_SWEEP_EVERY_S = 600
+
+
+def _r2_head_bytes(bucket: str, key: str) -> int | None:
+    """An object's size, or None when it is not there. Anything but a
+    missing object raises, so the queue retries a network problem instead
+    of blaming the phone for it."""
+    try:
+        head = r2().head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if is_missing_source_error(error):
+            return None
+        raise
+    return int(head.get("ContentLength") or 0)
+
+
+def _r2_read_small(bucket: str, key: str, limit: int) -> bytes | None:
+    """At most limit + 1 bytes of an object (one more than allowed, so the
+    caller can tell an oversized file), or None when it is not there."""
+    try:
+        body = r2().get_object(Bucket=bucket, Key=key)["Body"]
+    except ClientError as error:
+        if is_missing_source_error(error):
+            return None
+        raise
+    try:
+        return body.read(limit + 1)
+    finally:
+        body.close()
+
+
+def _switch_device_hand_cut_to_mac(conn, job_id: str, reason: str) -> None:
+    """The phone's cut is not used. The job says why, and from here on it
+    is an ordinary Mac hand cut, so a redelivery cuts rather than checks."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.jobs set options = options || jsonb_build_object("
+            "'cutter', 'mac', 'phase', 'mac', 'device_note', %s::text, "
+            "'device_fallback_at', now()) where id = %s",
+            (f"iPhone cut not used: {reason}"[:500], job_id))
+
+
+def _note_device_hand_cut(conn, job_id: str, note: str) -> None:
+    """Best-effort record of a phone cut that was checked and published."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update public.jobs set options = options || "
+                "jsonb_build_object('device_note', %s::text) where id = %s",
+                (note[:500], job_id))
+    except Exception:                                       # noqa: BLE001
+        log.warning("  hand cut: could not note the iPhone's cut on %s",
+                    job_id, exc_info=True)
+
+
+def _verify_device_hand_cut(conn, *, job_id: str, user_id: str,
+                            match_id: str, raw_path: str | None,
+                            duration_s, marks: list[dict]):
+    """Checks 1 to 8 of the contract, reading only headers and small files:
+    the manifest, the original's header, the cut's header, and a HEAD for
+    every clip. Returns what to publish, or raises DeviceCutMismatch."""
+    sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
+    import hand_cut_device as hcd  # noqa: E402
+
+    keys = hcd.device_keys(user_id, job_id, match_id)
+    body = _r2_read_small(R2_MEDIA_BUCKET, keys["manifest"],
+                          hcd.MANIFEST_MAX_BYTES)
+    if body is None:
+        raise hcd.DeviceCutMismatch("the manifest was not uploaded")
+    manifest = hcd.parse_manifest(body)
+
+    # The Mac's own reading of the original, from its header alone: the
+    # duration the phone's plan must agree with, and the frame rate and
+    # size every other hand cut records.
+    probe_duration = None
+    geometry = None
+    raw_url = _presigned_get(raw_path, expires_s=3600)
+    if raw_url:
+        try:
+            raw_probe = _ffprobe_streams(raw_url)
+            probe_duration = float(raw_probe["format"]["duration"])
+            geometry = video_source_geometry(raw_path, probe=raw_probe)
+        except Exception as error:                          # noqa: BLE001
+            log.warning("  hand cut: could not probe the original (%s)",
+                        error)
+            probe_duration = None
+            geometry = None
+    verified = hcd.check_manifest(
+        manifest, job_id=job_id, match_id=match_id, marks=marks,
+        duration_probe=probe_duration,
+        duration_row=float(duration_s) if duration_s else None,
+        cut_map=_CutMap, mac_geometry=geometry)
+
+    cut_bytes = _r2_head_bytes(R2_MEDIA_BUCKET, keys["cut"])
+    if not cut_bytes:
+        raise hcd.DeviceCutMismatch("the cut was not uploaded")
+    cut_url = _presigned_get(f"r2://{R2_MEDIA_BUCKET}/{keys['cut']}",
+                             expires_s=3600)
+    if not cut_url:
+        raise RuntimeError("hand cut: could not sign the iPhone's cut")
+    try:
+        cut_probe = _ffprobe_streams(cut_url)
+    except subprocess.CalledProcessError as error:
+        raise hcd.DeviceCutMismatch(
+            f"the cut could not be read (ffprobe exit {error.returncode})"
+        ) from error
+    cut_duration, cut_note = hcd.check_cut_probe(cut_probe,
+                                                 verified.cut_segments)
+    verified.notes.append(cut_note)
+
+    clip_bytes: dict[int, int] = {}
+    for p in verified.points:
+        if p["clip"] is None:
+            continue
+        size = _r2_head_bytes(R2_MEDIA_BUCKET,
+                              f"{keys['clip_prefix']}/{p['clip']}")
+        if not size:
+            raise hcd.DeviceCutMismatch(f"clip {p['clip']} was not uploaded")
+        clip_bytes[int(p["idx"])] = size
+    return verified, keys, cut_bytes, cut_duration, clip_bytes
+
+
+def _publish_device_hand_cut(conn, job_id: str, user_id: str, match_id: str,
+                             played_at, raw_path: str | None, duration_s,
+                             marks: list[dict]) -> None:
+    """Check the iPhone's cut and publish it as the match. Raises
+    DeviceCutMismatch before writing anything if the cut cannot be used."""
+    sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
+    import hand_cut_device as hcd  # noqa: E402
+
+    pre, post = hcd.CLIP_PRE_S, hcd.CLIP_POST_S
+    pulse_stage("device_verify")
+    update_job(conn, job_id, progress=10)
+    verified, keys, cut_bytes, cut_duration, clip_bytes = (
+        _verify_device_hand_cut(
+            conn, job_id=job_id, user_id=user_id, match_id=match_id,
+            raw_path=raw_path, duration_s=duration_s, marks=marks))
+
+    workdir = tempfile.mkdtemp(prefix=f"ponglens-handcut-{str(job_id)[:8]}-")
+    result_path = f"r2://{R2_MEDIA_BUCKET}/{keys['cut']}"
+    key_prefix = keys["clip_prefix"]
+    r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
+    ledger_keys: list[str] = []
+    try:
+        pulse_stage("points")
+        update_job(conn, job_id, progress=60)
+        match_json = hcd.device_match_json(verified, cut_duration=cut_duration,
+                                           pre=pre, post=post)
+        points = match_json["points"]
+        failed_clips = {int(p["idx"]) for p in points if not p["clip"]}
+
+        # The first rally's serve, the way both other paths pick a poster,
+        # read from the phone's first clip by range.
+        thumb_path = None
+        thumb_bytes = 0
+        first = next((p for p in points if p["clip"]), None)
+        if first is not None:
+            clip_url = _presigned_get(f"{r2_prefix}/{first['clip']}",
+                                      expires_s=3600)
+            thumb_local = os.path.join(workdir, "match_thumb.webp")
+            thumb_name = f"thumb-{job_id}.webp"
+            if clip_url and extract_thumb(clip_url, thumb_local, pre):
+                r2().upload_file(
+                    thumb_local, R2_MEDIA_BUCKET, f"{key_prefix}/{thumb_name}",
+                    ExtraArgs={"ContentType": "image/webp"})
+                thumb_bytes = os.path.getsize(thumb_local)
+                thumb_path = f"{r2_prefix}/{thumb_name}"
+
+        # Storage rows from the sizes R2 reported, the same two rows the
+        # Mac's own cut books.
+        ledger_keys.append(result_path)
+        ledger_append(conn, user_id, "cut", cut_bytes, result_path, match_id)
+        clip_total = sum(clip_bytes.values()) + thumb_bytes
+        if clip_total:
+            ledger_keys.append(f"{r2_prefix}/")
+            ledger_append(conn, user_id, "clip", clip_total, f"{r2_prefix}/",
+                          match_id)
+
+        mj_path = os.path.join(workdir, "match.json")
+        with open(mj_path, "w") as fh:
+            json.dump(match_json, fh)
+        r2().upload_file(mj_path, R2_MEDIA_BUCKET, f"{key_prefix}/match.json",
+                         ExtraArgs={"ContentType": "application/json"})
+
+        receipt = _publish_hand_cut(
+            conn, match_id=match_id, user_id=user_id, job_id=job_id,
+            played_at=played_at, result_path=result_path, points=points,
+            marks=verified.plan.marks, r2_prefix=r2_prefix,
+            thumb_path=thumb_path, failed_clips=failed_clips,
+            pre=pre, post=post)
+        log.info("  hand cut published from the iPhone: match %s, %d points "
+                 "(%d clips left for reclip), positions within %.3fs, "
+                 "canonical revision %s", match_id, len(points),
+                 len(failed_clips), verified.max_position_error_s,
+                 receipt["scoreRevision"])
+    except MatchVersionChanged:
+        ledger_negate_keys(conn, ledger_keys)
+        raise
+    except UserFacingError:
+        _hand_cut_rollback(conn, match_id, job_id, release=True,
+                           ledger_keys=ledger_keys)
+        raise
+    except Exception:
+        _hand_cut_rollback(conn, match_id, job_id, release=False,
+                           ledger_keys=ledger_keys)
+        raise
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    _note_device_hand_cut(
+        conn, job_id,
+        f"iPhone cut checked and published: positions within "
+        f"{verified.max_position_error_s:.3f}s; " + "; ".join(verified.notes))
+
+
+def release_stale_device_hand_cuts(conn) -> int:
+    """Hand back the marks of phone cuts that stopped reporting 72 hours
+    ago (public.release_stale_device_hand_cuts: "Cut failed" bell, no
+    email). Called by the hand lane alone; never raises."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select public.release_stale_device_hand_cuts()")
+            row = cur.fetchone()
+        released = int((row[0] if row else 0) or 0)
+    except Exception as error:                              # noqa: BLE001
+        # Before the migration the function does not exist. Nothing to do.
+        log.warning("device hand-cut sweep failed (non-fatal): %s", error)
+        return 0
+    if released:
+        log.info("released %d iPhone hand cut(s) that stopped reporting",
+                 released)
+    return released
+
+
 def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
                      attempt_key: str) -> None:
     """Build a match from the owner's own marks."""
@@ -7236,6 +7529,26 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
     if not marks:
         raise UserFacingError("No points were marked.")
 
+    # Cut on the owner's iPhone and uploaded: check it, and publish it if
+    # it holds up. The row is the truth (options are read fresh), and a
+    # job that fell back once stays a Mac cut on every redelivery.
+    extra_notes: list[str] = []
+    options = get_job_options(conn, job_id, payload)
+    if options.get("cutter") == "device" and options.get("phase") == "verify":
+        sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
+        from hand_cut_device import DeviceCutMismatch  # noqa: E402
+        try:
+            _publish_device_hand_cut(
+                conn, job_id, user_id, str(match_id), played_at, raw_path,
+                duration_s, [dict(m) for m in marks])
+            return
+        except DeviceCutMismatch as mismatch:
+            log.warning("  hand cut: the iPhone's cut is not used (%s); "
+                        "cutting on the Mac", mismatch)
+            _switch_device_hand_cut_to_mac(conn, job_id, str(mismatch))
+            extra_notes.append(
+                f"cut on the Mac: the iPhone's cut was not used ({mismatch})")
+
     pre, post = 1.2, 1.3
     workdir = tempfile.mkdtemp(prefix=f"ponglens-handcut-{str(job_id)[:8]}-")
     # Storage rows this attempt writes, so a rollback can negate exactly
@@ -7258,35 +7571,33 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
         dur = probe_duration_s(local_raw) or float(duration_s or 0)
         if not dur or dur <= 0:
             raise UserFacingError("The original video could not be read.")
-        marks = [m for m in marks if float(m["t0"]) < dur]
-        for m in marks:
-            m["t1"] = min(float(m["t1"]), dur)
+        plan = _hand_cut_plan(marks, dur, pre, post)
+        marks = plan.marks
         if not marks:
             raise UserFacingError(
                 "Every mark is past the end of the video.")
 
         pulse_stage("cut")
         update_job(conn, job_id, progress=20)
-        segments, offsets, anchors = _hand_cut_segments(marks, dur, pre, post)
+        segments = plan.segments_exact
 
         outdir = os.path.join(workdir, "points_out")
         os.makedirs(os.path.join(outdir, "points"), exist_ok=True)
         points = []
-        for i, (m, cut_t0) in enumerate(zip(marks, anchors), start=1):
-            t0, t1 = float(m["t0"]), float(m["t1"])
+        for p in plan.points:
             points.append({
-                "idx": i,
-                "t0": round(t0, 2),
-                "t1": round(t1, 2),
+                "idx": p["idx"],
+                "t0": p["t0"],
+                "t1": p["t1"],
                 # clip_t0/clip_t1/cut_t0/t1 are what _CutMap.born reads, so
                 # a later re-cut of one of THESE points takes the flat-pad
                 # branch. A card inserted or split later has no born entry;
                 # _CutMap.dynamic_tails is what keeps it off the dynamic
                 # tail, by pipeline name.
-                "clip_t0": round(max(0.0, t0 - pre), 2),
-                "clip_t1": round(min(dur, t1 + post), 2),
-                "cut_t0": cut_t0,
-                "clip": f"points/{i:02d}.mp4",
+                "clip_t0": p["clip_t0"],
+                "clip_t1": p["clip_t1"],
+                "cut_t0": p["cut_t0"],
+                "clip": f"points/{p['clip']}",
                 "server": None,
                 "placement": None,
                 "suggestion": None,
@@ -7307,6 +7618,7 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
                 f"hand cut v1: {len(points)} points marked by the owner, "
                 f"keeping {kept:.1f}s of {dur:.1f}s",
                 "detections: none (marked by hand)",
+                *extra_notes,
             ],
             "points": points,
         }
@@ -7414,47 +7726,11 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
                          f"{key_prefix}/match.json",
                          ExtraArgs={"ContentType": "application/json"})
 
-        pulse_stage("publish")
-        update_job(conn, job_id, progress=90)
-        with canonical_publication_transaction(conn):
-            create_match(conn, match_id, user_id, job_id, result_path,
-                         played_at=played_at, existing=True,
-                         hand_cut=True)
-            for p in points:
-                p["rally_end_cut_s"] = None
-                p["highlight_evidence"] = None
-            inserted = insert_points(conn, match_id, points, r2_prefix)
-            with conn.cursor() as cur:
-                for p, m in zip(points, marks):
-                    row_id = (inserted.get(int(p["idx"])) or {}).get("id")
-                    if not row_id:
-                        continue
-                    is_let = bool(m.get("let"))
-                    winner = None if is_let else m.get("w")
-                    # edited=true on a point with no clip is the reclip
-                    # request: the trigger fires on that update and queues
-                    # one re-cut for the match.
-                    cur.execute(
-                        "update public.points set confirmed_winner = %s, "
-                        "is_let = %s, confirmed_how = %s, starred = %s, "
-                        "edited = (edited or %s) "
-                        "where id = %s",
-                        (winner, is_let, "let" if is_let else None,
-                         bool(m.get("star")), int(p["idx"]) in failed_clips,
-                         row_id),
-                    )
-                cur.execute(
-                    "update public.matches set clip_pads = %s where id = %s",
-                    (json.dumps({"pre": pre, "post": post}), match_id),
-                )
-            receipt = finalize_canonical_publication(
-                conn, "publish_hand_cut_v2", match_id, job_id
-            )
-            # Ready is deliberately after the checked receipt, and still in
-            # the same transaction. Nobody can observe the processing state
-            # between these two statements.
-            finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json",
-                         thumb_path=thumb_path)
+        receipt = _publish_hand_cut(
+            conn, match_id=match_id, user_id=user_id, job_id=job_id,
+            played_at=played_at, result_path=result_path, points=points,
+            marks=marks, r2_prefix=r2_prefix, thumb_path=thumb_path,
+            failed_clips=failed_clips, pre=pre, post=post)
         log.info("  hand cut published: match %s, %d points (%d clips "
                  "left for reclip), canonical revision %s",
                  match_id, len(points), len(failed_clips),
@@ -10620,11 +10896,17 @@ def process_job(conn, msg) -> None:
             claim_guard = locked_ordinary_match_attempt(conn, match_id, user_id, job_id, claim=True)
     try:
         with claim_guard, conn.cursor() as cur:
+            # A hand cut the owner's iPhone still holds (or one handed back
+            # after the phone went quiet) is never the Mac's to run, whatever
+            # a stray message says: the phone submits it, or the owner
+            # switches it to the Mac, and both of those move the phase.
             cur.execute(
                 "update public.jobs set status = 'processing' "
                 "where id = %s and status <> 'cancelled' "
                 "and (kind <> 'match_reprocess' or status in ('queued', 'processing')) "
                 "and (kind not in ('deadspace_cut','youtube_import') or status in ('queued','processing','failed')) "
+                "and not (kind = 'hand_cut' "
+                "and coalesce(options->>'phase', '') in ('device', 'released')) "
                 "returning id",
                 (job_id,),
             )
@@ -11815,6 +12097,11 @@ def main():
         start_cost_alert_monitor()
     last_cleanup = 0.0
     last_digest_check = 0.0
+    # The hand lane hands back the marks of iPhone cuts that stopped
+    # reporting (release_stale_device_hand_cuts). It lives here, not in the
+    # main lane's housekeeping, so it ships with the hand lane's own release.
+    device_sweep = LANE == "hand"
+    last_device_sweep = 0.0
 
     while True:
         try:
@@ -11837,6 +12124,12 @@ def main():
                 maybe_send_feedback_digest(conn)     # never raises
                 maybe_send_qa_closed_digest(conn)    # never raises
                 last_digest_check = time.time()
+
+            if device_sweep and (
+                    time.time() - last_device_sweep
+                    > DEVICE_STALE_SWEEP_EVERY_S):
+                release_stale_device_hand_cuts(conn)  # never raises
+                last_device_sweep = time.time()
 
             # Housekeeping can take time. Recheck at the actual queue boundary
             # so a drain or integrity failure cannot race a new claim.
