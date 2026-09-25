@@ -41,7 +41,7 @@ Existing `hand_cut_drafts` rules apply unchanged: insert when no row is known, c
 
 ## Phase 2 (built 2026-09-25, not yet released)
 
-Automatic Replace is `claim_auto_recut(p_match_id uuid, p_replace boolean, p_trim_start_s numeric, p_trim_end_s numeric, p_strictness text)` returning jsonb `{job_id, match_id}`: charged like `claim_processing`, refunded if it fails, the candidate made live when ready. It arrives with the main/fast release that gives candidates the body-first assembler; until then `recut_auto_replace` stays `off` and `replace_automatic` false. Migration `20260925200000_cut_again_auto_replace.sql`.
+Automatic Replace is `claim_auto_recut(p_match_id uuid, p_replace boolean, p_trim_start_s numeric, p_trim_end_s numeric, p_strictness text)` returning jsonb `{job_id, match_id}`: charged like `claim_processing`, refunded if it fails, the candidate made live when ready. It arrives with the main/fast release that gives candidates the body-first assembler; until then `recut_auto_replace` stays `off` and `replace_automatic` false. Migration `20260925170532_cut_again_auto_replace.sql`.
 
 | Where | As built |
 | --- | --- |

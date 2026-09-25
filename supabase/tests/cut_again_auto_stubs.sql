@@ -1,4 +1,4 @@
--- What 20260925200000_cut_again_auto_replace.sql needs on top of the phase 1
+-- What 20260925170532_cut_again_auto_replace.sql needs on top of the phase 1
 -- test database (cut_again_stubs.sql and the migrations after it), for a
 -- bare Postgres. The charging layer (claim_processing and what it reads),
 -- the processing ledger and the two match_reprocess guards are production's,
@@ -14,7 +14,7 @@
 --            supabase/migrations/20260925133555_recut_prefill_is_not_a_draft.sql \
 --            supabase/migrations/20260925133639_recut_prefill_guard_definer.sql \
 --            supabase/tests/cut_again_auto_stubs.sql \
---            supabase/migrations/20260925200000_cut_again_auto_replace.sql \
+--            supabase/migrations/20260925170532_cut_again_auto_replace.sql \
 --            supabase/tests/cut_again.sql \
 --            supabase/tests/cut_again_auto.sql; do
 --     docker exec -i recut-auto-pg psql -q -v ON_ERROR_STOP=1 -U postgres < "$f"

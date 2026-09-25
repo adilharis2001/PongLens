@@ -103,7 +103,7 @@ struct CutAgainClient {
     /// Replace under Automatically, in More options (phase 2):
     /// `claim_auto_recut(p_match_id, p_replace, p_trim_start_s,
     /// p_trim_end_s, p_strictness)` returning `{job_id, match_id}`
-    /// (20260925200000_cut_again_auto_replace.sql). Charged as /api/process
+    /// (20260925170532_cut_again_auto_replace.sql). Charged as /api/process
     /// charges; the detailed analysis rides along, as on every processed
     /// upload. Keep does not come here: it is the copy plus /api/process.
     var claimAutoRecut: (UUID, ProcessSettings) async throws -> UUID?

@@ -1,4 +1,4 @@
--- Rollback of 20260925200000_cut_again_auto_replace.sql, in one transaction.
+-- Rollback of 20260925170532_cut_again_auto_replace.sql, in one transaction.
 --
 -- Every function restored below is the definition production ran on
 -- 2026-09-25 before the migration (pulled with pg_get_functiondef). Checked

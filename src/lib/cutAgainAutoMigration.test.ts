@@ -8,7 +8,7 @@ import test from "node:test";
 // supabase/tests/cut_again_auto.sql (commands in
 // supabase/tests/cut_again_auto_stubs.sql); the main lane's half by
 // worker/tests/test_auto_recut.py.
-const sql = readFileSync("supabase/migrations/20260925200000_cut_again_auto_replace.sql", "utf8");
+const sql = readFileSync("supabase/migrations/20260925170532_cut_again_auto_replace.sql", "utf8");
 const code = sql.replace(/--.*$/gm, "");
 const web = readFileSync("src/app/match/[id]/recut/MoreOptions.tsx", "utf8");
 const ios = readFileSync("ios/PongLens/PongLens/Core/CutAgainModel.swift", "utf8");

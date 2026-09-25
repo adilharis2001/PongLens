@@ -1,4 +1,4 @@
--- Behaviour of 20260925200000_cut_again_auto_replace.sql on the isolated
+-- Behaviour of 20260925170532_cut_again_auto_replace.sql on the isolated
 -- database cut_again_auto_stubs.sql describes (the header there has the
 -- commands). Every fixture rolls back. A failure raises 'FAIL: ...'.
 \set ON_ERROR_STOP on
