@@ -18,7 +18,7 @@ export interface ProcessingFeedback {
   /** A hand cut the owner's iPhone cut or is cutting (20260925061009):
    *  'device' while the phone works, 'verify' once the Mac is checking it,
    *  'mac' when the Mac took it over (the phone gave it up, or stopped
-   *  reporting for 15 minutes: 20260925200000). Absent on every other job. */
+   *  reporting for 15 minutes: 20260925105830). Absent on every other job. */
   cutter?: "device" | "mac" | null;
   phase?: "device" | "verify" | "mac" | "released" | null;
   /** The phone's own stage, and when it last reported (its claim when it

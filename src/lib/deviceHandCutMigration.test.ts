@@ -16,7 +16,7 @@ const first = readFileSync(
   "utf8",
 );
 const handoff = readFileSync(
-  "supabase/migrations/20260925200000_device_hand_cut_silent_handoff.sql",
+  "supabase/migrations/20260925105830_device_hand_cut_silent_handoff.sql",
   "utf8",
 );
 const sql = first;

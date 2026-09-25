@@ -6,7 +6,7 @@ not deployed.
 
 | Piece | Where |
 | --- | --- |
-| Database | `supabase/migrations/20260925061009_device_hand_cut.sql` (applied), then `20260925200000_device_hand_cut_silent_handoff.sql` (section 8; not applied yet); behaviour of both checked on a throwaway Postgres by `supabase/tests/device_hand_cut.sql` |
+| Database | `supabase/migrations/20260925061009_device_hand_cut.sql` (applied), then `20260925105830_device_hand_cut_silent_handoff.sql` (section 8; not applied yet); behaviour of both checked on a throwaway Postgres by `supabase/tests/device_hand_cut.sql` |
 | Route | `src/app/api/hand-cut/device/route.ts`, pure rules in `src/lib/deviceHandCut.ts` |
 | The plan and the Mac's check | `worker/hand_cut_device.py` (`plan_hand_cut` line 129, `check_manifest` line 284, `check_cut_probe` line 436) |
 | The hand lane | `worker/worker.py`: `process_hand_cut` line 7488 branches to `_publish_device_hand_cut` (7377) and `_verify_device_hand_cut` (7310); both paths publish through `_publish_hand_cut` (7186); the sweep is `release_stale_device_hand_cuts` (7469) |
@@ -105,7 +105,7 @@ Every check `claim_hand_cut` makes, from the same shared validator
 | `invalid_marks` | 23514 | 1 to 400 marks, each 0.7 s to 180 s, no overlap, none ending more than 1 s past `duration_s`, `w` in `user`/`opponent`/null, a let has no `w` |
 
 A phone cut already on the match, quiet or not, is running work: both
-claims refuse with `already_processing`. (Until `20260925200000` they
+claims refuse with `already_processing`. (Until `20260925105830` they
 first released one quiet for 72 hours; a quiet phone is now moved to the
 Mac by the sweep instead, section 8, and nothing is handed back.)
 
@@ -423,7 +423,7 @@ never counted as a Mac worker being alive or stalled.
 A job in `phase 'device'` whose last report (`options.device_reported_at`,
 or its creation if it never reported, or if the value does not parse) is
 more than **15 minutes** old is moved to the Mac by
-`release_stale_device_hand_cuts()` (`20260925200000`), through the same
+`release_stale_device_hand_cuts()` (`20260925105830`), through the same
 function `release_device_hand_cut(p_job, true)` uses:
 
 - job `queued`, `progress 0`, `cutter 'mac'`, `phase 'mac'`,

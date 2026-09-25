@@ -1,5 +1,5 @@
 -- Behaviour of 20260925061009_device_hand_cut.sql and
--- 20260925200000_device_hand_cut_silent_handoff.sql, applied in that
+-- 20260925105830_device_hand_cut_silent_handoff.sql, applied in that
 -- order, on an isolated database built by device_hand_cut_stubs.sql (the
 -- header there has the commands). Every fixture rolls back. A failure
 -- raises 'FAIL: ...'.
@@ -289,7 +289,7 @@ begin
   -- --------------------------------------------------- a quiet phone
   -- Fifteen minutes without a report and the job is the server's: the
   -- same move as release_device_hand_cut(p_job, true), with no bell, no
-  -- email and nothing handed back (20260925200000).
+  -- email and nothing handed back (20260925105830).
   r := public.claim_device_hand_cut(m4, pg_temp.marks());
   j := (r->>'job_id')::uuid;
   r := public.claim_device_hand_cut(m5, pg_temp.marks());

@@ -140,7 +140,7 @@ export function RawMatchView({
   // server lane is involved until the phone hands it over, so no lane's
   // outage applies. Nothing here says where it runs or offers to move it:
   // a phone that goes quiet is handed to the server by the database
-  // (20260925200000), and the stage names read the same either way.
+  // (20260925105830), and the stage names read the same either way.
   const phoneCut = onDevice(feedback);
   const serviceNotice = phoneCut ? null : availabilityNotice(serviceState, availabilityContext);
   const [busy, setBusy] = useState(false);

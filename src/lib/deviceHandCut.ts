@@ -9,7 +9,7 @@
  * What the player reads while the phone works is not here: it is the hand
  * cut's own stage names (processingFeedback.ts), the same words wherever
  * the cut runs. A phone that stops reporting is handed to the server by
- * the database after 15 minutes (20260925200000), with nothing offered to
+ * the database after 15 minutes (20260925105830), with nothing offered to
  * the player and nothing said.
  */
 
