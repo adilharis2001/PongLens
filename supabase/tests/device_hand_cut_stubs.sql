@@ -1,4 +1,5 @@
--- The smallest schema 20260925061009_device_hand_cut.sql needs, for a bare
+-- The smallest schema 20260925061009_device_hand_cut.sql (and the
+-- 20260925200000 handover on top of it) needs, for a bare
 -- Postgres (no Supabase, no pgmq). The functions it replaces or calls that
 -- matter to behaviour are copied from production as they were on
 -- 2026-09-25 (hand_cut_enabled, job_queue_name, jobs_notify_failed,
@@ -8,6 +9,7 @@
 --   docker run -d --name hc-device-pg -e POSTGRES_PASSWORD=x postgres:17-alpine
 --   for f in supabase/tests/device_hand_cut_stubs.sql \
 --            supabase/migrations/20260925061009_device_hand_cut.sql \
+--            supabase/migrations/20260925200000_device_hand_cut_silent_handoff.sql \
 --            supabase/tests/device_hand_cut.sql; do
 --     docker exec -i hc-device-pg psql -q -v ON_ERROR_STOP=1 -U postgres < "$f"
 --   done

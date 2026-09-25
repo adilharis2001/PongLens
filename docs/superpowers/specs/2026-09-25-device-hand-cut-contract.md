@@ -6,7 +6,7 @@ not deployed.
 
 | Piece | Where |
 | --- | --- |
-| Database | `supabase/migrations/20260925061009_device_hand_cut.sql`; behaviour checked on a throwaway Postgres by `supabase/tests/device_hand_cut.sql` |
+| Database | `supabase/migrations/20260925061009_device_hand_cut.sql` (applied), then `20260925200000_device_hand_cut_silent_handoff.sql` (section 8; not applied yet); behaviour of both checked on a throwaway Postgres by `supabase/tests/device_hand_cut.sql` |
 | Route | `src/app/api/hand-cut/device/route.ts`, pure rules in `src/lib/deviceHandCut.ts` |
 | The plan and the Mac's check | `worker/hand_cut_device.py` (`plan_hand_cut` line 129, `check_manifest` line 284, `check_cut_probe` line 436) |
 | The hand lane | `worker/worker.py`: `process_hand_cut` line 7488 branches to `_publish_device_hand_cut` (7377) and `_verify_device_hand_cut` (7310); both paths publish through `_publish_hand_cut` (7186); the sweep is `release_stale_device_hand_cuts` (7469) |
@@ -45,10 +45,15 @@ every number the phone must produce and how the Mac checks it.
  Give up at any point before submit:
    release {toMac: true}  -> the Mac cuts it from the same marks
    release {toMac: false} -> marks handed back, draft editable again
- Phone never comes back:
-   72 h with no report    -> released, "Cut failed" bell (section 8)
-   24 h with no report    -> the web raw page offers "Cut on the Mac instead"
+ Phone goes quiet:
+   15 min with no report  -> the Mac cuts it from the same marks, silently
+                             (section 8). No bell, no email, no offer.
 ```
+
+**The player is never told where a cut runs** (Adil, 2026-09-25). Every
+word a player reads about a hand cut is the same whether the phone or the
+Mac is doing it, and a move from one to the other is not announced
+(section 3.2, section 7). Only `/admin/processing` says which.
 
 The draft is the same `hand_cut_drafts` row as today, frozen by the claim
 exactly as `claim_hand_cut` freezes it.
@@ -99,10 +104,10 @@ Every check `claim_hand_cut` makes, from the same shared validator
 | `queue_full` | P0001 | Four active jobs already |
 | `invalid_marks` | 23514 | 1 to 400 marks, each 0.7 s to 180 s, no overlap, none ending more than 1 s past `duration_s`, `w` in `user`/`opponent`/null, a let has no `w` |
 
-Once the match row is locked, and before the state checks, it releases a
-stale phone cut on the same match (section 8), so a player who comes back
-after 72 hours is not blocked by `already_processing`. `claim_hand_cut`
-does the same.
+A phone cut already on the match, quiet or not, is running work: both
+claims refuse with `already_processing`. (Until `20260925200000` they
+first released one quiet for 72 hours; a quiet phone is now moved to the
+Mac by the sweep instead, section 8, and nothing is handed back.)
 
 Returns:
 
@@ -146,10 +151,13 @@ Progress from the phone. Writes `jobs.progress`, `jobs.updated_at` and
 
 | `p_stage` | Admin page says | Player sees |
 | --- | --- | --- |
-| `device_cut` | Cutting on the iPhone | Cutting on your iPhone |
-| `device_clips` | Cutting the clips on the iPhone | Cutting on your iPhone |
-| `device_upload` | Uploading from the iPhone | Uploading from your iPhone |
-| `device_paused` | Paused on the iPhone | Paused on your iPhone |
+| `device_cut` | Cutting on the iPhone | Cutting the video |
+| `device_clips` | Cutting the clips on the iPhone | Cutting the video |
+| `device_upload` | Uploading from the iPhone | Uploading the result |
+| `device_paused` | Paused on the iPhone | Cutting the video |
+
+The player's words are the Mac's own hand-cut stages (`cut` and `upload`
+read the same), so nothing a player sees says where the cut runs.
 
 `p_progress` is 0 to 100 for the phone's whole part. Suggested split: cut
 0 to 60, clips 60 to 80, upload 80 to 100. Report on every stage change
@@ -386,9 +394,21 @@ HEAD sizes. Publication is the ordinary hand-cut path, unchanged:
 marks, `publish_hand_cut_v2`, ready, the ready email.
 
 Admin stage while this runs: `device_verify`, "Checking the iPhone's cut".
-The player sees "Waiting to check the cut" while it is queued and "Checking
-the cut" while it runs, then the hand cut's own stages ("Building the
-points", "Saving the match").
+The player sees what any hand cut shows: "Waiting to prepare clips" while
+it is queued and "Saving the match" while the check runs, then "Building
+the points" and "Saving the match".
+
+Every player label for a hand cut, wherever it runs:
+
+| Where the job is | Player sees |
+| --- | --- |
+| queued (any phase) | Waiting to prepare clips |
+| `marks` | Reading the marks |
+| `download` | Preparing video |
+| `cut`, `device_cut`, `device_clips`, `device_paused` | Cutting the video |
+| `upload`, `device_upload` | Uploading the result |
+| `points` | Building the points |
+| `publish`, `device_verify` | Saving the match |
 
 On `/admin/processing` a job the phone holds is its own row, "iPhone":
 working in the phone's words while it reports ("Uploading from the iPhone ·
@@ -398,28 +418,42 @@ never counted as a Mac worker being alive or stalled.
 
 ---
 
-## 8. A phone that never comes back
+## 8. A phone that goes quiet
 
 A job in `phase 'device'` whose last report (`options.device_reported_at`,
-or its creation if it never reported) is more than 72 hours old is
-released by `release_stale_device_hand_cuts()`:
+or its creation if it never reported, or if the value does not parse) is
+more than **15 minutes** old is moved to the Mac by
+`release_stale_device_hand_cuts()` (`20260925200000`), through the same
+function `release_device_hand_cut(p_job, true)` uses:
 
-- job `failed`, `user_message` "The cut on your iPhone didn't finish. Your
-  marks are saved.", which rings the existing "Cut failed" bell linking the
-  match (`jobs_notify_failed`);
-- marks handed back exactly as in `release_device_hand_cut(…, false)`;
-- no email.
+- job `queued`, `progress 0`, `cutter 'mac'`, `phase 'mac'`,
+  `device_note` "switched to the Mac: no report from the iPhone for 15
+  minutes", sent to `jobs_hand`; draft stays frozen, match stays linked;
+- **no bell, no email, nothing handed back.** The player's pages go from
+  "Cutting the video" to "Waiting to prepare clips" and on.
 
-It runs from the hand lane's own loop every 10 minutes, and lazily inside
-both claims for the match being claimed. No main or fast lane release is
-involved.
+Why 15 minutes never takes a working phone's job: the phone reports on
+every stage change and at least every 60 s while it works (section 3.2).
+A phone quiet for 15 minutes is backgrounded without a continued-
+processing task, held (Low Power Mode, full disk), out of signal, or
+gone. When it comes back, `report_device_hand_cut` answers
+`{"accepted": false, "phase": "mac"}` and the phone stops; the route
+refuses anything more from it (409), because the job is no longer in
+phase `device`.
 
-After 24 hours without a report the web raw page offers "Cut on the Mac
-instead" (`release {toMac: true}`, through the route), under "No update from
-your iPhone for over a day." Until then it shows the phone's stage and
-progress ("Cutting on your iPhone").
+The hand lane runs the sweep every 10 minutes, so the move lands 15 to
+25 minutes after the last report. The claims no longer release a quiet
+phone first (they did in `20260925061009`): nothing is handed back any
+more, so a claim over a phone job, quiet or not, is refused with
+`already_processing` like any claim over running work.
 
----
+Nothing on the web or in the app offers to move a phone cut. The web raw
+page shows the stage and progress in the words of section 7 until the job
+finishes.
+
+Superseded: `20260925061009` released a phone job after 72 hours with the
+"Cut failed" bell and handed the marks back, and the web raw page offered
+"Cut on the Mac instead" after 24 hours. Both are gone.
 
 ## 9. The parity fixture
 
