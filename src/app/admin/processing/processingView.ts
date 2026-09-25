@@ -326,6 +326,10 @@ const STAGE_LABELS: Record<string, string> = {
   device_upload: "Uploading from the iPhone",
   device_paused: "Paused on the iPhone",
   device_verify: "Checking the iPhone's cut",
+  // A hand cut that replaces a processed match waits here while the
+  // match's own reclip, analysis or share video finishes (the swap to the
+  // new cut refuses to race them). The kind stays "Hand cut".
+  recut_activate: "Making the new cut live",
 };
 
 /**

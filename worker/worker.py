@@ -170,6 +170,8 @@ try:
         admin_job_failure_message,
         export_ready_message,
         feedback_digest_message,
+        hand_cut_failed_message,
+        hand_recut_failed_message,
         match_ready_message,
         qa_digest_message,
         render_email,
@@ -191,7 +193,8 @@ except ModuleNotFoundError:  # direct `python worker/worker.py` execution
         qa_digest_message,
         render_email,
         upload_failed_message,
-    hand_cut_failed_message,
+        hand_cut_failed_message,
+        hand_recut_failed_message,
     )
     from cost_reconcile import (
         record_r2_storage_snapshot,
@@ -1209,10 +1212,17 @@ def notify_hand_cut_failed(conn, user_id: str | None, job_id: str | None,
         if not user_id:
             return False
         match_id = get_job_match_id(conn, job_id) if job_id else None
-        rendered = render_email(hand_cut_failed_message(
-            f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
-            message or "We couldn't finish cutting this match.",
-        ))
+        url = f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL
+        # A re-cut that would have replaced a match (claim_hand_recut) left
+        # the match exactly as it was, and says only that. The options of a
+        # hand-cut job are written by the database alone
+        # (jobs_guard_hand_cut_client).
+        recut = bool(job_id) and get_job_options(
+            conn, str(job_id), {}).get("recut") == "replace"
+        rendered = render_email(
+            hand_recut_failed_message(url) if recut else
+            hand_cut_failed_message(
+                url, message or "We couldn't finish cutting this match."))
         to = get_user_email(conn, user_id)
         if to:
             send_email(to, rendered)
@@ -7142,20 +7152,32 @@ def _hand_cut_rollback(conn, match_id: str, job_id: str, *, release: bool,
     Only the job the match still points at may undo anything. A stale
     queue message for a job the player has already replaced must not
     delete the replacement's points; it only negates its own storage rows.
+    Only the points of the version this job was cutting are deleted (the
+    match's live version while it is unpublished), and a match that is
+    already published is never undone: its cut is the one the player sees.
+    A re-cut of a processed match never comes here; it is a candidate
+    version and _hand_recut_rollback discards only that.
     """
     if ledger_keys:
         ledger_negate_keys(conn, ledger_keys)
     try:
         with conn.cursor() as cur:
-            cur.execute("select job_id::text from public.matches where id = %s",
+            cur.execute("select job_id::text, status, "
+                        "active_processing_version_id::text "
+                        "from public.matches where id = %s",
                         (match_id,))
             row = cur.fetchone()
             if not row or row[0] != str(job_id):
                 log.info("  hand cut: match %s has moved on from job %s; "
                          "nothing to undo", match_id, job_id)
                 return
-            cur.execute("delete from public.points where match_id = %s",
-                        (match_id,))
+            if row[1] == "ready":
+                log.info("  hand cut: match %s is already published by job "
+                         "%s; nothing to undo", match_id, job_id)
+                return
+            cur.execute("delete from public.points where match_id = %s "
+                        "and processing_version_id = %s",
+                        (match_id, row[2]))
             cur.execute(
                 "update public.matches set status = 'uploaded', "
                 "cut_path = null where id = %s", (match_id,))
@@ -7173,7 +7195,16 @@ def _hand_cut_rollback(conn, match_id: str, job_id: str, *, release: bool,
 
 def hand_cut_release(conn, job_id: str, payload: dict) -> None:
     """A terminal failure, seen from the generic handler: hand the marks
-    back. Idempotent, and a no-op for a job the match no longer points at."""
+    back. Idempotent, and a no-op for a job the match no longer points at.
+    A re-cut hands back by discarding its candidate; the match is not
+    touched."""
+    try:
+        recut = load_hand_recut_destination(conn, str(job_id))
+    except Exception:
+        recut = None
+    if recut is not None:
+        _hand_recut_rollback(conn, recut, release=True)
+        return
     try:
         options = get_job_options(conn, job_id, payload)
     except Exception:
@@ -7181,6 +7212,420 @@ def hand_cut_release(conn, job_id: str, payload: dict) -> None:
     match_id = options.get("match_id") if isinstance(options, dict) else None
     if match_id:
         _hand_cut_rollback(conn, str(match_id), str(job_id), release=True)
+
+
+# ---------------------------------------------------------------------------
+# Cutting a processed match again, replacing it (2026-09-25)
+# ---------------------------------------------------------------------------
+# claim_hand_recut(p_replace = true) makes a CANDIDATE processing version of
+# a processed match and a hand_cut job for it. This lane cuts the marks
+# exactly as for a new match, but everything it writes belongs to the
+# candidate: the cut at results/<user>/<match>/versions/<version>.mp4, the
+# clips and match.json under points/<user>/<match>/versions/<version>/ (the
+# layout support reprocessing uses), the points on the candidate version.
+# The live match plays untouched until public.publish_hand_recut makes the
+# candidate live in one transaction. A failure discards the candidate and
+# hands the marks back; the live match, its points and its files are never
+# touched. Design: docs/superpowers/specs/2026-09-25-cut-again-design.md.
+#
+# The candidate is read from the version row (its job_id), never from the
+# job's options: a client cannot write a hand-cut job
+# (jobs_guard_hand_cut_client), and the row is the truth either way.
+HAND_RECUT_ACTIVATE_TRIES = 8          # the first, then seven retries ...
+HAND_RECUT_ACTIVATE_WAIT_S = 15        # ... fifteen seconds apart
+HAND_RECUT_SWEEP_EVERY_S = 60
+
+
+@dataclass(frozen=True)
+class HandRecutDestination:
+    """A re-cut's candidate version, as the database holds it."""
+
+    match_id: str
+    user_id: str
+    job_id: str
+    processing_version_id: str
+    source_version_id: str
+    status: str            # candidate | ready | active | superseded | failed
+    source_active: bool    # the live version is still the one it replaces
+    active: bool           # it is the live version itself
+
+    @property
+    def storage_prefix(self) -> str:
+        return (f"points/{self.user_id}/{self.match_id}/versions/"
+                f"{self.processing_version_id}")
+
+    @property
+    def r2_prefix(self) -> str:
+        return f"r2://{R2_MEDIA_BUCKET}/{self.storage_prefix}"
+
+    @property
+    def cut_key(self) -> str:
+        return (f"results/{self.user_id}/{self.match_id}/versions/"
+                f"{self.processing_version_id}.mp4")
+
+
+def load_hand_recut_destination(conn, job_id: str) -> HandRecutDestination | None:
+    """The candidate this hand_cut job cuts, or None for an ordinary hand
+    cut (the match's own first cut, whose version has no source)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select v.match_id::text, m.user_id::text, v.id::text, "
+            "v.source_version_id::text, v.status, "
+            "coalesce(m.active_processing_version_id = v.source_version_id, false), "
+            "coalesce(m.active_processing_version_id = v.id, false) "
+            "from public.match_processing_versions v "
+            "join public.matches m on m.id = v.match_id "
+            "join public.jobs j on j.id = v.job_id "
+            "where v.job_id = %s and j.kind = 'hand_cut' "
+            "and v.issue_id is null and v.source_version_id is not null "
+            "and j.options->>'match_id' = m.id::text "
+            "and j.options->>'processing_version_id' = v.id::text "
+            "order by v.created_at desc limit 1",
+            (job_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return HandRecutDestination(
+        match_id=str(row[0]), user_id=str(row[1]), job_id=str(job_id),
+        processing_version_id=str(row[2]), source_version_id=str(row[3]),
+        status=str(row[4]), source_active=bool(row[5]), active=bool(row[6]))
+
+
+def _hand_recut_rollback(conn, recut: HandRecutDestination, *, release: bool,
+                         ledger_keys: list[str] | None = None) -> None:
+    """Undo a re-cut that did not become live. Only the candidate is
+    touched, never the match: its storage rows, its points (never
+    committed unless it was published), and on a terminal failure the
+    candidate itself (failed) with the marks handed back. A retryable
+    failure leaves a candidate already published and waiting to be made
+    live for the sweep."""
+    if ledger_keys:
+        ledger_negate_keys(conn, ledger_keys)
+    try:
+        # A retry keeps a published candidate for the sweep; giving up
+        # discards it whether or not it was published.
+        statuses = ["candidate", "ready"] if release else ["candidate"]
+        with conn.cursor() as cur:
+            cur.execute(
+                "delete from public.points p where p.match_id = %s "
+                "and p.processing_version_id = %s and exists ("
+                "select 1 from public.match_processing_versions v "
+                "where v.id = p.processing_version_id and v.job_id = %s "
+                "and v.status = any(%s))",
+                (recut.match_id, recut.processing_version_id, recut.job_id,
+                 statuses))
+            if release:
+                cur.execute(
+                    "update public.match_processing_versions "
+                    "set status = 'failed' where id = %s and job_id = %s "
+                    "and status in ('candidate', 'ready')",
+                    (recut.processing_version_id, recut.job_id))
+                if cur.rowcount:
+                    cur.execute(
+                        "update public.hand_cut_drafts set submitted_at = null "
+                        "where match_id = %s", (recut.match_id,))
+    except Exception:
+        log.warning("  hand re-cut: rollback failed for %s", recut.match_id,
+                    exc_info=True)
+
+
+def _hand_recut_receipt(conn, sql: str, params: tuple) -> dict:
+    """Call one of the re-cut publication functions and check its receipt."""
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+    value = row[0] if isinstance(row, (tuple, list)) and row else row
+    valid = (
+        isinstance(value, dict)
+        and value.get("ok") is True
+        and value.get("contractVersion") == 1
+        and isinstance(value.get("activated"), bool)
+        and isinstance(value.get("pointCount"), int)
+        and value.get("pointCount") > 0
+    )
+    if valid and value["activated"]:
+        valid = (value.get("scoreProjectionStatus") in {"current", "empty"}
+                 and isinstance(value.get("scoreRevision"), int))
+    if not valid:
+        raise RuntimeError(
+            "hand re-cut publication receipt is missing or incompatible")
+    return value
+
+
+def activate_hand_recut(conn, job_id: str) -> dict:
+    """Try again to make a published candidate live (one transaction)."""
+    return _hand_recut_receipt(
+        conn, "select public.activate_hand_recut(%s)", (str(job_id),))
+
+
+def _make_hand_recut_live(conn, job_id: str, activated: bool) -> bool:
+    """The activation refuses while a reclip, placement or reel job runs on
+    the match, and those finish in seconds to minutes. Retry briefly; if it
+    still waits, the hand lane's sweep makes it live when they are done."""
+    tries = 1
+    while not activated and tries < HAND_RECUT_ACTIVATE_TRIES:
+        pulse_stage("recut_activate")
+        time.sleep(HAND_RECUT_ACTIVATE_WAIT_S)
+        activated = activate_hand_recut(conn, job_id)["activated"]
+        tries += 1
+    if not activated:
+        log.info("  hand re-cut %s is ready and waits for the match's other "
+                 "work to finish; the sweep will make it live", job_id)
+    return activated
+
+
+def _apply_hand_cut_marks(conn, points: list[dict], marks: list[dict],
+                          inserted: dict, failed_clips: set[int]) -> None:
+    """The winners, lets and stars the owner called while marking, onto the
+    points just inserted (same order as the plan's marks)."""
+    with conn.cursor() as cur:
+        for p, m in zip(points, marks):
+            row_id = (inserted.get(int(p["idx"])) or {}).get("id")
+            if not row_id:
+                continue
+            is_let = bool(m.get("let"))
+            winner = None if is_let else m.get("w")
+            # edited=true on a point with no clip is the reclip request:
+            # the trigger fires on that update and queues one re-cut for
+            # the match (a candidate's once it is live, see
+            # publish_hand_recut).
+            cur.execute(
+                "update public.points set confirmed_winner = %s, "
+                "is_let = %s, confirmed_how = %s, starred = %s, "
+                "edited = (edited or %s) "
+                "where id = %s",
+                (winner, is_let, "let" if is_let else None,
+                 bool(m.get("star")), int(p["idx"]) in failed_clips,
+                 row_id),
+            )
+
+
+def _publish_hand_recut(conn, *, recut: HandRecutDestination, job_id: str,
+                        result_path: str, points: list[dict],
+                        marks: list[dict], r2_prefix: str,
+                        thumb_path: str | None, failed_clips: set[int],
+                        pre: float, post: float) -> bool:
+    """Publish a candidate (one transaction) and try once to make it live.
+    True when it is live."""
+    pulse_stage("publish")
+    update_job(conn, job_id, progress=90)
+    with canonical_publication_transaction(conn):
+        with conn.cursor() as cur:
+            # The candidate is visible to nobody; a partial set from an
+            # attempt that never committed cannot exist, but a stray row
+            # must never stack onto this one.
+            cur.execute(
+                "delete from public.points where match_id = %s "
+                "and processing_version_id = %s",
+                (recut.match_id, recut.processing_version_id))
+        for p in points:
+            p["rally_end_cut_s"] = None
+            p["highlight_evidence"] = None
+        inserted = insert_points(
+            conn, recut.match_id, points, r2_prefix,
+            processing_version_id=recut.processing_version_id)
+        _apply_hand_cut_marks(conn, points, marks, inserted, failed_clips)
+        receipt = _hand_recut_receipt(
+            conn,
+            "select public.publish_hand_recut(%s, %s, %s, %s, %s, %s::jsonb)",
+            (recut.match_id, job_id, result_path, thumb_path,
+             f"{r2_prefix}/match.json",
+             json.dumps({"pre": pre, "post": post})))
+    log.info("  hand re-cut published: match %s, version %s, %d points "
+             "(%d clips left for reclip), live now: %s", recut.match_id,
+             recut.processing_version_id, receipt["pointCount"],
+             len(failed_clips), receipt["activated"])
+    return receipt["activated"]
+
+
+def activate_pending_hand_recuts(conn) -> list[dict]:
+    """The hand lane's sweep: make live every published re-cut that was
+    waiting for its match's other work, then send what a finished cut sends
+    (the ready email; the bell rings in the database) and queue its
+    analysis. Never raises."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select public.activate_pending_hand_recuts()")
+            row = cur.fetchone()
+        made_live = (row[0] if row else None) or []
+    except Exception as error:                              # noqa: BLE001
+        # Before the migration the function does not exist (undefined
+        # function): nothing can be waiting, and a warning a minute would
+        # only bury the hand lane's log.
+        if getattr(error, "pgcode", None) != "42883":
+            log.warning("hand re-cut sweep failed (non-fatal): %s", error)
+        return []
+    for item in made_live:
+        try:
+            log.info("hand re-cut %s is live on match %s", item.get("job_id"),
+                     item.get("match_id"))
+            notify_job_done(conn, str(item["job_id"]), str(item["user_id"]))
+            queue_hand_cut_analysis(conn, str(item["match_id"]),
+                                    str(item["user_id"]))
+        except Exception:                                   # noqa: BLE001
+            log.warning("hand re-cut sweep follow-up failed for %s", item,
+                        exc_info=True)
+    return made_live
+
+
+# ---------------------------------------------------------------------------
+# What a published hand cut queues by itself (Adil, 2026-09-25)
+# ---------------------------------------------------------------------------
+# Every hand cut that publishes (a Mac cut, a checked phone cut, a re-cut
+# made live) queues its detailed analysis and, where the match can have
+# them, its highlights, exactly as if the player had asked: the same two
+# database calls the apps make (request_placement_generation, then
+# enqueue_reel with the highlights POST route's manifest), made as the
+# match's owner so their rules, ownership checks and state transitions are
+# the ones that already run. Both route to jobs_hand for a hand cut, and
+# the hand lane is one FIFO process: placement is queued first, so the
+# reel's evidence refresh reuses the tracking placement saved. Best-effort:
+# nothing here can fail a finished cut.
+HIGHLIGHT_UNSUPPORTED_MATCH_TYPES = ("practice", "drills")  # supportsScoredHighlights
+
+
+@contextmanager
+def _as_match_owner(conn, user_id: str):
+    """One transaction in which auth.uid() is the match's owner, the way
+    claim_processing_for acts for the uploader. The claim is LOCAL, so it
+    ends with the transaction."""
+    original_autocommit = conn.autocommit
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            cur.execute(
+                "select set_config('request.jwt.claims', %s, true)",
+                (json.dumps({"sub": str(user_id), "role": "authenticated"}),))
+        yield
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.autocommit = original_autocommit
+
+
+def highlight_request_manifest(refresh_evidence: bool) -> dict:
+    """The manifest the highlights POST route enqueues (initialManifest)."""
+    manifest = {
+        "v": 2,
+        "rule": "quality-first-v2",
+        "max_seconds": 150,
+        "points_revision": "",
+        "duration_s": 0,
+        "scored_only": True,
+        "points": [],
+    }
+    if refresh_evidence:
+        manifest["refresh_evidence"] = True
+    return manifest
+
+
+def highlight_evidence_refresh_needed(points) -> bool:
+    """automaticHighlightEvidenceRefreshNeeded, over (deleted, edited,
+    is_let, confirmed_winner, clip_path, highlight_evidence) rows."""
+    for deleted, edited, is_let, winner, clip_path, evidence in points:
+        version = evidence.get("v") if isinstance(evidence, dict) else None
+        if (not deleted and not edited and not is_let
+                and winner in ("user", "opponent") and clip_path
+                and version != 2):
+            return True
+    return False
+
+
+def _queue_hand_cut_placement(conn, match_id: str, user_id: str,
+                              match: tuple) -> str | None:
+    owner, status, raw_path, placement_status, generation_job, retries, _ = match
+    if owner != user_id or status != "ready":
+        return None
+    if not raw_path:
+        return None            # no original: detailed analysis cannot run
+    if (placement_status != "not_requested" or generation_job
+            or int(retries or 0) != 0):
+        return None            # already asked for, running or done
+    with _as_match_owner(conn, user_id), conn.cursor() as cur:
+        cur.execute("select public.request_placement_generation(%s)",
+                    (match_id,))
+        row = cur.fetchone()
+    job = row[0] if row else None
+    return str(job) if job else None
+
+
+def _queue_hand_cut_highlights(conn, match_id: str, user_id: str,
+                               match: tuple) -> str | None:
+    owner, status, _, _, _, _, match_type = match
+    if owner != user_id or status != "ready":
+        return None
+    if match_type in HIGHLIGHT_UNSUPPORTED_MATCH_TYPES:
+        return None
+    if not automatic_highlights_enabled(get_config(conn, "highlights_enabled"),
+                                        user_id):
+        return None
+    with conn.cursor() as cur:
+        cur.execute("select eligible from "
+                    "public.highlight_generation_eligibility(%s)",
+                    (match_id,))
+        row = cur.fetchone()
+    if not row or row[0] is not True:
+        return None            # under 75% of scorable points scored
+    with conn.cursor() as cur:
+        cur.execute("select status from public.match_reels "
+                    "where match_id = %s and scope = 'highlights'",
+                    (match_id,))
+        reel = cur.fetchone()
+    if reel and reel[0] in ("queued", "rendering"):
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            "select p.deleted, p.edited, p.is_let, p.confirmed_winner, "
+            "p.clip_path, p.highlight_evidence "
+            "from public.points p join public.matches m on m.id = p.match_id "
+            "and p.processing_version_id = m.active_processing_version_id "
+            "where p.match_id = %s", (match_id,))
+        points = cur.fetchall() or []
+    if any(not row[0] and row[1] for row in points):
+        return None            # clips still being cut again
+    manifest = highlight_request_manifest(
+        highlight_evidence_refresh_needed(points))
+    with _as_match_owner(conn, user_id), conn.cursor() as cur:
+        cur.execute("select public.enqueue_reel(%s, 'highlights', false, "
+                    "%s::jsonb)", (match_id, json.dumps(manifest)))
+    return "highlights"
+
+
+def queue_hand_cut_analysis(conn, match_id: str, user_id: str) -> dict:
+    """Queue a published hand cut's detailed analysis, then its highlights
+    when the match can have them. Never raises."""
+    queued: dict = {"placement": None, "highlights": None}
+    if not match_id or not user_id:
+        return queued
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select user_id::text, status, raw_path, placement_status, "
+                "placement_generation_job_id, placement_retry_count, "
+                "match_type from public.matches where id = %s",
+                (str(match_id),))
+            match = cur.fetchone()
+    except Exception as error:                              # noqa: BLE001
+        log.warning("  hand cut: analysis not queued (%s)", error)
+        return queued
+    if not match:
+        return queued
+    try:
+        queued["placement"] = _queue_hand_cut_placement(
+            conn, str(match_id), str(user_id), match)
+    except Exception as error:                              # noqa: BLE001
+        log.warning("  hand cut: detailed analysis not queued (%s)", error)
+    try:
+        queued["highlights"] = _queue_hand_cut_highlights(
+            conn, str(match_id), str(user_id), match)
+    except Exception as error:                              # noqa: BLE001
+        log.warning("  hand cut: highlights not queued (%s)", error)
+    log.info("  hand cut: queued detailed analysis %s, highlights %s",
+             queued["placement"] or "no", queued["highlights"] or "no")
+    return queued
 
 
 def _publish_hand_cut(conn, *, match_id: str, user_id: str, job_id: str,
@@ -7203,25 +7648,8 @@ def _publish_hand_cut(conn, *, match_id: str, user_id: str, job_id: str,
             p["rally_end_cut_s"] = None
             p["highlight_evidence"] = None
         inserted = insert_points(conn, match_id, points, r2_prefix)
+        _apply_hand_cut_marks(conn, points, marks, inserted, failed_clips)
         with conn.cursor() as cur:
-            for p, m in zip(points, marks):
-                row_id = (inserted.get(int(p["idx"])) or {}).get("id")
-                if not row_id:
-                    continue
-                is_let = bool(m.get("let"))
-                winner = None if is_let else m.get("w")
-                # edited=true on a point with no clip is the reclip
-                # request: the trigger fires on that update and queues
-                # one re-cut for the match.
-                cur.execute(
-                    "update public.points set confirmed_winner = %s, "
-                    "is_let = %s, confirmed_how = %s, starred = %s, "
-                    "edited = (edited or %s) "
-                    "where id = %s",
-                    (winner, is_let, "let" if is_let else None,
-                     bool(m.get("star")), int(p["idx"]) in failed_clips,
-                     row_id),
-                )
             cur.execute(
                 "update public.matches set clip_pads = %s where id = %s",
                 (json.dumps({"pre": pre, "post": post}), match_id),
@@ -7486,8 +7914,14 @@ def release_stale_device_hand_cuts(conn) -> int:
 
 
 def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
-                     attempt_key: str) -> None:
-    """Build a match from the owner's own marks."""
+                     attempt_key: str) -> bool | None:
+    """Build a match from the owner's own marks.
+
+    Returns None for an ordinary hand cut, which is published when this
+    returns. A re-cut that replaces a processed match (a candidate version,
+    claim_hand_recut) returns True when the new cut is live and False when
+    it is published and waits for the match's other work to finish; the
+    hand lane's sweep makes it live then."""
     match_id = (payload.get("options") or {}).get("match_id")
     if not match_id:
         raise RuntimeError("hand_cut job missing options.match_id")
@@ -7517,11 +7951,54 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
         raise UserFacingError(
             "These marks were already handed back. Open the match and "
             "send them again.")
-    with conn.cursor() as cur:
-        cur.execute("select 1 from public.points where match_id = %s limit 1",
-                    (match_id,))
-        if cur.fetchone():
-            raise UserFacingError("This match already has points.")
+
+    options = get_job_options(conn, job_id, payload)
+    recut = load_hand_recut_destination(conn, str(job_id))
+    if recut is not None:
+        # A re-cut of a processed match: everything below writes only the
+        # candidate, and the live match plays untouched until it is made
+        # live. The match row the draft sits on must be the candidate's.
+        if recut.match_id != str(match_id):
+            raise RuntimeError("hand re-cut: job and candidate disagree")
+        if recut.active:
+            # Made live by an earlier delivery that stopped before the
+            # queue heard. Nothing to redo.
+            log.info("  hand re-cut %s is already live", job_id)
+            return True
+        if recut.status == "ready":
+            # Published earlier; only making it live is left.
+            activated = activate_hand_recut(conn, str(job_id))["activated"]
+            return _make_hand_recut_live(conn, str(job_id), activated)
+        if recut.status != "candidate":
+            raise UserFacingError(
+                "These marks were already handed back. Open the match and "
+                "send them again.")
+        if not recut.source_active:
+            # The live cut changed while this waited in the queue; a
+            # candidate of the old one can never be made live.
+            raise UserFacingError(
+                "This match changed while the new cut was being made.")
+    else:
+        if options.get("recut") == "replace":
+            # Its candidate is gone (discarded on a terminal failure).
+            raise UserFacingError(
+                "These marks were already handed back. Open the match and "
+                "send them again.")
+        with conn.cursor() as cur:
+            cur.execute("select status, job_id::text from public.matches "
+                        "where id = %s", (match_id,))
+            published = cur.fetchone()
+        if published and published[0] == "ready" and \
+                published[1] == str(job_id):
+            # Published by an earlier delivery that stopped before the
+            # queue heard: the match is this job's finished cut.
+            log.info("  hand cut %s is already published", job_id)
+            return None
+        with conn.cursor() as cur:
+            cur.execute("select 1 from public.points where match_id = %s limit 1",
+                        (match_id,))
+            if cur.fetchone():
+                raise UserFacingError("This match already has points.")
 
     marks = [m for m in (marks or []) if m.get("t0") is not None
              and m.get("t1") is not None]
@@ -7531,10 +8008,11 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
 
     # Cut on the owner's iPhone and uploaded: check it, and publish it if
     # it holds up. The row is the truth (options are read fresh), and a
-    # job that fell back once stays a Mac cut on every redelivery.
+    # job that fell back once stays a Mac cut on every redelivery. A re-cut
+    # is never the phone's: it is always cut here.
     extra_notes: list[str] = []
-    options = get_job_options(conn, job_id, payload)
-    if options.get("cutter") == "device" and options.get("phase") == "verify":
+    if recut is None and options.get("cutter") == "device" \
+            and options.get("phase") == "verify":
         sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
         from hand_cut_device import DeviceCutMismatch  # noqa: E402
         try:
@@ -7688,7 +8166,9 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
 
         pulse_stage("upload")
         update_job(conn, job_id, progress=40)
-        result_key = f"results/{user_id}/{job_id}.mp4"
+        # A re-cut's cut is its candidate's own object, never the live one.
+        result_key = (recut.cut_key if recut is not None
+                      else f"results/{user_id}/{job_id}.mp4")
         result_path = f"r2://{R2_MEDIA_BUCKET}/{result_key}"
         r2().upload_file(cut_local, R2_MEDIA_BUCKET, result_key,
                          ExtraArgs={"ContentType": "video/mp4"})
@@ -7703,7 +8183,10 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
         # ledger-negates anything matching it, so an original clip must stay
         # outside that regex.
         cut_url = _presigned_get(result_path)
-        key_prefix = f"points/{user_id}/{match_id}"
+        # A re-cut's clips and match.json go under versions/<version>/, so
+        # the live match's 01.mp4 ... are never overwritten.
+        key_prefix = (recut.storage_prefix if recut is not None
+                      else f"points/{user_id}/{match_id}")
         r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
         clip_bytes = 0
         thumb_path = None
@@ -7757,6 +8240,16 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
                          f"{key_prefix}/match.json",
                          ExtraArgs={"ContentType": "application/json"})
 
+        if recut is not None:
+            activated = _publish_hand_recut(
+                conn, recut=recut, job_id=str(job_id),
+                result_path=result_path, points=points, marks=marks,
+                r2_prefix=r2_prefix, thumb_path=thumb_path,
+                failed_clips=failed_clips, pre=pre, post=post)
+            # Published: its cut and clips are the candidate's for good
+            # now, whatever happens while it waits to be made live.
+            ledger_keys = []
+            return _make_hand_recut_live(conn, str(job_id), activated)
         receipt = _publish_hand_cut(
             conn, match_id=match_id, user_id=user_id, job_id=job_id,
             played_at=played_at, result_path=result_path, points=points,
@@ -7766,6 +8259,7 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
                  "left for reclip), canonical revision %s",
                  match_id, len(points), len(failed_clips),
                  receipt["scoreRevision"])
+        return None
     except MatchVersionChanged:
         # The match has moved on to another job (a resubmission overtook
         # this message). Nothing of this attempt reached the database, so
@@ -7773,12 +8267,20 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
         ledger_negate_keys(conn, ledger_keys)
         raise
     except UserFacingError:
-        _hand_cut_rollback(conn, match_id, job_id, release=True,
-                           ledger_keys=ledger_keys)
+        if recut is not None:
+            _hand_recut_rollback(conn, recut, release=True,
+                                 ledger_keys=ledger_keys)
+        else:
+            _hand_cut_rollback(conn, match_id, job_id, release=True,
+                               ledger_keys=ledger_keys)
         raise
     except Exception:
-        _hand_cut_rollback(conn, match_id, job_id, release=False,
-                           ledger_keys=ledger_keys)
+        if recut is not None:
+            _hand_recut_rollback(conn, recut, release=False,
+                                 ledger_keys=ledger_keys)
+        else:
+            _hand_cut_rollback(conn, match_id, job_id, release=False,
+                               ledger_keys=ledger_keys)
         raise
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -11045,12 +11547,22 @@ def process_job(conn, msg) -> None:
         # The owner marked the points themselves; no detector runs at all.
         pulse_stage("marks")
         update_job(conn, job_id, status="processing", progress=5, error=None)
-        process_hand_cut(conn, job_id, user_id, payload, attempt_key)
+        live = process_hand_cut(conn, job_id, user_id, payload, attempt_key)
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
+        if live is False:
+            # A re-cut published and waiting for its match's other work:
+            # the sweep makes it live, then emails and queues its analysis.
+            log.info("  hand re-cut done, waiting to go live: job %s", job_id)
+            return
         # The raw page promised this email, and it is the same promise the
-        # automatic path keeps. The bell rides the ready trigger.
+        # automatic path keeps. The bell rides the ready trigger (for a
+        # re-cut, publish_hand_recut rings it: the match was already ready).
         notify_job_done(conn, job_id, user_id)
+        # Then what a player would otherwise ask for, as that player.
+        queue_hand_cut_analysis(
+            conn, str((payload.get("options") or {}).get("match_id") or ""),
+            str(user_id))
         log.info("  hand cut done: job %s", job_id)
         return
 
@@ -12133,6 +12645,9 @@ def main():
     # main lane's housekeeping, so it ships with the hand lane's own release.
     device_sweep = LANE == "hand"
     last_device_sweep = 0.0
+    # And it makes live the re-cuts that were published while their match
+    # had other work running (activate_pending_hand_recuts).
+    last_recut_sweep = 0.0
 
     while True:
         try:
@@ -12161,6 +12676,12 @@ def main():
                     > DEVICE_STALE_SWEEP_EVERY_S):
                 release_stale_device_hand_cuts(conn)  # never raises
                 last_device_sweep = time.time()
+
+            if device_sweep and (
+                    time.time() - last_recut_sweep
+                    > HAND_RECUT_SWEEP_EVERY_S):
+                activate_pending_hand_recuts(conn)  # never raises
+                last_recut_sweep = time.time()
 
             # Housekeeping can take time. Recheck at the actual queue boundary
             # so a drain or integrity failure cannot race a new claim.

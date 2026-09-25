@@ -19,8 +19,15 @@ const handoff = readFileSync(
   "supabase/migrations/20260925105830_device_hand_cut_silent_handoff.sql",
   "utf8",
 );
+// Cutting a match again (20260925170000) rewrites _hand_cut_hand_back to
+// touch only the job's own version; the phone's hand back must still
+// behave as below.
+const cutAgain = readFileSync(
+  "supabase/migrations/20260925170000_cut_again.sql",
+  "utf8",
+);
 const sql = first;
-const files = [first, handoff];
+const files = [first, handoff, cutAgain];
 
 function definitionIn(text: string, name: string): string | null {
   const start = text.search(
