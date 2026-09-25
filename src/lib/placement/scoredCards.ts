@@ -247,6 +247,26 @@ const LENGTH_BANDS: { label: string; max: number }[] = [
   { label: "Over 6 s", max: Infinity },
 ];
 
+/**
+ * How far a hand cut's start mark sits before the serve's first bounce,
+ * which is where an automatic point's length starts. The Begin tap lands
+ * as the server prepares, not at contact: measured 2026-09-25 on the first
+ * two hand cuts given detailed analysis (623c09c6, 04f1b393; 75 points),
+ * median 2.1 s and 1.8 s. Without it every hand-cut point read about two
+ * seconds long and "Under 3 s" stayed empty. The Swift twin is
+ * ScoredCards.handCutMarkToServeS.
+ */
+export const HAND_CUT_MARK_TO_SERVE_S = 2;
+/** Every marked point keeps at least this much length (an ace is short). */
+export const HAND_CUT_MIN_LENGTH_S = 0.5;
+
+export function handCutServeStart(markStart: number, end: number): number {
+  return Math.max(
+    markStart,
+    Math.min(markStart + HAND_CUT_MARK_TO_SERVE_S, end - HAND_CUT_MIN_LENGTH_S),
+  );
+}
+
 function tallies(): ScoredTally[] {
   return LENGTH_BANDS.map((band) => ({ label: band.label, won: 0, lost: 0 }));
 }
@@ -263,8 +283,9 @@ function pointLength(contexts: Ctx[]): PointLengthResult {
     if (firstT !== null) {
       start = firstT;
     } else if (ctx.markStart !== null) {
-      // A hand cut with no serve time from the ball: the owner's start mark.
-      start = ctx.markStart;
+      // A hand cut with no serve time from the ball: the owner's start mark,
+      // moved on to where the serve lands (see HAND_CUT_MARK_TO_SERVE_S).
+      start = handCutServeStart(ctx.markStart, ctx.end);
     } else if (ctx.placement) {
       // No trusted serve: the first bounce seen on the table before the
       // point ended. Later than the real start by a shot at most.

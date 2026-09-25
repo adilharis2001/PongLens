@@ -4,6 +4,8 @@ import type { PlacementCandidateV3, PlacementV3, Point } from "../types.ts";
 import {
   computeScoredCards,
   cutToSource,
+  HAND_CUT_MARK_TO_SERVE_S,
+  handCutServeStart,
   lastCleanBounce,
   pointEndSource,
   scoredCardsGate,
@@ -277,15 +279,17 @@ const bands = (tallies: { won: number; lost: number }[]) =>
 
 test("a hand cut times each point from its marks, with no side and no ball", () => {
   const points = [
-    point({ id: "a", winner: "user", t0: 100, t1: 102 }), // 2 s
-    point({ id: "b", winner: "opponent", t0: 200, t1: 204.5 }), // 4.5 s
-    point({ id: "c", winner: "user", t0: 300, t1: 307 }), // 7 s
+    // Lengths run from 2 s after the mark (the serve), never under 0.5 s.
+    point({ id: "a", winner: "user", t0: 100, t1: 102 }), // 0.5 s (an ace)
+    point({ id: "b", winner: "opponent", t0: 200, t1: 204.5 }), // 2.5 s
+    point({ id: "c", winner: "user", t0: 300, t1: 307 }), // 5 s
+    point({ id: "d", winner: "user", t0: 400, t1: 409 }), // 7 s
   ];
   const result = runHandCut(points, null, false)!;
   assert.notEqual(result, null);
-  assert.equal(result.pointLength.covered, 3);
-  assert.equal(result.pointLength.considered, 3);
-  assert.deepEqual(bands(result.pointLength.mine), [[1, 0], [0, 1], [1, 0]]);
+  assert.equal(result.pointLength.covered, 4);
+  assert.equal(result.pointLength.considered, 4);
+  assert.deepEqual(bands(result.pointLength.mine), [[1, 1], [1, 0], [1, 0]]);
   // Nothing that needs the ball or the side.
   assert.deepEqual(result.serveSpeed, { mine: [], theirs: [] });
   assert.equal(result.endings.considered, 0);
@@ -294,7 +298,7 @@ test("a hand cut times each point from its marks, with no side and no ball", () 
 });
 
 test("a hand cut ends at the End Point tap, not at a later score tap", () => {
-  // Score tap cut 60 -> source 109 would make it 9 s; the mark says 2 s.
+  // Score tap cut 60 -> source 109 would make it 9 s; the marks say 0.5 s.
   const points = [0, 1, 2].map((i) =>
     point({ id: `t${i}`, winner: "user", t0: 100, t1: 102, tapCut: 60 }),
   );
@@ -303,7 +307,7 @@ test("a hand cut ends at the End Point tap, not at a later score tap", () => {
 
 test("a hand cut uses the ball's serve time where it has one", () => {
   // A late Begin tap: the serve's first bounce (100.0) is before the mark
-  // (101.5). From the bounce it is 3.5 s; from the mark it would be 2 s.
+  // (101.5). From the bounce it is 3.5 s; from the mark it would be 0.5 s.
   const points = [0, 1, 2].map((i) =>
     point({ id: `s${i}`, winner: "user", placement: placement({}), t0: 101.5, t1: 103.5 }),
   );
@@ -317,7 +321,7 @@ test("a hand cut uses the ball's serve time where it has one", () => {
 test("a hand cut with no trusted serve starts at the mark, not the first bounce", () => {
   // First bounce on the receiver's half: the serve rules refuse it. An
   // automatic cut would fall back to the first table bounce (100.0, 3.5 s);
-  // the hand cut's own mark says 2 s.
+  // the hand cut's own marks say 0.5 s.
   const refused = placement({
     first: { u: 0.7, v: 2.0, t: 100.0 },
     landing: { u: 0.7, v: 0.6, t: 100.4 },
@@ -326,6 +330,15 @@ test("a hand cut with no trusted serve starts at the mark, not the first bounce"
     point({ id: `r${i}`, winner: "user", placement: refused, t0: 101.5, t1: 103.5 }),
   );
   assert.deepEqual(bands(runHandCut(points, "near")!.pointLength.mine), [[3, 0], [0, 0], [0, 0]]);
+});
+
+test("a hand cut's mark is moved on to where the serve lands", () => {
+  assert.equal(HAND_CUT_MARK_TO_SERVE_S, 2);
+  assert.equal(handCutServeStart(100, 106), 102);
+  // A point shorter than the move keeps half a second.
+  assert.equal(handCutServeStart(100, 101.2), 100.7);
+  // Never before the mark itself.
+  assert.equal(handCutServeStart(100, 100.2), 100);
 });
 
 test("a hand cut still waits for the scored gate", () => {

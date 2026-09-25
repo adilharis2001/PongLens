@@ -166,6 +166,18 @@ private func serveShot(_ ctx: ScoredContext) -> PlacementShot? {
         .shots.first { $0.phase == "serve" }
 }
 
+/// How far a hand cut's start mark sits before the serve's first bounce,
+/// where an automatic point's length starts. Measured 2026-09-25 on the
+/// first two hand cuts given detailed analysis (75 points): median 2.1 s
+/// and 1.8 s. Twin of HAND_CUT_MARK_TO_SERVE_S in scoredCards.ts.
+let HAND_CUT_MARK_TO_SERVE_S = 2.0
+/// Every marked point keeps at least this much length (an ace is short).
+let HAND_CUT_MIN_LENGTH_S = 0.5
+
+func handCutServeStart(_ markStart: Double, _ end: Double) -> Double {
+    max(markStart, min(markStart + HAND_CUT_MARK_TO_SERVE_S, end - HAND_CUT_MIN_LENGTH_S))
+}
+
 private let LENGTH_BANDS: [(label: String, max: Double)] = [
     ("Under 3 s", 3), ("3 to 6 s", 6), ("Over 6 s", .infinity),
 ]
@@ -180,8 +192,9 @@ private func pointLength(_ contexts: [ScoredContext]) -> PointLengthResult {
         if ctx.drawn != nil, let t = serveShot(ctx)?.serveFirstBounce?.t {
             start = t
         } else if let mark = ctx.markStart {
-            // A hand cut with no serve time from the ball: the owner's start mark.
-            start = mark
+            // A hand cut with no serve time from the ball: the owner's start
+            // mark, moved on to where the serve lands.
+            start = handCutServeStart(mark, end)
         } else if let data = ctx.placement {
             // No trusted serve: the first bounce seen on the table before the
             // point ended. Later than the real start by a shot at most.

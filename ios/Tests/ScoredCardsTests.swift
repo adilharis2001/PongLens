@@ -179,17 +179,22 @@ private func runHandCutPointLengthChecks() {
         (result?.pointLength.mine ?? []).map { [$0.won, $0.lost] }
     }
 
-    // From the marks alone: no side, no ball. 2 s, 4.5 s, 7 s.
+    // From the marks alone: no side, no ball. Lengths run from 2 s after
+    // the mark (the serve), never under 0.5 s: 0.5 s, 2.5 s, 5 s, 7 s.
     let marked = points([
         ("user", 100, 102, nil, nil),
         ("opponent", 200, 204.5, nil, nil),
         ("user", 300, 307, nil, nil),
+        ("user", 400, 409, nil, nil),
     ])
-    check(marked.count == 3, "hand-cut fixture points decode")
+    check(marked.count == 4, "hand-cut fixture points decode")
     let fromMarks = run(marked, userSide: nil, trusted: false)
     check(fromMarks != nil, "a hand cut computes without a side")
-    check(fromMarks?.pointLength.covered == 3 && fromMarks?.pointLength.considered == 3, "every marked point has a length")
-    check(bands(fromMarks) == [[1, 0], [0, 1], [1, 0]], "a hand cut times each point from its marks")
+    check(fromMarks?.pointLength.covered == 4 && fromMarks?.pointLength.considered == 4, "every marked point has a length")
+    check(bands(fromMarks) == [[1, 1], [1, 0], [1, 0]], "a hand cut times each point from its marks")
+    check(HAND_CUT_MARK_TO_SERVE_S == 2 && handCutServeStart(100, 106) == 102
+          && abs(handCutServeStart(100, 101.2) - 100.7) < 1e-9 && handCutServeStart(100, 100.2) == 100,
+          "a hand cut's mark is moved on to where the serve lands")
     check(fromMarks?.serveSpeedMine.isEmpty == true && fromMarks?.serveSpeedTheirs.isEmpty == true
           && fromMarks?.endings.considered == 0, "nothing that needs the ball or the side")
     check(run(marked, userSide: "near", handCut: false)?.pointLength.covered == 0,
@@ -207,7 +212,7 @@ private func runHandCutPointLengthChecks() {
     check(bands(run(late, userSide: nil)) == [[3, 0], [0, 0], [0, 0]], "without a side there is no serve to read, so the mark again")
 
     // A refused serve: an automatic cut would fall back to the first table
-    // bounce (100.0, 3.5 s); the hand cut's own mark says 2 s.
+    // bounce (100.0, 3.5 s); the hand cut's own marks say 0.5 s.
     let refused = points((0..<3).map { _ in ("user", 101.5, 103.5, nil, placementJSON(refused: true)) })
     check(bands(run(refused, userSide: "near")) == [[3, 0], [0, 0], [0, 0]], "a hand cut with no trusted serve starts at the mark, not the first bounce")
 
