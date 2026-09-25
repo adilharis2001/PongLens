@@ -1,4 +1,4 @@
--- Behaviour of 20260925160000_device_hand_cut.sql, on an isolated database
+-- Behaviour of 20260925061009_device_hand_cut.sql, on an isolated database
 -- built by device_hand_cut_stubs.sql (the header there has the commands).
 -- Every fixture rolls back. A failure raises 'FAIL: ...'.
 \set ON_ERROR_STOP on

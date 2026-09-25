@@ -7,7 +7,7 @@ import test from "node:test";
 // Postgres by supabase/tests/device_hand_cut.sql (commands in
 // supabase/tests/device_hand_cut_stubs.sql).
 const sql = readFileSync(
-  "supabase/migrations/20260925160000_device_hand_cut.sql",
+  "supabase/migrations/20260925061009_device_hand_cut.sql",
   "utf8",
 );
 

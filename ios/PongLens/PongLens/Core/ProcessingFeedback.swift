@@ -15,7 +15,7 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     let windowEndS: Double?
     let cameraCheck: CameraCheck?
     var estimate: ProcessingEstimate? = nil
-    /// A hand cut the owner's iPhone cut or is cutting (20260925160000):
+    /// A hand cut the owner's iPhone cut or is cutting (20260925061009):
     /// phase "device" while the phone works, "verify" once the Mac checks
     /// it, "mac" when the Mac took it over. Nil on every other job.
     var cutter: String? = nil

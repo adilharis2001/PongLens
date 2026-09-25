@@ -16,7 +16,7 @@ export interface ProcessingFeedback {
   window_start_s: number | null;
   window_end_s: number | null;
   camera_check: { status: string; changes?: unknown[] } | null;
-  /** A hand cut the owner's iPhone cut or is cutting (20260925160000):
+  /** A hand cut the owner's iPhone cut or is cutting (20260925061009):
    *  'device' while the phone works, 'verify' once the Mac is checking it,
    *  'mac' when the Mac took it over. Absent on every other job. */
   cutter?: "device" | "mac" | null;

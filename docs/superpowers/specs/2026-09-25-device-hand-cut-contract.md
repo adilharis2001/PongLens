@@ -6,7 +6,7 @@ not deployed.
 
 | Piece | Where |
 | --- | --- |
-| Database | `supabase/migrations/20260925160000_device_hand_cut.sql`; behaviour checked on a throwaway Postgres by `supabase/tests/device_hand_cut.sql` |
+| Database | `supabase/migrations/20260925061009_device_hand_cut.sql`; behaviour checked on a throwaway Postgres by `supabase/tests/device_hand_cut.sql` |
 | Route | `src/app/api/hand-cut/device/route.ts`, pure rules in `src/lib/deviceHandCut.ts` |
 | The plan and the Mac's check | `worker/hand_cut_device.py` (`plan_hand_cut` line 129, `check_manifest` line 284, `check_cut_probe` line 436) |
 | The hand lane | `worker/worker.py`: `process_hand_cut` line 7488 branches to `_publish_device_hand_cut` (7377) and `_verify_device_hand_cut` (7310); both paths publish through `_publish_hand_cut` (7186); the sweep is `release_stale_device_hand_cuts` (7469) |

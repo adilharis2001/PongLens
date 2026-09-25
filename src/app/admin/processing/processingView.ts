@@ -231,7 +231,7 @@ export interface LessonWorkers {
 }
 
 /**
- * A hand cut the owner's iPhone is cutting (20260925160000). It is not in
+ * A hand cut the owner's iPhone is cutting (20260925061009). It is not in
  * `running`, which is Mac work: the phone writes its own progress, so a
  * moving phone job must never read as a Mac lane alive, nor a quiet one as
  * a Mac job stalled.
