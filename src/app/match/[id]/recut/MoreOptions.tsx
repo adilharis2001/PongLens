@@ -41,7 +41,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { BottomSheet } from "@/components/BottomSheet";
 import { SectionHeading } from "@/components/SectionHeading";
 import { availabilityNotice, processingContext, serviceLane } from "@/lib/processingAvailability";
@@ -627,32 +626,30 @@ export function MoreOptions({
         </div>
       </BottomSheet>
 
-      {marking &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <MarkPoints
-            rawUrl={marking.url}
-            durationS={quote.duration}
-            firstServer={firstServer}
-            matchType={match.match_type}
-            onFirstServer={saveFirstServer}
-            youLabel="Me"
-            themLabel={((match.opponent_name ?? "").trim().split(/\s+/)[0] || "Them").slice(0, 12)}
-            initialMarks={marking.marks}
-            startMode={marking.mode}
-            onModeChange={(mode) => {
-              if (scoringAllowed) setModeChoice(mode);
-            }}
-            saveDraft={draft.save}
-            submit={submitRecut}
-            canStartAgain
-            reviewChoice={
-              <RecutChoice name="recut-hand" view={handChoice} onChange={setHandPick} />
-            }
-            onClose={() => setMarking(null)}
-          />,
-          document.body,
-        )}
+      {/* The marker puts itself on <body> (MarkPoints). */}
+      {marking && (
+        <MarkPoints
+          rawUrl={marking.url}
+          durationS={quote.duration}
+          firstServer={firstServer}
+          matchType={match.match_type}
+          onFirstServer={saveFirstServer}
+          youLabel="Me"
+          themLabel={((match.opponent_name ?? "").trim().split(/\s+/)[0] || "Them").slice(0, 12)}
+          initialMarks={marking.marks}
+          startMode={marking.mode}
+          onModeChange={(mode) => {
+            if (scoringAllowed) setModeChoice(mode);
+          }}
+          saveDraft={draft.save}
+          submit={submitRecut}
+          canStartAgain
+          reviewChoice={
+            <RecutChoice name="recut-hand" view={handChoice} onChange={setHandPick} />
+          }
+          onClose={() => setMarking(null)}
+        />
+      )}
     </div>
   );
 }
