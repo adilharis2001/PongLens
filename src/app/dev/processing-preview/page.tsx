@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Dev-only rendering of /admin/processing from fixtures, one scene per
- * query value: ?scene=standby (default), running, starting, off. It
+ * query value: ?scene=standby (default), running, starting, off, phones. It
  * exists so the page's cloud states can be looked at and screenshotted
  * without a live outage and without signing in as the admin. Never
  * served in production.

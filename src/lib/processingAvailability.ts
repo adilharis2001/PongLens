@@ -60,19 +60,23 @@ export interface ProcessingWork {
   videoSaved: boolean;
   lane?: ServiceLane;
   stageLabel?: string | null;
+  /** A hand cut the owner's iPhone is cutting. No Mac lane is involved
+   *  until the phone hands it over, so no lane's outage blocks it. */
+  onDevice?: boolean;
 }
 
 /** Only blocked work contributes to the outage notice; other lanes keep their
  * own progress and email contract. Orphan imports have no saved-video claim. */
 export function summarizeProcessingWork(services: ProcessingServiceStatus, work: ProcessingWork[]) {
   const active = work.filter((job) => job.status === "queued" || job.status === "processing");
-  const blocked = active.filter((job) => availabilityNotice(services[job.lane ?? serviceLane(job.kind, services.clip_lane)], "queued_work"));
+  const blocked = active.filter((job) => !job.onDevice
+    && availabilityNotice(services[job.lane ?? serviceLane(job.kind, services.clip_lane)], "queued_work"));
   const continuing = active.filter((job) => !blocked.includes(job));
   const first = continuing[0];
   const queued = continuing.length > 0 && continuing.every((job) => job.status === "queued");
   const continuingLabel = continuing.length === 1 ? first.stageLabel
     ?? (first.kind === "youtube_import" ? queued ? "Waiting to import video" : "Importing video"
-      : first.kind === "hand_cut" ? queued ? "Waiting to prepare clips" : "Preparing clips"
+      : first.kind === "hand_cut" ? first.onDevice ? "Cutting on your iPhone" : queued ? "Waiting to prepare clips" : "Preparing clips"
       : queued ? "Waiting to process" : "Your match is processing")
     : `${continuing.length} videos are ${queued ? "waiting to process" : "processing"}`;
   const sendsEmail = continuing.length > 0 && continuing.every((job) => (job.kind === "deadspace_cut" || job.kind === "hand_cut") && job.videoSaved);

@@ -4,7 +4,7 @@ import { useProcessingService } from "@/lib/useProcessingService";
 import { availabilityNotice, serviceLane, summarizeProcessingWork } from "@/lib/processingAvailability";
 import { ProcessingAvailabilityNoticeContent } from "@/components/ProcessingAvailabilityNotice";
 import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
-import { processingStageLabel } from "@/lib/processingFeedback";
+import { onDevice, processingStageLabel } from "@/lib/processingFeedback";
 
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
@@ -355,7 +355,8 @@ export function HomeOverview({
       const live = liveJobFor(match.id, match.job_id, jobs);
       const feedback = processingFeedback[match.id];
       return { kind: live?.kind ?? feedback?.job_kind, status: live?.status ?? feedback?.job_status ?? (match.status === "processing" ? "processing" : "unknown"),
-        lane: feedback?.lane, videoSaved: true, stageLabel: processingStageLabel(feedback ?? null) };
+        lane: feedback?.lane, videoSaved: true, stageLabel: processingStageLabel(feedback ?? null),
+        onDevice: onDevice(feedback) };
     }),
   ]);
   const activeWork = processingSummary.blockedCount + processingSummary.continuingCount;

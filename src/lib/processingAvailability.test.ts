@@ -115,3 +115,16 @@ test("an imported check retains its actual kind and never becomes primary proces
   assert.equal(importedProcessingContext("processing", { kind: "deadspace_cut", status: "processing" }), "saved_match");
   assert.equal(importedProcessingContext(null, null), "import");
 });
+test("a hand cut on the owner's iPhone is never blocked by a Mac lane", () => {
+  const handDown = { ...mixedService, main: "available", hand: "unavailable" } as const;
+  const phone = summarizeProcessingWork(handDown, [
+    { kind: "hand_cut", status: "processing", videoSaved: true, onDevice: true },
+  ]);
+  assert.equal(phone.blockedCount, 0);
+  assert.equal(phone.notice, null);
+  assert.equal(phone.continuingLabel, "Cutting on your iPhone");
+  assert.equal(phone.exitMessage, "We’ll email you when your match is ready.");
+  // The same job handed to the Mac is blocked like any hand cut.
+  const mac = summarizeProcessingWork(handDown, [{ kind: "hand_cut", status: "queued", videoSaved: true }]);
+  assert.equal(mac.blockedCount, 1);
+});

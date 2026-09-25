@@ -28,7 +28,8 @@ import { useProcessingService } from "@/lib/useProcessingService";
 import { availabilityNotice, serviceLane, processingContext, processingExitMessage } from "@/lib/processingAvailability";
 import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
-import { cameraViewWarning, processingStageLabel } from "@/lib/processingFeedback";
+import { cameraViewWarning, onDevice, processingStageLabel } from "@/lib/processingFeedback";
+import { offerMacInstead } from "@/lib/deviceHandCut";
 import { NoteComposer, NoteItem } from "./Notes";
 
 import { chargeMinutes, formatClock, formatMinutes } from "@/lib/commerce/minutes";
@@ -117,7 +118,14 @@ export function RawMatchView({
   const [job, setJob] = useState<ActiveJob | null>(initialJob);
   const serviceState = services[feedback?.lane ?? serviceLane(feedback?.job_kind ?? job?.kind)];
   const availabilityContext = processingContext(feedback?.job_kind ?? job?.kind, !!match.raw_path);
-  const serviceNotice = availabilityNotice(serviceState, availabilityContext);
+  // A hand cut the owner's iPhone is cutting (claim_device_hand_cut). No
+  // Mac lane is involved until the phone hands it over, so no lane's
+  // outage applies, and after a day without word from the phone the owner
+  // can hand it to the Mac instead.
+  const phoneCut = onDevice(feedback);
+  const serviceNotice = phoneCut ? null : availabilityNotice(serviceState, availabilityContext);
+  const [movingToMac, setMovingToMac] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [availableMinutes, setAvailableMinutes] = useState(minutesBalance);
@@ -521,6 +529,32 @@ export function RawMatchView({
     [match.id, router],
   );
 
+  const cutOnMac = useCallback(async () => {
+    const jobId = feedback?.job_id;
+    if (!jobId || movingToMac) return;
+    setMovingToMac(true);
+    setMoveError(null);
+    try {
+      const res = await fetch("/api/hand-cut/device", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "release", jobId, toMac: true }),
+      });
+      // 409 means the phone finished or it has already moved; either way
+      // the page's next read shows where it is now.
+      if (!res.ok && res.status !== 409) {
+        setMoveError("That didn't go through. Try again.");
+        return;
+      }
+      setJob((current) => current && { ...current, status: "queued", progress: 0 });
+      router.refresh();
+    } catch {
+      setMoveError("That didn't go through. Try again.");
+    } finally {
+      setMovingToMac(false);
+    }
+  }, [feedback?.job_id, movingToMac, router]);
+
   const stampStart = () => {
     const t = videoRef.current?.currentTime ?? 0;
     setTrimStart(Math.min(t, (trimEnd ?? duration ?? t) - 5));
@@ -829,6 +863,22 @@ export function RawMatchView({
             {processingExitMessage(availabilityContext)}
           </p>
           <ProcessingEstimateNote estimate={feedback?.estimate} jobStatus={feedback?.job_status ?? job?.status ?? null} serviceState={serviceState} />
+          {phoneCut && isOwner && offerMacInstead(feedback?.device_seen_at) && (
+            <>
+              <p className="mt-4 text-sm text-zinc-300">
+                No update from your iPhone for over a day.
+              </p>
+              <button
+                type="button"
+                onClick={cutOnMac}
+                disabled={movingToMac}
+                className="mt-3 min-h-11 w-full rounded-full border border-edge px-4 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-500 disabled:opacity-50 sm:w-auto"
+              >
+                Cut on the Mac instead
+              </button>
+              {moveError && <p className="mt-2 text-sm text-amber-300/90">{moveError}</p>}
+            </>
+          )}
           </>}
           {cameraWarning && <p className="mt-3 text-sm text-amber-300/90">{cameraWarning}</p>}
         </section>

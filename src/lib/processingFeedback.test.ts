@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   cameraViewWarning,
+  onDevice,
   processingStageLabel,
   type ProcessingFeedback,
 } from "./processingFeedback.ts";
@@ -243,4 +244,36 @@ test("an invalid selected window cannot create a warning", () => {
   assert.equal(cameraViewWarning(changed, -1, 20), null);
   assert.equal(cameraViewWarning(changed, 20, 10), null);
   assert.equal(cameraViewWarning(changed, Number.NaN, 20), null);
+});
+
+
+test("a hand cut on the owner's iPhone says what the phone is doing, whatever the Mac is doing", () => {
+  const phone = (over: Partial<ProcessingFeedback>) => feedback({
+    job_kind: "hand_cut", job_status: "processing", cutter: "device", phase: "device",
+    stage: null, worker_state: "missing", ...over,
+  });
+  assert.equal(processingStageLabel(phone({ device_stage: "device_cut" })), "Cutting on your iPhone");
+  assert.equal(processingStageLabel(phone({ device_stage: "device_clips" })), "Cutting on your iPhone");
+  assert.equal(processingStageLabel(phone({ device_stage: "device_upload" })), "Uploading from your iPhone");
+  assert.equal(processingStageLabel(phone({ device_stage: "device_paused" })), "Paused on your iPhone");
+  assert.equal(processingStageLabel(phone({ device_stage: null })), "Cutting on your iPhone");
+  // The hand lane being down or silent is nothing to do with the phone.
+  assert.equal(processingStageLabel(phone({ service_state: "unavailable" })), "Cutting on your iPhone");
+  assert.equal(processingStageLabel(phone({ worker_state: "silent" })), "Cutting on your iPhone");
+  assert.ok(onDevice(phone({})));
+  assert.ok(!onDevice(feedback({ job_kind: "hand_cut", phase: "verify" })));
+});
+
+test("the Mac checking a phone's cut says so, then uses the hand cut's own stages", () => {
+  const verify = (over: Partial<ProcessingFeedback>) => feedback({
+    job_kind: "hand_cut", cutter: "device", phase: "verify", ...over,
+  });
+  assert.equal(processingStageLabel(verify({ job_status: "queued", stage: null })), "Waiting to check the cut");
+  assert.equal(processingStageLabel(verify({ stage: "device_verify" })), "Checking the cut");
+  assert.equal(processingStageLabel(verify({ stage: "publish" })), "Saving the match");
+  // Handed to the Mac: an ordinary hand cut again.
+  assert.equal(
+    processingStageLabel(feedback({ job_kind: "hand_cut", cutter: "mac", phase: "mac", job_status: "queued", stage: null })),
+    "Waiting to prepare clips",
+  );
 });

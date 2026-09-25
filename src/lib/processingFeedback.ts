@@ -1,4 +1,5 @@
 import type { ProcessingEstimate } from "./processingEstimate";
+import { deviceStageLabel } from "./deviceHandCut.ts";
 
 /** Owner feedback carries observations and an optional server-owned rough estimate. */
 export interface ProcessingFeedback {
@@ -15,6 +16,20 @@ export interface ProcessingFeedback {
   window_start_s: number | null;
   window_end_s: number | null;
   camera_check: { status: string; changes?: unknown[] } | null;
+  /** A hand cut the owner's iPhone cut or is cutting (20260925160000):
+   *  'device' while the phone works, 'verify' once the Mac is checking it,
+   *  'mac' when the Mac took it over. Absent on every other job. */
+  cutter?: "device" | "mac" | null;
+  phase?: "device" | "verify" | "mac" | "released" | null;
+  /** The phone's own stage, and when it last reported (its claim when it
+   *  never has), while phase is 'device'. */
+  device_stage?: string | null;
+  device_seen_at?: string | null;
+}
+
+/** The owner's iPhone is cutting this match; no Mac lane is involved yet. */
+export function onDevice(feedback: Pick<ProcessingFeedback, "job_kind" | "phase"> | null | undefined): boolean {
+  return feedback?.job_kind === "hand_cut" && feedback.phase === "device";
 }
 
 /**
@@ -24,6 +39,7 @@ export interface ProcessingFeedback {
  */
 const HAND_CUT_STAGES: Record<string, string> = {
   marks: "Reading the marks",
+  device_verify: "Checking the cut",
   download: "Preparing video",
   cut: "Cutting the video",
   upload: "Uploading the result",
@@ -34,11 +50,17 @@ const HAND_CUT_STAGES: Record<string, string> = {
 export function processingStageLabel(feedback: ProcessingFeedback | null): string | null {
   if (feedback?.job_kind === "content_check") return null;
   if (!feedback || !["queued", "processing"].includes(feedback.job_status ?? "")) return null;
+  // The phone is doing the work, so the Mac's lanes and pulses say nothing
+  // about it: its own stage is the whole answer.
+  if (onDevice(feedback)) return deviceStageLabel(feedback.device_stage);
   if (feedback.service_state === "maintenance") return "Paused for maintenance";
   if (feedback.service_state === "unavailable") return "Processing is delayed";
   if (feedback.worker_state === "silent") return "Processing is delayed";
   const handCut = feedback.job_kind === "hand_cut";
-  if (feedback.job_status === "queued") return handCut ? "Waiting to prepare clips" : "Waiting to process";
+  if (feedback.job_status === "queued") {
+    if (!handCut) return "Waiting to process";
+    return feedback.phase === "verify" ? "Waiting to check the cut" : "Waiting to prepare clips";
+  }
   if (feedback.worker_state !== "fresh") return null;
   if (handCut) return HAND_CUT_STAGES[feedback.stage ?? ""] ?? "Preparing clips";
   const stages: Record<string, string> = {

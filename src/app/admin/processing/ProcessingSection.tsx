@@ -47,6 +47,7 @@ const STATE_LABEL: Record<WorkerState, string> = {
   "not-running": "Not running",
   off: "Off",
   standby: "Standby",
+  waiting: "Waiting",
 };
 
 /**
@@ -72,6 +73,8 @@ const STATE_DOT: Record<WorkerState, string> = {
   // Standby is a decision too: a cloud lane with no container is what
   // "switched on and not needed" looks like, and it is not an alarm.
   standby: "bg-zinc-600",
+  // A quiet iPhone is somebody's phone in a pocket, not a fault here.
+  waiting: "bg-zinc-500",
 };
 
 const STATE_TEXT: Record<WorkerState, string> = {
@@ -84,6 +87,7 @@ const STATE_TEXT: Record<WorkerState, string> = {
   "not-running": "text-amber-300",
   off: "text-zinc-600",
   standby: "text-zinc-500",
+  waiting: "text-zinc-400",
 };
 
 /** A job kind the page has not been taught reads as its raw name, with a
@@ -162,7 +166,7 @@ export function WorkerCard({ row, estimate, serviceState }: { row: WorkerRow; es
           )}
           {row.matchId && (
             <>
-              <span aria-hidden="true">·</span>
+              {(row.upSince || row.codeVersion) && <span aria-hidden="true">·</span>}
               <Link
                 href={`/admin/uploads/${row.matchId}`}
                 className="text-zinc-400 transition-colors hover:text-cyan-glow"
@@ -290,8 +294,11 @@ export function ProcessingSection({
       <ul className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
         {workers.map((row) => {
           const pulse = doc.workers.find((worker) => worker.worker_id === row.key);
+          // An iPhone row has no Mac lane behind it, so no lane's service
+          // state or queue estimate belongs on it.
+          const phone = row.key.startsWith("device:");
           return <WorkerCard key={row.key} row={row} estimate={pulse?.job_id ? estimates[pulse.job_id] : null}
-            serviceState={pulse?.lane === "hand" ? services.hand : pulse?.lane === "fast" ? services.fast : services.main} />;
+            serviceState={phone ? undefined : pulse?.lane === "hand" ? services.hand : pulse?.lane === "fast" ? services.fast : services.main} />;
         })}
       </ul>
 

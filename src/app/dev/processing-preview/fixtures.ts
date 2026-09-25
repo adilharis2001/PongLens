@@ -35,7 +35,7 @@ function pulse(now: Date, over: Partial<WorkerPulse>): WorkerPulse {
   };
 }
 
-export type PreviewScene = "standby" | "running" | "off" | "starting";
+export type PreviewScene = "standby" | "running" | "off" | "starting" | "phones";
 
 export function previewOverview(scene: string, now = new Date()): ProcessingOverview {
   const macAlive = scene !== "running" && scene !== "starting";
@@ -219,6 +219,34 @@ export function previewOverview(scene: string, now = new Date()): ProcessingOver
         player: "Adil",
       },
     ],
+    // Two hand cuts on owners' iPhones: one reporting, one quiet for hours.
+    devices:
+      scene === "phones"
+        ? [
+            {
+              id: "job-phone-1",
+              created_at: ago(now, 19 * 60),
+              updated_at: ago(now, 8),
+              progress: 76,
+              original_name: "IMG_4420.MOV",
+              match_id: "623c09c6-5292-44f6-83e2-65632506b9d4",
+              player: "Adil",
+              stage: "device_upload",
+              reported_at: ago(now, 8),
+            },
+            {
+              id: "job-phone-2",
+              created_at: ago(now, 5 * 3600),
+              updated_at: ago(now, 3 * 3600),
+              progress: 31,
+              original_name: "IMG_4402.MOV",
+              match_id: "04f1b393-f16f-4242-9f51-a853a276bae8",
+              player: "Julian",
+              stage: "device_cut",
+              reported_at: ago(now, 3 * 3600),
+            },
+          ]
+        : [],
     day: { done: 14, failed: 1, cancelled: 0 },
     queue: [
       { queue_name: "jobs", queue_length: 1, oldest_msg_age_sec: 540 },

@@ -42,6 +42,18 @@ export const WAIT_ATTENTION_S = 1800;
  */
 export const JOB_MOVED_S = 180;
 
+/**
+ * How long an iPhone may go without reporting before its row stops saying
+ * what the phone is doing and says it is waiting for it. Never amber: a
+ * phone in a pocket, locked or out of signal is not a fault in anything
+ * this page watches, and after 72 hours the database hands the marks back
+ * on its own (release_stale_device_hand_cuts).
+ */
+export const DEVICE_QUIET_S = 300;
+
+/** What a hand cut the owner's iPhone is cutting is called on this page. */
+export const DEVICE_KIND_LABEL = "Hand cut on iPhone";
+
 export type WorkerState =
   /** Proven to be working, either by its own heartbeat or by a job whose
    *  progress is moving underneath it. */
@@ -67,7 +79,10 @@ export type WorkerState =
   /** The cloud twin, switched on and waiting for its reason to start. Not
    *  a fault either: a cloud lane with no container is what standby looks
    *  like every minute the Mac Studio is healthy. */
-  | "standby";
+  | "standby"
+  /** A hand cut on the owner's iPhone that has not reported for a while.
+   *  Grey, like standby: the phone is not a worker this page can fault. */
+  | "waiting";
 
 export interface WorkerPulse {
   worker_id: string;
@@ -115,6 +130,9 @@ export interface FinishedJob {
   id: string;
   kind: string;
   status: "done" | "failed" | "cancelled";
+  /** A phone hand cut, released by its owner or by the 72-hour sweep.
+   *  Nothing about it proves a Mac worker ran. */
+  on_device?: boolean;
   created_at: string;
   updated_at: string;
   error: string | null;
@@ -212,12 +230,34 @@ export interface LessonWorkers {
   share_oldest_queued_at?: string | null;
 }
 
+/**
+ * A hand cut the owner's iPhone is cutting (20260925160000). It is not in
+ * `running`, which is Mac work: the phone writes its own progress, so a
+ * moving phone job must never read as a Mac lane alive, nor a quiet one as
+ * a Mac job stalled.
+ */
+export interface DeviceJob {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  progress: number;
+  original_name: string | null;
+  match_id: string | null;
+  player: string | null;
+  /** The phone's own stage (device_cut, device_clips, ...). */
+  stage: string | null;
+  /** When the phone last reported, or null if it never has. */
+  reported_at: string | null;
+}
+
 export interface ProcessingOverview {
   now: string;
   workers: WorkerPulse[];
   lesson: LessonWorkers;
   waiting: QueuedJob[];
   running: RunningJob[];
+  /** Absent before the migration; an empty list after it. */
+  devices?: DeviceJob[];
   recent: FinishedJob[];
   day: { done?: number; failed?: number; cancelled?: number };
   queue: { queue_name: string; queue_length: number; oldest_msg_age_sec: number | null }[];
@@ -279,6 +319,13 @@ const STAGE_LABELS: Record<string, string> = {
   reel: "Rendering the share video",
   reclip: "Re-cutting clips",
   housekeeping: "Housekeeping",
+  // A hand cut made on the owner's iPhone: the phone's stages, and the
+  // hand lane's check of what it uploaded.
+  device_cut: "Cutting on the iPhone",
+  device_clips: "Cutting the clips on the iPhone",
+  device_upload: "Uploading from the iPhone",
+  device_paused: "Paused on the iPhone",
+  device_verify: "Checking the iPhone's cut",
 };
 
 /**
@@ -479,6 +526,7 @@ const STATE_DETAIL: Record<WorkerState, string> = {
   "not-running": "Nothing is running here.",
   off: "Switched off.",
   standby: "Standby.",
+  waiting: "Waiting for the iPhone.",
 };
 
 /**
@@ -526,6 +574,7 @@ export function lastFinishedS(
   let best: number | null = null;
   for (const j of doc.recent ?? []) {
     if (j.status === "cancelled") continue;
+    if (j.on_device) continue;
     const age = secondsBetween(j.updated_at, now);
     if (age === null || age > JOB_MOVED_S) continue;
     if (best === null || age < best) best = age;
@@ -540,10 +589,60 @@ export function lastFinishedS(
  * renders only what it hears from would show nothing at all in exactly
  * that case.
  */
-export function buildWorkerRows(
+/**
+ * The document with every phone job taken out of `running`. The database
+ * already does this; repeating it here keeps the page right against a
+ * database that has the phone jobs but not the newer overview.
+ */
+export function withoutDeviceJobs(doc: ProcessingOverview): ProcessingOverview {
+  const ids = new Set((doc.devices ?? []).map((d) => d.id));
+  if (ids.size === 0) return doc;
+  return { ...doc, running: doc.running.filter((j) => !ids.has(j.id)) };
+}
+
+/**
+ * One row per hand cut the owner's iPhone is cutting. Working while it
+ * reports; grey "Waiting for the iPhone" once it has been quiet for
+ * DEVICE_QUIET_S. Never amber, whatever the silence: see DEVICE_QUIET_S.
+ */
+export function deviceRows(
   doc: ProcessingOverview,
   now: Date = new Date(),
 ): WorkerRow[] {
+  return (doc.devices ?? []).map((d) => {
+    const quietS = secondsBetween(d.reported_at ?? d.created_at, now);
+    const quiet = quietS === null || quietS > DEVICE_QUIET_S;
+    const who = d.player ? ` · ${d.player}` : "";
+    const heard = d.reported_at
+      ? `last report ${agoLabel(d.reported_at, now)}`
+      : "no report yet";
+    return {
+      key: `device:${d.id}`,
+      title: "iPhone",
+      state: quiet ? "waiting" : "working",
+      detail: quiet
+        ? `Waiting for the iPhone · ${DEVICE_KIND_LABEL}${who} · ${heard}`
+        : `${stageLabel(d.stage) ?? "Cutting on the iPhone"} · ${DEVICE_KIND_LABEL}${who} · ${durationLabel(
+            secondsBetween(d.created_at, now),
+          )}`,
+      caveat: null,
+      note: null,
+      pct: quiet ? null : d.progress,
+      jobFor: secondsBetween(d.created_at, now),
+      matchId: d.match_id,
+      player: d.player,
+      upSince: null,
+      codeVersion: null,
+      loadNote: null,
+    };
+  });
+}
+
+export function buildWorkerRows(
+  input: ProcessingOverview,
+  now: Date = new Date(),
+): WorkerRow[] {
+  const doc = withoutDeviceJobs(input);
   const pulses = new Map(doc.workers.map((w) => [w.worker_id, w]));
   // Has anything on the Mac ever reported? This is what tells "the page
   // cannot see this machine" apart from "this lane is not up", and it
@@ -675,6 +774,11 @@ export function buildWorkerRows(
         && !pulses.has("mac:hand"),
     }),
   );
+
+  // Hand cuts on the owners' iPhones. Not a lane and not the Mac: each is
+  // its own row for as long as the phone holds it, and none exists when
+  // no phone is cutting.
+  rows.push(...deviceRows(doc, now));
 
   // The cloud lanes are taken out before the catch-all below so they get
   // their own rows, further down, where their silence can be read
@@ -981,9 +1085,10 @@ export function waitingRows(
  * page names them rather than picking an answer.
  */
 export function stalledRunning(
-  doc: ProcessingOverview,
+  input: ProcessingOverview,
   now: Date = new Date(),
 ): RunningJob[] {
+  const doc = withoutDeviceJobs(input);
   const claimed = new Set(
     doc.workers
       .filter((w) => {

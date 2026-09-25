@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   BEAT_STALE_S,
+  DEVICE_QUIET_S,
   WAIT_ATTENTION_S,
   buildWorkerRows,
   durationLabel,
@@ -18,6 +19,7 @@ import {
   stalledRunning,
   waitingRows,
   workerState,
+  type DeviceJob,
   type ProcessingCounts,
   type ProcessingOverview,
   type RunningJob,
@@ -782,4 +784,115 @@ test("a job the cloud is reporting on is never read as the Mac working", () => {
   // The Mac went quiet 22 minutes ago and holds nothing: not running.
   assert.equal(rows.find((r) => r.key === "mac:main")?.state, "not-running");
   assert.equal(rows.find((r) => r.key === "modal:main")?.state, "working");
+});
+
+/* ------------------------------------------------ hand cuts on an iPhone */
+
+function device(over: Partial<DeviceJob> = {}): DeviceJob {
+  return {
+    id: "phone-1",
+    created_at: ago(1800),
+    updated_at: ago(20),
+    progress: 42,
+    original_name: "IMG_0412.MOV",
+    match_id: "match-1",
+    player: "Adil Haris",
+    stage: "device_cut",
+    reported_at: ago(20),
+    ...over,
+  };
+}
+
+test("a phone that is reporting is working, in its own words", () => {
+  const rows = buildWorkerRows(overview({ devices: [device()] }), NOW);
+  const phone = rows.find((r) => r.key === "device:phone-1");
+  assert.equal(phone?.state, "working");
+  assert.equal(phone?.title, "iPhone");
+  assert.equal(phone?.detail, "Cutting on the iPhone · Hand cut on iPhone · Adil Haris · 30m");
+  assert.equal(phone?.pct, 42);
+  assert.equal(phone?.matchId, "match-1");
+  for (const [stage, words] of [
+    ["device_clips", "Cutting the clips on the iPhone"],
+    ["device_upload", "Uploading from the iPhone"],
+    ["device_paused", "Paused on the iPhone"],
+  ]) {
+    const row = buildWorkerRows(overview({ devices: [device({ stage })] }), NOW)
+      .find((r) => r.key === "device:phone-1");
+    assert.match(row?.detail ?? "", new RegExp(`^${words} ·`));
+  }
+});
+
+test("a quiet phone is grey Waiting for the iPhone, never an alarm", () => {
+  for (const quiet of [
+    device({ reported_at: ago(DEVICE_QUIET_S + 1) }),
+    device({ reported_at: ago(3 * 86400) }),
+    device({ reported_at: null, created_at: ago(DEVICE_QUIET_S + 60) }),
+  ]) {
+    const phone = buildWorkerRows(overview({ devices: [quiet] }), NOW)
+      .find((r) => r.key === "device:phone-1");
+    assert.equal(phone?.state, "waiting");
+    assert.match(phone?.detail ?? "", /^Waiting for the iPhone · Hand cut on iPhone · Adil Haris · /);
+    assert.equal(phone?.pct, null);
+  }
+  const never = buildWorkerRows(
+    overview({ devices: [device({ reported_at: null, created_at: ago(DEVICE_QUIET_S + 60) })] }),
+    NOW,
+  ).find((r) => r.key === "device:phone-1");
+  assert.match(never?.detail ?? "", /no report yet$/);
+  // A phone that was just handed the job and has not reported is working.
+  const fresh = buildWorkerRows(
+    overview({ devices: [device({ reported_at: null, created_at: ago(30) })] }),
+    NOW,
+  ).find((r) => r.key === "device:phone-1");
+  assert.equal(fresh?.state, "working");
+});
+
+test("a phone job is never read as the Mac working or stalled", () => {
+  // As an older overview would send it: the phone job still in running.
+  const doc = overview({
+    devices: [device({ reported_at: ago(3600) })],
+    running: [job({ id: "phone-1", kind: "hand_cut", updated_at: ago(3600) })],
+  });
+  const main = buildWorkerRows(doc, NOW).find((r) => r.key === "mac:main");
+  assert.equal(main?.state, "unconfirmed");
+  assert.deepEqual(stalledRunning(doc, NOW), []);
+  const moving = overview({
+    workers: [pulse({ beat_at: ago(600) })],
+    devices: [device()],
+    running: [job({ id: "phone-1", kind: "hand_cut", updated_at: ago(10) })],
+  });
+  const silent = buildWorkerRows(moving, NOW).find((r) => r.key === "mac:main");
+  assert.equal(silent?.state, "not-running", "a reporting phone does not prove the Mac alive");
+});
+
+test("a released phone job is not evidence that a worker is running", () => {
+  const rows = buildWorkerRows(
+    overview({
+      recent: [
+        {
+          id: "phone-2",
+          kind: "hand_cut",
+          status: "failed",
+          on_device: true,
+          created_at: ago(300000),
+          updated_at: ago(30),
+          error: "device hand cut: no report from the iPhone for 72 hours",
+          user_message: "The cut on your iPhone didn't finish. Your marks are saved.",
+          original_name: null,
+          match_id: null,
+          player: null,
+        },
+      ],
+    }),
+    NOW,
+  );
+  const main = rows.find((r) => r.key === "mac:main");
+  assert.doesNotMatch(main?.caveat ?? "", /so a worker is running/);
+});
+
+test("the phone's stages and the Mac's check are taught to the page", () => {
+  for (const stage of ["device_cut", "device_clips", "device_upload", "device_paused", "device_verify"]) {
+    assert.ok(isKnownStage(stage), stage);
+  }
+  assert.equal(stageLabel("device_verify"), "Checking the iPhone's cut");
 });
