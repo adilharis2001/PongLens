@@ -34,6 +34,7 @@ Task { @MainActor in
         runFeedbackBoardChecks()
         runHandCutChecks()
         runHandCutParityChecks()
+        runCutPlanParityChecks()
         runMarkLandscapeChecks()
     }
 
