@@ -54,3 +54,26 @@ test('start navigation includes completed cuts and wraps only to pending start v
  assert.equal(nextStartReview(rows,cases,'two'),undefined);
  assert.equal(nextStartReview(rows,cases)?.id,'two');
 });
+
+
+test('a replacement suggestion preserves old answers without carrying their verdict forward',async()=>{
+ const {startReviewAllowed,startReviewComplete,START_REVIEW_CORRECTION_RUN_ID}=await import('./startReview.ts');
+ const item={pointId:'one',runId:START_REVIEW_CORRECTION_RUN_ID,proposedStart:10,recordedServeTap:11};
+ assert.equal(validEndingLabel({...base,startReview:{...review,runId:item.runId}}),true);
+ assert.equal(startReviewComplete({startReview:review,cutReview:{version:1,serveStart:12,pointEnd:20}},item),false);
+ assert.equal(startReviewAllowed(review,review,12,item),true);
+ assert.equal(startReviewAllowed({...review,outcome:'no'},review,12,item),false);
+ assert.equal(startReviewAllowed({...review,runId:item.runId},review,12,item),true);
+ assert.deepEqual(normalizeEndingLabel({...base,note:'New note'}, {...base,startReview:review}).startReview,review);
+});
+
+test('preview includes the authorized restored start without changing frozen source bounds',async()=>{
+ const {startReviewWindow}=await import('./startReview.ts');
+ const source={start:335.5,end:340.51};
+ const item={pointId:'one',runId:review.runId,proposedStart:335.3,recordedServeTap:null};
+ assert.deepEqual(startReviewWindow(source,item),{start:335.3,end:340.51});
+ assert.deepEqual(source,{start:335.5,end:340.51});
+ assert.deepEqual(startReviewWindow(source),source);
+ assert.deepEqual(startReviewWindow(source,{...item,proposedStart:337}),source);
+ for(const proposedStart of [-1,NaN,Infinity,341])assert.deepEqual(startReviewWindow(source,{...item,proposedStart}),source);
+});
