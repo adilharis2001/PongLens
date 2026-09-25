@@ -1116,7 +1116,7 @@ export function RawMatchView({
                 Mark the points yourself
               </span>
               <span className="mt-0.5 block text-xs text-zinc-500">
-                You tap where each point starts and who won.
+                You mark where each point starts and ends.
               </span>
             </span>
             {draftCount > 0 && (

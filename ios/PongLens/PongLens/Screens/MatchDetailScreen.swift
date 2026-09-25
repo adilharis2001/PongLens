@@ -1934,7 +1934,7 @@ struct MatchDetailScreen: View {
                     Text("Mark the points yourself")
                         .font(.plRowTitle)
                         .foregroundStyle(PL.text100)
-                    Text("You tap where each point starts and who won.")
+                    Text("You mark where each point starts and ends.")
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                 }
