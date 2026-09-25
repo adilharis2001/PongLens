@@ -6,7 +6,8 @@ import UIKit
 /// views, driven by fake data, so every state can be looked at on a
 /// simulator without an account and without writing anything anywhere.
 ///
-///     --dev-cut-again <scene>          tools | marker
+///     --dev-cut-again <scene>          tools | marker | watch (a hand-cut
+///                                      match watched through: the tape)
 ///     --dev-ca-video <path on the Mac> the marker's picture (any mp4)
 ///     --dev-ca-marker <state>          fresh | choice | review | marking |
 ///                                      open | held | selected | adjusting
@@ -45,9 +46,10 @@ enum CutAgainFixture {
         argument("--dev-ca-video").map { URL(fileURLWithPath: $0) }
     }
 
-    @MainActor static func match(ready: Bool = true, type: String? = nil) -> MatchRow {
+    @MainActor static func match(ready: Bool = true, type: String? = nil, cutSource: String = "automatic") -> MatchRow {
         let type = type ?? (flag("--dev-ca-practice") ? "practice" : "match")
         let object: [String: Any] = [
+            "cut_source": cutSource,
             "id": matchID.uuidString, "user_id": ownerID.uuidString,
             "opponent_name": "Alex Chen", "venue": "Westchester", "match_type": type,
             "played_at": "2026-09-20T12:00:00Z", "status": ready ? "ready" : "uploaded",
@@ -119,6 +121,34 @@ enum CutAgainFixture {
         )
     }
 
+    /// A hand-cut match's cut, on the fixture file's clock: two points whose
+    /// windows merged, a let, a deleted point, then two more. Watched
+    /// through, the tape plays 10.15-19.15, 21.45-29.35, 51.2-59.2 and
+    /// 63.2-69.2, and nothing else.
+    static var watchPoints: [MatchPoint] {
+        func point(_ n: Int, _ cutT0: Double, _ t0: Double, _ t1: Double,
+                   isLet: Bool = false, deleted: Bool = false) -> MatchPoint {
+            MatchPoint(
+                id: UUID(uuidString: String(format: "99999999-9999-4999-8999-%012d", n))!,
+                matchId: matchID, idx: n, t0: t0, t1: t1, cutT0: cutT0,
+                server: nil, serverOverride: nil, isLet: isLet,
+                confirmedWinner: n % 2 == 0 ? .user : .opponent, confirmedHow: nil,
+                starred: false, deleted: deleted, edited: false,
+                tightStart: false, tightEnd: false,
+                gameEndOverride: nil, gameWinnerOverride: nil,
+                scoredAtCutS: nil, lossReasons: nil, direction: nil,
+                misreadKind: nil, serveSpin: nil, serveSidespin: nil,
+                serveLength: nil, placementFlagged: nil, clipPath: nil,
+                placement: nil
+            )
+        }
+        return [
+            point(1, 8.95, 20, 29), point(2, 20.25, 30.1, 38),
+            point(3, 31, 45, 50, isLet: true), point(4, 40, 60, 66, deleted: true),
+            point(5, 50, 80, 88), point(6, 62, 100, 106),
+        ]
+    }
+
     /// Twelve rallies every 20 seconds from 0:30. `throughEnd` stretches
     /// them to the end of the ten-minute file, so the draft reads as
     /// finished (the review gate) rather than partial (the choice gate).
@@ -149,7 +179,8 @@ struct CutAgainFixtureView: View {
     struct MarkerRequest: Identifiable {
         let id = UUID()
         let url: URL
-        let marker: HandCutMarker
+        /// Nil: the watch player on a hand-cut match.
+        let marker: HandCutMarker?
     }
 
     var body: some View {
@@ -177,22 +208,46 @@ struct CutAgainFixtureView: View {
                 UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first?
                     .requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
             }
-            guard CutAgainFixture.scene == "marker", let url = CutAgainFixture.videoURL else { return }
+            guard let url = CutAgainFixture.videoURL else { return }
+            if CutAgainFixture.scene == "watch" {
+                model.points = CutAgainFixture.watchPoints
+                model.videoURL = url
+                model.loaded = true
+                try? await Task.sleep(for: .milliseconds(300))
+                request = MarkerRequest(url: url, marker: nil)
+                return
+            }
+            guard CutAgainFixture.scene == "marker" else { return }
             try? await Task.sleep(for: .milliseconds(300))
             request = MarkerRequest(url: url, marker: makeMarker())
         }
         .fullScreenCover(item: $request) { request in
-            PlayerTakeover(
-                match: CutAgainFixture.match(),
-                model: model,
-                pad: ClipPad(pre: 1.2, post: 1.3),
-                videoURL: request.url,
-                startAt: nil,
-                mode: .mark,
-                source: .original,
-                marker: request.marker
-            )
-            .environment(app)
+            if let marker = request.marker {
+                PlayerTakeover(
+                    match: CutAgainFixture.match(),
+                    model: model,
+                    pad: ClipPad(pre: 1.2, post: 1.3),
+                    videoURL: request.url,
+                    startAt: nil,
+                    mode: .mark,
+                    source: .original,
+                    marker: marker
+                )
+                .environment(app)
+            } else {
+                // The fixture's file stands in for the cut: its burnt-in
+                // clock shows every join.
+                PlayerTakeover(
+                    match: CutAgainFixture.match(cutSource: "manual"),
+                    model: model,
+                    pad: ClipPad(pre: 1.2, post: 1.3),
+                    videoURL: request.url,
+                    startAt: nil,
+                    mode: .watch,
+                    source: .cut
+                )
+                .environment(app)
+            }
         }
     }
 
@@ -227,8 +282,17 @@ struct CutAgainFixtureView: View {
                                 .strokeBorder(PL.edge, lineWidth: 1)
                         )
                         if cutAgain.jobRunning {
-                            Text("The page above Tools shows the ordinary processing card.")
-                                .font(.plCaption).foregroundStyle(PL.text500)
+                            // What the match page shows above Tools while a
+                            // Replace runs (MatchDetailScreen.recutProgress).
+                            MatchProcessingCard(
+                                notice: nil,
+                                stageLabel: cutAgain.feedback?.stageLabel,
+                                warning: nil,
+                                progress: cutAgain.job?.progress,
+                                sendsReadyEmail: true,
+                                estimate: cutAgain.feedback?.estimate,
+                                jobStatus: cutAgain.feedback?.jobStatus
+                            )
                         }
                     }
                     .padding(20)
@@ -255,6 +319,11 @@ struct CutAgainFixtureView: View {
                         cutAgain.autoChoice = choice
                     }
                     await cutAgain.load()
+                    // A sheet raised before the turn keeps the old
+                    // orientation: turn first, then build the page.
+                    if CutAgainFixture.flag("--dev-ca-landscape") {
+                        try? await Task.sleep(for: .milliseconds(1500))
+                    }
                     ready = true
                 }
         }
