@@ -74,8 +74,8 @@ func runHandCutParityChecks() {
         }
     }
     print("  replayed \(cases.count) cases, \(stepCount) steps, \(checkCount) checks")
-    check(cases.count == 32 && stepCount == 355 && checkCount == 46,
-          "the whole fixture was replayed (32 cases, 355 steps, 46 checks)")
+    check(cases.count == 35 && stepCount == 401 && checkCount == 46,
+          "the whole fixture was replayed (35 cases, 401 steps, 46 checks)")
 
     runHandCutPortChecks()
 }
@@ -184,6 +184,11 @@ private func runHandCutCase(_ c: HandCutJSON) -> Int {
             result = validationJSON(HandCut.validate(state.marks, durationS: numberValue(args["durationS"])))
         case "asPoints":
             result = .array(HandCut.asPoints(state.marks).map(pointJSON))
+        case "score":
+            result = scoreJSON(handCutScore(state.marks))
+        case "nextServer":
+            let first = args["firstServer"].flatMap(stringValue).flatMap(Winner.init(rawValue:))
+            result = winnerJSON(handCutNextServer(state.marks, firstServer: first))
         default:
             check(false, "\(label): unknown op")
             continue
@@ -315,6 +320,37 @@ private func runHandCutPortChecks() {
         check(false, "a submission encodes")
     }
 
+    // A match marked again: the owner's game corrections are written only
+    // where they are set, in the draft and in the claim, and read back.
+    let pinned = HandCutMark(id: "p", t0: 4, t1: 6, winner: nil, isLet: false, starred: false,
+                             tap: 4, rate: 1, gameEnd: .end, gameWinner: .opponent)
+    if let data = try? enc.encode(pinned), let text = String(data: data, encoding: .utf8) {
+        eq(text, #"{"gameEnd":"end","gameWinner":"opponent","id":"p","isLet":false,"rate":1,"starred":false,"t0":4,"t1":6,"tap":4,"winner":null}"#,
+           "a mark carries its game end and winner")
+    } else {
+        check(false, "a pinned mark encodes")
+    }
+    if let data = try? enc.encode(HandCut.submittable([pinned])), let text = String(data: data, encoding: .utf8) {
+        eq(text, #"[{"gameEnd":"end","gameWinner":"opponent","let":false,"rate":1,"star":false,"t0":4,"t1":6,"tap":4,"w":null}]"#,
+           "and so does its claim row, under the same names")
+    } else {
+        check(false, "a pinned submission encodes")
+    }
+    if let data = try? JSONEncoder().encode(HandCut.submittable([pinned])),
+       let back = try? JSONDecoder().decode(HandCutJSON.self, from: data) {
+        let read = HandCut.normalizeMarks(back)
+        eq(read.first?.gameEnd, .end, "a claim row reads back its game end")
+        eq(read.first?.gameWinner, .opponent, "and its game winner")
+    } else {
+        check(false, "a pinned submission round-trips")
+    }
+    if let data = try? JSONEncoder().encode([pinned]),
+       let back = try? JSONDecoder().decode([HandCutMark].self, from: data) {
+        eq(back, [pinned], "the phone's own copy keeps them")
+    } else {
+        check(false, "the phone's copy round-trips")
+    }
+
     // What the phone writes, the web reads back unchanged, and so does this.
     if let data = try? JSONEncoder().encode(s.marks + [open]),
        let back = try? JSONDecoder().decode(HandCutJSON.self, from: data) {
@@ -346,11 +382,15 @@ private func optNumber(_ n: Double?) -> HandCutJSON {
 }
 
 private func markJSON(_ m: HandCutMark) -> HandCutJSON {
-    .object([
+    var o: [String: HandCutJSON] = [
         "id": .string(m.id), "t0": .number(m.t0), "t1": optNumber(m.t1),
         "winner": winnerJSON(m.winner), "isLet": .bool(m.isLet),
         "starred": .bool(m.starred), "tap": .number(m.tap), "rate": .number(m.rate),
-    ])
+    ]
+    // Absent unless set, as the web writes them.
+    if let g = m.gameEnd { o["gameEnd"] = .string(g.rawValue) }
+    if let w = m.gameWinner { o["gameWinner"] = .string(w.rawValue) }
+    return .object(o)
 }
 
 private func undoJSON(_ u: HandCutUndo) -> HandCutJSON {
@@ -410,10 +450,27 @@ private func summaryJSON(_ s: HandCutSummary) -> HandCutJSON {
 }
 
 private func submissionJSON(_ r: HandCutSubmission) -> HandCutJSON {
-    .object([
+    var o: [String: HandCutJSON] = [
         "t0": .number(r.t0), "t1": .number(r.t1), "w": winnerJSON(r.w),
         "let": .bool(r.isLet), "star": .bool(r.star), "tap": .number(r.tap),
         "rate": .number(r.rate),
+    ]
+    if let g = r.gameEnd { o["gameEnd"] = .string(g.rawValue) }
+    if let w = r.gameWinner { o["gameWinner"] = .string(w.rawValue) }
+    return .object(o)
+}
+
+/// handCutScore as the fixture's plain numbers (scripts/handcut-fixture.ts
+/// scoreResult): the running game, every closed game with the winner it
+/// resolves to, and the games tally.
+private func scoreJSON(_ s: MatchScore) -> HandCutJSON {
+    .object([
+        "current": .array([.number(Double(s.current.you)), .number(Double(s.current.them))]),
+        "games": .array(s.games.map {
+            .array([.number(Double($0.you)), .number(Double($0.them)), winnerJSON(resolvedGameWinner($0))])
+        }),
+        "gamesYou": .number(Double(s.gamesYou)),
+        "gamesThem": .number(Double(s.gamesThem)),
     ])
 }
 
@@ -448,8 +505,11 @@ private func strictMarks(_ v: HandCutJSON?) -> [HandCutMark] {
         }
         let t1 = numberValue(r["t1"])
         let winner = r["winner"].flatMap(stringValue).flatMap(Winner.init(rawValue:))
+        let gameEnd = r["gameEnd"].flatMap(stringValue).flatMap(GameEndOverride.init(rawValue:))
+        let gameWinner = r["gameWinner"].flatMap(stringValue).flatMap(Winner.init(rawValue:))
         return HandCutMark(id: id, t0: t0, t1: t1, winner: winner, isLet: isLet,
-                           starred: starred, tap: tap, rate: rate)
+                           starred: starred, tap: tap, rate: rate,
+                           gameEnd: gameEnd, gameWinner: gameWinner)
     }
 }
 
