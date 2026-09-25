@@ -55,6 +55,42 @@ extension View {
     }
 }
 
+/// What a choice cell holds, laid out the same in every choice here (the
+/// two ways, Replace or Keep): the radio on the left, level with the title;
+/// under the title whatever lines the choice has; on the right anything it
+/// trails, level with the title too. Each choice keeps its own line style.
+struct ChoiceLabel<Below: View>: View {
+    let on: Bool
+    let title: String
+    var trailing: String? = nil
+    /// Between the title and the lines under it.
+    var spacing: CGFloat = 2
+    @ViewBuilder var below: () -> Below
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            // The ring's middle on the middle of the title's capitals, about
+            // five points above its baseline at 14pt.
+            ChoiceMark(on: on)
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 5 }
+            VStack(alignment: .leading, spacing: spacing) {
+                Text(title)
+                    .font(.plRowTitle)
+                    .foregroundStyle(on ? PL.cyan : PL.text100)
+                below()
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            if let trailing {
+                Text(trailing)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PL.text300)
+                    .monospacedDigit()
+            }
+        }
+    }
+}
+
 /// The two ways as one choice (owner's option A, 2026-09-25): two cells,
 /// exactly one selected, then only the selected way's controls. Used as is
 /// by the raw page's Break it into points and by More options, so both
@@ -95,24 +131,14 @@ struct CutWayPicker<Automatic: View, Marking: View>: View {
         return Button {
             withAnimation(.easeOut(duration: 0.15)) { onSelect(way) }
         } label: {
-            HStack(alignment: .center, spacing: 12) {
-                ChoiceMark(on: on)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isAuto ? CutAgainCopy.automatically : CutAgainCopy.markYourself)
-                        .font(.plRowTitle)
-                        .foregroundStyle(on ? PL.cyan : PL.text100)
-                    Text(isAuto ? CutAgainCopy.automaticallyDetail : CutAgainCopy.markYourselfDetail)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                if let trailing {
-                    Text(trailing)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(PL.text300)
-                        .monospacedDigit()
-                }
+            ChoiceLabel(
+                on: on,
+                title: isAuto ? CutAgainCopy.automatically : CutAgainCopy.markYourself,
+                trailing: trailing
+            ) {
+                Text(isAuto ? CutAgainCopy.automaticallyDetail : CutAgainCopy.markYourselfDetail)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
             }
             .choiceCell(on: on, enabled: enabled)
         }
@@ -333,8 +359,9 @@ struct MarkYourselfControls: View {
 
 /// Replace this match, or keep it and add a new one: two cells, one
 /// selected, Keep by default. The web's RecutChoice, cell for cell: a
-/// rounded field lit in the accent when chosen, with a radio mark so both
-/// read as a choice before either is picked. Under Replace, while it is
+/// rounded field lit in the accent when chosen, with a radio mark on the
+/// left so both read as a choice before either is picked, laid out like
+/// the two ways above it (ChoiceLabel). Under Replace's title, while it is
 /// chosen, what it deletes; a greyed Replace says why only when the reason
 /// is the player's to know (a coach review).
 struct RecutChoiceView: View {
@@ -358,20 +385,15 @@ struct RecutChoiceView: View {
         return Button {
             withAnimation(.easeOut(duration: 0.15)) { state.select(choice) }
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 12) {
-                    Text(isReplace ? CutAgainCopy.replace : CutAgainCopy.keep)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(on ? PL.cyan : PL.text100)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    ChoiceMark(on: on)
-                }
+            ChoiceLabel(
+                on: on,
+                title: isReplace ? CutAgainCopy.replace : CutAgainCopy.keep,
+                spacing: 6
+            ) {
                 ForEach(lines, id: \.self) { line in
                     Text(line)
                         .font(.plBody)
                         .foregroundStyle(PL.text400)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .choiceCell(on: on, enabled: enabled)
