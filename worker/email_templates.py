@@ -267,12 +267,20 @@ def render_email(message: EmailMessage) -> RenderedEmail:
     )
 
 
-def match_ready_message(original_name: str, match_url: str) -> EmailMessage:
+def match_ready_message(original_name: str, match_url: str, *,
+                        scored: bool = False) -> EmailMessage:
+    # `scored`: a hand cut whose owner called every point while marking.
+    # Asking them to score it would be asking for something already done.
+    text = (
+        f"{original_name} is ready to watch point by point, with the score you called while marking. Add notes or share it with your coach."
+        if scored else
+        f"{original_name} is ready to watch point by point. Score it, add notes, or share it with your coach."
+    )
     return EmailMessage(
         template_id="match.ready", template_version=1, category="match", audience="player",
         subject="Your PongLens match is ready", preheader=f"Watch {original_name} point by point.",
         heading="Your match is ready",
-        blocks=[{"type": "paragraph", "text": f"{original_name} is ready to watch point by point. Score it, add notes, or share it with your coach."}],
+        blocks=[{"type": "paragraph", "text": text}],
         action={"label": "Open your match", "url": match_url},
         reason="You received this because PongLens finished processing a video you submitted.",
     )

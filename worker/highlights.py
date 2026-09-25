@@ -26,6 +26,8 @@ TAP_END_TAIL_S = 0.2
 DETECTOR_END_TAIL_S = 0.25
 XFADE_S = 0.3
 MIN_SEGMENT_S = 0.5
+# adjust_point opens a tight-start clip with least(pre, 0.3).
+TIGHT_START_PRE_S = 0.3
 
 
 def _number(value: Any) -> float | None:
@@ -42,7 +44,19 @@ def _integer(value: Any) -> int | None:
     return int(number)
 
 
-def _segment_bounds(point: dict) -> tuple[float, float] | None:
+def _segment_bounds(
+    point: dict, clip_pre: float | None = None
+) -> tuple[float, float] | None:
+    """The point's segment on the cut clock, or None.
+
+    `clip_pre` is for hand-cut matches only: the source seconds each clip
+    opens before its mark (matches.clip_pads.pre). cut_t0 is where the
+    PADDED clip starts on the cut clock, so an evidence end in source
+    seconds lands at cut_t0 + end - (t0 - pad). Without the pad the end
+    comes out a whole pad early, which on a hand cut is 1.2 s off every
+    rally. Automatic matches pass nothing and keep their established rule
+    exactly (endPolicy.ts mirrors both branches).
+    """
     start = _number(point.get("cut_t0"))
     if start is None:
         return None
@@ -68,7 +82,12 @@ def _segment_bounds(point: dict) -> tuple[float, float] | None:
             # end maps to the cut clock by the card's stored offset. This is
             # what lets end-on legacy cards recover without rewriting their
             # manually reviewed point bounds.
-            observed_end = start + source_end - source_start
+            if clip_pre is None:
+                observed_end = start + source_end - source_start
+            else:
+                pad = (min(clip_pre, TIGHT_START_PRE_S)
+                       if point.get("tight_start") else clip_pre)
+                observed_end = start + source_end - max(0.0, source_start - pad)
     if observed_end is None:
         return None
     end = observed_end + tail
@@ -77,7 +96,7 @@ def _segment_bounds(point: dict) -> tuple[float, float] | None:
     return start, end
 
 
-def qualifies(point: dict) -> bool:
+def qualifies(point: dict, clip_pre: float | None = None) -> bool:
     """Return true when a v2 receipt proves sustained back-and-forth play."""
     if not isinstance(point, dict):
         return False
@@ -85,7 +104,7 @@ def qualifies(point: dict) -> bool:
         return False
     if point.get("deleted") or point.get("edited") or point.get("is_let"):
         return False
-    if not point.get("clip_path") or _segment_bounds(point) is None:
+    if not point.get("clip_path") or _segment_bounds(point, clip_pre) is None:
         return False
 
     t0 = _number(point.get("t0"))
@@ -119,8 +138,8 @@ def qualifies(point: dict) -> bool:
     return crossing_path or landing_path or hit_path
 
 
-def _duration(point: dict) -> float:
-    start, end = _segment_bounds(point) or (0.0, 0.0)
+def _duration(point: dict, clip_pre: float | None = None) -> float:
+    start, end = _segment_bounds(point, clip_pre) or (0.0, 0.0)
     return end - start
 
 
@@ -143,16 +162,20 @@ def _rank(point: dict) -> tuple[float, float, float, float]:
     )
 
 
-def select_highlights(points: list[dict], max_seconds: float) -> list[dict]:
+def select_highlights(
+    points: list[dict], max_seconds: float, clip_pre: float | None = None
+) -> list[dict]:
     """Choose the best qualified rallies under a ceiling, then restore order."""
     budget = _number(max_seconds)
     if budget is None or budget <= 0:
         return []
-    ranked = sorted((p for p in points if qualifies(p)), key=_rank, reverse=True)
+    ranked = sorted(
+        (p for p in points if qualifies(p, clip_pre)), key=_rank, reverse=True
+    )
     selected: list[dict] = []
     duration = 0.0
     for point in ranked:
-        cost = _duration(point) - (XFADE_S if selected else 0.0)
+        cost = _duration(point, clip_pre) - (XFADE_S if selected else 0.0)
         if duration + cost <= budget + 1e-9:
             selected.append(point)
             duration += cost
@@ -212,13 +235,20 @@ def points_revision(points: list[dict], *, scored_only: bool = False) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def build_manifest(points: list[dict], max_seconds: float = AUTO_MAX_S) -> dict:
-    """Build the canonical cut-clock and output-clock render manifest."""
-    selected = select_highlights(points, max_seconds)
+def build_manifest(
+    points: list[dict],
+    max_seconds: float = AUTO_MAX_S,
+    *,
+    clip_pre: float | None = None,
+) -> dict:
+    """Build the canonical cut-clock and output-clock render manifest.
+
+    `clip_pre` only for a hand-cut match (see _segment_bounds)."""
+    selected = select_highlights(points, max_seconds, clip_pre)
     output_cursor = 0.0
     manifest_points = []
     for index, point in enumerate(selected):
-        cut_start, cut_end = _segment_bounds(point)  # qualifies() proved it
+        cut_start, cut_end = _segment_bounds(point, clip_pre)  # qualifies() proved it
         if index:
             output_cursor -= XFADE_S
         output_start = output_cursor

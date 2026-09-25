@@ -1054,6 +1054,34 @@ def done_email_html(original_name: str, match_id: str | None = None) -> str:
 # notify_job_failed like any other failure.
 
 
+def hand_cut_submitted_scored(conn, job_id: str) -> bool:
+    """True when this job is a hand cut whose owner called a winner (or a
+    let) for every point while marking. Never raises: any doubt keeps the
+    ordinary ready email."""
+    try:
+        # The managed ready email builds its payload inside the delivery
+        # transaction; a savepoint keeps a failed read from aborting it.
+        with sql_savepoint(conn), conn.cursor() as cur:
+            cur.execute(
+                "select count(*) filter (where not coalesce(p.is_let, false)), "
+                "count(*) filter (where not coalesce(p.is_let, false) "
+                "and p.confirmed_winner in ('user', 'opponent')), count(*) "
+                "from public.jobs j "
+                "join public.matches m on m.job_id = j.id "
+                "and m.cut_source = 'manual' "
+                "join public.points p on p.match_id = m.id "
+                "and p.processing_version_id = m.active_processing_version_id "
+                "and not p.deleted "
+                "where j.id = %s and j.kind = 'hand_cut'",
+                (job_id,),
+            )
+            row = cur.fetchone()
+        return bool(row and row[2] and row[0] == row[1])
+    except Exception as error:                                  # noqa: BLE001
+        log.info("  scored hand-cut check skipped (%s)", type(error).__name__)
+        return False
+
+
 def match_ready_payload(conn, job_id: str, user_id: str) -> dict:
     """Freeze the existing approved message and recipient before first send."""
     original_name = get_job_original_name(conn, job_id) or "your match video"
@@ -1061,6 +1089,7 @@ def match_ready_payload(conn, job_id: str, user_id: str) -> dict:
     message = render_email(match_ready_message(
         original_name,
         f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
+        scored=hand_cut_submitted_scored(conn, job_id),
     ))
     return {
         "from": EMAIL_FROM,
@@ -1110,6 +1139,7 @@ def notify_job_done(conn, job_id: str, user_id: str):
         message = render_email(match_ready_message(
             original_name,
             f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
+            scored=hand_cut_submitted_scored(conn, job_id),
         ))
         to = get_user_email(conn, user_id)
         if to:
@@ -2175,6 +2205,192 @@ def run_blurball_only(
     return output
 
 
+BLURBALL_WINDOWED = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "blurball_windowed.py",
+)
+
+
+def run_blurball_windowed(
+    input_video: str | Path,
+    workdir: str | Path,
+    windows: list[list[float]],
+    command_runner=subprocess.run,
+) -> tuple[Path, Path]:
+    """BlurBall inside `windows` only (hand-marked matches).
+
+    Returns the detections, numbered and valued exactly as a full run would
+    have them inside the windows, and the sidecar holding every frame's
+    presentation time. blurball_windowed.py loads the sealed wrapper named
+    by BLURBALL_INFER and refuses one it was not written against."""
+    root = Path(workdir)
+    output = root / "blurball.jsonl"
+    windows_path = root / "tracking-windows.json"
+    windows_path.write_text(json.dumps(windows))
+    command_runner(
+        [
+            VENV_PY,
+            BLURBALL_WINDOWED,
+            "--wrapper",
+            BLURBALL_INFER,
+            "--video",
+            str(input_video),
+            "--out",
+            str(output),
+            "--windows",
+            str(windows_path),
+        ],
+        check=True,
+        cwd=str(workdir),
+        timeout=4 * 3600,
+    )
+    frames = Path(str(output) + ".frames.json")
+    if not output.is_file() or not frames.is_file():
+        raise RuntimeError("windowed BlurBall produced no detections file")
+    return output, frames
+
+
+def video_source_geometry(path: str | Path) -> dict | None:
+    """fps, width and height the way points_pipeline.probe reads them
+    (first video stream, avg_frame_rate, 29.97 when it has no rate), or
+    None when the file cannot be probed."""
+    try:
+        streams = _ffprobe_streams(str(path))["streams"]
+        video = next(s for s in streams if s.get("codec_type") == "video")
+        num, den = str(video["avg_frame_rate"]).split("/")
+        fps = float(num) / float(den) if float(den) else 29.97
+        return {"fps": fps, "width": int(video["width"]),
+                "height": int(video["height"])}
+    except Exception as error:                              # noqa: BLE001
+        log.warning("  could not probe %s: %s", path, error)
+        return None
+
+
+def fill_missing_source_geometry(match: dict, video_path: str | Path) -> bool:
+    """Write source fps/width/height into a match.json that lacks them.
+
+    Hand cuts made before 2026-09-24 recorded only the duration. Values
+    already present are never touched. Raises when the video cannot be
+    probed, because placement cannot run without them."""
+    source = match.setdefault("source", {})
+    if all(source.get(key) is not None for key in ("fps", "width", "height")):
+        return False
+    geometry = video_source_geometry(video_path)
+    if geometry is None:
+        raise RuntimeError("placement: the original's frame rate could not be read")
+    # Rounded as points_pipeline writes an automatic match's source.fps.
+    measured = {"fps": round(geometry["fps"], 3),
+                "width": geometry["width"], "height": geometry["height"]}
+    for key, value in measured.items():
+        if source.get(key) is None:
+            source[key] = value
+    return True
+
+
+def _hand_cut_tracking_location(match_json_path: str) -> tuple[str, str] | None:
+    from hand_cut_analysis import TRACKING_NAME, sibling_key
+    location = parse_r2_path(match_json_path or "")
+    if not location or "/" not in location[1]:
+        return None
+    return location[0], sibling_key(location[1], TRACKING_NAME)
+
+
+def load_hand_cut_tracking(
+    workdir: str | Path,
+    *,
+    match_json_path: str,
+    raw_path: str | None,
+    needed: list[list[float]],
+) -> tuple[Path, Path, dict] | None:
+    """The tracking saved beside match.json, when it is for this original
+    and already covers every window needed. None otherwise, including when
+    there is none: a hand cut starts without one."""
+    from hand_cut_analysis import read_tracking_bundle, tracking_usable
+    location = _hand_cut_tracking_location(match_json_path)
+    if location is None:
+        return None
+    root = Path(workdir)
+    bundle = root / "hand-tracking.jsonl.gz"
+    detections = root / "blurball.jsonl"
+    frames = root / "blurball.jsonl.frames.json"
+    try:
+        r2().download_file(location[0], location[1], str(bundle))
+        header = read_tracking_bundle(bundle, detections, frames)
+    except Exception as error:                              # noqa: BLE001
+        log.info("  no reusable hand-cut tracking (%s)", type(error).__name__)
+        return None
+    if not tracking_usable(header, raw_path=raw_path, needed=needed):
+        log.info("  saved hand-cut tracking does not cover these points")
+        return None
+    log.info("  reusing the saved hand-cut tracking (%d windows)",
+             len(header["frames"].get("windows") or []))
+    return detections, frames, header
+
+
+def track_hand_cut(
+    video_path: str | Path,
+    workdir: str | Path,
+    *,
+    match_json_path: str,
+    raw_path: str | None,
+    needed: list[list[float]],
+) -> tuple[Path, Path, dict]:
+    """Track the ball inside `needed` and save the result beside match.json
+    so the other feature (placement or highlights) can reuse it. Saving is
+    best-effort: a failed upload costs a second tracking run later, never
+    this job."""
+    from hand_cut_analysis import write_tracking_bundle
+    previous = _pulse_state.get("stage")
+    pulse_stage("ball")
+    try:
+        detections, frames = run_blurball_windowed(video_path, workdir, needed)
+    finally:
+        pulse_stage(previous)
+    frames_doc = json.loads(frames.read_text())
+    header = {"raw_path": raw_path, "match_json_path": match_json_path,
+              "created_at": datetime.now(timezone.utc).isoformat(),
+              "frames": frames_doc}
+    location = _hand_cut_tracking_location(match_json_path)
+    if location is not None:
+        try:
+            bundle = write_tracking_bundle(
+                Path(workdir) / "hand-tracking-upload.jsonl.gz",
+                detections_path=detections, frames=frames_doc, header=header)
+            r2().upload_file(str(bundle), location[0], location[1],
+                             ExtraArgs={"ContentType": "application/gzip"})
+        except Exception as error:                          # noqa: BLE001
+            log.warning("  hand-cut tracking not saved (%s)", error)
+    return detections, frames, header
+
+
+def ensure_hand_cut_tracking(
+    video_path: str | Path,
+    workdir: str | Path,
+    *,
+    match_json_path: str,
+    raw_path: str | None,
+    points: list[dict],
+    match_doc: dict,
+) -> tuple[Path, Path, dict]:
+    """Tracking for a hand cut's points: the saved one when it covers
+    them, otherwise a new run over their clip windows."""
+    from hand_cut_analysis import clip_pads, clip_windows
+    pre, post = clip_pads(match_doc)
+    duration = probe_duration_s(str(video_path)) or (
+        (match_doc.get("source") or {}).get("duration"))
+    needed = clip_windows(points, duration, pre, post)
+    if not needed:
+        raise RuntimeError("hand cut has no marked points to track")
+    saved = load_hand_cut_tracking(
+        workdir, match_json_path=match_json_path, raw_path=raw_path,
+        needed=needed)
+    if saved is not None:
+        return saved
+    return track_hand_cut(
+        video_path, workdir, match_json_path=match_json_path,
+        raw_path=raw_path, needed=needed)
+
+
 def run_placement_reconstruction(
     match_path: str | Path,
     video_path: str | Path,
@@ -2182,11 +2398,21 @@ def run_placement_reconstruction(
     points: list[dict],
     workdir: str | Path,
     command_runner=subprocess.run,
+    *,
+    frame_times_path: str | Path | None = None,
+    clip_pre: float | None = None,
 ) -> dict:
     root = Path(workdir)
     points_path = root / "points.json"
     output_path = root / "placement-backfill.json"
     points_path.write_text(json.dumps(points, indent=2) + "\n")
+    # Hand-marked matches only: the frame times of the decode that numbered
+    # the frames, and the clip pad each point is read from. Absent, the
+    # command is exactly what it has always been.
+    hand_cut_args = (
+        ["--frame-times", str(frame_times_path), "--clip-pre", str(clip_pre)]
+        if frame_times_path is not None else []
+    )
     command_runner(
         [
             VENV_PY,
@@ -2202,6 +2428,7 @@ def run_placement_reconstruction(
             str(video_path),
             "--output",
             str(output_path),
+            *hand_cut_args,
         ],
         check=True,
         cwd=str(workdir),
@@ -3553,10 +3780,6 @@ def placement_for_match(
         record.get("source_expired")
         or not record.get("input_path")
         or not record.get("match_json_path")
-        # No ball track and no calibrated table: nothing to draw, and
-        # placement_backfill would raise on the missing source.fps after a
-        # full detector run. Terminal, before anything expensive.
-        or record.get("cut_source") == "manual"
     ):
         source_failure = (
             "source_expired"
@@ -3612,7 +3835,23 @@ def placement_for_match(
             )
         if progress:
             progress(20)
-        blurball_path = run_blurball_only(video_path, workdir)
+        # A hand-marked match (cut_source 'manual') is tracked only inside
+        # its marked points, reusing a saved tracking when one covers them,
+        # and read by real frame timestamps; see hand_cut_analysis.py.
+        # Every other match runs exactly as before.
+        hand_cut = record.get("cut_source") == "manual"
+        frame_times_path = None
+        if hand_cut:
+            blurball_path, frame_times_path, _tracking = ensure_hand_cut_tracking(
+                video_path,
+                workdir,
+                match_json_path=record["match_json_path"],
+                raw_path=record["input_path"],
+                points=record["points"],
+                match_doc=json.loads(Path(original_match_path).read_text()),
+            )
+        else:
+            blurball_path = run_blurball_only(video_path, workdir)
         if progress:
             progress(55)
         calibration = run_placement_calibration(
@@ -3667,6 +3906,19 @@ def placement_for_match(
             )
 
         placement_match = json.loads(Path(original_match_path).read_text())
+        hand_cut_options = {}
+        if hand_cut:
+            # A hand cut's match.json was written without the frame rate
+            # and frame size the reconstruction reads (hand cuts before
+            # 2026-09-24). Measured from the original and kept: the merged
+            # artifact carries them from here on, and the placement-only
+            # guard compares against this filled copy.
+            fill_missing_source_geometry(placement_match, video_path)
+            from hand_cut_analysis import clip_pads
+            hand_cut_options = {
+                "frame_times_path": frame_times_path,
+                "clip_pre": clip_pads(placement_match)[0],
+            }
         placement_match["calibration"] = calibration["calibration"]
         placement_match_path = Path(workdir) / "placement-match.json"
         placement_match_path.write_text(
@@ -3678,6 +3930,7 @@ def placement_for_match(
             blurball_path,
             record["points"],
             workdir,
+            **hand_cut_options,
         )
         if progress:
             progress(85)
@@ -4523,6 +4776,23 @@ def locked_ordinary_match_attempt(conn, match_id: str, user_id: str, job_id: str
     finally:
         if owns_transaction:
             conn.autocommit = True
+
+
+def hand_cut_clip_pre(conn, match_id: str) -> float | None:
+    """The source seconds each clip opens before its mark on a hand-cut
+    match (matches.clip_pads.pre), or None for every other match.
+
+    Only a hand cut gets a number, and only the hand-cut rules read it: the
+    highlight end rule and the receipts that measure a rally's end."""
+    if match_cut_source(conn, match_id) != "manual":
+        return None
+    from hand_cut_analysis import clip_pads
+    with conn.cursor() as cur:
+        cur.execute("select clip_pads from public.matches where id = %s",
+                    (match_id,))
+        row = cur.fetchone()
+    column = row[0] if row and isinstance(row[0], dict) else None
+    return clip_pads(None, column)[0]
 
 
 def match_cut_source(conn, match_id: str) -> str:
@@ -6849,6 +7119,18 @@ def _hand_cut_segments(marks: list[dict], dur: float, pre: float, post: float):
     return segments, offsets, anchors
 
 
+def hand_cut_match_source(duration: float, geometry: dict | None) -> dict:
+    """match.json "source" for a new hand cut: the duration, and the frame
+    rate and frame size an automatic match records (rounded the same way),
+    because detailed analysis reads both. Best-effort: without a probe the
+    placement job measures them itself (fill_missing_source_geometry)."""
+    source = {"duration": round(duration, 2)}
+    if geometry is not None:
+        source.update(fps=round(geometry["fps"], 3),
+                      width=geometry["width"], height=geometry["height"])
+    return source
+
+
 def _hand_cut_rollback(conn, match_id: str, job_id: str, *, release: bool,
                        ledger_keys: list[str] | None = None) -> None:
     """Undo a hand cut that did not publish.
@@ -7010,13 +7292,14 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
                 "suggestion": None,
             })
         kept = sum(b - a for a, b in segments)
+        source = hand_cut_match_source(dur, video_source_geometry(local_raw))
         match_json = {
             "version": 3,
             # NOT "v2". Labelling it v2 would make the admin uploads page
             # count serve marks, find none, and report that the end-on
             # assembler ran on a match no detector ever touched.
             "pipeline": "hand-v1",
-            "source": {"duration": round(dur, 2)},
+            "source": source,
             "options": {"clip_pads": {"pre": pre, "post": post}},
             "cut_mode": "plays",
             "cut_segments": [[round(a, 2), round(b, 2)] for a, b in segments],
@@ -9327,14 +9610,18 @@ def _load_highlight_points(conn, match_id: str, *, processing_version_id: str) -
         cur.execute(
             "select id, idx, t0, t1, cut_t0, scored_at_cut_s, "
             "rally_end_cut_s, confirmed_winner, "
-            "clip_path, deleted, edited, is_let, highlight_evidence "
+            "clip_path, deleted, edited, is_let, highlight_evidence, "
+            "tight_start "
             "from public.points where match_id = %s and processing_version_id = %s order by idx, id",
             (match_id, processing_version_id),
         )
+        # tight_start is read only by the hand-cut end rule (clip_pre set);
+        # nothing hashes or compares it.
         return [
             dict(zip(("id", "idx", "t0", "t1", "cut_t0",
                       "scored_at_cut_s", "rally_end_cut_s", "confirmed_winner", "clip_path",
-                      "deleted", "edited", "is_let", "highlight_evidence"),
+                      "deleted", "edited", "is_let", "highlight_evidence",
+                      "tight_start"),
                      values))
             for values in cur.fetchall()
         ]
@@ -9390,19 +9677,23 @@ def _prepare_automatic_highlight_manifest(
     from highlights import build_manifest
 
     last_error: Exception | None = None
-    # A hand-cut match has no detections to refresh from; the refresh path
-    # would run the whole detector over the original to find none. Its
-    # points simply never qualify.
-    hand_cut = match_cut_source(conn, match_id) == "manual"
+    # A hand-cut match refreshes its evidence like any other match: the
+    # refresh tracks the ball inside the marked points only, or reuses the
+    # tracking detailed analysis saved (highlight_backfill). Its clips open
+    # a pad before each mark, which the end rule has to know about.
+    hand_cut_pre = hand_cut_clip_pre(conn, match_id)
+    manifest_options = (
+        {"clip_pre": hand_cut_pre} if hand_cut_pre is not None else {}
+    )
     for _attempt in range(2):
         try:
             points = _wait_for_highlight_points(conn, match_id, processing_version_id=processing_version_id)
-            if not hand_cut and (requested_refresh or highlight_evidence_refresh_needed(points)):
+            if requested_refresh or highlight_evidence_refresh_needed(points):
                 refresh_match_evidence_for_render(conn, match_id, processing_version_id=processing_version_id)
                 requested_refresh = False
                 update_job(conn, job_id, progress=12)
                 points = _wait_for_highlight_points(conn, match_id, processing_version_id=processing_version_id)
-            manifest = build_manifest(points)
+            manifest = build_manifest(points, **manifest_options)
             current = _load_highlight_points(conn, match_id, processing_version_id=processing_version_id)
             if highlight_revision_is_current(
                 manifest["points_revision"], current, scored_only=True

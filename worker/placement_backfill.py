@@ -14,6 +14,11 @@ import cv2
 import numpy as np
 
 try:
+    from .hand_cut_analysis import (
+        FrameClock,
+        placement_on_real_clock,
+        point_clip_start,
+    )
     from .placement_reconstruction import reconstruct_placement
     from .points_pipeline import Px, fit_play, keypoint_calibrate
     from .table_coordinates import (
@@ -21,6 +26,11 @@ try:
         table_homography,
     )
 except ImportError:  # Direct execution from worker/.
+    from hand_cut_analysis import (
+        FrameClock,
+        placement_on_real_clock,
+        point_clip_start,
+    )
     from placement_reconstruction import reconstruct_placement
     from points_pipeline import Px, fit_play, keypoint_calibrate
     from table_coordinates import canonicalize_table_quad, table_homography
@@ -163,7 +173,24 @@ def reconstruct_existing_match(
     detections: Mapping[int, tuple[float, float]],
     calibration: Mapping[str, Any] | None,
     audio_impacts: Sequence[Mapping[str, Any]] = (),
+    *,
+    frame_clock: FrameClock | None = None,
+    clip_pre: float | None = None,
 ) -> dict[int, dict[str, Any]]:
+    """Placement for each existing point.
+
+    `frame_clock` is for hand-marked matches only, and changes two things.
+    A hand mark is a playback second, not a frame count, so the point's
+    frames are found by their real presentation times rather than by
+    seconds x frame rate (which drifts on a variable-frame-rate video), and
+    the finished payload's times are put back on that same clock. And the
+    point is read from its clip start (`clip_pre` before the mark, the way
+    the clip opens) rather than from the mark: a late Begin tap puts the
+    serve's first bounce before the mark, and the serve rule then has no
+    first bounce to draw. The two-consecutive-bounces rule already copes
+    with extra footage at the front of a point. Without a clock nothing
+    here changes: automatic matches keep the arithmetic below exactly.
+    """
     if not calibration or calibration.get("ok") is False:
         return {
             int(point["idx"]): unavailable_placement("calibration_failed")
@@ -185,8 +212,14 @@ def reconstruct_existing_match(
         index = int(point["idx"])
         start = float(point["t0"])
         end = float(point["t1"])
-        f0 = max(0, int(math.floor(start * fps)))
-        f1 = int(math.ceil(end * fps)) + 1
+        if frame_clock is None:
+            f0 = max(0, int(math.floor(start * fps)))
+            f1 = int(math.ceil(end * fps)) + 1
+        else:
+            start = point_clip_start(
+                point, float(clip_pre) if clip_pre is not None else 0.0)
+            f0 = max(0, frame_clock.frame_at_or_before(start))
+            f1 = frame_clock.frame_at_or_after(end) + 1
         point_detections = {
             frame: detections[frame]
             for frame in range(f0, f1)
@@ -218,6 +251,9 @@ def reconstruct_existing_match(
             width,
             point_audio,
         )
+        if frame_clock is not None:
+            placements[index] = placement_on_real_clock(
+                placements[index], frame_clock)
 
     validate_placements([int(point["idx"]) for point in points], placements)
     return placements
@@ -264,10 +300,19 @@ def reconstruct_files(
     blurball_path: Path,
     video_path: Path,
     output_path: Path,
+    frame_times_path: Path | None = None,
+    clip_pre: float | None = None,
 ) -> None:
     match = json.loads(match_path.read_text())
     points = json.loads(points_path.read_text())
     detections = load_detections(blurball_path)
+    frame_clock = None
+    if frame_times_path is not None:
+        # Hand-marked match: blurball_windowed.py's record of every frame's
+        # presentation time, from the same decode that numbered the frames.
+        frames = json.loads(Path(frame_times_path).read_text())
+        frame_clock = FrameClock(
+            frames["frame_times"], float(match["source"]["fps"]))
     calibration = recover_calibration(
         match,
         video_path,
@@ -280,6 +325,8 @@ def reconstruct_files(
         points,
         detections,
         calibration.runtime,
+        **({"frame_clock": frame_clock, "clip_pre": clip_pre}
+           if frame_clock is not None else {}),
     )
     merged = merge_match_placements(match, points, placements)
     output_path.write_text(
@@ -303,6 +350,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     reconstruct.add_argument("--blurball", required=True, type=Path)
     reconstruct.add_argument("--video", required=True, type=Path)
     reconstruct.add_argument("--output", required=True, type=Path)
+    # Hand-marked matches only (the worker passes both or neither).
+    reconstruct.add_argument("--frame-times", type=Path, default=None)
+    reconstruct.add_argument("--clip-pre", type=float, default=None)
     return parser.parse_args(argv)
 
 
@@ -315,6 +365,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             args.blurball,
             args.video,
             args.output,
+            args.frame_times,
+            args.clip_pre,
         )
 
 

@@ -21,9 +21,11 @@ from typing import Any
 import psycopg2.extras
 
 try:
+    from . import hand_cut_analysis
     from .highlights import points_revision, qualifies
     from .points_pipeline import build_highlight_evidence
 except ImportError:
+    import hand_cut_analysis
     from highlights import points_revision, qualifies
     from points_pipeline import build_highlight_evidence
 
@@ -89,7 +91,9 @@ def _matching_cards(
     return [item[2] for item in sorted(candidates, key=lambda item: item[:2])]
 
 
-def _source_rally_end(point: dict[str, Any]) -> tuple[float | None, str | None]:
+def _source_rally_end(
+    point: dict[str, Any], clip_pre: float | None = None
+) -> tuple[float | None, str | None]:
     cut_start = point.get("cut_t0")
     tapped = point.get("scored_at_cut_s")
     has_tap = isinstance(tapped, (int, float, Decimal))
@@ -98,7 +102,14 @@ def _source_rally_end(point: dict[str, Any]) -> tuple[float | None, str | None]:
         cut_end, (int, float, Decimal)
     ):
         return None, None
-    result = float(point["t0"]) + float(cut_end) - float(cut_start)
+    if clip_pre is None:
+        result = float(point["t0"]) + float(cut_end) - float(cut_start)
+    else:
+        # Hand cut: cut_t0 is where the PADDED clip starts, so the source
+        # second of a cut-clock end is counted from the padded start. The
+        # inverse of highlights._segment_bounds with the same pad.
+        result = (hand_cut_analysis.point_clip_start(point, float(clip_pre))
+                  + float(cut_end) - float(cut_start))
     if not float(point["t0"]) <= result <= float(point["t1"]):
         return None, None
     return result, "tap" if has_tap else "observed"
@@ -112,8 +123,10 @@ def _unique_times(values: list[float], tolerance: float = 0.02) -> list[float]:
     return answer
 
 
-def _unavailable(point: dict[str, Any], reason: str) -> dict[str, Any]:
-    observed_end, end_source = _source_rally_end(point)
+def _unavailable(
+    point: dict[str, Any], reason: str, clip_pre: float | None = None
+) -> dict[str, Any]:
+    observed_end, end_source = _source_rally_end(point, clip_pre)
     return {
         "v": 2,
         "status": "unavailable",
@@ -131,11 +144,39 @@ def _unavailable(point: dict[str, Any], reason: str) -> dict[str, Any]:
     }
 
 
+RECEIPT_TIME_FIELDS = ("first_crossing_s", "last_crossing_s", "observed_end_s")
+
+
 def build_receipts_from_diagnostic(
     points: list[dict[str, Any]], diagnostic: dict[str, Any], *,
     diagnostic_clock: str = "source",
+    frame_clock: Any = None,
+    clip_pre: float | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Map a retained ``serves.json`` diagnostic onto stable point IDs."""
+    """Map a retained ``serves.json`` diagnostic onto stable point IDs.
+
+    `frame_clock` and `clip_pre` are for hand-cut matches only. The
+    diagnostic's times come from counting frames (frame / fps), while a
+    hand mark is a playback second; the clock (hand_cut_analysis.FrameClock)
+    matches the points to cards on the diagnostic's own clock and puts the
+    receipt's times back on the video's. `clip_pre` is the hand cut's clip
+    pad, which a cut-clock end has to be read against."""
+    if frame_clock is not None:
+        shadows = []
+        for source in points:
+            shadow = dict(source)
+            shadow["t0"] = frame_clock.nominal_from_real(float(source["t0"]))
+            shadow["t1"] = frame_clock.nominal_from_real(float(source["t1"]))
+            shadows.append(shadow)
+        receipts = build_receipts_from_diagnostic(
+            shadows, diagnostic, diagnostic_clock=diagnostic_clock,
+            clip_pre=clip_pre)
+        for receipt in receipts.values():
+            for field in RECEIPT_TIME_FIELDS:
+                if isinstance(receipt.get(field), (int, float)):
+                    receipt[field] = round(
+                        frame_clock.real_from_nominal(float(receipt[field])), 2)
+        return receipts
     cards = diagnostic.get("cards")
     if not isinstance(cards, list):
         cards = []
@@ -159,7 +200,7 @@ def build_receipts_from_diagnostic(
         matching_cards = _matching_cards(point, cards)
         if not matching_cards:
             receipts[point_id] = _unavailable(
-                point, "no_matching_diagnostic_card"
+                point, "no_matching_diagnostic_card", clip_pre
             )
             continue
 
@@ -190,7 +231,7 @@ def build_receipts_from_diagnostic(
 
         suggestion = point.get("suggestion")
         hits = suggestion.get("n_hits") if isinstance(suggestion, dict) else None
-        observed_end, end_source = _source_rally_end(point)
+        observed_end, end_source = _source_rally_end(point, clip_pre)
         measured_card = {
             "t0": float(point["t0"]),
             "t1": float(point["t1"]),
@@ -237,6 +278,12 @@ def _load_points(conn, match_id: str, *, processing_version_id: str, for_update:
 
 def _diagnostic_from_video(production_worker, conn, record, video, workdir):
     blurball = production_worker.run_blurball_only(video, workdir)
+    return _diagnostic_from_detections(
+        production_worker, conn, record, video, workdir, blurball)
+
+
+def _diagnostic_from_detections(production_worker, conn, record, video,
+                                workdir, blurball):
     outdir = os.path.join(workdir, "points_out")
     dump = os.path.join(workdir, "evidence.json")
     strictness = (record.get("job_options") or {}).get("strictness", "normal")
@@ -262,6 +309,89 @@ def _diagnostic_from_video(production_worker, conn, record, video, workdir):
     return build(blob, include_all=True)
 
 
+def _hand_cut_diagnostic(production_worker, conn, record, points, *,
+                         raw_path, match_json_path, workdir):
+    """The rally diagnostic for a hand-marked match, and its frame clock.
+
+    Reuse, in order: a saved serves.json built from tracking that covers
+    these points; the tracking detailed analysis saved, which skips the
+    detector and runs only the points pipeline over it; and only then a new
+    tracking run inside the marked points, saved for detailed analysis in
+    turn. Whatever is built here is saved beside match.json."""
+    location = production_worker.parse_r2_path(match_json_path or "")
+    if not location or "/" not in location[1] or not raw_path:
+        raise RuntimeError(
+            "hand-cut highlights need the original and match.json in R2")
+    match_path = os.path.join(workdir, "match.json")
+    production_worker.r2().download_file(location[0], location[1], match_path)
+    with open(match_path) as handle:
+        match_doc = json.load(handle)
+    pre, post = hand_cut_analysis.clip_pads(match_doc)
+    duration = (match_doc.get("source") or {}).get("duration")
+    needed = hand_cut_analysis.clip_windows(points, duration, pre, post)
+    if not needed:
+        raise RuntimeError("hand cut has no marked points to measure")
+    serves_key = hand_cut_analysis.sibling_key(
+        location[1], hand_cut_analysis.SERVES_NAME)
+
+    tracking = production_worker.load_hand_cut_tracking(
+        workdir, match_json_path=match_json_path, raw_path=raw_path,
+        needed=needed)
+    diagnostic = None
+    if tracking is not None:
+        saved_path = os.path.join(workdir, "saved-serves.json")
+        try:
+            production_worker.r2().download_file(
+                location[0], serves_key, saved_path)
+            with open(saved_path) as handle:
+                saved = json.load(handle)
+            hand = ((saved.get("meta") or {}).get("hand_cut") or {})
+            if (hand.get("raw_path") == raw_path
+                    and hand_cut_analysis.windows_cover(
+                        hand.get("windows") or [], needed)
+                    and isinstance(hand.get("fps"), (int, float))):
+                diagnostic = saved
+        except Exception:
+            diagnostic = None
+
+    if diagnostic is None:
+        video = os.path.join(workdir, "source.mp4")
+        production_worker._download_backfill_object(raw_path, video)
+        video = production_worker.apply_source_trim(
+            video, workdir, record.get("job_options"))
+        if tracking is None:
+            tracking = production_worker.track_hand_cut(
+                video, workdir, match_json_path=match_json_path,
+                raw_path=raw_path, needed=needed)
+        detections, _frames_path, header = tracking
+        geometry = production_worker.video_source_geometry(video)
+        if geometry is None:
+            raise RuntimeError("the original's frame rate could not be read")
+        diagnostic = _diagnostic_from_detections(
+            production_worker, conn, record, video, workdir, detections)
+        diagnostic.setdefault("meta", {})["hand_cut"] = {
+            "raw_path": raw_path,
+            "windows": header["frames"].get("windows") or needed,
+            "fps": geometry["fps"],
+        }
+        if diagnostic.get("cards"):
+            try:
+                built = os.path.join(workdir, "built-serves.json")
+                with open(built, "w") as handle:
+                    json.dump(diagnostic, handle, separators=(",", ":"))
+                production_worker.r2().upload_file(
+                    built, location[0], serves_key,
+                    ExtraArgs={"ContentType": "application/json"})
+            except Exception as error:
+                production_worker.log.warning(
+                    "  hand-cut diagnostic not saved (%s)", error)
+
+    frames = tracking[2]["frames"]
+    clock = hand_cut_analysis.load_frame_clock(
+        frames, float(diagnostic["meta"]["hand_cut"]["fps"]))
+    return diagnostic, clock
+
+
 def _prepare_diagnostic(
     conn, match_id: str, *, processing_version_id: str | None = None
 ):
@@ -285,6 +415,27 @@ def _prepare_diagnostic(
     if processing_version_id is not None and version_id != str(processing_version_id):
         raise production_worker.MatchVersionChanged("match processing version changed")
     record = {"match_id": match_id, "job_options": job_options or {}}
+    # A hand-marked match takes its own route to the same receipts: tracked
+    # inside its marks only, sharing its tracking with detailed analysis,
+    # and read by real frame times (_hand_cut_diagnostic). Every other
+    # match continues below exactly as before.
+    hand_cut_pre = production_worker.hand_cut_clip_pre(conn, match_id)
+    if hand_cut_pre is not None:
+        workdir = tempfile.mkdtemp(prefix=f"ponglens-highlight-hand-{match_id[:8]}-")
+        try:
+            original = _load_points(conn, match_id, processing_version_id=version_id)
+            diagnostic, frame_clock = _hand_cut_diagnostic(
+                production_worker, conn, record, original,
+                raw_path=input_path, match_json_path=match_json_path,
+                workdir=workdir,
+            )
+            receipts = build_receipts_from_diagnostic(
+                original, diagnostic, frame_clock=frame_clock,
+                clip_pre=hand_cut_pre,
+            )
+            return production_worker, original, receipts, version_id
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
     workdir = tempfile.mkdtemp(prefix=f"ponglens-highlight-v2-{match_id[:8]}-")
     try:
         path = os.path.join(workdir, "serves.json")

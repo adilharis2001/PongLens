@@ -5,6 +5,7 @@ export type AutomaticHighlightEndPoint = {
   cut_t0?: number | null;
   scored_at_cut_s?: number | null;
   rally_end_cut_s?: number | null;
+  tight_start?: boolean | null;
   highlight_evidence?: { observed_end_s?: number | null } | null;
 };
 
@@ -31,6 +32,29 @@ export type AutomaticHighlightRevisionPoint = AutomaticHighlightEndPoint & {
 
 export const TAP_END_TAIL_S = 0.2;
 export const DETECTOR_END_TAIL_S = 0.25;
+/** process_hand_cut's clip pad; hand cuts also store it on matches.clip_pads. */
+export const HAND_CUT_PRE_S = 1.2;
+/** adjust_point opens a tight-start clip with least(pre, 0.3). */
+const TIGHT_START_PRE_S = 0.3;
+
+/**
+ * The source seconds each clip opens before its mark on a hand-cut match,
+ * or null for every other match. Only the hand-cut end rule reads it; the
+ * worker computes the same number (worker.hand_cut_clip_pre).
+ */
+export function handCutClipPreS(match: {
+  cut_source?: string | null;
+  clip_pads?: unknown;
+}): number | null {
+  if (match.cut_source !== "manual") return null;
+  const pads = match.clip_pads;
+  if (pads && typeof pads === "object") {
+    const pre = (pads as { pre?: unknown }).pre;
+    const post = (pads as { post?: unknown }).post;
+    if (finite(pre) && finite(post)) return pre;
+  }
+  return HAND_CUT_PRE_S;
+}
 
 export function supportsScoredHighlights(matchType: string | null | undefined): boolean {
   return matchType !== "practice" && matchType !== "drills";
@@ -183,6 +207,7 @@ export function highlightManifestIsFresh(
       cut_end_s: number;
     }>;
   },
+  clipPreS: number | null = null,
 ): boolean {
   const scoredOnly = manifest.scored_only === true;
   if (highlightPointsRevision(points, scoredOnly) !== manifest.points_revision) {
@@ -191,7 +216,7 @@ export function highlightManifestIsFresh(
   const byId = new Map(points.map((point) => [point.id, point]));
   return manifest.points.every((manifestPoint) => {
     const point = byId.get(manifestPoint.point_id);
-    const end = point ? automaticHighlightEnd(point) : null;
+    const end = point ? automaticHighlightEnd(point, clipPreS) : null;
     return Boolean(
       point &&
         !point.deleted &&
@@ -210,9 +235,16 @@ export function highlightManifestIsFresh(
   });
 }
 
-/** The worker's automatic-highlight end rule, mirrored for stale-asset checks. */
+/**
+ * The worker's automatic-highlight end rule, mirrored for stale-asset checks
+ * (highlights._segment_bounds). `clipPreS` only for a hand-cut match: cut_t0
+ * is where the PADDED clip starts, so an evidence end in source seconds is
+ * counted from t0 minus the pad. Without it the end lands a whole pad early.
+ * Every other match passes nothing and keeps the established rule exactly.
+ */
 export function automaticHighlightEnd(
   point: AutomaticHighlightEndPoint,
+  clipPreS: number | null = null,
 ): number | null {
   if (!finite(point.cut_t0)) return null;
 
@@ -229,8 +261,18 @@ export function automaticHighlightEnd(
     finite(point.t0) &&
     finite(point.highlight_evidence?.observed_end_s)
   ) {
-    detectorEnd =
-      point.cut_t0 + point.highlight_evidence.observed_end_s - point.t0;
+    if (clipPreS === null) {
+      detectorEnd =
+        point.cut_t0 + point.highlight_evidence.observed_end_s - point.t0;
+    } else {
+      const pad = point.tight_start
+        ? Math.min(clipPreS, TIGHT_START_PRE_S)
+        : clipPreS;
+      detectorEnd =
+        point.cut_t0 +
+        point.highlight_evidence.observed_end_s -
+        Math.max(0, point.t0 - pad);
+    }
   }
   if (!finite(detectorEnd)) return null;
   return detectorEnd + DETECTOR_END_TAIL_S;

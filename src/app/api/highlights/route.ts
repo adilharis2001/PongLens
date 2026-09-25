@@ -9,6 +9,7 @@ import {
   automaticHighlightEvidenceRefreshNeeded,
   automaticHighlightReadDecision,
   automaticHighlightRequestDecision,
+  handCutClipPreS,
   highlightManifestIsFresh,
   supportsScoredHighlights,
   type AutomaticHighlightRevisionPoint,
@@ -76,7 +77,7 @@ async function loadPoints(
   const { data: rows, error } = await supabase
     .from("points")
     .select(
-      "id,idx,t0,t1,cut_t0,scored_at_cut_s,rally_end_cut_s,confirmed_winner,clip_path,deleted,edited,is_let,highlight_evidence",
+      "id,idx,t0,t1,cut_t0,scored_at_cut_s,rally_end_cut_s,confirmed_winner,clip_path,deleted,edited,is_let,highlight_evidence,tight_start",
     )
     .eq("match_id", matchId);
   if (error || !rows) return null;
@@ -162,12 +163,6 @@ export async function GET(req: Request) {
   if (matchError || !match || (match.user_id !== user.id && !sample)) {
     return response({ error: "Match not found" }, 404);
   }
-  // A hand-cut match has no ball track to find highlights in. Asking
-  // would run the whole detector over the original to find none.
-  if (match.cut_source === "manual") {
-    return response({ status: "unavailable" });
-  }
-
   try {
     const admin = createAdminClient();
     const [{ data: config }, eligibility] = await Promise.all([
@@ -194,7 +189,8 @@ export async function GET(req: Request) {
     const points = await loadPoints(supabase, matchId);
     if (!points) throw new Error("automatic highlights points unavailable");
     const manifestFresh = Boolean(
-      manifest && highlightManifestIsFresh(points, manifest),
+      manifest &&
+        highlightManifestIsFresh(points, manifest, handCutClipPreS(match)),
     );
     const decision = automaticHighlightReadDecision({
       hasReel: Boolean(reel),
@@ -281,9 +277,6 @@ export async function POST(req: Request) {
   if (matchError || !match || match.user_id !== user.id) {
     return response({ code: "match_not_found" }, 404);
   }
-  if (match.cut_source === "manual") {
-    return response({ code: "highlights_unavailable" }, 409);
-  }
   if (!match.cut_path || match.status !== "ready") {
     return response({ code: "highlights_unavailable" }, 409);
   }
@@ -317,7 +310,8 @@ export async function POST(req: Request) {
       hasReel: Boolean(reel),
       reelStatus: reel?.status ?? null,
       manifestFresh: Boolean(
-        manifest && highlightManifestIsFresh(points, manifest),
+        manifest &&
+          highlightManifestIsFresh(points, manifest, handCutClipPreS(match)),
       ),
       pointsUpdating: points.some(
         (point) => !point.deleted && point.edited,
