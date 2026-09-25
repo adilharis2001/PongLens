@@ -3,15 +3,18 @@ import {notFound,redirect} from 'next/navigation';
 import {createClient} from '@/lib/supabase/server';
 import {SUGGESTION_RUN_ID,type EndingSuggestion} from '@/lib/research/endingSuggestions';
 import {RALLY_RUN_ID,type RallyPrediction} from '@/lib/research/rallyPredictions';
+import {START_REVIEW_CASES} from '@/lib/research/startReviewCases';
 import type {EndingRow} from '@/lib/research/pointEndings';
 import {PointEndingReview} from './PointEndingReview';
 export const dynamic='force-dynamic';
 export const metadata:Metadata={title:'Point-ending labels',robots:{index:false,follow:false,nocache:true}};
 export default async function PointEndingPage({searchParams}:{searchParams:Promise<{review?:string}>}) {
- const cutReview=(await searchParams).review==='cuts';
+ const requestedReview=(await searchParams).review;
+ const cutReview=requestedReview==='cuts';
+ const startReview=requestedReview==='starts';
  const db=await createClient();
  const {data:{user}}=await db.auth.getUser();
- if(!user) redirect(`/login?next=${encodeURIComponent('/research/point-endings'+(cutReview?'?review=cuts':''))}`);
+ if(!user) redirect(`/login?next=${encodeURIComponent('/research/point-endings'+(cutReview?'?review=cuts':startReview?'?review=starts':''))}`);
  if((await db.rpc('is_admin')).data!==true) notFound();
  const [{data:rows,error},{data:custom,error:customError},{data:suggestions,error:suggestionError}]=await Promise.all([
    db.from('point_ending_research').select('id,match_id,sequence,source,label,revision').eq('batch','out-ball-479-v1').order('sequence').limit(1000),
@@ -21,5 +24,5 @@ export default async function PointEndingPage({searchParams}:{searchParams:Promi
  if(error||customError||suggestionError) throw new Error('Could not load point-ending research');
  const byId=new Map((suggestions??[]).filter(r=>r.payload.runId===SUGGESTION_RUN_ID).map(r=>[r.point_id,r.payload as EndingSuggestion]));
  const rallyById=new Map((suggestions??[]).filter(r=>r.payload.runId===RALLY_RUN_ID).map(r=>[r.point_id,r.payload as RallyPrediction]));
- return <PointEndingReview initialCutReview={cutReview} initialRows={(rows??[]).map(r=>({...r,suggestion:byId.get(r.id),rallyPrediction:rallyById.get(r.id)})) as EndingRow[]} initialCustom={(custom??[]).map(r=>r.name as string)} />;
+ return <PointEndingReview initialStartReview={startReview} startCases={START_REVIEW_CASES} initialCutReview={cutReview} initialRows={(rows??[]).map(r=>({...r,suggestion:byId.get(r.id),rallyPrediction:rallyById.get(r.id)})) as EndingRow[]} initialCustom={(custom??[]).map(r=>r.name as string)} />;
 }

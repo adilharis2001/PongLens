@@ -1,4 +1,5 @@
 import {validRallyReview,type RallyReview} from './rallyPredictions.ts';
+import {validStartReview,type StartReview} from './startReview.ts';
 import {validCutReview,type CutReview} from './cutReview.ts';
 export const ENDING_REASONS = [
   ['long','Ball went long without a table bounce'],
@@ -14,7 +15,7 @@ export const ENDING_REASONS = [
 ] as const;
 export type EndingReason = typeof ENDING_REASONS[number][0];
 export type SuggestionReview = {runId:string;fields:string[]};
-export type EndingLabel = {cutReview?:CutReview;rallyReview?:RallyReview;suggestionReview?:SuggestionReview; reason: EndingReason | null; custom: string; note: string; bounceReview?: BounceReview; lastRallyContact?: 'near' | 'far' | 'unsure' | null };
+export type EndingLabel = {startReview?:StartReview;cutReview?:CutReview;rallyReview?:RallyReview;suggestionReview?:SuggestionReview; reason: EndingReason | null; custom: string; note: string; bounceReview?: BounceReview; lastRallyContact?: 'near' | 'far' | 'unsure' | null };
 export type EndingSource = {
   matchName: string; slug: string; number: number; game: number; scoreBefore: number[];
   winner: string; server: string | null; start: number; end: number; tap: number | null;
@@ -29,6 +30,7 @@ export function validEndingLabel(value: unknown): value is EndingLabel {
     typeof x.custom==='string' && x.custom.length<=120 &&
     (x.reason!=='custom' || x.custom.trim().length>0) &&
     typeof x.note==='string' && x.note.length<=4000 &&
+    (x.startReview===undefined || validStartReview(x.startReview)) &&
     (x.cutReview===undefined || validCutReview(x.cutReview)) &&
     (x.bounceReview===undefined || validBounceReview(x.bounceReview)) &&
     (x.rallyReview===undefined || validRallyReview(x.rallyReview)) &&
@@ -109,9 +111,10 @@ export function normalizeEndingLabel(label:EndingLabel,existing?:EndingLabel):En
  const rallyReview=label.rallyReview??existing?.rallyReview;
  const suggestionReview=label.suggestionReview??existing?.suggestionReview;
  const cutReview=label.cutReview??existing?.cutReview;
+ const startReview=label.startReview??existing?.startReview;
  // Omission from older clients preserves the answer; explicit null clears it.
  const lastRallyContact=label.lastRallyContact===undefined?existing?.lastRallyContact:label.lastRallyContact;
- return {...(cutReview?{cutReview:{version:1 as const,serveStart:cutReview.serveStart,pointEnd:cutReview.pointEnd}}:{}),...(rallyReview?{rallyReview:{runId:rallyReview.runId,reviewed:true as const,...(rallyReview.outcome?{outcome:rallyReview.outcome}:{})}}:{}),reason:label.reason,custom:label.custom.trim(),note:label.note,...(suggestionReview?{suggestionReview:{runId:suggestionReview.runId,fields:[...suggestionReview.fields].sort()}}:{}),...(lastRallyContact?{lastRallyContact}:{}),...(review?{bounceReview:{
+ return {...(startReview?{startReview:{runId:startReview.runId,outcome:startReview.outcome,observedServeStart:startReview.observedServeStart}}:{}),...(cutReview?{cutReview:{version:1 as const,serveStart:cutReview.serveStart,pointEnd:cutReview.pointEnd}}:{}),...(rallyReview?{rallyReview:{runId:rallyReview.runId,reviewed:true as const,...(rallyReview.outcome?{outcome:rallyReview.outcome}:{})}}:{}),reason:label.reason,custom:label.custom.trim(),note:label.note,...(suggestionReview?{suggestionReview:{runId:suggestionReview.runId,fields:[...suggestionReview.fields].sort()}}:{}),...(lastRallyContact?{lastRallyContact}:{}),...(review?{bounceReview:{
   version:1 as const,lastBounce:review.lastBounce,events:review.events.map(e=>({id:e.id,kind:e.kind,side:e.side,...(e.rawTime!==undefined?{rawTime:e.rawTime}:{})})).sort((a,b)=>a.id.localeCompare(b.id))
  }}:{})};
 }
