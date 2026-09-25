@@ -1853,7 +1853,11 @@ struct MatchDetailScreen: View {
                 .foregroundStyle(PL.text300)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
-            Text("Your marks are saved. Open them, check them and send them again.")
+            // A phone cut released after 72 hours already says the marks are
+            // saved; the same sentence twice reads as a mistake.
+            Text((model.job?.userMessage ?? "").contains("Your marks are saved")
+                 ? "Open them, check them and send them again."
+                 : "Your marks are saved. Open them, check them and send them again.")
                 .font(.plBody)
                 .foregroundStyle(PL.text400)
                 .fixedSize(horizontal: false, vertical: true)

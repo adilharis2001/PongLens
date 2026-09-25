@@ -4,6 +4,14 @@
 against. Server side implemented on `codex/hc-device-server`; not applied,
 not deployed.
 
+| Piece | Where |
+| --- | --- |
+| Database | `supabase/migrations/20260925160000_device_hand_cut.sql`; behaviour checked on a throwaway Postgres by `supabase/tests/device_hand_cut.sql` |
+| Route | `src/app/api/hand-cut/device/route.ts`, pure rules in `src/lib/deviceHandCut.ts` |
+| The plan and the Mac's check | `worker/hand_cut_device.py` (`plan_hand_cut` line 129, `check_manifest` line 284, `check_cut_probe` line 436) |
+| The hand lane | `worker/worker.py`: `process_hand_cut` line 7488 branches to `_publish_device_hand_cut` (7377) and `_verify_device_hand_cut` (7310); both paths publish through `_publish_hand_cut` (7186); the sweep is `release_stale_device_hand_cuts` (7469) |
+| Parity fixture | `ios/Tests/fixtures/cut-plan-parity.json`: 21 cases (the 8 live hand cuts and 13 edge cases), 451 points |
+
 **Design:** `2026-09-24-ios-hand-cut-design.md`, sections 7 ("Cutting on
 the iPhone") and 8. This file is the wire format: every call, every key,
 every number the phone must produce and how the Mac checks it.
@@ -91,9 +99,10 @@ Every check `claim_hand_cut` makes, from the same shared validator
 | `queue_full` | P0001 | Four active jobs already |
 | `invalid_marks` | 23514 | 1 to 400 marks, each 0.7 s to 180 s, no overlap, none ending more than 1 s past `duration_s`, `w` in `user`/`opponent`/null, a let has no `w` |
 
-Before the checks it releases a stale phone cut on the same match (section
-8), so a player who comes back after 72 hours is not blocked by
-`already_processing`.
+Once the match row is locked, and before the state checks, it releases a
+stale phone cut on the same match (section 8), so a player who comes back
+after 72 hours is not blocked by `already_processing`. `claim_hand_cut`
+does the same.
 
 Returns:
 
@@ -179,8 +188,9 @@ Allowed only while `phase = 'device'`.
 | `false` | Marks handed back exactly as a terminal hand-cut failure hands them back (`_hand_cut_rollback` with `release=True`): job `cancelled`, match back to `uploaded` with `cut_source 'auto'` and no `job_id`, draft unfrozen. **No bell, no email** | `{"job_id", "phase": "released"}` |
 
 Repeating the same release is idempotent (returns the same answer).
-Errors: `not_authenticated`, `not_found`, `bad_state` (the job is past
-`device`: submitted, or already released the other way).
+Errors: `not_authenticated`, `not_found`, `invalid_request` (22023,
+`p_to_mac` null), `bad_state` (the job is past `device`: submitted, or
+already released the other way).
 
 ---
 
@@ -198,7 +208,7 @@ except `release` refuses unless the job is the caller's, `kind hand_cut`,
 | `list-parts` | `{jobId, uploadId}` | `{parts: [{PartNumber, Size, ETag}]}` or `{parts: [], gone: true}` |
 | `complete` | `{jobId, uploadId, parts: [{PartNumber, ETag}]}` | `{ok: true, bytes}` |
 | `abort` | `{jobId, uploadId}` | `{ok: true}` |
-| `sign` | `{jobId, keys: ["points/…/01.mp4", "results/…manifest.json", …]}` (at most 100 per call) | `{urls: {"<key>": "<presigned PUT url>"}}`, 1 h. Only the claim's clip keys (`01.mp4` … `NN.mp4` for `NN <= device_points`) and the manifest key |
+| `sign` | `{jobId, keys: ["points/…/01.mp4", "results/…manifest.json", …]}` (at most 100 per call) | `{urls: {"<key>": "<presigned PUT url>"}}`, valid 10 minutes, so sign each batch just before sending it. Only the claim's clip keys (`01.mp4` … `NN.mp4`, `NN` at most the number of frozen marks) and the manifest key; anything else is `403 {error, refused: [keys]}` |
 | `submit` | `{jobId}` | `{ok: true, phase: "verify"}`. Reads the manifest, HEADs the cut, the manifest and every clip it names; all must exist and be non-empty, then calls `submit_device_hand_cut` |
 | `release` | `{jobId, toMac: boolean}` | the RPC's answer. With `toMac: false` the route also deletes the job's own cut and manifest objects (best effort) |
 
@@ -211,6 +221,13 @@ this job's, `404` no such job, `409` job not in phase `device`
 Upload the manifest **last**, after the cut and every clip, then submit.
 PUT with `Content-Type: video/mp4` for clips and `application/json` for
 the manifest.
+
+The route derives every key from the job, the match linked to it
+(`matches.job_id`) and the frozen draft; nothing the request sends names a
+key it can write. It does not check the storage allowance: a hand cut's
+files are derived from an original the player already stores, the Mac's
+own hand cut writes the same files without asking, and the Mac books them
+in the storage ledger when it publishes.
 
 ---
 
@@ -343,13 +360,13 @@ is retried by the queue like any other job.
 
 | # | Check | Tolerance |
 | --- | --- | --- |
-| 1 | Manifest exists, is JSON, at most 2 MB, `schema 1`, `pipeline hand-v1`, `cutter device`, job and match ids are this job's, every number finite | exact |
+| 1 | Manifest exists, is JSON, at most 2 MB, `schema 1`, `pipeline hand-v1`, `cutter device`, job and match ids are this job's, `clip_pads` 1.2 and 1.3, every number finite | exact |
 | 2 | `source.duration` against the Mac's own probe of the original (ranged read). If that probe fails, against `matches.duration_s` | 0.5 s (1.5 s against `duration_s`) |
-| 3 | `plan_hand_cut(frozen marks, source.duration)` against the manifest: same number of segments and points, every segment edge, `t0`, `t1`, `clip_t0`, `clip_t1` | 0.011 s |
+| 3 | `plan_hand_cut(frozen marks, source.duration)` against the manifest: no mark dropped, same number of segments and points, every segment edge, `t0`, `t1`, `clip_t0`, `clip_t1`, clip names | 0.011 s |
 | 4 | Every point against its mark, the publish rule (`normalize_manual_cut_observations`) | 0.06 s |
 | 5 | `cut_segment_offsets`: one per segment, increasing, first at most 0.1, each against the planned offset | 0.05 s |
 | 6 | Every point's position through `_CutMap` (the re-cut lookup) with the manifest's segments and measured offsets, against the manifest's `cut_t0` | 0.05 s |
-| 7 | The cut exists and is non-empty (HEAD); ffprobe over a presigned URL (header only): a video stream, codec `h264`; duration against the sum of the segments | `hand_cut_length_tolerance(segments)` |
+| 7 | The cut exists and is non-empty (HEAD); ffprobe over a presigned URL (header only): a video stream, codec `h264`; duration against the sum of the segments. A file ffprobe cannot read is a mismatch | `hand_cut_length_tolerance(segments)` |
 | 8 | Every named clip exists and is non-empty (HEAD) | exact |
 
 Then: thumbnail from the first clip, `match.json` written with
@@ -363,7 +380,15 @@ HEAD sizes. Publication is the ordinary hand-cut path, unchanged:
 marks, `publish_hand_cut_v2`, ready, the ready email.
 
 Admin stage while this runs: `device_verify`, "Checking the iPhone's cut".
-The player sees "Checking the cut".
+The player sees "Waiting to check the cut" while it is queued and "Checking
+the cut" while it runs, then the hand cut's own stages ("Building the
+points", "Saving the match").
+
+On `/admin/processing` a job the phone holds is its own row, "iPhone":
+working in the phone's words while it reports ("Uploading from the iPhone ·
+Hand cut on iPhone · Adil · 19m", with its progress), and grey "Waiting for
+the iPhone" once it has been quiet for five minutes. It is never amber and
+never counted as a Mac worker being alive or stalled.
 
 ---
 
@@ -384,7 +409,9 @@ both claims for the match being claimed. No main or fast lane release is
 involved.
 
 After 24 hours without a report the web raw page offers "Cut on the Mac
-instead" (`release {toMac: true}`).
+instead" (`release {toMac: true}`, through the route), under "No update from
+your iPhone for over a day." Until then it shows the phone's stage and
+progress ("Cutting on your iPhone").
 
 ---
 
@@ -417,9 +444,24 @@ instead" (`release {toMac: true}`).
 ```
 
 `marks` are `[t0, t1]` source seconds as stored in the frozen draft (the
-short form `{t0, t1}` and the long form `{t0, t1: …}` normalise to the
-same pair). Live cases use `matches.duration_s` as `D`. Synthetic cases
-cover: windows merging under 0.5 s and not merging at exactly 0.5 s, a
-clamp at 0, a clamp at the duration, abutting points, a single point, a
-mark ending in the final second, a mark starting after the end (dropped),
-three-digit clip names, and marks with more than two decimals.
+short form `{t0, t1, w, …}` and the long form `{t0, t1, winner, …}`
+normalise to the same pair). Live cases use `matches.duration_s` as `D`,
+and carry `published_cut_t0`, what the Mac published, for reference only
+(it used ffprobe's duration). Synthetic cases cover: windows merging under
+0.5 s and not merging at exactly 0.5 s, overlapping windows, a clamp at 0,
+a clamp at the duration, abutting points, a single point, a mark ending in
+the final second, an end past the video, a mark starting after the end
+(dropped), three-digit clip names, and marks with more than two decimals.
+`rounding` pins `r2` on the values where `(x * 100).rounded() / 100`
+differs from Python (2.675, 0.125, 1.115, 0.015).
+
+Regenerate after any change to the rules, and commit both files:
+
+```bash
+worker/venv/bin/python -B worker/hand_cut_device.py --write-fixture \
+  ios/Tests/fixtures/cut-plan-parity.json \
+  --live worker/tests/fixtures/hand_cut_live_marks.json
+```
+
+`worker/tests/test_hand_cut_device.py` fails if the committed fixture and
+the rules disagree.

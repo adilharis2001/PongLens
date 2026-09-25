@@ -896,8 +896,12 @@ export function RawMatchView({
           <p className="mt-3 text-sm text-zinc-300">
             {job?.user_message ?? "The cut didn't finish."}
           </p>
+          {/* A phone cut released after 72 hours already says the marks
+              are saved; the same sentence twice reads as a mistake. */}
           <p className="mt-2 text-sm text-zinc-400">
-            Your marks are saved. Open them, check them and send them again.
+            {(job?.user_message ?? "").includes("Your marks are saved")
+              ? "Open them, check them and send them again."
+              : "Your marks are saved. Open them, check them and send them again."}
           </p>
         </section>
       )}
