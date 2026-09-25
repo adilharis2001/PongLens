@@ -43,8 +43,10 @@ struct MatchProcessingFeedback: Decodable, Hashable {
         guard jobKind != "content_check" else { return nil }
         guard jobStatus == "queued" || jobStatus == "processing" else { return nil }
         if workerState == "silent" { return "Processing is delayed" }
-        if jobStatus == "queued" { return "Waiting to process" }
+        let handCut = jobKind == "hand_cut"
+        if jobStatus == "queued" { return handCut ? "Waiting to prepare clips" : "Waiting to process" }
         guard workerState == "fresh" else { return nil }
+        if handCut { return Self.handCutStageLabel(stage) }
         switch stage {
         case "content_check": return "Processing your match"
         case "camera_check": return "Checking the camera view"
@@ -55,6 +57,22 @@ struct MatchProcessingFeedback: Decodable, Hashable {
         case "cut": return "Removing dead time"
         case "publish": return "Preparing your match"
         default: return "Processing your match"
+        }
+    }
+
+    /// A hand cut runs its own stages on the Mac (worker.py
+    /// process_hand_cut), named the way /admin/processing names them. None of
+    /// them finds points or removes dead time: the owner's marks already did
+    /// both. The web's HAND_CUT_STAGES in src/lib/processingFeedback.ts.
+    static func handCutStageLabel(_ stage: String?) -> String {
+        switch stage {
+        case "marks": return "Reading the marks"
+        case "download": return "Preparing video"
+        case "cut": return "Cutting the video"
+        case "upload": return "Uploading the result"
+        case "points": return "Building the points"
+        case "publish": return "Saving the match"
+        default: return "Preparing clips"
         }
     }
 

@@ -61,6 +61,30 @@ test("the live worker stage uses calm player language", () => {
 });
 
 
+test("a hand cut names its own stages, never the automatic ones", () => {
+  const cases: [string, string][] = [
+    ["marks", "Reading the marks"],
+    ["download", "Preparing video"],
+    ["cut", "Cutting the video"],
+    ["upload", "Uploading the result"],
+    ["points", "Building the points"],
+    ["publish", "Saving the match"],
+    ["future_stage", "Preparing clips"],
+  ];
+  for (const [stage, want] of cases) {
+    assert.equal(processingStageLabel(feedback({ job_kind: "hand_cut", stage })), want, stage);
+  }
+  assert.equal(
+    processingStageLabel(feedback({ job_kind: "hand_cut", job_status: "queued", stage: null })),
+    "Waiting to prepare clips",
+  );
+  assert.equal(
+    processingStageLabel(feedback({ job_kind: "hand_cut", worker_state: "silent" })),
+    "Processing is delayed",
+  );
+  assert.equal(processingStageLabel(feedback({ job_kind: "hand_cut", worker_state: "missing" })), null);
+});
+
 test("a silent worker delays an active processing request without inventing a time", () => {
   assert.equal(
     processingStageLabel(feedback({ worker_state: "silent" })),

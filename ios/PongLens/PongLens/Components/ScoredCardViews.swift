@@ -305,7 +305,9 @@ struct EndingsCard: View {
 /// nothing is left: which end the owner played from (the maps cannot be
 /// oriented without it), scoring (the overview and the video cards need
 /// 75% of the points, the bar the highlights use, so the rallies behind
-/// them are confirmed), and the detailed analysis. The steps are in order,
+/// them are confirmed), who served first on a scored match (the maps read
+/// whose serve each dot is from the rotation, and without it every point
+/// is skipped), and the detailed analysis. The steps are in order,
 /// not side by side (Adil, 2026-09-15): scoring confirms the cuts, the
 /// servers and the winners, and the worker reads the corrected windows
 /// when it runs, so generating is offered only once the match is scored.
@@ -316,17 +318,21 @@ struct NextStepCard: View {
     let gate: ScoredCardsGate
     let scoredType: Bool
     let sideMissing: Bool
+    /// The analysis is on the way and nobody has said who served first.
+    var askFirstServer = false
     let onScore: (() -> Void)?
     /// Re-read the match once the side or the analysis request changed.
     let onChanged: () -> Void
     /// The cut video, for the still the side question is answered from.
     var videoURL: URL? = nil
+    /// Record who served first; resolves to whether the write landed.
+    var onSetFirstServer: ((Winner) async -> Bool)? = nil
 
     @State private var analysisSheetOpen = false
     @State private var sideSheetOpen = false
+    @State private var savingServer = false
 
     private var status: String { match.placementStatus ?? "not_requested" }
-    private var handCut: Bool { match.cutSource == "manual" }
     private var generating: Bool { status == "processing" || status == "retrying" }
     /// Generate (or try again) comes after scoring; a practice match has
     /// nothing to score and gets it straight away.
@@ -334,8 +340,12 @@ struct NextStepCard: View {
     /// Once the bar is met the scoring row steps aside: the one thing left
     /// to do is the analysis.
     private var showScoring: Bool { scoredType && !gate.open }
+    /// One step at a time: the Generate button waits for the answer.
+    private var showFirstServer: Bool {
+        askFirstServer && onSetFirstServer != nil && offerAnalysis
+    }
     private var showAnalysis: Bool {
-        !handCut && status != "ready" && (generating || offerAnalysis)
+        status != "ready" && (generating || (offerAnalysis && !showFirstServer))
     }
     private var analysisReason: String? {
         switch status {
@@ -389,6 +399,15 @@ struct NextStepCard: View {
                         }
                     }
                 }
+                if showFirstServer, let onSetFirstServer {
+                    row("Who served first?", done: false) {
+                        HStack(spacing: 8) {
+                            secondaryButton("Me") { saveFirstServer(.user, onSetFirstServer) }
+                            secondaryButton("Them") { saveFirstServer(.opponent, onSetFirstServer) }
+                        }
+                        .disabled(savingServer)
+                    }
+                }
                 if showAnalysis {
                     row("Detailed analysis", done: false) {
                         if status == "final_failed" {
@@ -411,7 +430,7 @@ struct NextStepCard: View {
                             }
                             .padding(.top, 10)
                         }
-                        if offerAnalysis, let analysisAction {
+                        if offerAnalysis, !showFirstServer, let analysisAction {
                             primaryButton(analysisAction) { analysisSheetOpen = true }
                         }
                     }
@@ -425,6 +444,17 @@ struct NextStepCard: View {
         }
         .sheet(isPresented: $sideSheetOpen) {
             YourSideSheet(match: match, videoURL: videoURL, onSaved: onChanged)
+        }
+    }
+
+    /// The screen re-reads the match once the write lands, and the row
+    /// steps aside for the analysis.
+    private func saveFirstServer(_ value: Winner, _ save: @escaping (Winner) async -> Bool) {
+        guard !savingServer else { return }
+        savingServer = true
+        Task {
+            _ = await save(value)
+            savingServer = false
         }
     }
 

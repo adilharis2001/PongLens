@@ -118,6 +118,32 @@ func runProcessingFeedbackChecks() {
         }
     }
 
+    suite("a hand cut names its own stages, as on the web") {
+        let cases: [(String, String)] = [
+            ("marks", "Reading the marks"),
+            ("download", "Preparing video"),
+            ("cut", "Cutting the video"),
+            ("upload", "Uploading the result"),
+            ("points", "Building the points"),
+            ("publish", "Saving the match"),
+            ("future_stage", "Preparing clips"),
+        ]
+        for (stage, expected) in cases {
+            let decoded = decodeProcessingFeedback("""
+            { "match_id":"00000000-0000-0000-0000-000000000001", "job_status":"processing", "job_kind":"hand_cut", "stage":"\(stage)", "worker_state":"fresh" }
+            """)
+            eq(decoded?.stageLabel, Optional(expected), "hand cut \(stage) has its agreed label")
+        }
+        let queued = decodeProcessingFeedback("""
+        { "match_id":"00000000-0000-0000-0000-000000000001", "job_status":"queued", "job_kind":"hand_cut" }
+        """)
+        eq(queued?.stageLabel, Optional("Waiting to prepare clips"), "a queued hand cut waits to prepare clips")
+        let silent = decodeProcessingFeedback("""
+        { "match_id":"00000000-0000-0000-0000-000000000001", "job_status":"processing", "job_kind":"hand_cut", "stage":"cut", "worker_state":"silent" }
+        """)
+        eq(silent?.stageLabel, Optional("Processing is delayed"), "a silent hand cut is delayed")
+    }
+
     suite("processing stage claims require current worker evidence") {
         let queued = decodeProcessingFeedback("""
         { "match_id":"00000000-0000-0000-0000-000000000001", "job_status":"queued", "job_kind":"deadspace_cut" }

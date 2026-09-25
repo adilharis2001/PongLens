@@ -966,6 +966,7 @@ struct HomeScreen: View {
                             match: match,
                             score: scores.scores[match.id],
                             liveJob: library.liveJob(for: match),
+                            handCutFailed: library.handCutFailed(match),
                             processingLabel: library.processingLabel(for: match),
                             processingUnavailable: library.availabilityNotice(for: match) != nil,
                             processingFeedback: library.processingFeedback[match.id]

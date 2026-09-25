@@ -13,9 +13,11 @@ extension MatchRow {
     /// The chip a match should wear, accounting for a job the row hasn't
     /// linked yet. A live job outranks the status column — reading the
     /// column straight showed "Not processed" directly under a banner
-    /// saying the same match was processing. Mirrors the web's chipForMatch.
-    func chipStatus(live: JobRow?) -> PLStatus {
+    /// saying the same match was processing. A hand cut that failed and put
+    /// the row back to 'uploaded' wears Failed. Mirrors the web's chipForMatch.
+    func chipStatus(live: JobRow?, handCutFailed: Bool = false) -> PLStatus {
         if let live { return live.status == "queued" ? .queued : .processing }
+        if displayStatus(hasLiveJob: false, handCutFailed: handCutFailed) == .failed { return .failed }
         return chipStatus
     }
 }
@@ -25,6 +27,8 @@ struct MatchListRow: View {
     let match: MatchRow
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
+    /// The latest hand cut failed (LibraryStore.handCutFailed).
+    var handCutFailed = false
     var processingLabel: String? = nil
     var processingUnavailable = false
     var processingFeedback: MatchProcessingFeedback? = nil
@@ -47,7 +51,7 @@ struct MatchListRow: View {
                     .foregroundStyle(PL.text200)
                     .lineLimit(1)
                 if match.status != .ready {
-                    StatusChip(status: processingUnavailable && (liveJob != nil || match.status == .processing) ? .queued : match.chipStatus(live: liveJob))
+                    StatusChip(status: processingUnavailable && (liveJob != nil || match.status == .processing) ? .queued : match.chipStatus(live: liveJob, handCutFailed: handCutFailed))
                 }
                 HStack(spacing: 8) {
                     Text(processingLabel ?? parts.secondary)
@@ -80,6 +84,8 @@ struct MatchCard: View {
     let match: MatchRow
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
+    /// The latest hand cut failed (LibraryStore.handCutFailed).
+    var handCutFailed = false
     var processingLabel: String? = nil
     var processingUnavailable = false
     var processingFeedback: MatchProcessingFeedback? = nil
@@ -111,7 +117,7 @@ struct MatchCard: View {
                             .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.4), lineWidth: 1))
                             .padding(8)
                     } else if match.status != .ready {
-                        StatusChip(status: processingUnavailable && (liveJob != nil || match.status == .processing) ? .queued : match.chipStatus(live: liveJob))
+                        StatusChip(status: processingUnavailable && (liveJob != nil || match.status == .processing) ? .queued : match.chipStatus(live: liveJob, handCutFailed: handCutFailed))
                             .padding(8)
                     }
                 }

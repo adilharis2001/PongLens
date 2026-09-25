@@ -14,7 +14,7 @@ import {
 } from "./matchAnalysis";
 import { computeMatchStats, type MatchStats } from "./matchStats";
 import type { CustomReasonLabels } from "./scorecard";
-import type { ServeInfo } from "./serving";
+import type { MatchServer, ServeInfo } from "./serving";
 import type { Side } from "./sides";
 import type { MapLabels } from "./PlacementMap";
 import { LooksWrongButton, MarkedWrongNotice } from "./PlacementFeedback";
@@ -191,6 +191,9 @@ function NextStepCard({
   scoredType,
   sideMissing,
   onSetUserSide,
+  askFirstServer,
+  onSetFirstServer,
+  serverLabels,
   sideVideoSrc = null,
   controller,
   onScore,
@@ -199,6 +202,10 @@ function NextStepCard({
   scoredType: boolean;
   sideMissing: boolean;
   onSetUserSide?: (side: Side) => void;
+  /** The analysis is about to be offered and nobody has said who served first. */
+  askFirstServer: boolean;
+  onSetFirstServer?: (value: MatchServer) => void;
+  serverLabels: { you: string; them: string };
   /** The cut video, so the side is chosen from a frame of the match. */
   sideVideoSrc?: string | null;
   controller: PlacementLifecycleController | null;
@@ -211,8 +218,16 @@ function NextStepCard({
   // scoring row steps aside: the one thing left to do is the analysis.
   const offerAnalysis = !scoredType || gate.open;
   const showScoring = scoredType && !gate.open;
+  // The maps decide whose serve each dot is from the rotation, so on a
+  // scored match the first server comes before the analysis: without it
+  // every point is skipped and the maps come out empty. One step at a
+  // time, so the Generate button waits for the answer.
+  const showFirstServer =
+    askFirstServer && onSetFirstServer !== undefined && offerAnalysis;
   const showAnalysis =
-    view !== null && !analysisReady && (view.poll || offerAnalysis);
+    view !== null
+    && !analysisReady
+    && (view.poll || (offerAnalysis && !showFirstServer));
   return (
     <Card title="What's next">
       <div className="divide-y divide-edge/60">
@@ -260,6 +275,18 @@ function NextStepCard({
             )}
           </NextStepRow>
         )}
+        {showFirstServer && onSetFirstServer && (
+          <NextStepRow title="Who served first?">
+            <div className="mt-3 flex gap-2">
+              <button type="button" className={SECONDARY_BUTTON} onClick={() => onSetFirstServer("user")}>
+                <span className="block truncate">{serverLabels.you}</span>
+              </button>
+              <button type="button" className={SECONDARY_BUTTON} onClick={() => onSetFirstServer("opponent")}>
+                <span className="block truncate">{serverLabels.them}</span>
+              </button>
+            </div>
+          </NextStepRow>
+        )}
         {controller && view && showAnalysis && (
           <NextStepRow title="Detailed analysis">
             {!view.poll && view.actionKind === null && (
@@ -282,7 +309,7 @@ function NextStepCard({
                 {view.toolStatus}
               </p>
             )}
-            {offerAnalysis && view.actionKind && view.actionLabel && (
+            {offerAnalysis && !showFirstServer && view.actionKind && view.actionLabel && (
               <button
                 type="button"
                 disabled={controller.submitting}
@@ -334,6 +361,7 @@ export function AnalysisCards({
   gameIndexByPoint,
   serving,
   prePad,
+  handCut = false,
   customReasonLabels,
   labels,
   ownerHandedness = null,
@@ -342,6 +370,8 @@ export function AnalysisCards({
   onOpenPoint,
   onScore,
   onSetUserSide,
+  firstServerMissing = false,
+  onSetFirstServer,
   sideVideoSrc = null,
   viewer,
 }: {
@@ -358,12 +388,14 @@ export function AnalysisCards({
   serving: Map<string, ServeInfo>;
   /** Effective pre pad of a point's clip, seconds (clipEdit.effectivePad). */
   prePad: (point: Point) => number;
+  /** matches.cut_source = 'manual': point length comes from the owner's marks. */
+  handCut?: boolean;
   customReasonLabels: CustomReasonLabels;
   labels: MapLabels;
   ownerHandedness?: "right" | "left" | null;
   /** app_config placement_serves_only (132). */
   servesOnly?: boolean;
-  /** Null on a hand-cut match: no ball track, no table, nothing to offer. */
+  /** Null where the page has no placement to speak of (a share link whose maps are not trusted). */
   placement?: AnalysisPlacement | null;
   /** Open one point from a heat map zone's list. */
   onOpenPoint?: (pointId: string) => void;
@@ -371,6 +403,10 @@ export function AnalysisCards({
   onScore?: () => void;
   /** Record which end the owner played from, for the next-step card. */
   onSetUserSide?: (side: Side) => void;
+  /** matches.first_server is not set, so the serve rotation is unknown. */
+  firstServerMissing?: boolean;
+  /** Record who served first, for the next-step card. */
+  onSetFirstServer?: (value: MatchServer) => void;
   /** The cut video, so the end is chosen from a frame of the match. */
   sideVideoSrc?: string | null;
   /**
@@ -470,6 +506,7 @@ export function AnalysisCards({
             prePad,
             placementTrusted: placement?.trusted ?? false,
             gameFilter,
+            handCut,
           })
         : null,
     [
@@ -482,6 +519,7 @@ export function AnalysisCards({
       prePad,
       placement?.trusted,
       gameFilter,
+      handCut,
     ],
   );
 
@@ -529,6 +567,8 @@ export function AnalysisCards({
     placementView !== null
     && !placement?.flagged
     && (placementView.poll || placementView.actionKind !== null);
+  // Asked only on the way to the analysis, on a match that keeps a score.
+  const askFirstServer = scoredType && firstServerMissing && analysisPending;
   // Scoring is a step only up to the bar; past it the deck has what it
   // needs and the card asks for nothing more about the score.
   const nextStep =
@@ -688,6 +728,13 @@ export function AnalysisCards({
         scoredType={scoredType}
         sideMissing={sideMissing}
         onSetUserSide={onSetUserSide}
+        askFirstServer={askFirstServer}
+        onSetFirstServer={onSetFirstServer}
+        serverLabels={
+          neutral
+            ? { you: labels.you, them: labels.them }
+            : { you: "Me", them: "Them" }
+        }
         sideVideoSrc={sideVideoSrc}
         controller={placement?.controller ?? null}
         onScore={onScore}

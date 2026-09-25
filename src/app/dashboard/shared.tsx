@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { computeMatchScore, sortPoints } from "@/app/match/[id]/gameScore";
+import { matchDisplayStatus } from "@/lib/primaryMatchJob";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, MatchStatus, Point } from "@/lib/types";
 
@@ -141,10 +142,19 @@ export function liveJobFor(
   );
 }
 
-/** The chip a match should wear, accounting for a job the row hasn't linked yet. */
-export function chipForMatch(status: MatchStatus, live: JobLike | null) {
+/**
+ * The chip a match should wear, accounting for a job the row hasn't linked
+ * yet, and for a hand cut that failed after putting the row back to
+ * 'uploaded' (failedHandCutMatchIds): that one wears Failed, like an
+ * automatic failure, rather than "Not processed".
+ */
+export function chipForMatch(
+  status: MatchStatus,
+  live: JobLike | null,
+  handCutFailed = false,
+) {
   if (live) return live.status === "queued" ? queuedChip : matchChips.processing;
-  return matchChips[status] ?? matchChips.processing;
+  return matchChips[matchDisplayStatus(status, false, handCutFailed)] ?? matchChips.processing;
 }
 
 /**

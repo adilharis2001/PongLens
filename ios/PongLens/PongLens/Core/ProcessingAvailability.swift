@@ -86,7 +86,10 @@ func summarizeProcessingWork(_ services: ProcessingServiceStatus, work: [Process
         else if first.kind == "hand_cut" { label = queued ? "Waiting to prepare clips" : "Preparing clips" }
         else { label = queued ? "Waiting to process" : "Your match is processing" }
     } else { label = "\(continuing.count) videos are \(queued ? "waiting to process" : "processing")" }
-    let sendsEmail = !continuing.isEmpty && continuing.allSatisfy { $0.kind == "deadspace_cut" && $0.videoSaved }
+    // A hand cut ends in the same ready email as an automatic cut.
+    let sendsEmail = !continuing.isEmpty && continuing.allSatisfy {
+        ($0.kind == "deadspace_cut" || $0.kind == "hand_cut") && $0.videoSaved
+    }
     let notice = blocked.first.flatMap { job in
         availabilityNotice(services.state(for: job.lane ?? processingServiceLane(kind: job.kind, clipLane: services.clipLane), now: now),
                            context: blocked.count == 1 ? processingContext(kind: job.kind, videoSaved: job.videoSaved) : .queuedWork)
@@ -108,7 +111,7 @@ func availabilityNotice(_ state: ProcessingServiceState, context: AvailabilityCo
     case .savedMatch: body = "Your video is saved and queued. Processing will resume automatically when service is restored. You can leave this page. We’ll email you when your match is ready."
     case .savedVideo: body = "Your video is saved. Its video check will continue when service is restored. You can leave this page."
     case .savedIdle: body = "Your video is saved. You can request processing, but it will not start until service is restored."
-    case .hand: body = "Your video is saved. Clip preparation will resume automatically when service is restored. You can leave this page."
+    case .hand: body = "Your video is saved. Clip preparation will resume automatically when service is restored. You can leave this page. We’ll email you when your match is ready."
     case .queuedWork: body = "Your processing requests are saved. Work on the affected videos will continue when service is restored. You can leave this page."
     case .savedProcessing: body = "Your video is saved and queued. Processing will resume automatically when service is restored. You can leave this page."
     case .importRequest: body = "Your import request is queued and will continue when service is restored. You can leave this page."

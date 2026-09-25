@@ -189,8 +189,20 @@ struct ToolsSection: View {
     /// rather than scroll to it: the match is scored past the bar and the
     /// analysis has not been generated, or can be tried again.
     private var analysisRowAction: Bool {
-        guard MatchTitle.tracksServe(match.matchType), match.cutSource != "manual",
+        guard MatchTitle.tracksServe(match.matchType), !firstServerBeforeAnalysis,
               scoredCardsGate(model.visible).open else { return false }
+        switch match.placementStatus {
+        case nil, "not_requested", "retry_available": return true
+        default: return false
+        }
+    }
+
+    /// The maps read whose serve each dot is from the rotation, so a scored
+    /// match names its first server before the analysis is offered. The row
+    /// then names that step and lands on the deck's card that asks it. The
+    /// web's firstServerBeforeAnalysis in MatchView.
+    private var firstServerBeforeAnalysis: Bool {
+        guard !sampleViewer, MatchTitle.tracksServe(match.matchType), match.firstServer == nil else { return false }
         switch match.placementStatus {
         case nil, "not_requested", "retry_available": return true
         default: return false
@@ -208,9 +220,12 @@ struct ToolsSection: View {
         switch match.placementStatus {
         case "processing": return "Generating…"
         case "retrying": return "Retrying…"
-        case "retry_available" where match.cutSource != "manual": return "Try again"
-        case nil, "not_requested":
-            if match.cutSource != "manual" { return "Generate detailed analysis" }
+        default: break
+        }
+        if firstServerBeforeAnalysis { return "Who served first?" }
+        switch match.placementStatus {
+        case "retry_available": return "Try again"
+        case nil, "not_requested": return "Generate detailed analysis"
         default: break
         }
         let serving = computeServing(

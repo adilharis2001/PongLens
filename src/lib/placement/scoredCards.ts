@@ -38,6 +38,13 @@ import { selectPlacementHypothesis } from "./placementModel.ts";
  *   * A point's ending is the earlier of the worker's rally end and the
  *     owner's score tap. On one point in five the rally end sits after the
  *     tap, which is dead play after the point; the tap bounds it.
+ *
+ * A hand-cut match (matches.cut_source = 'manual') has no rally end and
+ * no detector, but the owner marked every point: the End Point tap (t1) is
+ * its ending and the start mark (t0) its start wherever the ball gave no
+ * serve time. Point length is the one card that needs neither the ball nor
+ * the owner's side, so a hand cut gets it from its marks alone (spec
+ * 2026-09-24, section 5).
  */
 
 /**
@@ -133,6 +140,12 @@ export interface ScoredCardsInput {
   placementTrusted?: boolean;
   /** One game only (0-based), or every game. The gate always reads the whole match. */
   gameFilter?: number | null;
+  /**
+   * matches.cut_source = 'manual': the points are the owner's own marks.
+   * The End Point tap is each point's end, the start mark stands in for a
+   * serve time the ball did not give, and no side is needed for point length.
+   */
+  handCut?: boolean;
 }
 
 function num(value: unknown): number | null {
@@ -210,16 +223,20 @@ function halfOf(v: number): PlacementPhysicalSide {
 interface Ctx {
   point: Point;
   server: "user" | "opponent";
-  serverSide: PlacementPhysicalSide;
-  userPhysical: PlacementPhysicalSide;
-  loserSide: PlacementPhysicalSide;
+  /** Null only on a hand cut whose owner has not said which end they
+   *  played from; such a point never carries placement. */
+  serverSide: PlacementPhysicalSide | null;
+  userPhysical: PlacementPhysicalSide | null;
+  loserSide: PlacementPhysicalSide | null;
   placement: PlacementV3 | null;
   diagnosis: ServePlacementDiagnosis | null;
   end: number | null;
+  /** A hand cut's start mark (t0, source clock); null on an automatic cut. */
+  markStart: number | null;
 }
 
 function serveOf(ctx: Ctx) {
-  if (!ctx.placement) return null;
+  if (!ctx.placement || ctx.serverSide === null) return null;
   const hypothesis = selectPlacementHypothesis(ctx.placement, ctx.serverSide);
   return hypothesis?.shots.find((shot) => shot.phase === "serve") ?? null;
 }
@@ -245,6 +262,9 @@ function pointLength(contexts: Ctx[]): PointLengthResult {
     const firstT = num(serve?.serve_first_bounce?.t);
     if (firstT !== null) {
       start = firstT;
+    } else if (ctx.markStart !== null) {
+      // A hand cut with no serve time from the ball: the owner's start mark.
+      start = ctx.markStart;
     } else if (ctx.placement) {
       // No trusted serve: the first bounce seen on the table before the
       // point ended. Later than the real start by a shot at most.
@@ -410,7 +430,14 @@ function endings(contexts: Ctx[]): EndingsResult {
   let lost = 0;
   let won = 0;
   for (const ctx of contexts) {
-    if (!ctx.placement || ctx.end === null) continue;
+    if (
+      !ctx.placement
+      || ctx.end === null
+      || ctx.loserSide === null
+      || ctx.userPhysical === null
+    ) {
+      continue;
+    }
     const last = lastCleanBounce(ctx.placement, ctx.end);
     if (!last) continue;
     considered += 1;
@@ -449,16 +476,21 @@ export function computeScoredCards(
   input: ScoredCardsInput,
 ): ScoredCardsResult | null {
   const gate = scoredCardsGate(input.points);
-  if (!gate.open || input.userSide === null) return null;
+  const handCut = input.handCut === true;
+  // An automatic cut needs the side for every card. A hand cut's point
+  // length needs only its marks, so it goes on without one.
+  if (!gate.open || (input.userSide === null && !handCut)) return null;
   const userSide = input.userSide;
   const live = input.points.filter((p) => !p.deleted);
   const diagnoses = new Map(
-    diagnoseServePlacement({
-      points: live,
-      userSide,
-      gameIndexByPoint: input.gameIndexByPoint,
-      serving: input.serving,
-    }).map((d) => [d.pointId, d]),
+    userSide === null
+      ? []
+      : diagnoseServePlacement({
+          points: live,
+          userSide,
+          gameIndexByPoint: input.gameIndexByPoint,
+          serving: input.serving,
+        }).map((d) => [d.pointId, d]),
   );
   const trusted = input.placementTrusted ?? true;
 
@@ -475,12 +507,25 @@ export function computeScoredCards(
     const server = input.serving.get(point.id)?.server ?? null;
     if (server === null) continue;
     const gameIndex = input.gameIndexByPoint.get(point.id) ?? 0;
-    const userPhysical = physicalSideForGame(userSide, gameIndex);
-    const serverSide = server === "user" ? userPhysical : otherSide(userPhysical);
+    const userPhysical =
+      userSide === null ? null : physicalSideForGame(userSide, gameIndex);
+    const serverSide =
+      userPhysical === null
+        ? null
+        : server === "user"
+          ? userPhysical
+          : otherSide(userPhysical);
     const winnerSide =
-      point.confirmed_winner === "user" ? userPhysical : otherSide(userPhysical);
+      userPhysical === null
+        ? null
+        : point.confirmed_winner === "user"
+          ? userPhysical
+          : otherSide(userPhysical);
+    // Placement is drawn from one end of the table, so without the side
+    // it cannot be read at all.
     const placement =
-      trusted
+      userPhysical !== null
+      && trusted
       && !point.placement_flagged
       && point.placement
       && "v" in point.placement
@@ -492,10 +537,13 @@ export function computeScoredCards(
       server,
       serverSide,
       userPhysical,
-      loserSide: otherSide(winnerSide),
+      loserSide: winnerSide === null ? null : otherSide(winnerSide),
       placement,
       diagnosis: placement ? (diagnoses.get(point.id) ?? null) : null,
-      end: pointEndSource(point, input.prePad(point)),
+      // A hand cut ends where the owner tapped End Point, on the same
+      // source clock as the placement candidates.
+      end: handCut ? num(point.t1) : pointEndSource(point, input.prePad(point)),
+      markStart: handCut ? num(point.t0) : null,
     });
   }
 
