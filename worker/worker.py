@@ -50,7 +50,7 @@ from collections import deque
 from functools import wraps
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -168,6 +168,7 @@ try:
     from worker.email_templates import (
         RenderedEmail,
         admin_job_failure_message,
+        auto_recut_failed_message,
         export_ready_message,
         feedback_digest_message,
         hand_cut_failed_message,
@@ -187,6 +188,7 @@ except ModuleNotFoundError:  # direct `python worker/worker.py` execution
     from email_templates import (
         RenderedEmail,
         admin_job_failure_message,
+        auto_recut_failed_message,
         export_ready_message,
         feedback_digest_message,
         match_ready_message,
@@ -432,6 +434,12 @@ R2_MEDIA_BUCKET = "ponglens-media"
 # copy that says an original "expires".
 ORPHAN_RAW_DAYS = 30                # unreferenced raw uploads
 ORPHAN_CUT_DAYS = 30                # unreferenced cut videos under results/
+# A cut the player replaced with a re-cut of their own (or a re-cut of
+# theirs that failed) stops counting at once and its files go this long
+# after: its cut video, its clips, match.json and the rest of its folder.
+# Never the live cut, a candidate, the original, or anything still used
+# (retired_version_sweep; public.retired_processing_versions says which).
+RETIRED_VERSION_DAYS = 30
 R2_VOICE_RETENTION_DAYS = 90        # voice note audio under voice/
 ENTRY_ORPHAN_GRACE_DAYS = 2         # staged Journal images under entry/
                                     # (transcripts live in Postgres forever)
@@ -1230,6 +1238,27 @@ def notify_hand_cut_failed(conn, user_id: str | None, job_id: str | None,
         return False
     except Exception as e:
         log.warning("  hand cut failure email failed (non-fatal): %s", e)
+        return False
+
+
+def notify_auto_recut_failed(conn, user_id: str | None,
+                             job_id: str | None) -> bool:
+    """Tell the player their automatic Replace did not finish: the match is
+    exactly as it was and the minutes are back. No reason, and never where
+    it ran. Never raises; True when the mail actually went out."""
+    try:
+        if not user_id:
+            return False
+        match_id = get_job_match_id(conn, job_id) if job_id else None
+        url = f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL
+        rendered = render_email(auto_recut_failed_message(url))
+        to = get_user_email(conn, user_id)
+        if to:
+            send_email(to, rendered)
+            return True
+        return False
+    except Exception as e:
+        log.warning("  re-cut failure email failed (non-fatal): %s", e)
         return False
 
 
@@ -4176,6 +4205,14 @@ class MatchProcessingDestination:
 
     Active/create mode preserves ordinary processing and its ledger. Candidate
     mode writes only version-scoped artifacts, points, and terminal state.
+
+    A candidate is either support's (an issue, reviewed before an admin
+    publishes it) or the player's own automatic Replace (player_recut: no
+    issue, charged minutes, made live as soon as it is ready). The player's
+    runs the whole pipeline a fresh upload runs, body-first assembler
+    included (full_pipeline), counts its files in the player's storage, and
+    publishes through publish_auto_recut. Design:
+    docs/superpowers/specs/2026-09-25-cut-again-design.md, item 13.
     """
 
     match_id: str
@@ -4190,13 +4227,30 @@ class MatchProcessingDestination:
     release_id: str | None = None
     effective_settings: dict | None = None
     activates_match: bool = False
+    player_recut: bool = False
+    # What publish_auto_recut answered, for the caller holding this
+    # destination (dataclasses.replace shares the dict, so the copies the
+    # workflow makes write into the same one).
+    publication: dict = field(default_factory=dict, compare=False, repr=False)
 
     def __post_init__(self):
+        if self.activates_match and self.player_recut:
+            raise ValueError("a player's re-cut is a candidate, never the active match")
         if not self.activates_match and not all((
-                self.issue_id, self.source_version_id, self.processing_version_id)):
+                self.issue_id or self.player_recut,
+                self.source_version_id, self.processing_version_id)):
             # A null point version invokes the legacy active-version trigger.
             # Refuse incomplete candidates before any media or database write.
             raise ValueError("candidate destination requires explicit version and issue identities")
+        if self.player_recut and self.issue_id:
+            raise ValueError("a player's re-cut has no support request")
+
+    @property
+    def full_pipeline(self) -> bool:
+        """Runs exactly what a fresh upload runs: the body-first assembler,
+        the ordinary stage names on /admin/processing and the player's
+        progress. Support candidates keep their own, narrower run."""
+        return self.activates_match or self.player_recut
 
     @classmethod
     def active(cls, job_id: str, user_id: str, source_path: str,
@@ -4393,6 +4447,359 @@ def finalize_match_reprocess_failure(
         raise
     finally:
         conn.autocommit = original_autocommit
+
+
+# ---------------------------------------------------------------------------
+# Cutting a processed match again automatically, replacing it (Cut again,
+# phase 2, 2026-09-25)
+# ---------------------------------------------------------------------------
+# claim_auto_recut(p_replace = true) makes a CANDIDATE processing version of
+# a processed match and a match_reprocess job for it, with the minutes
+# charged as claim_processing charges them. This lane runs the job with the
+# pipeline a fresh upload runs (download, the claimed trim, ball, points,
+# the body-first assembler, cut, clips, the detailed analysis's arithmetic)
+# into the candidate only: the cut at results/<user>/<match>/versions/
+# <version>.mp4, the clips and match.json under points/<user>/<match>/
+# versions/<version>/, the points on the candidate version. publish_auto_recut
+# makes it ready and live in one transaction; the live match plays untouched
+# until then. A failure fails only the candidate, refunds the minutes and
+# tells the player the match is unchanged. Support reprocessing (an issue on
+# the version) is the other match_reprocess and is not handled here.
+# Design: docs/superpowers/specs/2026-09-25-cut-again-design.md.
+# Shorter than the hand lane's two minutes: this lane is the one uploads
+# queue on, and what the swap waits for (a detailed analysis, say) may be
+# queued behind it. The sweep, which the idle fast lane runs every minute,
+# makes it live as soon as that work is done.
+AUTO_RECUT_ACTIVATE_TRIES = 3          # the first, then two retries ...
+AUTO_RECUT_ACTIVATE_WAIT_S = 15        # ... fifteen seconds apart
+AUTO_RECUT_SWEEP_EVERY_S = 60
+
+_AUTO_RECUT_VERSION_SQL = (
+    "from public.match_processing_versions v "
+    "join public.jobs j on j.id = v.job_id "
+    "where v.job_id = %s and v.issue_id is null "
+    "and v.source_version_id is not null "
+    "and j.kind = 'match_reprocess' "
+    "and coalesce(j.options->>'recut', '') = 'replace' "
+    "and not (j.options ? 'issue_id') "
+)
+
+
+def auto_recut_status(conn, job_id: str) -> str | None:
+    """The status of the candidate a player's automatic Replace builds
+    (candidate, ready, active, superseded, failed), or None when this
+    match_reprocess job is support's. Read from the version row, never from
+    the queue message."""
+    with conn.cursor() as cur:
+        cur.execute("select v.status " + _AUTO_RECUT_VERSION_SQL
+                    + "order by v.created_at desc limit 1", (str(job_id),))
+        row = cur.fetchone()
+    if not row:
+        return None
+    value = row[0] if isinstance(row, (tuple, list)) else row
+    return str(value) if value else None
+
+
+def load_auto_recut_destination(conn, job_id: str) -> MatchProcessingDestination:
+    """The candidate to build, from Postgres: still a candidate, of a match
+    that is ready and still live on the version it replaces."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select jsonb_build_object("
+            "'match_id', m.id::text, 'user_id', m.user_id::text, "
+            "'job_id', j.id::text, "
+            "'source_version_id', v.source_version_id::text, "
+            "'processing_version_id', v.id::text, 'raw_path', v.raw_path, "
+            "'options', j.options, 'match_state', to_jsonb(m)) "
+            "from public.match_processing_versions v "
+            "join public.jobs j on j.id = v.job_id "
+            "join public.matches m on m.id = v.match_id "
+            "where v.job_id = %s and v.issue_id is null "
+            "and v.source_version_id is not null "
+            "and j.kind = 'match_reprocess' "
+            "and coalesce(j.options->>'recut', '') = 'replace' "
+            "and not (j.options ? 'issue_id') "
+            "and v.status = 'candidate' and m.status = 'ready' "
+            "and m.active_processing_version_id = v.source_version_id "
+            "and j.user_id = m.user_id "
+            "and j.options->>'match_id' = m.id::text "
+            "and j.options->>'processing_version_id' = v.id::text",
+            (str(job_id),),
+        )
+        row = cur.fetchone()
+    record = row if isinstance(row, dict) else (row[0] if row else None)
+    if not isinstance(record, dict):
+        raise RuntimeError("automatic re-cut job no longer has its candidate")
+    required = ("match_id", "user_id", "job_id", "source_version_id",
+                "processing_version_id", "options", "match_state")
+    if any(not record.get(key) for key in required):
+        raise RuntimeError("automatic re-cut job has incomplete database facts")
+    if not isinstance(record["options"], dict) or not isinstance(
+            record["match_state"], dict):
+        raise RuntimeError("automatic re-cut job has invalid database facts")
+    return MatchProcessingDestination(
+        match_id=str(record["match_id"]), user_id=str(record["user_id"]),
+        job_id=str(record["job_id"]),
+        source_version_id=str(record["source_version_id"]),
+        processing_version_id=str(record["processing_version_id"]),
+        source_path=str(record["raw_path"] or ""), options=record["options"],
+        match_state=record["match_state"], player_recut=True,
+    )
+
+
+def _auto_recut_receipt(row) -> dict:
+    """Check what publish_auto_recut / activate_auto_recut answered."""
+    value = row[0] if isinstance(row, (tuple, list)) and row else row
+    valid = (
+        isinstance(value, dict)
+        and value.get("ok") is True
+        and value.get("contractVersion") == 1
+        and isinstance(value.get("activated"), bool)
+        and isinstance(value.get("live"), bool)
+        and isinstance(value.get("pointCount"), int)
+        and value.get("pointCount") > 0
+    )
+    if valid and value["activated"]:
+        valid = (value.get("scoreProjectionStatus") in {"current", "empty"}
+                 and isinstance(value.get("scoreRevision"), int))
+    if not valid:
+        raise RuntimeError(
+            "automatic re-cut publication receipt is missing or incompatible")
+    return value
+
+
+def finalize_auto_recut_success(
+    conn, destination: MatchProcessingDestination, *, cut_path: str,
+    thumb_path: str | None, match_json_path: str, match_state: dict,
+    point_indices: list[int],
+) -> dict:
+    """Publish the candidate and try once to make it live, in one
+    transaction (publish_auto_recut). The receipt also lands on
+    destination.publication for the caller."""
+    original_autocommit = conn.autocommit
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            # A retry may find fewer cards: only this candidate's stale tail.
+            cur.execute(
+                "delete from public.points where match_id = %s "
+                "and processing_version_id = %s and not (idx = any(%s))",
+                (destination.match_id, destination.processing_version_id,
+                 point_indices),
+            )
+            cur.execute(
+                "select public.publish_auto_recut("
+                "%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)",
+                (destination.job_id, cut_path, thumb_path, match_json_path,
+                 json.dumps(match_state, default=str),
+                 json.dumps(destination.effective_settings or {}, default=str),
+                 destination.release_id),
+            )
+            receipt = _auto_recut_receipt(cur.fetchone())
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.autocommit = original_autocommit
+    destination.publication["receipt"] = receipt
+    log.info("  automatic re-cut published: match %s, version %s, %d points, "
+             "live now: %s", destination.match_id,
+             destination.processing_version_id, receipt["pointCount"],
+             receipt["live"])
+    return receipt
+
+
+def activate_auto_recut(conn, job_id: str) -> dict:
+    """Try again to make a published candidate live (one transaction)."""
+    with conn.cursor() as cur:
+        cur.execute("select public.activate_auto_recut(%s)", (str(job_id),))
+        return _auto_recut_receipt(cur.fetchone())
+
+
+def _make_auto_recut_live(conn, job_id: str) -> bool:
+    """The swap refuses while a reclip, detailed analysis or share video
+    runs on the match, and those finish in seconds to minutes. Retry
+    briefly; if it still waits, the lanes' sweep makes it live when they are
+    done. True only when THIS process made it live (so it alone sends the
+    ready email). Never raises."""
+    for _ in range(AUTO_RECUT_ACTIVATE_TRIES - 1):
+        pulse_stage("recut_activate")
+        time.sleep(AUTO_RECUT_ACTIVATE_WAIT_S)
+        try:
+            receipt = activate_auto_recut(conn, job_id)
+        except Exception:                                   # noqa: BLE001
+            log.warning("  automatic re-cut %s: swap retry failed", job_id,
+                        exc_info=True)
+            continue
+        if receipt["live"]:
+            return receipt["activated"]
+    log.info("  automatic re-cut %s is ready and waits for the match's other "
+             "work to finish; the sweep will make it live", job_id)
+    return False
+
+
+def fail_auto_recut(conn, job_id: str, error: Exception | str) -> bool:
+    """Fail the candidate (points deleted, storage uncounted), fail the job
+    and refund its minutes, in one statement. False when there was no
+    unpublished candidate left to fail (it was published, or already
+    failed): then nothing changed and nothing should be sent."""
+    with conn.cursor() as cur:
+        cur.execute("select public.fail_auto_recut(%s, %s)",
+                    (str(job_id), str(error)[:500] or "The new cut did not finish."))
+        row = cur.fetchone()
+    value = row[0] if isinstance(row, (tuple, list)) and row else row
+    return bool(value)
+
+
+def _auto_recut_owner(conn, job_id: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute("select user_id::text from public.jobs where id = %s",
+                    (str(job_id),))
+        row = cur.fetchone()
+    return str(row[0]) if row and row[0] else None
+
+
+def _fail_auto_recut_job(conn, msg: dict, job_id: str, error: Exception) -> None:
+    """A re-cut that did not finish: the candidate and the job fail, the
+    minutes come back, the player hears the match is unchanged and the
+    admin gets the crash. If the bookkeeping itself fails, the message stays
+    for another delivery (the candidate is still a candidate)."""
+    try:
+        failed = fail_auto_recut(conn, job_id, error)
+    except Exception:
+        log.exception("  automatic re-cut failure bookkeeping failed")
+        return
+    archive_message(conn, msg["msg_id"])
+    if not failed:
+        log.info("  automatic re-cut %s had nothing left to fail", job_id)
+        return
+    log.info("  automatic re-cut %s failed; match unchanged, minutes refunded",
+             job_id)
+    try:
+        notify_auto_recut_failed(conn, _auto_recut_owner(conn, job_id), job_id)
+    except Exception:                                       # noqa: BLE001
+        log.warning("  automatic re-cut failure email skipped", exc_info=True)
+    notify_job_failed(conn, job_id, str(error))
+
+
+def process_auto_recut(conn, job_id: str, attempt_key: str,
+                       destination: MatchProcessingDestination) -> bool:
+    """Build, publish and (usually) make live one automatic re-cut. Returns
+    True when this run made it live. Everything after publication is
+    best-effort: the new cut is the player's from then on."""
+    source = parse_r2_path(destination.source_path)
+    if source is None:
+        raise RuntimeError("the original video is missing or unreadable")
+    options = destination.options
+    workdir = tempfile.mkdtemp(prefix=f"ponglens-recut-{str(job_id)[:8]}-")
+    try:
+        pulse_stage("download")
+        update_job(conn, job_id, progress=5, error=None)
+        ext = os.path.splitext(destination.source_path)[1] or ".mp4"
+        local_input = os.path.join(workdir, f"input{ext}")
+        r2().download_file(source[0], source[1], local_input)
+        if not os.path.exists(local_input) or os.path.getsize(local_input) == 0:
+            raise RuntimeError("the original video is missing or unreadable")
+        update_job(conn, job_id, progress=10)
+        # The claimed window, by the ordinary path's own rule (and
+        # _recut_marks_from_points' and reclip's): cut only when the window
+        # is not effectively the whole file.
+        camera_offset_s = 0.0
+        t0 = float(options.get("trim_start_s") or 0.0)
+        t1 = options.get("trim_end_s")
+        if t1 is not None:
+            real = probe_duration_s(local_input)
+            if t0 > 0.5 or (real is not None and float(t1) < real - 0.5):
+                pulse_stage("trim")
+                local_input = apply_trim(local_input, workdir, t0, float(t1))
+                camera_offset_s = t0
+        update_job(conn, job_id, progress=15)
+
+        run_match_processing_workflow(
+            conn, destination, local_input, workdir,
+            attempt_key=attempt_key, profile_offset_s=camera_offset_s)
+        receipt = destination.publication.get("receipt")
+        if receipt is None:
+            raise RuntimeError("automatic re-cut was not published")
+
+        activated = receipt["activated"]
+        if not receipt["live"]:
+            activated = _make_auto_recut_live(conn, job_id)
+        if not activated:
+            return False
+        # The ordinary "your match is ready" email (the bell rang in the
+        # swap), then what a fresh upload does after it is ready: the
+        # side-change pass, on the clips still in this workdir.
+        notify_job_done(conn, job_id, destination.user_id)
+        run_side_change_stage(
+            conn, destination.match_id, workdir,
+            os.path.join(workdir, "points_out"), job_id=job_id)
+        return True
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def run_auto_recut_job(conn, msg: dict, job_id: str, attempt_key: str,
+                       status: str) -> None:
+    """One delivery of a player's automatic Replace. Never raises."""
+    if status != "candidate":
+        # Published on an earlier delivery: only the swap can be left, and
+        # the sweep tries it too. Anything else is finished.
+        if status == "ready":
+            try:
+                receipt = activate_auto_recut(conn, job_id)
+                if receipt["activated"]:
+                    notify_job_done(conn, job_id,
+                                    _auto_recut_owner(conn, job_id) or "")
+            except Exception:                               # noqa: BLE001
+                log.warning("  automatic re-cut %s: swap on redelivery failed",
+                            job_id, exc_info=True)
+        archive_message(conn, msg["msg_id"])
+        return
+    if msg["read_ct"] > MAX_READ_CT:
+        # Every earlier delivery died before it could fail the candidate
+        # itself (the worker was killed mid-run). Give up, refunded.
+        _fail_auto_recut_job(conn, msg, job_id, RuntimeError(
+            f"automatic re-cut gave up after {msg['read_ct'] - 1} attempts"))
+        return
+    try:
+        destination = load_auto_recut_destination(conn, job_id)
+        live = process_auto_recut(conn, job_id, attempt_key, destination)
+    except Exception as error:  # a failed re-cut must never touch the live match
+        log.exception("  automatic re-cut failed: %s", error)
+        _fail_auto_recut_job(conn, msg, job_id, error)
+        return
+    archive_message(conn, msg["msg_id"])
+    log.info("  automatic re-cut done: job %s, live now: %s", job_id, live)
+
+
+def activate_pending_auto_recuts(conn) -> list[dict]:
+    """The match lanes' sweep: make live every published automatic re-cut
+    that was waiting for its match's other work, then send the ordinary
+    ready email (the bell rings in the database). Exactly once across lanes
+    (the database locks the match). Never raises."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select public.activate_pending_auto_recuts()")
+            row = cur.fetchone()
+        made_live = (row[0] if row else None) or []
+    except Exception as error:                              # noqa: BLE001
+        # Before the migration the function does not exist (undefined
+        # function): nothing can be waiting, and a warning a minute would
+        # only bury the log.
+        if getattr(error, "pgcode", None) != "42883":
+            log.warning("automatic re-cut sweep failed (non-fatal): %s", error)
+        return []
+    for item in made_live:
+        try:
+            log.info("automatic re-cut %s is live on match %s",
+                     item.get("job_id"), item.get("match_id"))
+            notify_job_done(conn, str(item["job_id"]), str(item["user_id"]))
+        except Exception:                                   # noqa: BLE001
+            log.warning("automatic re-cut sweep follow-up failed for %s", item,
+                        exc_info=True)
+    return made_live
 
 
 # ---------------------------------------------------------------------------
@@ -6410,7 +6817,9 @@ def run_points_stage(
 
         # Storage ledger: rows carry match_id, so match deletion (010
         # trigger) frees them; r2_key is the folder prefix for reference.
-        if destination.activates_match:
+        # A player's re-cut counts too, under its version's folder, which
+        # is what fail_auto_recut and the next Replace uncount by.
+        if destination.activates_match or destination.player_recut:
             ledger_append(conn, user_id, "clip", clip_bytes,
                           f"{r2_prefix}/", match_id)
             ledger_append(conn, user_id, "other", other_bytes,
@@ -6449,6 +6858,14 @@ def run_points_stage(
             if structure_evidence is not None:
                 state["match_structure"] = map_structure_point_ids(
                     structure_evidence, inserted_points)
+            if destination.player_recut:
+                finalize_auto_recut_success(
+                    conn, destination, cut_path=state["cut_path"],
+                    thumb_path=thumb_path,
+                    match_json_path=state["match_json_path"], match_state=state,
+                    point_indices=list(inserted_points),
+                )
+                return match_id
             finalize_match_reprocess_success(
                 conn, destination, cut_path=state["cut_path"], thumb_path=thumb_path,
                 match_json_path=state["match_json_path"], match_state=state,
@@ -11184,6 +11601,9 @@ def run_match_processing_workflow(
     options = destination.options
     job_id, user_id = destination.job_id, destination.user_id
     active = destination.activates_match
+    # A player's own automatic Replace runs and reports exactly as a fresh
+    # upload does; support candidates keep their candidate_* stages.
+    full = destination.full_pipeline
     wants_points = not active or bool(options.get("points"))
     if active and not wants_points:
         _record_video_profile(local_input, "legacy_spans", profile_offset_s)
@@ -11233,14 +11653,14 @@ def run_match_processing_workflow(
                 "trim_start_s": options.get("trim_start_s"),
                 "trim_end_s": options.get("trim_end_s"),
             })
-        pulse_stage("ball" if active else "candidate_points")
+        pulse_stage("ball" if full else "candidate_points")
         blurball_out = detect_ball(
             local_input, workdir, attempt_key=attempt_key,
             on_progress=blurball_progress, table_crop=ball_crop, corners=crop_corners)
         update_job(conn, job_id, progress=45)
         segments_json = None
         try:
-            pulse_stage("points" if active else "candidate_points")
+            pulse_stage("points" if full else "candidate_points")
             outdir = run_points_subprocess(
                 local_input, blurball_out, workdir, options,
                 detections_note=detections_note_from_sidecar(
@@ -11255,12 +11675,18 @@ def run_match_processing_workflow(
                     ball_crop=ball_crop,
                     points_kwargs=points_kwargs,
                 )
-            if active and points_kwargs.get("pipeline") == "bodies":
+            if points_kwargs.get("pipeline") == "bodies":
                 # THE BODY-FIRST ASSEMBLER (spec 2026-09-08). The pass above
                 # built the ball's cards and, with them, the table and the
                 # evidence the players' pass needs. Read the players, then
                 # rebuild the points with the bodies deciding. Fails open to
                 # the cards already on disk.
+                #
+                # Every run, candidates included (Cut again, 2026-09-25).
+                # This was gated on `active` until then, so a re-cut of a
+                # processed match (a player's Replace or support's
+                # reprocess) was assembled from the ball alone and came out
+                # quietly worse than the upload it was meant to improve.
                 outdir = run_body_points_pass(
                     conn, job_id, local_input, blurball_out, workdir, options,
                     points_kwargs=points_kwargs)
@@ -11280,7 +11706,7 @@ def run_match_processing_workflow(
                         "falling back to the span cut", error)
             outdir = os.path.join(workdir, "points_out")
             shutil.rmtree(outdir, ignore_errors=True)
-        pulse_stage("cut" if active else "candidate_prepare")
+        pulse_stage("cut" if full else "candidate_prepare")
         result = run_cut(local_input, workdir, blurball_out, strictness,
                          segments_json=segments_json, attempt_key=attempt_key)
     else:
@@ -11302,7 +11728,7 @@ def run_match_processing_workflow(
         if active and options.get("match_id") is not None else nullcontext())
     with guard:
         update_job(conn, job_id, progress=(60 if wants_points else 85) if active else 65)
-        pulse_stage("upload" if active else "candidate_save")
+        pulse_stage("upload" if full else "candidate_save")
         if parse_r2_path(destination.source_path):
             result_path = f"r2://{R2_MEDIA_BUCKET}/{destination.cut_key}"
             log.info("  uploading %s", result_path)
@@ -11312,6 +11738,12 @@ def run_match_processing_workflow(
                 # The ordinary match row may not exist yet; its deletion trigger
                 # frees this ledger balance by matches.cut_path as before.
                 ledger_append(conn, user_id, "cut", os.path.getsize(result), result_path)
+            elif destination.player_recut:
+                # The player's new cut counts from the moment it is stored,
+                # on the match (fail_auto_recut and the next Replace uncount
+                # it by this key; deleting the match nets it by the match).
+                ledger_append(conn, user_id, "cut", os.path.getsize(result),
+                              result_path, destination.match_id)
         else:
             if not active:
                 raise RuntimeError("match reprocess source is missing or unreadable")
@@ -11321,7 +11753,7 @@ def run_match_processing_workflow(
         points_match_id = None
         if wants_points:
             update_job(conn, job_id, progress=70)
-            pulse_stage("publish" if active else "candidate_save")
+            pulse_stage("publish" if full else "candidate_save")
             points_match_id = run_points_stage(
                 conn, job_id, user_id, local_input, blurball_out, workdir, options,
                 result_path, played_at=played_at, attempt_key=attempt_key,
@@ -11459,6 +11891,18 @@ def process_job(conn, msg) -> None:
         _feedback_telemetry.emit("claimed", route=kind)
 
     if kind == "match_reprocess":
+        # A player's own automatic Replace (claim_auto_recut) shares the kind
+        # with support reprocessing; the version row says which this is.
+        try:
+            recut_status = auto_recut_status(conn, job_id)
+        except Exception:
+            # Leave the message: its next delivery asks again. The job row
+            # still reads processing, so that delivery claims it.
+            log.exception("  could not read job %s's candidate", job_id)
+            return
+        if recut_status is not None:
+            run_auto_recut_job(conn, msg, job_id, attempt_key, recut_status)
+            return
         # The database constructs the candidate publishing destination. The
         # shared workflow cannot enter any active mutation branch in this mode.
         destination = None
@@ -12133,7 +12577,9 @@ def _referenced_cut_paths(conn) -> set[str]:
     These persist with the match, whatever their age and whatever the
     commerce flag says — a flag flip must never start deleting a player's
     video. Only cuts of DELETED matches (no row) expire on the orphan
-    clock."""
+    clock, and the cut of a version retired_version_sweep has already
+    emptied (media_swept_at): that sweep removes it, and this tier then
+    catches one it could not delete, as the orphan it is."""
     with conn.cursor() as cur:
         cur.execute(
             "select cut_path from public.matches "
@@ -12144,12 +12590,112 @@ def _referenced_cut_paths(conn) -> set[str]:
             "where j.result_path like %s "
             "union "
             "select cut_path from public.match_processing_versions "
-            "where cut_path like %s",
+            "where cut_path like %s and media_swept_at is null",
             (f"r2://{R2_MEDIA_BUCKET}/results/%",
              f"r2://{R2_MEDIA_BUCKET}/results/%",
              f"r2://{R2_MEDIA_BUCKET}/results/%"),
         )
         return {row[0] for row in cur.fetchall() if row[0]}
+
+
+def _r2_location(path: str) -> tuple[str, str] | None:
+    """(bucket, key) of an r2:// URI, or of a bare key in the media bucket
+    (reel keys are stored bucket-relative)."""
+    loc = parse_r2_path(path or "")
+    if loc:
+        return loc
+    if path and not path.startswith(("r2://", "/")) and "://" not in path:
+        return R2_MEDIA_BUCKET, path
+    return None
+
+
+def _list_media_keys(client, prefix: str, *, top_level_only: bool = False) -> list[str]:
+    """Every key under prefix in the media bucket; with top_level_only, only
+    the files directly in it (not its sub-folders, which are other cuts)."""
+    keys: list[str] = []
+    paginator = client.get_paginator("list_objects_v2")
+    kwargs = {"Bucket": R2_MEDIA_BUCKET, "Prefix": prefix}
+    if top_level_only:
+        kwargs["Delimiter"] = "/"
+    for page in paginator.paginate(**kwargs):
+        keys.extend(obj["Key"] for obj in page.get("Contents", []))
+    return keys
+
+
+def _sweep_retired_version(conn, version_id: str) -> int:
+    """Remove one retired version's files. The database stamps it swept
+    first (claim_retired_version_sweep, which re-checks it under lock), so
+    from then on it can never be made live again; then every file of it that
+    nothing else uses goes. Returns how many objects were deleted."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select public.claim_retired_version_sweep(%s, "
+            "make_interval(days => %s))",
+            (version_id, RETIRED_VERSION_DAYS))
+        row = cur.fetchone()
+    claim = row[0] if row else None
+    if not isinstance(claim, dict):
+        return 0
+    user_id, match_id = claim["user_id"], claim["match_id"]
+    client = r2()
+    folder = f"points/{user_id}/{match_id}/"
+    keys = set(_list_media_keys(client, f"{folder}versions/{version_id}/"))
+    if claim.get("first_cut"):
+        # A match's first cut wrote straight into the match's folder; its
+        # sub-folders are the later cuts.
+        keys.update(_list_media_keys(client, folder, top_level_only=True))
+    candidates: dict[str, tuple[str, str]] = {
+        f"r2://{R2_MEDIA_BUCKET}/{key}": (R2_MEDIA_BUCKET, key) for key in keys}
+    for path in [claim.get("cut_path"), *(claim.get("reel_keys") or [])]:
+        loc = _r2_location(path) if path else None
+        if loc and loc[0] == R2_MEDIA_BUCKET:
+            candidates[path] = loc
+    if not candidates:
+        return 0
+    with conn.cursor() as cur:
+        cur.execute(
+            "select k from public.media_keys_in_use(%s::text[], %s::uuid[]) k",
+            (list(candidates), [version_id]))
+        in_use = {row[0] for row in cur.fetchall()}
+    doomed = [(path, loc) for path, loc in candidates.items() if path not in in_use]
+    for i in range(0, len(doomed), 1000):
+        chunk = doomed[i:i + 1000]
+        client.delete_objects(
+            Bucket=R2_MEDIA_BUCKET,
+            Delete={"Objects": [{"Key": loc[1]} for _, loc in chunk], "Quiet": True})
+        # Already uncounted when the version was retired; this nets any
+        # file booked under its own key, and is a no-op otherwise.
+        ledger_negate_keys(conn, [
+            path if path.startswith("r2://") else f"r2://{R2_MEDIA_BUCKET}/{path}"
+            for path, _ in chunk])
+    log.info("  retired version %s (match %s): removed %d file(s), kept %d "
+             "still in use", version_id, match_id, len(doomed), len(in_use))
+    return len(doomed)
+
+
+def retired_version_sweep(conn):
+    """Remove the files of retired versions RETIRED_VERSION_DAYS after they
+    were retired: a cut the player replaced with a re-cut of their own, or a
+    re-cut of theirs that failed (public.retired_processing_versions). Their
+    storage stopped counting when that happened; this is the quiet window
+    for support ending. Never the live cut, never a candidate, never the
+    original (the raw bucket is not touched), never a file anything else
+    still uses (public.media_keys_in_use). One version failing does not stop
+    the others."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select version_id::text from public.retired_processing_versions("
+            "make_interval(days => %s))", (RETIRED_VERSION_DAYS,))
+        due = [row[0] for row in cur.fetchall()]
+    removed = 0
+    for version_id in due:
+        try:
+            removed += _sweep_retired_version(conn, version_id)
+        except Exception:                                   # noqa: BLE001
+            log.warning("  retired-version sweep failed for %s", version_id,
+                        exc_info=True)
+    log.info("cleanup: retired versions older than %dd — %d version(s), %d "
+             "object(s) removed", RETIRED_VERSION_DAYS, len(due), removed)
 
 
 SHARE_RENDER_RETENTION_DAYS = 7
@@ -12262,6 +12808,8 @@ def retention_sweep(conn):
     videos stay for the life of the match. The timed tiers are for
     orphans and for media with its own promised lifetime:
       unreferenced raw uploads (ponglens-raw)              30 days
+      retired versions' files (a cut the player replaced,
+        or their failed re-cut: cut, clips, match.json)    30 days
       unreferenced cut videos  (ponglens-media results/)   30 days
       voice audio (ponglens-media voice/)                  90 days
       orphaned sketches (sketch/, unreferenced by notes)    2 days
@@ -12277,6 +12825,9 @@ def retention_sweep(conn):
         ("legacy-supabase-uploads", lambda: cleanup_legacy_uploads(conn)),
         ("r2-raw", lambda: r2_sweep_prefix(
             conn, R2_RAW_BUCKET, "", ORPHAN_RAW_DAYS)),
+        # Before r2-results, which then no longer protects a swept
+        # version's cut and removes one this tier could not.
+        ("r2-retired-versions", lambda: retired_version_sweep(conn)),
         ("r2-results", lambda: r2_sweep_prefix(
             conn, R2_MEDIA_BUCKET, "results/", ORPHAN_CUT_DAYS,
             protect_keys=_referenced_cut_paths(conn))),
@@ -12648,6 +13199,12 @@ def main():
     # And it makes live the re-cuts that were published while their match
     # had other work running (activate_pending_hand_recuts).
     last_recut_sweep = 0.0
+    # The match lanes do the same for automatic re-cuts
+    # (activate_pending_auto_recuts): the main lane runs them, and the fast
+    # lane finishes the reclips and share videos they wait for. The
+    # database makes each one live exactly once, whichever lane asks.
+    auto_recut_sweep = LANE in ("main", "fast")
+    last_auto_recut_sweep = 0.0
 
     while True:
         try:
@@ -12682,6 +13239,12 @@ def main():
                     > HAND_RECUT_SWEEP_EVERY_S):
                 activate_pending_hand_recuts(conn)  # never raises
                 last_recut_sweep = time.time()
+
+            if auto_recut_sweep and (
+                    time.time() - last_auto_recut_sweep
+                    > AUTO_RECUT_SWEEP_EVERY_S):
+                activate_pending_auto_recuts(conn)  # never raises
+                last_auto_recut_sweep = time.time()
 
             # Housekeeping can take time. Recheck at the actual queue boundary
             # so a drain or integrity failure cannot race a new claim.
