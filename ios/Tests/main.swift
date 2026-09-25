@@ -40,6 +40,7 @@ Task { @MainActor in
         runMarkLandscapeChecks()
         runCutAgainChecks()
         runHandCutPlaybackChecks()
+        runUploadCutChoiceChecks()
     }
 
     print("\n\(checks - failures)/\(checks) checks passed")

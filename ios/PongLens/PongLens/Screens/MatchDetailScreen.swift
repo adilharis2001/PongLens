@@ -746,6 +746,9 @@ struct MatchDetailScreen: View {
     /// The web's ?p= deep link: when a journal card names a point, its
     /// sheet opens as soon as the points are in.
     var openPointId: UUID?
+    /// Mark the points yourself was chosen on the upload sheet: open the
+    /// marker as soon as the page can (MainTabView's MarkMatchRoute).
+    var markOnArrival = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -785,6 +788,9 @@ struct MatchDetailScreen: View {
     @State private var markModeChoice: HandCutMode?
     /// The marker's video link is being minted.
     @State private var openingMarker = false
+    /// markOnArrival has had its one go. The page's load task runs again
+    /// when the marker closes, and must not open it a second time.
+    @State private var arrivalMarkerTried = false
     /// The Original pill is mid-flight (the presigned URL is a round trip).
     @State private var openingOriginal = false
     /// The original could not be reached. Only possible on matches
@@ -1180,6 +1186,17 @@ struct MatchDetailScreen: View {
                     await handCut.load(matchId: match.id, userId: uid)
                     // A cut this phone started and has not finished carries on.
                     DeviceHandCutQueue.shared.resume()
+                    // Chosen on the upload sheet: straight into the marker,
+                    // on this phone's own copy when it kept one, with the
+                    // card left open on Mark the points yourself behind it.
+                    if markOnArrival, !arrivalMarkerTried {
+                        arrivalMarkerTried = true
+                        if handCutAvailable {
+                            processOpen = true
+                            way.choose(.byHand)
+                            await openMarker()
+                        }
+                    }
                 }
                 // A hand cut that died opens the card too: its marks and
                 // the way back into them are why anyone is here.

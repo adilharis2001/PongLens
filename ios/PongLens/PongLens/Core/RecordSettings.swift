@@ -27,11 +27,11 @@ struct RecordSettings: Codable, Equatable {
     var fps: Int = 60 // 30 or 60
     var wifiOnlyUploads = false
     var overlay: RecordOverlay = .ghost
-    /// OFF by default (2026-09-09, Adil's call): processing spends
-    /// minutes, and a default that spends them has to be noticed to be
-    /// refused. A saved settings blob keeps whatever its owner chose —
-    /// this only moves new installs and anyone who never touched it.
-    var processAfterUpload = false
+    // There was a "Process when the upload finishes" setting here. It went
+    // with the switch it defaulted (2026-09-25): the details sheet now asks
+    // Break it into points and always opens on Later, so nothing about an
+    // earlier upload decides whether this one spends minutes. A saved blob
+    // still carrying the key decodes; the key is simply not read.
     var placementMaps = false
     /// Listen for a game score called out at the phone. Off until it has
     /// been proven in a real hall — a feature that mishears is worse than
@@ -52,8 +52,6 @@ struct RecordSettings: Codable, Equatable {
         fps = try values.decodeIfPresent(Int.self, forKey: .fps) ?? 60
         wifiOnlyUploads = try values.decodeIfPresent(
             Bool.self, forKey: .wifiOnlyUploads) ?? false
-        processAfterUpload = try values.decodeIfPresent(
-            Bool.self, forKey: .processAfterUpload) ?? false
         placementMaps = try values.decodeIfPresent(
             Bool.self, forKey: .placementMaps) ?? false
         callOutScore = try values.decodeIfPresent(
@@ -78,13 +76,12 @@ struct RecordSettings: Codable, Equatable {
         try values.encode(fps, forKey: .fps)
         try values.encode(wifiOnlyUploads, forKey: .wifiOnlyUploads)
         try values.encode(overlay, forKey: .overlay)
-        try values.encode(processAfterUpload, forKey: .processAfterUpload)
         try values.encode(placementMaps, forKey: .placementMaps)
         try values.encode(callOutScore, forKey: .callOutScore)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case fps, wifiOnlyUploads, overlay, processAfterUpload, placementMaps
+        case fps, wifiOnlyUploads, overlay, placementMaps
         case callOutScore
         /// Read on the way in only, to carry the old single switch over.
         case placementGuide

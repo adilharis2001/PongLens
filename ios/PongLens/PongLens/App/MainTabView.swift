@@ -67,6 +67,23 @@ struct MainTabView: View {
         )
     }
 
+    /// The upload sheet's Mark the points yourself, once its match exists:
+    /// push the match page, which opens the marker on arrival. Waits while
+    /// the camera or the upload screen is still up, since a marker raised
+    /// underneath a full-screen cover never shows, and while the session's
+    /// first file has not registered.
+    private func handOffMarker() {
+        let queue = RecordingQueue.shared
+        guard let session = queue.markerSession,
+              !router.recordOpen, !router.uploadOpen else { return }
+        let files = queue.items
+            .filter { $0.sessionId == session }
+            .map { (capturedAtMs: $0.capturedAtMs, matchId: $0.matchId) }
+        guard let matchId = UploadCutWay.markerMatch(files) else { return }
+        queue.markerSession = nil
+        Task { await pushMatchForMarking(matchId, library: library, path: $path) }
+    }
+
     /// Everything the chooser used to do inline, now also reachable from
     /// the far side of the recording brief.
     private func beginNewMatch(_ choice: NewMatchChoice) {
@@ -167,11 +184,24 @@ struct MainTabView: View {
             .navigationDestination(for: MatchPointRoute.self) { route in
                 MatchDetailScreen(match: route.match, openPointId: route.pointId)
             }
+            .navigationDestination(for: MarkMatchRoute.self) { route in
+                MatchDetailScreen(match: route.match, markOnArrival: true)
+            }
             .onChange(of: router.openMatchId) { _, id in
                 guard let id else { return }
                 router.openMatchId = nil
                 Task { await replaceTopMatch(id, library: library, path: $path) }
             }
+            // Mark the points yourself, chosen on the upload sheet: the
+            // match opens in its marker once it has registered and the
+            // camera or the upload screen has gone. Each of these can be
+            // the last of the three to happen.
+            .onChange(of: RecordingQueue.shared.markerSession) { handOffMarker() }
+            .onReceive(NotificationCenter.default.publisher(for: .plUploadRegistered)) { _ in
+                handOffMarker()
+            }
+            .onChange(of: router.recordOpen) { handOffMarker() }
+            .onChange(of: router.uploadOpen) { handOffMarker() }
             .navigationDestination(for: CoachRosterRoute.self) { _ in
                 CoachRosterScreen()
             }
@@ -655,6 +685,24 @@ struct PLFabStack: View {
             router.newMatchOpen = true
         }
     }
+}
+
+/// A match page that opens straight into its marker: Mark the points
+/// yourself, chosen on the upload sheet.
+struct MarkMatchRoute: Hashable {
+    let match: MatchRow
+}
+
+/// Push a just-uploaded match's page to open in its marker. On top of
+/// whatever is showing, never in its place: nothing asked for that page to
+/// go. The row comes from the library when it is there, else the table.
+@MainActor
+func pushMatchForMarking(_ id: UUID, library: LibraryStore, path: Binding<NavigationPath>) async {
+    await library.load()
+    var row = library.matches.first { $0.id == id }
+    if row == nil { row = try? await MatchDetailClient.live.match(id) }
+    guard let row else { return }
+    path.wrappedValue.append(MarkMatchRoute(match: row))
 }
 
 /// Swap the match page on top of a stack for another match's page: the
