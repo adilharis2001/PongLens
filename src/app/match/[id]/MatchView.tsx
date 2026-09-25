@@ -3600,6 +3600,7 @@ export function MatchView({
               pad={pad}
               ends={ends}
               deletedSpans={deletedSpans}
+              handCut={match.cut_source === "manual"}
               onDeletePoint={(p) => { if (!sampleViewer) void deletePointQuiet(p); }}
               onUndoDelete={(id) => { if (!sampleViewer) void undoDelete(id); }}
               onDeleteAllBefore={(p) => { if (!sampleViewer) void deleteAllBeforeQuiet(p); }}

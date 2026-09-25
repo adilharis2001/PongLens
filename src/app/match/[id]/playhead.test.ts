@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   effectiveEnd,
+  handCutGaps,
+  handCutTape,
+  markEnd,
+  markStart,
   nextCutStart,
   paddedEnd,
   pauseEnd,
@@ -391,4 +395,92 @@ test("a scored point is unaffected by the tight buffer", () => {
     highlight_evidence: ev(),
   });
   assert.equal(effectiveEnd(p, PAD, { ...TIGHT, tapEnd: true }), 53.5);
+});
+
+/* ------------------------------------------------ hand-cut tape (2026-09-25) */
+
+// A hand cut as the worker cuts it: each mark padded 1.2 s before and
+// 1.3 s after, clips laid end to end on the cut clock.
+function marked(id: string, t0: number, t1: number, cut: number, over: Partial<Point> = {}): Point {
+  return pt({ id, t0, t1, cut_t0: cut, deleted: false, is_let: false, ...over });
+}
+
+test("a mark starts pre after its clip start, and ends the rally after that", () => {
+  const p = marked("a", 30, 36.5, 10);
+  assert.equal(markStart(p, PAD), 11.2);
+  assert.equal(markEnd(p, PAD), 17.7);
+  // Unclamped, the end is exactly rallyEnd.
+  assert.equal(markEnd(p, PAD), rallyEnd(p, PAD));
+});
+
+test("a clip clamped at the top of the video: the mark sits t0 in", () => {
+  // Marked 0.5 s into the recording: the clip could only start at 0.
+  const p = marked("first", 0.5, 6, 0);
+  assert.equal(markStart(p, PAD), 0.5);
+  assert.equal(markEnd(p, PAD), 6);
+  // rallyEnd would assume the full pre pad and run 0.7 s late here.
+  assert.ok(Math.abs(rallyEnd(p, PAD)! - 6.7) < 1e-9);
+});
+
+test("the tape plays each mark and cuts straight to the next", () => {
+  const a = marked("a", 30, 36, 0); // clip 0..9.8 on the cut clock
+  const b = marked("b", 50, 58, 9.8); // clip 9.8..20.3
+  const c = marked("c", 70, 75, 20.3);
+  const tape = handCutTape([a, b, c], PAD);
+  assert.deepEqual(
+    tape.map((s) => [Number(s.start.toFixed(3)), Number(s.end.toFixed(3))]),
+    [[1.2, 7.2], [11, 19], [21.5, 26.5]]
+  );
+  // tapeMove over it: inside a mark stays, the tail and the next lead jump
+  // straight to the next mark, after the last mark the tape is over.
+  assert.deepEqual(tapeMove(tape, 5), { kind: "stay" });
+  assert.deepEqual(tapeMove(tape, 7.2), { kind: "jump", to: 11 });
+  assert.deepEqual(tapeMove(tape, 0), { kind: "jump", to: 1.2 });
+  assert.deepEqual(tapeMove(tape, 26.5), { kind: "end" });
+});
+
+test("lets and deleted cards play nothing on the tape", () => {
+  const a = marked("a", 30, 36, 0);
+  const skipped = marked("let", 50, 58, 9.8, { is_let: true });
+  const gone = marked("gone", 70, 75, 20.3, { deleted: true });
+  const d = marked("d", 90, 96, 28.8);
+  const tape = handCutTape([a, skipped, gone, d], PAD);
+  assert.deepEqual(
+    tape.map((s) => [Number(s.start.toFixed(3)), Number(s.end.toFixed(3))]),
+    [[1.2, 7.2], [30, 36]]
+  );
+  assert.deepEqual(tapeMove(tape, 7.3), { kind: "jump", to: 30 });
+});
+
+test("an inserted card that plays its own clip keeps its whole card", () => {
+  const a = marked("a", 30, 36, 0);
+  const inserted = marked("ins", 40, 44, 6.5);
+  const tape = handCutTape([a, inserted], PAD, new Set(["ins"]));
+  // Its span runs from its clip start to its padded end, where the
+  // player's detour plays its clip; the mark before it is untouched.
+  // a's mark is 1.2..7.2; the card is 6.5..13 (6.5 + 1.2 + 4 + 1.3). They
+  // overlap, so they merge: the tape never jumps into the middle of it.
+  assert.deepEqual(
+    tape.map((s) => [Number(s.start.toFixed(3)), Number(s.end.toFixed(3))]),
+    [[1.2, 13]]
+  );
+  assert.deepEqual(tapeMove(tape, 7.5), { kind: "stay" });
+  // Standing alone, the card is its whole padded clip.
+  const alone = handCutTape([marked("ins", 40, 44, 30)], PAD, new Set(["ins"]));
+  assert.deepEqual(alone, [{ start: 30, end: 36.5 }]);
+});
+
+test("the gaps for a jump-only player end exactly on the next mark", () => {
+  const a = marked("a", 30, 36, 0);
+  const b = marked("b", 50, 58, 9.8);
+  const skipped = marked("let", 60, 64, 20.3, { is_let: true });
+  const gaps = handCutGaps([a, b, skipped], PAD);
+  const r = (x: number) => Number(x.toFixed(3));
+  assert.deepEqual(
+    gaps.map((g) => [r(g.start), r(g.end)]),
+    // lead, between a and b, then from b's end through the let to the
+    // end of the last card (the file's end)
+    [[0, 1.2], [7.2, 11], [19, 20.3 + 1.2 + 4 + 1.3]]
+  );
+  assert.deepEqual(handCutGaps([], PAD), []);
 });

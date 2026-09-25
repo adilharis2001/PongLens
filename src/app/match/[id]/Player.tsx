@@ -48,8 +48,10 @@ import {
 } from "./scorecard";
 import {
   armedPointId,
+  handCutTape,
   paddedEnd,
   effectiveEnd,
+  tapeMove,
   scorekeeperEnds,
   nextCutStart,
   pauseEnd,
@@ -726,6 +728,12 @@ export const Player = forwardRef<
      */
     deletedSpans: { start: number; end: number }[];
     /**
+     * The owner marked this match's points by hand (cut_source 'manual').
+     * Watching it then plays exactly what was marked, point after point,
+     * with hard cuts between them (playhead.handCutTape, 2026-09-25).
+     */
+    handCut?: boolean;
+    /**
      * Soft-delete a point from score mode ("dead space"). Player-
      * originated: MatchView must NOT show its undo snackbar (the takeover
      * covers it at z-[80]) — the pad's own Undo restores instead.
@@ -917,6 +925,7 @@ export const Player = forwardRef<
     pad,
     ends,
     deletedSpans,
+    handCut = false,
     onDeletePoint,
     onUndoDelete,
     onDeleteAllBefore,
@@ -1941,6 +1950,21 @@ export const Player = forwardRef<
   const ownClipSetRef = useRef(ownClipSet);
   ownClipSetRef.current = ownClipSet;
 
+  /**
+   * A hand-cut match's watch tape: each point from its marked start to its
+   * marked end, cut straight to the next (playhead.handCutTape). In watch
+   * mode it is the ONE skip rule, standing in for the deleted, tail and let
+   * skips, which it already covers: a gap crossed by two rules is crossed
+   * in two visible hops. Null on every automatic match, which play exactly
+   * as before.
+   */
+  const markTape = useMemo(
+    () => (handCut ? handCutTape(points, pad, ownClipSet) : null),
+    [handCut, points, pad, ownClipSet]
+  );
+  const markTapeRef = useRef(markTape);
+  markTapeRef.current = markTape;
+
   // Their clip URLs, fetched as soon as the card is known — the swap must
   // not wait on a round trip. A failed fetch leaves the card on the cut,
   // which is exactly what every one of these cards did before the detour
@@ -2222,6 +2246,17 @@ export const Player = forwardRef<
     [phase, scorePlaybackEvent]
   );
 
+  /** Past the last mark of a hand-cut tape: run the file out, so the
+   *  player ends the way it does at the end of any video (and play starts
+   *  it again from the top). */
+  const endTape = useCallback((v: HTMLVideoElement) => {
+    if (Number.isFinite(v.duration) && v.duration > 0) {
+      if (v.currentTime < v.duration) v.currentTime = v.duration;
+    } else {
+      v.pause();
+    }
+  }, []);
+
   const reviewPoint =
     phase === "review"
       ? (points.find((p) => p.id === reviewIds[reviewIdx]) ?? null)
@@ -2257,6 +2292,26 @@ export const Player = forwardRef<
           playNow();
           return;
         }
+      }
+      // A hand-cut match in watch mode plays its marks and nothing else
+      // (markTape). Same contract as every skip here: playing only, never
+      // mid-scrub, forward by construction. The frame callback below does
+      // the same thing a frame after the mark ends; this tick is the
+      // fallback where that callback does not exist.
+      if (modeRef.current === "watch" && markTapeRef.current) {
+        if (!scrubbing.current && !v.paused) {
+          const move = tapeMove(markTapeRef.current, v.currentTime);
+          if (move.kind === "jump") {
+            v.currentTime = move.to;
+            setPlayheadT(move.to);
+            return;
+          }
+          if (move.kind === "end") endTape(v);
+        }
+        watchTickRef.current = null;
+        lastTickRef.current = null;
+        setPlayheadT(v.currentTime);
+        return;
       }
       // Deleted-span auto-skip: dead footage is dead in BOTH modes.
       // During playback (never mid-scrub — respect the user's drag) the
@@ -2464,8 +2519,57 @@ export const Player = forwardRef<
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
-    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow, observeScorePlayback, clearSplitArm]
+    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow, observeScorePlayback, clearSplitArm, endTape]
   );
+
+  /**
+   * The hand-cut tape's hard cut, a frame after the mark ends rather than
+   * up to a quarter of a second later on the next timeupdate. The frame
+   * callback reports the media time of the frame being shown, so the jump
+   * fires on the first frame at the mark's end (tapeMove's 0.01 s end
+   * epsilon is there for exactly this). Where the browser has no frame
+   * callback, onTime above does the same on its ticks.
+   */
+  useEffect(() => {
+    const v = videoRef.current as
+      | (HTMLVideoElement & {
+          requestVideoFrameCallback?: (
+            cb: (now: number, meta: { mediaTime: number }) => void
+          ) => number;
+          cancelVideoFrameCallback?: (handle: number) => void;
+        })
+      | null;
+    if (!v || mode !== "watch" || !markTape) return;
+    if (typeof v.requestVideoFrameCallback !== "function") return;
+    let alive = true;
+    let handle = 0;
+    const onFrame = (_now: number, meta: { mediaTime: number }) => {
+      if (!alive) return;
+      const marks = markTapeRef.current;
+      if (
+        marks &&
+        modeRef.current === "watch" &&
+        !v.paused &&
+        !scrubbing.current &&
+        detourRef.current === null &&
+        highlightAssetRef.current === null
+      ) {
+        const move = tapeMove(marks, meta.mediaTime);
+        if (move.kind === "jump") {
+          v.currentTime = move.to;
+          setPlayheadT(move.to);
+        } else if (move.kind === "end") {
+          endTape(v);
+        }
+      }
+      handle = v.requestVideoFrameCallback!(onFrame);
+    };
+    handle = v.requestVideoFrameCallback(onFrame);
+    return () => {
+      alive = false;
+      v.cancelVideoFrameCallback?.(handle);
+    };
+  }, [mode, markTape, videoUrl, highlightAsset, endTape]);
 
   /**
    * The detour surface's own tick. One card, so the general crossing loop
