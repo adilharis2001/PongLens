@@ -148,8 +148,17 @@ test("the match page opens the marker once from the flag, then drops it", () => 
   assert.match(raw, /url\.searchParams\.delete\(MARK_ON_OPEN_PARAM\)/);
   assert.match(raw, /window\.history\.replaceState\(/);
   const effect = raw.slice(raw.indexOf("const markOnArrival"), raw.indexOf("return (\n    <div"));
-  assert.match(effect, /!isOwner \|\| !handCutEnabled \|\| !rawUrl \|\| sourceGone \|\| jobRunning/);
-  assert.match(effect, /if \(!handCutReady\) return;/);
+  // The flag comes off the address before anything else is decided.
+  assert.ok(effect.indexOf("replaceState") < effect.indexOf("if (!markOnArrival.current) return;"));
+  // A file this browser cannot play never opens the marker: the same error
+  // that greys the Mark row, or metadata with no picture, drops the flag.
+  assert.match(effect, /!isOwner \|\| !handCutEnabled \|\| !rawUrl \|\| undecodable \|\| hasPicture === false\s*\|\| sourceGone \|\| jobRunning/);
+  assert.match(raw, /handDisabled: !rawUrl \|\| undecodable,/);
+  // It waits for the draft AND for the player to prove the file plays.
+  assert.match(effect, /if \(!handCutReady \|\| hasPicture !== true\) return;/);
+  assert.match(raw, /if \(v\) setHasPicture\(v\.videoWidth > 0 && v\.videoHeight > 0\);/);
+  assert.match(raw, /onLoadedMetadata=\{onMetadata\}/);
+  assert.match(raw, /onMediaError=\{\(\) => setUndecodable\(true\)\}/);
   assert.match(effect, /setPickedWay\("hand"\)/);
   assert.match(effect, /void openMarker\(\)/);
 });

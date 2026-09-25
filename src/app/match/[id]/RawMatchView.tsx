@@ -176,6 +176,13 @@ export function RawMatchView({
   const spokenRows = cleanSpoken(match.spoken_scores);
   /** The browser refused the raw file (usually HEVC in a .mov). */
   const [undecodable, setUndecodable] = useState(false);
+  /**
+   * The player's metadata arrived: true when it came with a picture, false
+   * when the browser read the file but has no picture to show. Null until
+   * the player says. The marker only opens by itself (?mark=1) once this is
+   * true, so it never opens on a file this browser cannot show.
+   */
+  const [hasPicture, setHasPicture] = useState<boolean | null>(null);
   // The two ways: Automatically always here (the card shows only where
   // processing is sold), marking by hand where the account has it. Its row
   // greys when this browser has no picture to mark on.
@@ -343,7 +350,9 @@ export function RawMatchView({
   // player's loadedmetadata rather than timeupdate: a cut starts paused,
   // so a video nobody plays would never report anything.
   const onMetadata = useCallback(() => {
-    const d = videoRef.current?.duration;
+    const v = videoRef.current;
+    if (v) setHasPicture(v.videoWidth > 0 && v.videoHeight > 0);
+    const d = v?.duration;
     if (!d || !Number.isFinite(d) || d <= 0) return;
     learnDuration(d);
     if (isOwner && match.duration_s == null) {
@@ -488,11 +497,13 @@ export function RawMatchView({
   /**
    * Arrived from the upload card with "Mark the points yourself" chosen
    * (?mark=1, uploadChoice.ts): open the marker once, as soon as the draft
-   * has been read, with that way selected in Break it into points so
-   * closing the marker lands on it. The flag comes off the address the
-   * moment it is read, so a reload or Back does not open the marker again.
-   * Where marking cannot happen here (no picture, not the owner, a cut
-   * already running) the page simply opens as it always does.
+   * has been read AND the player has shown this browser can play the file,
+   * with that way selected in Break it into points so closing the marker
+   * lands on it. The flag comes off the address the moment it is read, so
+   * a reload or Back does not open the marker again. Where marking cannot
+   * happen here (the browser cannot play the file, which also greys the
+   * row; not the owner; a cut already running) the page simply opens as it
+   * always does.
    */
   const markOnArrival = useRef<boolean | null>(null);
   useEffect(() => {
@@ -505,17 +516,24 @@ export function RawMatchView({
       }
     }
     if (!markOnArrival.current) return;
-    if (!isOwner || !handCutEnabled || !rawUrl || sourceGone || jobRunning) {
+    if (
+      !isOwner || !handCutEnabled || !rawUrl || undecodable || hasPicture === false
+      || sourceGone || jobRunning
+    ) {
       markOnArrival.current = false;
       return;
     }
-    // The draft read doubles as the check that marking by hand exists.
-    if (!handCutReady) return;
+    // The draft read doubles as the check that marking by hand exists, and
+    // the player's metadata is the proof the file plays here.
+    if (!handCutReady || hasPicture !== true) return;
     markOnArrival.current = false;
     setProcessOpen(true);
     setPickedWay("hand");
     void openMarker();
-  }, [isOwner, handCutEnabled, rawUrl, sourceGone, jobRunning, handCutReady, openMarker]);
+  }, [
+    isOwner, handCutEnabled, rawUrl, undecodable, hasPicture, sourceGone, jobRunning,
+    handCutReady, openMarker,
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-6">
