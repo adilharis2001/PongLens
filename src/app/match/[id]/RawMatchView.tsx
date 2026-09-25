@@ -37,7 +37,7 @@ import { NameCombobox } from "@/app/dashboard/NameCombobox";
 import { SectionHeading } from "@/components/SectionHeading";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
-import { ClipPlayer } from "./ClipPlayer";
+import { ClipPlayer, clock as playerClock } from "./ClipPlayer";
 import { MatchFeedbackLink } from "./feedback/MatchFeedback";
 import { MarkPoints } from "./MarkPoints";
 import { handCutClaimError, openingMode, submittable, type CutMode, type Mark } from "./handCut";
@@ -573,7 +573,15 @@ export function RawMatchView({
               day: "numeric",
               year: "numeric",
             })}
-            {duration != null && <> · {formatClock(duration)}</>}
+            {/* The file's own length in the player's clock once the
+                player has read it (a 441.96 s file is 7:21 in both), the
+                stored length until then. Display only: the charge stays
+                on the stored length. */}
+            {quote.videoDuration != null ? (
+              <> · {playerClock(quote.videoDuration)}</>
+            ) : (
+              duration != null && <> · {formatClock(duration)}</>
+            )}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">

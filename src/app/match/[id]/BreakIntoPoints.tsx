@@ -163,7 +163,7 @@ export function useProcessQuote({
 
   return {
     duration, setDuration, learnDuration,
-    barDuration: win.barS, barEnd: win.barEndS,
+    videoDuration, barDuration: win.barS, barEnd: win.barEndS,
     trimStart, trimEnd, setTrim: (s: number, e: number) => { setTrimStart(s); setTrimEnd(e); },
     stampStart, stampEnd, resetTrim, canStamp: !!videoRef,
     videoRef,
