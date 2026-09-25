@@ -984,7 +984,10 @@ export function MarkPoints({
       const m = s.marks.find((x) => x.id === id);
       const v = videoRef.current;
       if (!m || m.t1 === null || !v) return;
-      setState((st) => selectMark(st, id));
+      // selectMark toggles, and a reopened draft arrives with its first
+      // point already selected: selecting it again would deselect it and
+      // end the review walk after one clip.
+      setState((st) => (st.selectedId === id ? st : selectMark(st, id)));
       pausedForAnswer.current = false;
       v.currentTime = Math.max(0, m.t0 - CLIP_PRE);
       setPlayhead(v.currentTime);
@@ -1220,6 +1223,9 @@ export function MarkPoints({
     adjustDraftRef.current = draft;
     setAdjustBounds([Math.max(prevEnd, m.t0 - 8), Math.min(nextStart, m.t1 + 8)]);
     setAdjusting(m.id);
+    // The point's preview stop would fire as a handle is dragged past it
+    // and chain to the next point, closing the bar mid-drag.
+    previewUntil.current = null;
     playApi.current?.pause();
   }, [durationS]);
 
