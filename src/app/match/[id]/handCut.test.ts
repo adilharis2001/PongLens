@@ -1,17 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { readFileSync } from "node:fs";
+
 import {
   type Mark,
   allCalled,
+  clearAwaiting,
   draftMode,
   firstUnscored,
   gapsAround,
   insertMark,
+  lastClosedEnd,
+  normalizeMarks,
   openAs,
+  INVALID,
   LEAD_MAX_S,
   LEAD_MIN_S,
+  LONGEST_POINT_S,
+  MAX_MARKS,
   MIN_POINT_S,
+  PAST_END_ALLOWANCE_S,
   REFUSE,
   asPoints,
   emptyState,
@@ -22,6 +31,7 @@ import {
   removeMark,
   resetOpen,
   selectMark,
+  setEdges,
   setOutcome,
   startMark,
   submittable,
@@ -31,6 +41,7 @@ import {
   validate,
   type MarkState,
 } from "./handCut.ts";
+import { buildFixture } from "../../../../scripts/handcut-fixture.ts";
 
 type Answer = "user" | "opponent" | "let";
 type Tap =
@@ -323,9 +334,9 @@ test("summarize counts what the save sheet has to say out loud", () => {
 });
 
 test("a forgotten end shows up as a long point rather than being dropped", () => {
-  const { state } = run(rally(10, 200, "user"));
+  const { state } = run(rally(10, 150, "user"));
   assert.equal(summarize(state.marks).long, 1);
-  assert.deepEqual(validate(state.marks, 600), { ok: true });
+  assert.deepEqual(validate(state.marks, 600), { ok: true }, "long is a warning, not a refusal");
 });
 
 test("submittable drops the open mark and orders by start", () => {
@@ -506,4 +517,341 @@ test("a cut-only pass never opens as a scoring pass", () => {
   // Cut only has nothing to answer: it is a question of where they got to.
   assert.equal(openAs(uncalled, 600, "cut"), "choice");
   assert.equal(openAs(uncalled, 60, "cut"), "review");
+});
+
+/* ------------------------------------------ marking again, in any gap */
+
+/** Three called points: a 9.4-24, b 39.4-55, c 69.4-78. */
+const three = (): MarkState => {
+  let s = emptyState;
+  s = startMark(s, 10, 1, "a").state;
+  s = endMark(s, 24).state;
+  s = setOutcome(s, "user").state;
+  s = startMark(s, 40, 1, "b").state;
+  s = endMark(s, 55).state;
+  s = setOutcome(s, "opponent").state;
+  s = startMark(s, 70, 1, "c").state;
+  s = endMark(s, 78).state;
+  s = setOutcome(s, "user").state;
+  return s;
+};
+
+test("Mark again works on a point in the middle, not only the last", () => {
+  // The web defect: removing b and pressing Begin in its gap was refused
+  // with "That's before the last point ended." because the start was
+  // checked against c, the last point.
+  let s = removeMark(three(), "b").state;
+  const r = startMark(s, 41, 1, "b2");
+  assert.equal(r.refused, undefined, "a start in the gap is allowed");
+  s = r.state;
+  assert.deepEqual(s.marks.map((m) => m.id), ["a", "b2", "c"], "placed in order");
+  assert.equal(openMark(s.marks)?.id, "b2", "open between two closed points");
+  assert.equal(summarize(s.marks).open, true);
+  assert.equal(submittable(s.marks).length, 2, "the open one is still not sent");
+
+  s = endMark(s, 54).state;
+  assert.equal(s.awaitingId, "b2");
+  s = setOutcome(s, "opponent").state;
+  assert.deepEqual(
+    s.marks.map((m) => [m.id, m.t0, m.t1, m.winner]),
+    [
+      ["a", 9.4, 24, "user"],
+      ["b2", 40.4, 54, "opponent"],
+      ["c", 69.4, 78, "user"],
+    ]
+  );
+  assert.deepEqual(validate(s.marks, 600), { ok: true });
+});
+
+test("a start inside a point is refused, and says which point", () => {
+  const s = three();
+  assert.equal(startMark(s, 75, 1, "x").refused, REFUSE.past, "inside the last one");
+  assert.equal(startMark(s, 45, 1, "x").refused, REFUSE.insideAnother, "inside an earlier one");
+  assert.equal(startMark(s, 12, 1, "x").refused, REFUSE.insideAnother);
+  assert.equal(startMark(s, 45, 1, "x").state, s, "a refused tap is a no-op");
+  // Exactly where a point ended is beside it, not inside it.
+  assert.equal(startMark(s, 24.6, 1, "x").refused, undefined);
+});
+
+test("a start in a gap needs room to be a point before the next one", () => {
+  const s = removeMark(three(), "b").state;
+  // Begin lands at 68.9, half a second before c starts at 69.4.
+  assert.equal(startMark(s, 69.5, 1, "x").refused, REFUSE.intoNext);
+  // 0.7 of room is enough.
+  assert.equal(startMark(s, 69.3, 1, "x").refused, undefined);
+});
+
+test("End Point refuses to run into the next point, and may meet it exactly", () => {
+  let s = removeMark(three(), "b").state;
+  s = startMark(s, 41, 1, "b2").state;
+  const late = endMark(s, 72);
+  assert.equal(late.refused, REFUSE.intoNext);
+  assert.equal(late.state, s, "still open, nothing moved");
+  const meet = endMark(s, 69.4);
+  assert.equal(meet.refused, undefined);
+  assert.equal(meet.state.marks[1].t1, 69.4);
+  // The short rule still comes first.
+  assert.equal(endMark(s, 40.5).refused, REFUSE.short);
+});
+
+test("a forgotten end inside a gap closes it and opens the next in place", () => {
+  let s = removeMark(three(), "b").state;
+  s = startMark(s, 41, 1, "b2").state;
+  const r = startMark(s, 50, 1, "b3");
+  assert.equal(r.refused, undefined);
+  assert.deepEqual(
+    r.state.marks.map((m) => [m.id, m.t0, m.t1]),
+    [
+      ["a", 9.4, 24],
+      ["b2", 40.4, 49.4],
+      ["b3", 49.4, null],
+      ["c", 69.4, 78],
+    ]
+  );
+  // Undo puts the first one back open, where it was.
+  const back = undoLast(r.state);
+  assert.deepEqual(back.marks.map((m) => [m.id, m.t1]), [
+    ["a", 24],
+    ["b2", null],
+    ["c", 78],
+  ]);
+  // A forgotten end past the next point would overlap it.
+  assert.equal(startMark(s, 72, 1, "x").refused, REFUSE.intoNext);
+});
+
+test("the forgotten end at the end of the list is unchanged", () => {
+  const { state } = run([...rally(10, 24, "user"), { at: 40, start: true }, { at: 60, start: true }]);
+  assert.deepEqual(state.marks.map((m) => [m.t0, m.t1]), [
+    [9.4, 24],
+    [39.4, 59.4],
+    [59.4, null],
+  ]);
+});
+
+test("Reset inside a gap goes back to the point before the gap, not the last one", () => {
+  let s = removeMark(three(), "b").state;
+  s = startMark(s, 41, 1, "b2").state;
+  const r = resetOpen(s);
+  assert.equal(r.backTo, 24, "a's end, not c's");
+  assert.deepEqual(r.state.marks.map((m) => m.id), ["a", "c"]);
+  const back = undoLast(r.state);
+  assert.deepEqual(back.marks.map((m) => m.id), ["a", "b2", "c"], "undo puts it back in place");
+  assert.equal(back.marks[1].t1, null);
+});
+
+test("Reset clears a selection that pointed at the rally it threw away", () => {
+  let { state } = run([...rally(10, 24, "user"), { at: 40, start: true }]);
+  state = selectMark(state, state.marks[1].id);
+  assert.equal(resetOpen(state).state.selectedId, null);
+  state = selectMark(state, state.marks[0].id);
+  assert.equal(resetOpen(state).state.selectedId, state.marks[0].id, "any other selection stays");
+});
+
+test("gapsAround never offers a gap across a rally still being marked", () => {
+  // At the end of the list: the gap after the last point stops where the
+  // open rally started, instead of running to the end of the video.
+  let { state } = run([...rally(10, 24, "user"), { at: 60, start: true }]);
+  assert.deepEqual(gapsAround(state.marks, state.marks[0].id, 600).after, { lo: 24, hi: 59.4 });
+
+  // In a gap: the point before it gets the gap up to the open start, and
+  // the point after it gets nothing before.
+  state = startMark(removeMark(three(), "b").state, 41, 1, "b2").state;
+  assert.deepEqual(gapsAround(state.marks, "a", 600).after, { lo: 24, hi: 40.4 });
+  assert.equal(gapsAround(state.marks, "c", 600).before, null);
+  assert.deepEqual(gapsAround(state.marks, "b2", 600), { before: null, after: null }, "the open one gets no offer");
+});
+
+test("insertMark refuses to land on a rally being marked", () => {
+  const s = startMark(removeMark(three(), "b").state, 41, 1, "b2").state;
+  assert.equal(insertMark(s, 45, 50, "x").refused, REFUSE.inside, "inside the open one");
+  assert.equal(insertMark(s, 38, 44, "x").refused, REFUSE.inside, "across its start");
+  const before = insertMark(s, 30, 36, "x");
+  assert.equal(before.refused, undefined, "the part of the gap before it is still free");
+  assert.deepEqual(before.state.marks.map((m) => m.id), ["a", "x", "b2", "c"]);
+});
+
+test("a point after an open rally cannot be dragged back onto it", () => {
+  const s = startMark(removeMark(three(), "b").state, 41, 1, "b2").state;
+  assert.equal(setEdges(s, "c", 40, 78).refused, REFUSE.inside, "before its start");
+  assert.equal(setEdges(s, "c", 40.8, 78).refused, REFUSE.inside, "leaving it no room");
+  assert.equal(setEdges(s, "c", 41.1, 78).refused, undefined);
+  assert.equal(moveEdge(s, "c", "t0", -29).refused, REFUSE.inside);
+});
+
+test("undo clears a selection whose point it took away", () => {
+  const base = { ...emptyState, marks: three().marks };
+  const added = insertMark(base, 30, 36, "x").state;
+  assert.equal(added.selectedId, "x");
+  const back = undoLast(added);
+  assert.equal(back.selectedId, null, "the inserted point is gone, so is the selection");
+
+  // A selection on a point that survives the undo is kept.
+  let s = selectMark(three(), "a");
+  s = toggleStar(s, "a").state;
+  assert.equal(undoLast(s).selectedId, "a");
+
+  // Undoing an end reopens the point, and a selection is only ever a
+  // closed point, so it goes too.
+  let r = startMark(emptyState, 10, 1, "a").state;
+  r = endMark(r, 24).state;
+  r = selectMark(r, "a");
+  const reopened = undoLast(r);
+  assert.equal(reopened.marks[0].t1, null);
+  assert.equal(reopened.selectedId, null);
+});
+
+test("an answer never lands on a rally still open, even one selected", () => {
+  let s = startMark(emptyState, 10, 1, "a").state;
+  s = selectMark(s, "a");
+  const r = setOutcome(s, "user");
+  assert.equal(r.refused, REFUSE.noneEnded);
+  assert.equal(r.state, s);
+});
+
+test("clearAwaiting stops asking without answering", () => {
+  const { state } = run(rally(10, 24));
+  assert.equal(state.awaitingId, state.marks[0].id);
+  const after = clearAwaiting(state);
+  assert.equal(after.awaitingId, null);
+  assert.equal(after.marks[0].winner, null, "still uncalled");
+  assert.equal(setOutcome(after, "user").refused, REFUSE.noneEnded, "nothing to answer now");
+  assert.equal(clearAwaiting(after), after, "a no-op when nothing is awaited");
+});
+
+test("lastClosedEnd skips a rally still open in a gap", () => {
+  const s = startMark(removeMark(three(), "b").state, 41, 1, "b2").state;
+  assert.equal(lastClosedEnd(s.marks), 78);
+  assert.equal(openAs(s.marks, 600, "cut"), "choice");
+  assert.equal(openAs(s.marks, 600, "score"), "scoring", "an open rally is not called");
+});
+
+/* ------------------------------------------- matching the server */
+
+const long = (len: number): Mark[] => [closed("a", 10, 10 + len, "user")];
+
+test("validate refuses what claim_hand_cut refuses, with the same numbers", () => {
+  assert.equal(LONGEST_POINT_S, 180);
+  assert.equal(PAST_END_ALLOWANCE_S, 1);
+  assert.equal(MAX_MARKS, 400);
+
+  assert.deepEqual(validate(long(180), 600), { ok: true }, "exactly three minutes is allowed");
+  assert.deepEqual(validate(long(180.5), 600), { ok: false, reason: INVALID.tooLong });
+  assert.equal(INVALID.tooLong, "A point is over three minutes long.");
+
+  // The server allows a second past the end of the file, not half of one.
+  const end = [closed("a", 10, 101, "user")];
+  assert.deepEqual(validate(end, 100), { ok: true });
+  assert.deepEqual(validate([closed("a", 10, 101.5, "user")], 100), {
+    ok: false,
+    reason: INVALID.pastEnd,
+  });
+});
+
+test("validate has a message for every refusal", () => {
+  const reason = (marks: Mark[], d: number | null = 600) => {
+    const v = validate(marks, d);
+    return v.ok ? null : v.reason;
+  };
+  assert.equal(reason([]), INVALID.empty);
+  assert.equal(reason([closed("o", 10, null)]), INVALID.empty, "an open rally is not a point");
+  const many = Array.from({ length: 401 }, (_, i) => closed(`m${i}`, i * 2, i * 2 + 1));
+  assert.equal(reason(many, null), INVALID.tooMany);
+  assert.equal(reason(many.slice(0, 400), null), null, "400 is allowed");
+  assert.equal(reason([closed("a", 10, 10)]), INVALID.noLength);
+  assert.equal(reason([closed("a", -1, 10)]), INVALID.noLength);
+  assert.equal(reason([closed("a", 10, 10.5)]), INVALID.short);
+  assert.equal(reason([closed("a", 10, 200)]), INVALID.tooLong);
+  assert.equal(reason([closed("a", 10, 20), closed("b", 15, 30)]), INVALID.overlap);
+  assert.equal(reason([closed("a", 10, 20)], 18), INVALID.pastEnd);
+  assert.equal(reason([closed("a", 10, 20, "user", true)]), INVALID.letAndWin);
+  assert.equal(reason([closed("a", 10, 20)], null), null, "no duration, no end check");
+});
+
+/* ------------------------------------------- reading a stored draft */
+
+test("a draft handed back after a failed cut reads its winners correctly", () => {
+  // What claim_hand_cut was sent, and what the draft row holds after it.
+  const stored = [
+    { t0: 39.4, t1: 55, w: "opponent", let: false, star: true, tap: 40, rate: 1 },
+    { t0: 9.4, t1: 24, w: null, let: false, star: false, tap: 10, rate: 1 },
+    { t0: 69.4, t1: 78, w: null, let: true, star: false, tap: 70, rate: 2 },
+  ];
+  const marks = normalizeMarks(stored);
+  assert.deepEqual(marks, [
+    { id: "d1", t0: 9.4, t1: 24, winner: null, isLet: false, starred: false, tap: 10, rate: 1 },
+    { id: "d2", t0: 39.4, t1: 55, winner: "opponent", isLet: false, starred: true, tap: 40, rate: 1 },
+    { id: "d3", t0: 69.4, t1: 78, winner: null, isLet: true, starred: false, tap: 70, rate: 2 },
+  ]);
+  // The bug: read as Mark[] directly, every point looked called.
+  assert.equal(allCalled(stored as unknown as Mark[]), true);
+  assert.equal(allCalled(marks), false, "the uncalled one is uncalled");
+  assert.equal(openAs(marks, 600, "score"), "scoring");
+  assert.deepEqual(normalizeMarks(stored), marks, "the same draft reads back with the same ids");
+  // And it round-trips: submittable of the normalised marks is what was sent.
+  assert.deepEqual(
+    submittable(marks),
+    [...stored].sort((a, b) => a.t0 - b.t0)
+  );
+});
+
+test("a draft saved while marking reads back unchanged", () => {
+  const { state } = run([...rally(10, 24, "user"), ...rally(40, 55), { at: 70, start: true }]);
+  assert.deepEqual(normalizeMarks(JSON.parse(JSON.stringify(state.marks))), state.marks);
+});
+
+test("normalizeMarks drops what it cannot read and keeps what it can", () => {
+  assert.deepEqual(normalizeMarks(null), []);
+  assert.deepEqual(normalizeMarks({ marks: [] }), []);
+  const marks = normalizeMarks([
+    null,
+    7,
+    [1, 2],
+    { t1: 5 },
+    { t0: "3", t1: 5 },
+    { t0: 3 },
+    { t0: 3, t1: "5" },
+    { t0: Number.NaN, t1: 5 },
+    { id: "k", t0: 30, t1: 35, winner: "near", isLet: "yes", starred: 1 },
+    { id: "k", t0: 10, t1: 15, winner: "user" },
+    { id: "", t0: 20, t1: 25, w: "user", rate: 0, tap: null },
+  ]);
+  assert.deepEqual(marks, [
+    { id: "k", t0: 10, t1: 15, winner: "user", isLet: false, starred: false, tap: 10, rate: 1 },
+    { id: "d1", t0: 20, t1: 25, winner: "user", isLet: false, starred: false, tap: 20, rate: 1 },
+    { id: "d2", t0: 30, t1: 35, winner: null, isLet: false, starred: false, tap: 30, rate: 1 },
+  ]);
+});
+
+test("normalizeMarks keeps one open rally, the latest", () => {
+  const marks = normalizeMarks([
+    { id: "o1", t0: 10, t1: null, winner: null, isLet: false, starred: false, tap: 10, rate: 1 },
+    { id: "a", t0: 20, t1: 25, winner: null, isLet: false, starred: false, tap: 20, rate: 1 },
+    { id: "o2", t0: 30, t1: null, winner: "user", isLet: true, starred: true, tap: 30, rate: 1 },
+  ]);
+  assert.deepEqual(marks.map((m) => m.id), ["a", "o2"]);
+  assert.deepEqual(
+    [marks[1].winner, marks[1].isLet, marks[1].starred],
+    [null, false, true],
+    "an open rally carries no answer, but keeps its star"
+  );
+});
+
+test("normalizeMarks never generates an id that is already taken", () => {
+  const marks = normalizeMarks([
+    { t0: 1, t1: 5 },
+    { id: "d1", t0: 10, t1: 15 },
+  ]);
+  assert.deepEqual(marks.map((m) => m.id), ["d2", "d1"]);
+});
+
+/* ---------------------------------------------------- parity fixture */
+
+test("the iOS parity fixture is what this module produces today", () => {
+  // If this fails, the rules changed: run
+  //   node --experimental-strip-types scripts/handcut-fixture.ts
+  // and the Swift port has to follow the new fixture.
+  const committed = JSON.parse(
+    readFileSync(new URL("../../../../ios/Tests/fixtures/handcut-parity.json", import.meta.url), "utf8")
+  );
+  assert.deepEqual(buildFixture(), committed);
 });
