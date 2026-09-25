@@ -34,6 +34,7 @@ export function SpeedMenu({
   className,
   drop = "up",
   label,
+  labelClassName = "text-[9px] font-medium leading-none",
   containerClassName,
 }: {
   value: number;
@@ -47,6 +48,9 @@ export function SpeedMenu({
   /** Tiny name under the value, for hosts whose whole row is labeled
    *  (the score pad's control row). The host's className lays it out. */
   label?: string;
+  /** Classes for that name, where a host's row sets its labels at another
+   *  size (the landscape marker's bottom bar). */
+  labelClassName?: string;
   /** Classes for the wrapper (the actual flex item) — hosts whose rows
    *  distribute width need to size THIS, not the trigger inside it. */
   containerClassName?: string;
@@ -70,7 +74,7 @@ export function SpeedMenu({
       >
         {value}x
         {label && (
-          <span className="text-[9px] font-medium leading-none">{label}</span>
+          <span className={labelClassName}>{label}</span>
         )}
       </button>
       {open && (

@@ -41,7 +41,18 @@ import {
 
 import { ClipPlayer, type PictureBox } from "./ClipPlayer";
 import { computeMatchScore } from "./gameScore";
-import { SPEEDS } from "./SpeedMenu";
+import {
+  BOTTOM_BAR_H,
+  LET_H,
+  RAIL_GAP,
+  TOP_BAR_H,
+  type PairTile,
+  type SafeInsets,
+  markLandscape,
+  pairTileHeight,
+  railPair,
+} from "./markLandscape";
+import { SPEEDS, SpeedMenu } from "./SpeedMenu";
 import { computeServing, type MatchServer } from "./serving";
 import { tracksServe } from "@/lib/matchTitle";
 import type { Point } from "@/lib/types";
@@ -104,6 +115,53 @@ const PAD_POS_KEY = "ponglens:mark-pad-pos";
 let markSeq = 0;
 const nextId = () => `m${++markSeq}-${Math.random().toString(36).slice(2, 8)}`;
 
+/** What a draft save came to. "conflict": another device saved the draft
+ *  since this one last did, and its copy wins. */
+export type DraftSave = "saved" | "conflict";
+
+/** The landscape bottom bar's icons, drawn as on the approved board. */
+const ICON = {
+  back: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5",
+  fwd: "M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5",
+  prev: "M15 18l-6-6 6-6",
+  next: "M9 18l6-6-6-6",
+  undo: "M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3",
+  star: "M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z",
+  again: "M4 12a8 8 0 0 1 14-5.3M20 4v4h-4M20 12a8 8 0 0 1-14 5.3M4 20v-4h4",
+  remove: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
+  toggle: "M8 7h8a5 5 0 0 1 0 10H8A5 5 0 0 1 8 7zM16 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z",
+} as const;
+
+/** Shown once a newer draft has been found, for the rest of the session. */
+const NEWER_DRAFT = "Marked on another device. Reopen to see the latest.";
+
+/** The rate nearest `rate` in the speed list, as an index. The picture's
+ *  rate is always one of them, but a nearest match never shows the knob at
+ *  the wrong end if it is not. */
+function speedIndex(rate: number): number {
+  let best = 0;
+  for (let i = 1; i < SPEEDS.length; i++) {
+    if (Math.abs(SPEEDS[i] - rate) < Math.abs(SPEEDS[best] - rate)) best = i;
+  }
+  return best;
+}
+
+/** Where marking picks up: the rally still open, wherever it sits (one
+ *  marked into a gap is not at the end), or else the last point's end. */
+function markingPlace(marks: Mark[]): number | null {
+  return openMark(marks)?.t0 ?? lastEnd(marks);
+}
+
+/**
+ * The earliest second a point may reach back to, given the mark before
+ * it: that point's end, or, when it is a rally still open, its start plus
+ * MIN_POINT_S, which is as far as handCut lets a point crowd it.
+ */
+function floorAfter(prev: Mark | undefined): number {
+  if (!prev) return 0;
+  return prev.t1 !== null ? prev.t1 : prev.t0 + MIN_POINT_S;
+}
+
 /* ---------------------------------------------------------------- pieces */
 
 /** A small utility control. Deliberately the SMALLEST thing on the pad:
@@ -147,6 +205,7 @@ function MarkChip({
   playing,
   grow,
   onSelect,
+  size = 32,
 }: {
   n: number;
   mark: Mark;
@@ -156,7 +215,10 @@ function MarkChip({
   playing: boolean;
   grow: number;
   onSelect: () => void;
+  /** 32 on the pad; 36 in the landscape top bar, as the board draws it. */
+  size?: 32 | 36;
 }) {
+  const big = size === 36;
   const open = mark.t1 === null;
   const tone = open
     ? "border-cyan-glow bg-cyan-glow/10 text-cyan-glow"
@@ -180,10 +242,13 @@ function MarkChip({
     <button
       type="button"
       data-chip={n}
+      data-mark-id={mark.id}
       onClick={onSelect}
       aria-label={`Point ${n}, ${said}${playing ? ", playing" : ""}`}
       aria-current={open || awaiting ? "true" : undefined}
-      className={`relative flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-full border text-xs font-semibold tabular-nums transition-[width,transform,box-shadow] ${tone} ${
+      className={`relative flex shrink-0 items-center justify-center rounded-full border font-semibold tabular-nums transition-[width,transform,box-shadow] ${
+        big ? "h-9 text-[13px]" : "h-8 overflow-hidden text-xs"
+      } ${big && open ? "overflow-hidden" : ""} ${tone} ${
         playing
           ? "ring-2 ring-cyan-glow"
           : selected
@@ -196,7 +261,7 @@ function MarkChip({
             ? "scale-110 shadow-[0_0_12px_rgba(34,211,238,0.55)]"
             : ""
       }`}
-      style={{ width: open ? Math.min(60, 32 + grow) : 32 }}
+      style={{ width: open ? Math.min(size + 28, size + grow) : size }}
     >
       {open && (
         <span
@@ -209,7 +274,9 @@ function MarkChip({
       {mark.starred && (
         <span
           aria-hidden="true"
-          className="absolute right-0.5 top-0 text-[8px] leading-none text-amber-300"
+          className={`absolute leading-none text-amber-300 ${
+            big ? "right-px -top-[3px] text-[9px]" : "right-0.5 top-0 text-[8px]"
+          }`}
         >
           &#9733;
         </span>
@@ -248,8 +315,12 @@ export function MarkPoints({
   /** The pass this draft was, as recorded on the row. Null on a draft
    *  saved before the choice was kept, and on a match never opened. */
   initialMode: CutMode | null;
-  /** Best effort, debounced. Never blocks a tap. */
-  saveDraft: (marks: Mark[], mode: CutMode | null) => Promise<void>;
+  /**
+   * Best effort, debounced, and flushed on close. Never blocks a tap.
+   * Resolves "conflict" when a newer draft was saved elsewhere, after
+   * which this session saves nothing more.
+   */
+  saveDraft: (marks: Mark[], mode: CutMode | null) => Promise<DraftSave>;
   /** Hands the marks to claim_hand_cut. Resolves to a message or null. */
   submit: (marks: Mark[]) => Promise<string | null>;
   onClose: () => void;
@@ -259,6 +330,14 @@ export function MarkPoints({
    *  no winner selected and cued. Scoring a cut-only pass is then one
    *  answer after another, with the video playing each point back. */
   const resumed = initialMarks.length > 0;
+  /**
+   * Can this match be scored at all? Practice and drills have no rotation
+   * and no score (tracksServe, the same test the iPhone uses), so they are
+   * only ever cut: "Cut and score" is shown greyed on the first sheet, the
+   * footer switch is gone, and a draft reopens as a cut-only pass whatever
+   * it was saved as. Winners already on its marks are kept, not cleared.
+   */
+  const scoringAllowed = tracksServe(matchType);
   /**
    * Every point closed and called. Not the same as done with the video:
    * someone who marked ten rallies and put the phone down has called
@@ -273,8 +352,12 @@ export function MarkPoints({
    * during the session cannot change what the screen was opened as.
    */
   /** The pass this draft is, decided once on the way in. */
-  const openedMode = useRef(
-    resumed ? draftMode(initialMarks, initialMode) : null
+  const openedMode = useRef<CutMode | null>(
+    resumed
+      ? scoringAllowed
+        ? draftMode(initialMarks, initialMode)
+        : "cut"
+      : null
   ).current;
   const openedAs = useRef(
     openAs(initialMarks, durationS, openedMode ?? "score")
@@ -313,12 +396,23 @@ export function MarkPoints({
   /** Has the session started? Until it has, the pad is one button, because
    *  one button is the only thing there is to do. */
   const [started, setStarted] = useState(resumed && !openedCalled);
-  /** The pad's own speed control, mirroring the scorekeeper's. The picture
-   *  gestures (hold left for 0.25x, hold right for 2x) still work, but the
-   *  floating pad covers part of the frame and whichever half it sits on
-   *  loses its gesture, so speed must also be reachable as a control. */
+  /**
+   * The pad's own speed control, mirroring the scorekeeper's. The picture
+   * gestures (hold left for 0.25x, hold right for 2x) still work, but the
+   * floating pad covers part of the frame and whichever half it sits on
+   * loses its gesture, so speed must also be reachable as a control.
+   *
+   * It shows the rate the picture is actually playing at, read off the
+   * element (the ratechange effect below), never a copy of what this pad
+   * last asked for: ClipPlayer's own pill, the hold for 0.25x / 2x and a
+   * rate kept from an earlier clip all change it, and the bar has to say
+   * so.
+   */
   const [speed, setSpeed] = useState(1);
   const [refusal, setRefusal] = useState<string | null>(null);
+  /** Another device saved this draft after this session last did. Its
+   *  copy wins: nothing more is saved, and the pad says so. */
+  const [newerDraft, setNewerDraft] = useState(false);
   /** Open when the player is adjusting a point's edges. */
   const [adjusting, setAdjusting] = useState<string | null>(null);
   /** While previewing a point, the second to stop at. Playing past the end
@@ -428,6 +522,73 @@ export function MarkPoints({
       port.removeEventListener("change", sync);
     };
   }, []);
+
+  /**
+   * Phone landscape is laid out in numbers, not flex: the approved board
+   * places every zone by arithmetic on the screen and its safe areas
+   * (markLandscape.ts), and the iPhone runs the same function. The screen
+   * is the root's own box; the safe areas are read off a probe padded
+   * with env(), since there is no other way to ask for them.
+   */
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const insetProbeRef = useRef<HTMLDivElement | null>(null);
+  const [frame, setFrame] = useState<{
+    w: number;
+    h: number;
+    insets: SafeInsets;
+  } | null>(null);
+  useEffect(() => {
+    if (!overlayPad) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const px = (v: string | undefined) => {
+      const n = parseFloat(v ?? "");
+      return Number.isFinite(n) ? n : 0;
+    };
+    const measure = () => {
+      const probe = insetProbeRef.current;
+      const cs = probe ? getComputedStyle(probe) : null;
+      const next = {
+        w: root.clientWidth,
+        h: root.clientHeight,
+        insets: {
+          left: px(cs?.paddingLeft),
+          right: px(cs?.paddingRight),
+          bottom: px(cs?.paddingBottom),
+        },
+      };
+      setFrame((prev) =>
+        prev &&
+        prev.w === next.w &&
+        prev.h === next.h &&
+        prev.insets.left === next.insets.left &&
+        prev.insets.right === next.insets.right &&
+        prev.insets.bottom === next.insets.bottom
+          ? prev
+          : next
+      );
+    };
+    measure();
+    const ro =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(root);
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+    };
+  }, [overlayPad]);
+  const land = useMemo(() => {
+    if (!overlayPad) return null;
+    const f =
+      frame ??
+      (typeof window !== "undefined"
+        ? { w: window.innerWidth, h: window.innerHeight, insets: undefined }
+        : null);
+    return f ? markLandscape(f.w, f.h, f.insets, ar) : null;
+  }, [overlayPad, frame, ar]);
 
   /* ------------------------------------------------------- dragging (desktop) */
 
@@ -544,6 +705,18 @@ export function MarkPoints({
     speedApi.current?.set(rate);
   }, []);
 
+  // One speed, read from the picture. ClipPlayer applies its kept rate as
+  // the element loads, before this effect runs, so read it once now as
+  // well as on every change.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const sync = () => setSpeed(el.playbackRate > 0 ? el.playbackRate : 1);
+    sync();
+    el.addEventListener("ratechange", sync);
+    return () => el.removeEventListener("ratechange", sync);
+  }, [rawUrl]);
+
   const refuse = useCallback((why: string) => {
     setRefusal(why);
     if (refuseTimer.current) window.clearTimeout(refuseTimer.current);
@@ -590,9 +763,9 @@ export function MarkPoints({
       v.currentTime = Math.max(0, Math.min(d - 0.1, cue.t0 - CLIP_PRE));
       previewUntil.current = cue.t1 + CLIP_POST;
     } else {
-      const last = lastEnd(s.marks);
-      if (last === null) return;
-      v.currentTime = Math.max(0, Math.min(d - 0.1, last));
+      const at = markingPlace(s.marks);
+      if (at === null) return;
+      v.currentTime = Math.max(0, Math.min(d - 0.1, at));
       previewUntil.current = null;
     }
     setPlayhead(v.currentTime);
@@ -614,12 +787,13 @@ export function MarkPoints({
    */
   const serveStepCue = useRef(true);
   const chooseScore = useCallback(() => {
+    if (!scoringAllowed) return;
     setMode("score");
     if (tracksServe(matchType) && firstServer === null) {
       serveStepCue.current = true;
       setServeStep(true);
     }
-  }, [matchType, firstServer]);
+  }, [scoringAllowed, matchType, firstServer]);
   const closeServeStep = useCallback(() => {
     setServeStep(false);
     if (!serveStepCue.current) {
@@ -782,8 +956,14 @@ export function MarkPoints({
       const next = setOutcome(before, o);
       apply(next);
       if (next.refused) return;
-      if (reviewingId) advanceReview(next.state, reviewingId);
-      else resumeAfterAnswer();
+      if (reviewingId) {
+        // Pressing the answer a point already has takes it back off. That
+        // is a correction to this point, not a verdict on it, so the
+        // review stays where it is instead of walking on.
+        const m = next.state.marks.find((x) => x.id === reviewingId);
+        const cleared = !!m && m.winner === null && !m.isLet;
+        if (!cleared) advanceReview(next.state, reviewingId);
+      } else resumeAfterAnswer();
     },
     [apply, resumeAfterAnswer, advanceReview]
   );
@@ -927,6 +1107,7 @@ export function MarkPoints({
    */
   const toggleScoring = useCallback(() => {
     const next: CutMode = mode === "score" ? "cut" : "score";
+    if (next === "score" && !scoringAllowed) return;
     setMode(next);
     if (next === "cut") {
       // The answer row is about to disappear, and it is the only thing
@@ -949,16 +1130,17 @@ export function MarkPoints({
       serveStepCue.current = false;
       setServeStep(true);
     }
-  }, [mode, matchType, firstServer]);
+  }, [mode, scoringAllowed, matchType, firstServer]);
 
-  /** Back to where the marking had got to. */
+  /** Back to where the marking had got to: the rally still open, wherever
+   *  it sits, or else the end of the last point. */
   const resumeMarking = useCallback(() => {
     setState((s) => selectMark(s, null));
     previewUntil.current = null;
-    const last = lastEnd(stateRef.current.marks);
+    const at = markingPlace(stateRef.current.marks);
     const v = videoRef.current;
-    if (v && last !== null) {
-      v.currentTime = Math.max(0, last);
+    if (v && at !== null) {
+      v.currentTime = Math.max(0, at);
       setPlayhead(v.currentTime);
     }
     playApi.current?.play();
@@ -982,9 +1164,8 @@ export function MarkPoints({
     const i = s.marks.findIndex((m) => m.id === id);
     if (i < 0) return;
     const m = s.marks[i];
-    const prevEnd = i > 0 ? s.marks[i - 1].t1 : null;
     const to = Math.max(
-      prevEnd ?? 0,
+      floorAfter(s.marks[i - 1]),
       Math.max(0, m.t0 - REDO_LEAD_S)
     );
     setState(selectMark(removeMark(s, id).state, null));
@@ -1031,7 +1212,7 @@ export function MarkPoints({
     const m = st.selectedId ? st.marks.find((x) => x.id === st.selectedId) : null;
     if (!m || m.t1 === null) return;
     const i = st.marks.findIndex((x) => x.id === m.id);
-    const prevEnd = i > 0 ? st.marks[i - 1].t1 ?? 0 : 0;
+    const prevEnd = floorAfter(st.marks[i - 1]);
     const nextStart =
       i < st.marks.length - 1 ? st.marks[i + 1].t0 : durationS ?? m.t1 + 30;
     const draft: [number, number] = [m.t0, m.t1];
@@ -1071,6 +1252,9 @@ export function MarkPoints({
       if (t instanceof HTMLElement && t.closest("input, textarea, select")) return;
 
       if (!started) {
+        // Behind the first sheet nothing has been chosen yet, so there is
+        // nothing to begin: the sheet's two buttons are the only way on.
+        if (mode === null) return;
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
           if (openedPartial) beginMarking();
@@ -1156,18 +1340,92 @@ export function MarkPoints({
 
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  /**
+   * What the stored draft holds, as far as this session knows: what it
+   * opened on, then whatever it last sent. A save goes only when the marks
+   * or the mode have moved on from it, so opening the marker writes
+   * nothing, and a pass with nothing marked never writes an empty draft
+   * over no draft at all.
+   */
+  const savedRef = useRef<{ marks: Mark[]; mode: CutMode | null }>({
+    marks: state.marks,
+    mode,
+  });
+  /** A change is waiting for its save. */
+  const pendingSave = useRef(false);
+  const newerDraftRef = useRef(false);
+
+  /**
+   * Send the waiting change now. The debounce ends here, and so do
+   * closing the marker and the page going to the background, so the last
+   * taps before the phone is put down are saved rather than dropped with
+   * the timer.
+   */
+  const flushSave = useCallback(() => {
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    if (!pendingSave.current || newerDraftRef.current) return;
+    pendingSave.current = false;
+    const marks = stateRef.current.marks;
+    const m = modeRef.current;
+    const before = savedRef.current;
+    if (marks === before.marks && m === before.mode) return;
+    if (marks.length === 0 && before.marks.length === 0) return;
+    savedRef.current = { marks, mode: m };
+    saveDraft(marks, m).then(
+      (result) => {
+        if (result === "conflict") {
+          newerDraftRef.current = true;
+          setNewerDraft(true);
+        }
+      },
+      () => {
+        // Deliberately quiet. The strip renders from local state, so a
+        // failed save costs a later retry (the next change, or closing)
+        // and never a tap.
+        if (savedRef.current.marks === marks) savedRef.current = before;
+        pendingSave.current = true;
+      }
+    );
+  }, [saveDraft]);
+  const flushSaveRef = useRef(flushSave);
+  flushSaveRef.current = flushSave;
+
   useEffect(() => {
+    const saved = savedRef.current;
+    if (state.marks === saved.marks && mode === saved.mode) return;
+    pendingSave.current = true;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      void saveDraft(stateRef.current.marks, modeRef.current).catch(() => {
-        // Deliberately silent. The strip renders from local state, so a
-        // failed save costs a later retry and never a tap.
-      });
-    }, SAVE_DEBOUNCE_MS);
-    return () => {
-      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(
+      () => flushSaveRef.current(),
+      SAVE_DEBOUNCE_MS
+    );
+  }, [state.marks, mode]);
+
+  // Leaving by any route saves what is waiting: unmounting, and the page
+  // being hidden, which on a phone is often the last thing that happens
+  // before the tab is thrown away.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushSaveRef.current();
     };
-  }, [state.marks, mode, saveDraft]);
+    const onPageHide = () => flushSaveRef.current();
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onPageHide);
+      flushSaveRef.current();
+    };
+  }, []);
+
+  /** Close, saving first. */
+  const closeMarker = useCallback(() => {
+    flushSave();
+    onClose();
+  }, [flushSave, onClose]);
 
   /* ------------------------------------------------------- derived scores */
 
@@ -1216,7 +1474,7 @@ export function MarkPoints({
     const el = stripRef.current;
     if (!el) return;
     el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
-  }, [state.marks.length]);
+  }, [state.marks.length, overlayPad]);
   // Adjust belongs to one selected point; when the selection moves on, so
   // does the bar.
   useEffect(() => {
@@ -1233,14 +1491,24 @@ export function MarkPoints({
     const el = stripRef.current;
     const id = state.selectedId ?? playingId;
     if (!el || !id) return;
-    const i = state.marks.findIndex((m) => m.id === id);
-    const chip = i >= 0 ? (el.children[i] as HTMLElement | undefined) : undefined;
+    // By the mark's id, never its position: the "+" beside a selected
+    // chip is a child of the strip too, and counting children lands one
+    // chip off as soon as it shows.
+    const chip = el.querySelector<HTMLElement>(
+      `[data-mark-id="${CSS.escape(id)}"]`
+    );
     chip?.scrollIntoView?.({ inline: "center", block: "nearest", behavior: "smooth" });
-  }, [state.selectedId, playingId, state.marks]);
+  }, [state.selectedId, playingId, state.marks, overlayPad]);
 
   /* --------------------------------------------------------------- submit */
 
   const doSubmit = useCallback(async () => {
+    // Sending would put these marks over the newer draft, which is the
+    // one thing the newer-draft rule exists to stop.
+    if (newerDraftRef.current) {
+      setSubmitError(NEWER_DRAFT);
+      return;
+    }
     const check = validate(stateRef.current.marks, durationS);
     if (!check.ok) {
       setSubmitError(check.reason);
@@ -1251,27 +1519,22 @@ export function MarkPoints({
     const err = await submit(stateRef.current.marks);
     setBusy(false);
     if (err) setSubmitError(err);
-    else onClose();
+    else {
+      // The claim froze the row with these marks in it; a save after it
+      // would only be refused.
+      pendingSave.current = false;
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+      onClose();
+    }
   }, [durationS, submit, onClose]);
 
   /* ----------------------------------------------------------- pad pieces */
 
   const ticker = (
-    <div
-      className={
-        overlayPad
-          ? "pointer-events-auto flex items-center gap-2 rounded-xl bg-ink/50 px-3 backdrop-blur-sm"
-          : "flex w-full shrink-0 items-center gap-3 border-b border-edge/60 px-3 py-2"
-      }
-      style={overlayPad ? { height: 30 } : undefined}
-    >
+    <div className="flex w-full shrink-0 items-center gap-3 border-b border-edge/60 px-3 py-2">
       <span className="flex items-baseline gap-2">
         {mode === "cut" ? (
-          <span
-            className={`font-bold tabular-nums tracking-tight text-zinc-200 ${
-              overlayPad ? "text-base" : "text-2xl"
-            }`}
-          >
+          <span className="text-2xl font-bold tabular-nums tracking-tight text-zinc-200">
             {sum.total}
             <span className="ml-1.5 text-[11px] font-medium text-zinc-500">
               {sum.total === 1 ? "point" : "points"}
@@ -1279,11 +1542,7 @@ export function MarkPoints({
           </span>
         ) : (
           <>
-            <span
-              className={`font-bold tabular-nums tracking-tight ${
-                overlayPad ? "text-base" : "text-2xl"
-              }`}
-            >
+            <span className="text-2xl font-bold tabular-nums tracking-tight">
               <span className="text-cyan-glow">{score.current.you}</span>
               <span className="mx-1 text-zinc-600">-</span>
               <span className="text-magenta-soft">{score.current.them}</span>
@@ -1304,8 +1563,7 @@ export function MarkPoints({
             }`}
             aria-hidden="true"
           />
-          {!overlayPad &&
-            (nextServer === "user" ? `${youLabel} serves` : `${themLabel} serves`)}
+          {nextServer === "user" ? `${youLabel} serves` : `${themLabel} serves`}
         </span>
       )}
     </div>
@@ -1340,36 +1598,37 @@ export function MarkPoints({
     </button>
   );
 
+  /** The strip's contents: a chip per rally, and the "+" beside the one
+   *  selected. The same in both layouts, at the size each one draws. */
+  const chips = (size: 32 | 36) =>
+    state.marks.map((m, i) => (
+      <Fragment key={m.id}>
+        {state.selectedId === m.id && gaps.before && plusButton(gaps.before, "before")}
+        <MarkChip
+          n={i + 1}
+          mark={m}
+          selected={state.selectedId === m.id}
+          awaiting={state.awaitingId === m.id}
+          playing={playingId === m.id}
+          grow={m.t1 === null ? grow : 0}
+          onSelect={() => tapChip(m.id)}
+          size={size}
+        />
+        {state.selectedId === m.id &&
+          gaps.after &&
+          plusButton(gaps.after, "after")}
+      </Fragment>
+    ));
   const strip = (
     <div
       ref={stripRef}
-      className={
-        overlayPad
-          ? "pointer-events-auto flex items-center gap-1.5 overflow-x-auto rounded-xl bg-ink/50 px-2 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          : "flex w-full shrink-0 items-center gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      }
-      style={overlayPad ? { height: 32 } : { minHeight: 52 }}
+      className="flex w-full shrink-0 items-center gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      style={{ minHeight: 52 }}
     >
       {state.marks.length === 0 ? (
         <span className="text-[11px] text-zinc-500">Nothing marked yet.</span>
       ) : (
-        state.marks.map((m, i) => (
-          <Fragment key={m.id}>
-          {state.selectedId === m.id && gaps.before && plusButton(gaps.before, "before")}
-          <MarkChip
-            n={i + 1}
-            mark={m}
-            selected={state.selectedId === m.id}
-            awaiting={state.awaitingId === m.id}
-            playing={playingId === m.id}
-            grow={m.t1 === null ? grow : 0}
-            onSelect={() => tapChip(m.id)}
-          />
-          {state.selectedId === m.id &&
-            gaps.after &&
-            plusButton(gaps.after, "after")}
-          </Fragment>
-        ))
+        chips(32)
       )}
     </div>
   );
@@ -1390,6 +1649,14 @@ export function MarkPoints({
 
   /** The bar is showing this point's edges, waiting to be confirmed. */
   const adjustOn = selectedMark !== null && adjusting === selectedMark.id;
+
+  /** Take the selected point out. Undo puts it back. */
+  const removeSelected = () => {
+    if (!selectedMark) return;
+    apply(removeMark(stateRef.current, selectedMark.id));
+    setAdjusting(null);
+    setState((st) => selectMark(st, null));
+  };
   const rowGrow = floating ? "flex shrink-0 gap-2" : "flex min-h-16 flex-[3] gap-2";
   const rhythmPair = reviewing_ ? (
     <div className={rowGrow}>
@@ -1496,16 +1763,7 @@ export function MarkPoints({
         onClick={() => selectedMark && redoPoint(selectedMark.id)}
         disabled={!reviewing_}
       />
-      <Util
-        label="Remove"
-        onClick={() => {
-          if (!selectedMark) return;
-          apply(removeMark(stateRef.current, selectedMark.id));
-          setAdjusting(null);
-          setState((st) => selectMark(st, null));
-        }}
-        disabled={!reviewing_}
-      />
+      <Util label="Remove" onClick={removeSelected} disabled={!reviewing_} />
     </div>
   );
 
@@ -1518,7 +1776,7 @@ export function MarkPoints({
    * controls, moved out of menus and sheets so the picture never leaves
    * the screen while a thumb is on them.
    */
-  const speedIdx = Math.max(0, SPEEDS.findIndex((v) => v === speed));
+  const speedIdx = speedIndex(speed);
   const speedFromX = useCallback(
     (clientX: number, el: HTMLElement) => {
       const r = el.getBoundingClientRect();
@@ -1588,7 +1846,9 @@ export function MarkPoints({
     adjusting && adjustDraft && adjustBounds
       ? state.marks.find((x) => x.id === adjusting) ?? null
       : null;
-  const rangeBar = (() => {
+  /** The two-handle bar. `land` is the landscape bottom bar's row, which
+   *  the board draws with a narrower number and a 34 px track. */
+  const renderRange = (land: boolean) => {
     if (!adjustingMark || adjustingMark.t1 === null || !adjustDraft || !adjustBounds) return null;
     const m = adjustingMark;
     const [dT0, dT1] = adjustDraft;
@@ -1633,11 +1893,19 @@ export function MarkPoints({
       },
     });
     return (
-      <div className="flex h-full items-center gap-3">
-        <span className="w-9 shrink-0 text-[11px] font-semibold tabular-nums text-zinc-200">
+      <div className={`flex h-full items-center ${land ? "gap-2.5" : "gap-3"}`}>
+        <span
+          className={`shrink-0 text-[11px] font-semibold tabular-nums text-zinc-200 ${
+            land ? "w-[22px] text-center" : "w-9"
+          }`}
+        >
           {i + 1}
         </span>
-        <div className="relative h-8 min-w-0 flex-1 touch-none select-none">
+        <div
+          className={`relative min-w-0 flex-1 touch-none select-none ${
+            land ? "h-[34px]" : "h-8"
+          }`}
+        >
           <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/10">
             <span
               className="absolute inset-y-0 bg-cyan-glow/45"
@@ -1654,7 +1922,9 @@ export function MarkPoints({
               type="button"
               aria-label={edge === "start" ? "Start of point" : "End of point"}
               {...drag(edge)}
-              className="absolute top-0 flex h-8 w-9 -translate-x-1/2 touch-none items-center justify-center"
+              className={`absolute flex h-8 w-9 -translate-x-1/2 touch-none items-center justify-center ${
+                land ? "top-px" : "top-0"
+              }`}
               style={{ left: `${pct(edge === "start" ? dT0 : dT1)}%` }}
             >
               <span className="h-8 w-0.5 rounded-full bg-cyan-glow" />
@@ -1662,22 +1932,20 @@ export function MarkPoints({
             </button>
           ))}
         </div>
-        <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-zinc-400">
+        <span
+          className={`shrink-0 text-[10px] tabular-nums text-zinc-400 ${
+            land ? "w-[34px]" : "w-10 text-right"
+          }`}
+        >
           {(dT1 - dT0).toFixed(1)}s
         </span>
       </div>
     );
-  })();
+  };
+  const rangeBar = renderRange(false);
 
   const barStrip = (
-    <div
-      className={
-        overlayPad
-          ? "pointer-events-auto rounded-xl bg-ink/50 px-3 backdrop-blur-sm"
-          : "w-full shrink-0 border-b border-edge/60 px-3"
-      }
-      style={{ height: overlayPad ? 36 : 46 }}
-    >
+    <div className="w-full shrink-0 border-b border-edge/60 px-3" style={{ height: 46 }}>
       {rangeBar ?? speedBar}
     </div>
   );
@@ -1754,237 +2022,20 @@ export function MarkPoints({
     </button>
   );
 
-  const refusalLine = refusal ? (
+  /** The refusal of the moment, or, once a newer draft has turned up,
+   *  that line for the rest of the session. */
+  const statusText = refusal ?? (newerDraft ? NEWER_DRAFT : null);
+  const refusalLine = statusText ? (
     <p
       role="status"
       className="shrink-0 text-center text-[12px] font-semibold text-amber-300"
     >
-      {refusal}
+      {statusText}
     </p>
   ) : null;
 
   /* -------------------------------------------------------------- overlay */
 
-  const landscapeBands = useCallback(
-    (picture: PictureBox) => {
-      // Two floors on purpose. The left column only clears the transport;
-      // the right one also clears ClipPlayer's speed and zoom pills, which
-      // live in the bottom-RIGHT corner about 26px above it. Measured
-      // against the rendered player, not assumed.
-      const base = picture.chromeFloor + 6;
-      const baseRight = picture.chromeFloor + 34;
-      const tile =
-        "pointer-events-auto rounded-xl border font-bold transition-all disabled:opacity-30 active:scale-[0.98]";
-      return (
-        <div className="pointer-events-none absolute inset-0 z-10">
-          <div className="absolute left-1 top-1">{ticker}</div>
-          <div
-            className="absolute"
-            style={{ left: 116, right: 176, top: 38 }}
-          >
-            {rangeBar ? barStrip : strip}
-          </div>
-          <div className="pointer-events-auto absolute" style={{ right: 76, top: 4 }}>
-            {doneButton}
-          </div>
-
-          {!started ? (
-            <>
-              <button
-                type="button"
-                onClick={
-                  openedPartial
-                    ? beginMarking
-                    : openedFinished
-                      ? beginReview
-                      : beginCutting
-                }
-                className={`${tile} glow-cta absolute border-cyan-glow bg-cyan-glow text-ink`}
-                style={{
-                  left: "50%",
-                  bottom: openedPartial ? base + 52 : base + 40,
-                  transform: "translateX(-50%)",
-                  width: 200,
-                  height: openedPartial ? 52 : 56,
-                }}
-              >
-                {openedPartial
-                  ? "Keep marking"
-                  : openedFinished
-                    ? "Begin review"
-                    : "Begin Cutting"}
-              </button>
-              {openedPartial && (
-                <button
-                  type="button"
-                  onClick={beginReview}
-                  className={`${tile} absolute border-white/15 bg-ink/70 text-sm text-zinc-200`}
-                  style={{
-                    left: "50%",
-                    bottom: base + 4,
-                    transform: "translateX(-50%)",
-                    width: 200,
-                    height: 40,
-                  }}
-                >
-                  Review the points
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              {/* left thumb: the pair, in the same two boxes whichever
-                  meaning they carry, so nothing moves under a thumb */}
-              <button
-                type="button"
-                onClick={reviewing_ ? resumeMarking : tapEnd}
-                disabled={(!reviewing_ && !open) || (reviewing_ && adjustOn)}
-                className={`${tile} absolute ${
-                  !reviewing_ && open
-                    ? "glow-cta border-cyan-glow bg-cyan-glow text-ink"
-                    : "border-edge bg-ink/70 text-zinc-300"
-                }`}
-                style={{ left: 4, bottom: base, width: 100, height: 62 }}
-              >
-                {reviewing_ ? "Resume" : "End Point"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!reviewing_) {
-                    if (open) tapReset();
-                    else tapBegin();
-                    return;
-                  }
-                  if (adjustOn) confirmAdjust();
-                  else openAdjust();
-                }}
-                className={`${tile} absolute ${
-                  reviewing_ || !open
-                    ? "glow-cta border-cyan-glow bg-cyan-glow text-ink"
-                    : "border-edge bg-ink/70 text-zinc-300"
-                }`}
-                style={{ left: 4, bottom: base + 68, width: 100, height: 62 }}
-              >
-                {reviewing_
-                  ? adjustOn
-                    ? "Confirm"
-                    : "Adjust"
-                  : open
-                    ? "Reset"
-                    : "Begin Point"}
-              </button>
-              <button
-                type="button"
-                onClick={tapUndo}
-                disabled={state.undo.length === 0}
-                className={`${tile} absolute border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-200`}
-                style={{ left: 4, bottom: base + 136, width: 100, height: 34 }}
-              >
-                Undo
-              </button>
-              {reviewing_ && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => selectedMark && redoPoint(selectedMark.id)}
-                    className={`${tile} absolute border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-200`}
-                    style={{ left: 4, bottom: base + 174, width: 100, height: 34 }}
-                  >
-                    Mark again
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!selectedMark) return;
-                      apply(removeMark(stateRef.current, selectedMark.id));
-                      setAdjusting(null);
-                      setState((st) => selectMark(st, null));
-                    }}
-                    className={`${tile} absolute border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-200`}
-                    style={{ left: 4, bottom: base + 212, width: 100, height: 34 }}
-                  >
-                    Remove
-                  </button>
-                </>
-              )}
-
-              {/* right thumb: the three answers, pulsing when asked for.
-                  A cut-only pass has nothing to answer, so it has no
-                  answer tiles — the same rule the portrait pad follows. */}
-              {mode !== "cut" &&
-                (
-                  [
-                    ["let", "Let", "border-amber-400/70 bg-amber-400/15 text-amber-300", 0],
-                    ["opponent", themLabel, "border-magenta-glow bg-magenta-glow/20 text-magenta-soft", 40],
-                    ["user", youLabel, "border-cyan-glow bg-cyan-glow/20 text-cyan-glow", 106],
-                  ] as const
-                ).map(([value, label, lit, offset]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => tapAnswer(value)}
-                  disabled={!canAnswer}
-                  className={`${tile} absolute px-1 ${
-                    canAnswer ? lit : "border-edge bg-ink/60 text-zinc-500"
-                  } ${awaiting ? "animate-pulse ring-2 ring-white/60" : ""}`}
-                  style={{
-                    right: 4,
-                    bottom: baseRight + offset,
-                    width: 104,
-                    height: value === "let" ? 34 : 60,
-                  }}
-                >
-                    <span className="block truncate">{label}</span>
-                  </button>
-                ))}
-            </>
-          )}
-
-          {refusal && (
-            <p
-              role="status"
-              className="pointer-events-none absolute inset-x-0 text-center text-[12px] font-semibold text-amber-300"
-              style={{ top: 78 }}
-            >
-              {refusal}
-            </p>
-          )}
-        </div>
-      );
-    },
-    [
-      ticker,
-      strip,
-      barStrip,
-      rangeBar,
-      doneButton,
-      started,
-      beginCutting,
-      beginReview,
-      beginMarking,
-      openedFinished,
-      openedPartial,
-      open,
-      tapBegin,
-      tapEnd,
-      tapUndo,
-      tapAnswer,
-      canAnswer,
-      awaiting,
-      state.undo.length,
-      youLabel,
-      themLabel,
-      refusal,
-      reviewing_,
-      selectedMark,
-      adjustOn,
-      openAdjust,
-      confirmAdjust,
-      redoPoint,
-      apply,
-    ]
-  );
 
   /**
    * Five seconds either way, on the picture itself, the way the match
@@ -2005,45 +2056,37 @@ export function MarkPoints({
       // While a marked point is selected the pair walks the strip; while
       // marking, it nudges the tape.
       const stepping = reviewing_;
-      // Round at the picture's mid-height; a short pill along the top in
-      // landscape, where the chip strip starts 38px down and a 40px
-      // circle would run into it.
-      const skip = `pointer-events-auto flex items-center justify-center rounded-full border border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-100 transition-colors active:bg-ink/80 ${
-        overlayPad ? "h-8 w-12" : "h-10 w-10"
-      }`;
+      const skip =
+        "pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-100 transition-colors active:bg-ink/80";
       const midY = picture.top + picture.height / 2 - 20;
       return (
         <>
-          <div className="pointer-events-none absolute inset-0 z-[9]">
-            <button
-              type="button"
-              onClick={() => (stepping ? stepMark(-1) : seekBy(-5))}
-              disabled={stepping && !hasPrev}
-              aria-label={stepping ? "Previous point" : "Back five seconds"}
-              className={`${skip} absolute disabled:opacity-30`}
-              style={
-                overlayPad
-                  ? { left: "50%", top: 2, transform: "translateX(-60px)" }
-                  : { left: picture.left + 10, top: midY }
-              }
-            >
-              {stepping ? "Prev" : "−5s"}
-            </button>
-            <button
-              type="button"
-              onClick={() => (stepping ? stepMark(1) : seekBy(5))}
-              disabled={stepping && !hasNext}
-              aria-label={stepping ? "Next point" : "Forward five seconds"}
-              className={`${skip} absolute disabled:opacity-30`}
-              style={
-                overlayPad
-                  ? { left: "50%", top: 2, transform: "translateX(12px)" }
-                  : { left: picture.left + picture.width - 50, top: midY }
-              }
-            >
-              {stepping ? "Next" : "+5s"}
-            </button>
-          </div>
+          {/* In landscape the nudges live in the bottom bar: nothing
+              permanent sits on the picture there. */}
+          {!overlayPad && (
+            <div className="pointer-events-none absolute inset-0 z-[9]">
+              <button
+                type="button"
+                onClick={() => (stepping ? stepMark(-1) : seekBy(-5))}
+                disabled={stepping && !hasPrev}
+                aria-label={stepping ? "Previous point" : "Back five seconds"}
+                className={`${skip} absolute disabled:opacity-30`}
+                style={{ left: picture.left + 10, top: midY }}
+              >
+                {stepping ? "Prev" : "−5s"}
+              </button>
+              <button
+                type="button"
+                onClick={() => (stepping ? stepMark(1) : seekBy(5))}
+                disabled={stepping && !hasNext}
+                aria-label={stepping ? "Next point" : "Forward five seconds"}
+                className={`${skip} absolute disabled:opacity-30`}
+                style={{ left: picture.left + picture.width - 50, top: midY }}
+              >
+                {stepping ? "Next" : "+5s"}
+              </button>
+            </div>
+          )}
           {started && everPlayed && stopped && (
             <div className="pointer-events-none absolute inset-0 z-[9]">
               <button
@@ -2070,13 +2113,24 @@ export function MarkPoints({
               </button>
             </div>
           )}
-          {overlayPad ? landscapeBands(picture) : null}
+          {/* Landscape has no pad for the refusal line to sit in, so it
+              comes up on the picture for its two seconds, on a solid
+              backing that stays readable over any footage. */}
+          {overlayPad && statusText && (
+            <div className="pointer-events-none absolute inset-x-0 z-[9] flex justify-center px-3" style={{ top: picture.top + 10 }}>
+              <p
+                role="status"
+                className="rounded-full bg-ink/85 px-3 py-1 text-center text-[12px] font-semibold text-amber-300"
+              >
+                {statusText}
+              </p>
+            </div>
+          )}
         </>
       );
     },
     [
       overlayPad,
-      landscapeBands,
       seekBy,
       reviewing_,
       stepMark,
@@ -2085,6 +2139,7 @@ export function MarkPoints({
       started,
       stopped,
       everPlayed,
+      statusText,
     ]
   );
 
@@ -2129,7 +2184,7 @@ export function MarkPoints({
                 : `${sum.total} ${sum.total === 1 ? "point" : "points"}`}
           </span>
           <div className="flex shrink-0 items-center gap-2">
-            {started && mode !== null && (
+            {started && mode !== null && scoringAllowed && (
               <button
                 type="button"
                 onClick={toggleScoring}
@@ -2151,33 +2206,407 @@ export function MarkPoints({
     </>
   );
 
+  /* ------------------------------------------------------ phone landscape */
+
+  /**
+   * The phone held sideways, as approved on 2026-09-24: Scorekeeper's
+   * landscape language. A solid top bar (score, chips, Done, close), the
+   * answers on the left rail, the pair on the right rail, the tools along
+   * a solid bottom bar, and the picture in the box they leave, with
+   * nothing permanent on it. Every size and colour below is the board's
+   * (docs/superpowers/specs/2026-09-24-ios-hand-cut-landscape-mockup.dc.html).
+   *
+   * Cut only keeps the same layout with the answers greyed out, so the
+   * pair never moves between the two passes.
+   */
+  const landChrome = (() => {
+    if (!land) return null;
+    const g = land;
+
+    const pair = railPair({
+      started,
+      opened: openedAs,
+      reviewing: reviewing_,
+      adjusting: adjustOn,
+      open: open !== null,
+    });
+    const onPair = (t: PairTile) => {
+      switch (t.action) {
+        case "beginCutting":
+          return beginCutting();
+        case "beginReview":
+          return beginReview();
+        case "keepMarking":
+          return beginMarking();
+        case "reviewPoints":
+          return beginReview();
+        case "begin":
+          return tapBegin();
+        case "reset":
+          return tapReset();
+        case "end":
+          return tapEnd();
+        case "adjust":
+          return openAdjust();
+        case "confirm":
+          return confirmAdjust();
+        case "resume":
+          return resumeMarking();
+      }
+    };
+
+    // Answers: lit only while there is a point to answer in a scoring
+    // pass; greyed out, and still there, in Cut only.
+    const answersOn = mode === "score" && canAnswer;
+    const pulse = mode === "score" && awaiting;
+    const answer = (
+      value: Outcome,
+      label: string,
+      rgb: string,
+      text: string,
+      height: number,
+      fontSize: number
+    ) => (
+      <button
+        key={value}
+        type="button"
+        onClick={() => tapAnswer(value)}
+        disabled={!answersOn}
+        className={`flex w-full shrink-0 items-center justify-center rounded-2xl px-2 text-center font-bold leading-[1.12] transition-all active:scale-[0.98] ${
+          pulse ? "animate-pulse" : ""
+        }`}
+        style={{
+          height,
+          fontSize,
+          color: text,
+          ...(answersOn
+            ? {
+                backgroundColor: "#1B1B26",
+                backgroundImage: `linear-gradient(rgba(${rgb},0.28), rgba(${rgb},0.28))`,
+                border: `2px solid rgba(${rgb},0.9)`,
+                boxShadow: `0 0 16px rgba(${rgb},0.35)`,
+                ...(pulse
+                  ? { outline: "2px solid rgba(255,255,255,0.6)", outlineOffset: 2 }
+                  : null),
+              }
+            : {
+                background: "#1B1B26",
+                border: `1px solid rgba(${rgb},0.35)`,
+                opacity: 0.3,
+              }),
+        }}
+      >
+        <span className="block max-w-full truncate">{label}</span>
+      </button>
+    );
+
+    const stepping = reviewing_;
+    const tool = (
+      key: string,
+      label: string,
+      icon: string,
+      onClick: () => void,
+      disabled: boolean,
+      opts: { lit?: boolean; aria?: string } = {}
+    ) => (
+      <button
+        key={key}
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={opts.aria ?? label}
+        className={`flex h-[34px] min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-[9px] px-0.5 transition-colors active:scale-[0.98] disabled:opacity-35 ${
+          opts.lit ? "bg-amber-400/15 text-amber-300" : "bg-surface-2 text-zinc-200"
+        }`}
+      >
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill={opts.lit ? "currentColor" : "none"}
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d={icon} />
+        </svg>
+        <span className="whitespace-nowrap text-[10px] font-medium leading-[1.1]">
+          {label}
+        </span>
+      </button>
+    );
+    const starLit = !!state.marks.find(
+      (m) => m.id === (state.awaitingId ?? state.selectedId)
+    )?.starred;
+    const tools = [
+      stepping
+        ? tool("step-back", "Prev", ICON.prev, () => stepMark(-1), !hasPrev, {
+            aria: "Previous point",
+          })
+        : tool("step-back", "−5s", ICON.back, () => seekBy(-5), false, {
+            aria: "Back five seconds",
+          }),
+      tool("undo", "Undo", ICON.undo, tapUndo, !started || state.undo.length === 0),
+      <SpeedMenu
+        key="speed"
+        value={speed}
+        onChange={chooseSpeed}
+        label="Speed"
+        containerClassName="relative min-w-0"
+        className="flex h-[34px] w-full min-w-0 flex-col items-center justify-center gap-0.5 rounded-[9px] bg-surface-2 px-0.5 text-[13px] font-bold leading-none text-zinc-200 active:scale-[0.98]"
+        labelClassName="whitespace-nowrap text-[10px] font-medium leading-[1.1]"
+      />,
+      tool("star", "Star", ICON.star, tapStar, !started || state.marks.length === 0, {
+        lit: starLit,
+      }),
+      tool(
+        "again",
+        "Mark again",
+        ICON.again,
+        () => selectedMark && redoPoint(selectedMark.id),
+        !reviewing_
+      ),
+      tool("remove", "Remove", ICON.remove, removeSelected, !reviewing_),
+      ...(scoringAllowed
+        ? [
+            tool(
+              "mode",
+              mode === "score" ? "Stop scoring" : "Score them too",
+              ICON.toggle,
+              toggleScoring,
+              !started || mode === null,
+              {
+                aria:
+                  mode === "score"
+                    ? "Stop calling who won each point"
+                    : "Also call who won each point",
+              }
+            ),
+          ]
+        : []),
+      stepping
+        ? tool("step-fwd", "Next", ICON.next, () => stepMark(1), !hasNext, {
+            aria: "Next point",
+          })
+        : tool("step-fwd", "+5s", ICON.fwd, () => seekBy(5), false, {
+            aria: "Forward five seconds",
+          }),
+    ];
+    const range = renderRange(true);
+
+    return (
+      <>
+        {/* Top bar: the score (or the count), the chips, Done, close. */}
+        <div
+          className="absolute inset-x-0 top-0 border-b border-edge bg-surface"
+          style={{ height: TOP_BAR_H }}
+        >
+          <div
+            className="absolute top-0 flex items-center gap-2.5"
+            style={{ left: g.x0, width: g.avail, height: TOP_BAR_H }}
+          >
+            {mode === "cut" ? (
+              <div className="flex shrink-0 items-baseline gap-1.5">
+                <span className="text-[20px] font-bold tabular-nums text-zinc-200">
+                  {sum.total}
+                </span>
+                <span className="text-[11px] text-zinc-500">
+                  {sum.total === 1 ? "point" : "points"}
+                </span>
+              </div>
+            ) : (
+              <div className="flex shrink-0 items-center gap-2.5">
+                <span className="whitespace-nowrap text-[20px] font-bold tabular-nums">
+                  <span className="text-cyan-glow">{score.current.you}</span>
+                  <span className="text-zinc-600"> - </span>
+                  <span className="text-magenta-soft">{score.current.them}</span>
+                </span>
+                {score.gamesYou + score.gamesThem > 0 && (
+                  <span className="rounded-full border border-edge px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-300">
+                    {score.gamesYou}-{score.gamesThem}
+                  </span>
+                )}
+                {nextServer && (
+                  <span className="flex items-center gap-[5px] whitespace-nowrap text-[13px] text-zinc-300">
+                    <span
+                      aria-hidden="true"
+                      className={`block h-[7px] w-[7px] rounded-full ${
+                        nextServer === "user" ? "bg-cyan-glow" : "bg-magenta-soft"
+                      }`}
+                    />
+                    {nextServer === "user" ? `${youLabel} serves` : `${themLabel} serves`}
+                  </span>
+                )}
+              </div>
+            )}
+            {/* The strip scrolls; its row hugs the right, next to Done,
+                and a long one scrolls from there. */}
+            <div
+              ref={stripRef}
+              className="h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              <div className="ml-auto flex h-full w-max items-center gap-2 px-1.5">
+                {state.marks.length === 0 ? (
+                  <span className="whitespace-nowrap text-xs text-zinc-500">
+                    Nothing marked yet.
+                  </span>
+                ) : (
+                  chips(36)
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                playApi.current?.pause();
+                setReviewing(true);
+              }}
+              disabled={sum.total === 0}
+              className="shrink-0 rounded-full border border-edge px-3.5 py-[7px] text-xs font-semibold text-zinc-200 transition-colors disabled:opacity-40"
+            >
+              Done
+            </button>
+            <button
+              type="button"
+              onClick={closeMarker}
+              aria-label="Close"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-zinc-200"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Left rail: the three answers. */}
+        <div
+          className="absolute flex flex-col"
+          style={{ left: g.leftX, top: g.yMid, width: g.tileW, height: g.boxH, gap: RAIL_GAP }}
+        >
+          {answer("user", youLabel, "34,211,238", "#22d3ee", g.answerH, g.answerFont)}
+          {answer("opponent", themLabel, "232,121,249", "#f0abfc", g.answerH, g.answerFont)}
+          {answer("let", "Let", "255,185,0", "#ffd230", LET_H, 17)}
+        </div>
+
+        {/* Right rail: the pair, or the gate before anything has begun. */}
+        <div
+          className="absolute flex flex-col"
+          style={{ left: g.rightX, top: g.yMid, width: g.tileW, height: g.boxH, gap: RAIL_GAP }}
+        >
+          {pair.map((t) => (
+            <button
+              key={t.action}
+              type="button"
+              onClick={() => onPair(t)}
+              disabled={t.tone === "off"}
+              className={`flex w-full shrink-0 items-center justify-center rounded-2xl border-2 px-2 text-center font-bold leading-[1.12] transition-colors active:scale-[0.99] disabled:opacity-35 ${
+                t.tone === "lit"
+                  ? "glow-cta border-cyan-glow bg-cyan-glow text-ink"
+                  : "border-edge bg-surface-2 text-zinc-300"
+              }`}
+              style={{
+                height: pairTileHeight(t, pair.length, g.boxH),
+                fontSize: g.pairFont,
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Bottom bar: the tools, or the point's edges while adjusting. */}
+        <div
+          className="absolute inset-x-0 border-t border-edge bg-surface"
+          style={{ top: g.bottomTop, height: g.bottomH }}
+        >
+          {range ? (
+            <div
+              className="absolute"
+              style={{ left: g.x0, width: g.avail, top: 3, height: BOTTOM_BAR_H - 7 }}
+            >
+              {range}
+            </div>
+          ) : (
+            <div
+              className="absolute grid gap-1.5"
+              style={{
+                left: g.x0,
+                width: g.avail,
+                top: 3,
+                height: BOTTOM_BAR_H - 7,
+                gridTemplateColumns: `repeat(${tools.length}, minmax(0, 1fr))`,
+              }}
+            >
+              {tools}
+            </div>
+          )}
+        </div>
+      </>
+    );
+  })();
+
   /* --------------------------------------------------------------- render */
 
   return (
     <div
-      className={`fixed inset-0 z-[80] flex bg-ink ${
-        floating ? "flex-col" : "portrait:flex-col landscape:flex-row"
-      }`}
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      ref={rootRef}
+      className={
+        land
+          ? "fixed inset-0 z-[80] overflow-hidden bg-black"
+          : `fixed inset-0 z-[80] flex bg-ink ${
+              floating ? "flex-col" : "portrait:flex-col landscape:flex-row"
+            }`
+      }
+      // Landscape pads its own bottom bar for the home indicator.
+      style={land ? undefined : { paddingBottom: "env(safe-area-inset-bottom)" }}
     >
+      {/* Reads the safe areas for the landscape arithmetic. First in every
+          layout, so the player below keeps its place in the tree and is
+          never remounted (and reloaded) by a rotation. */}
+      <div
+        ref={insetProbeRef}
+        aria-hidden="true"
+        className="pointer-events-none invisible fixed left-0 top-0 h-0 w-0"
+        style={{
+          paddingLeft: "env(safe-area-inset-left)",
+          paddingRight: "env(safe-area-inset-right)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      />
       {/* The box is sized on this div, never on the element: a media element
           has no intrinsic size until metadata arrives. */}
       <div
         className={
-          overlayPad || floating
-            ? "relative min-h-0 flex-1"
-            : portrait
-              ? "relative w-full shrink-0"
-              : "relative h-full flex-1"
+          land
+            ? "absolute overflow-hidden rounded-lg bg-[#111]"
+            : floating
+              ? "relative min-h-0 flex-1"
+              : portrait
+                ? "relative w-full shrink-0"
+                : "relative h-full flex-1"
         }
         style={
-          !overlayPad && !floating && portrait
-            ? {
-                // A min() of the two real limits. Never viewport-minus-a-
-                // constant: that is comfortable at 844 and brutal at 660.
-                height: `min(calc(100vw / ${ar.toFixed(4)}), 42dvh)`,
-              }
-            : undefined
+          land
+            ? { left: land.picX, top: land.yMid, width: land.boxW, height: land.boxH }
+            : !floating && portrait
+              ? {
+                  // A min() of the two real limits. Never viewport-minus-a-
+                  // constant: that is comfortable at 844 and brutal at 660.
+                  height: `min(calc(100vw / ${ar.toFixed(4)}), 42dvh)`,
+                }
+              : undefined
         }
       >
         <ClipPlayer
@@ -2203,13 +2632,15 @@ export function MarkPoints({
             }
             resumeToLastPoint();
           }}
-          onClose={onClose}
+          onClose={closeMarker}
           overlay={videoOverlay}
+          bare={land !== null}
         />
       </div>
 
-      {!overlayPad &&
-        (floating ? (
+      {land
+        ? landChrome
+        : (floating ? (
           <div className="pointer-events-none absolute inset-0 z-10">
             <div
               ref={padCardRef}
@@ -2244,16 +2675,21 @@ export function MarkPoints({
               You can score it later either way.
             </p>
             <div className="mt-4 grid grid-cols-1 gap-2">
+              {/* Practice and drills have no score to keep, so the choice
+                  is shown and cannot be taken. */}
               <button
                 type="button"
                 onClick={chooseScore}
-                className="rounded-lg border border-edge bg-ink/40 px-4 py-3 text-left transition-colors hover:border-cyan-glow/40"
+                disabled={!scoringAllowed}
+                className={`rounded-lg border border-edge bg-ink/40 px-4 py-3 text-left transition-colors ${
+                  scoringAllowed ? "hover:border-cyan-glow/40" : "opacity-40"
+                }`}
               >
                 <span className="block text-sm font-semibold text-zinc-100">
                   Cut and score
                 </span>
                 <span className="mt-0.5 block text-xs text-zinc-500">
-                  Say who won each point as you go.
+                  {scoringAllowed ? "Say who won each point as you go." : "Matches only"}
                 </span>
               </button>
               <button
@@ -2275,7 +2711,28 @@ export function MarkPoints({
 
       {serveStep && (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-end justify-center">
-          <div className="ks-fade pointer-events-auto w-full rounded-t-2xl border border-edge bg-surface p-5 pb-8 sm:mb-6 sm:max-w-sm sm:rounded-2xl sm:pb-5">
+          <div
+            className={`ks-fade pointer-events-auto border border-edge bg-surface p-5 ${
+              land
+                ? "absolute rounded-2xl shadow-2xl shadow-black/50"
+                : "w-full rounded-t-2xl pb-8 sm:mb-6 sm:max-w-sm sm:rounded-2xl sm:pb-5"
+            }`}
+            style={
+              land
+                ? {
+                    // Over the picture, clear of the bottom bar, so the
+                    // tools and the rails stay in reach while the start
+                    // of the match plays.
+                    width: Math.min(384, land.avail),
+                    left: Math.max(
+                      land.x0,
+                      land.picX + (land.boxW - Math.min(384, land.avail)) / 2
+                    ),
+                    bottom: land.bottomH + 10,
+                  }
+                : undefined
+            }
+          >
             <h2 className="text-base font-semibold">Who served first?</h2>
             <p className="mt-0.5 text-xs text-zinc-500">
               Sets the serve rotation for the whole match. Play the start if

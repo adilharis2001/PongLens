@@ -42,8 +42,8 @@ import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { TrimBar } from "@/components/TrimBar";
 import { ClipPlayer } from "./ClipPlayer";
 import { MatchFeedbackLink } from "./feedback/MatchFeedback";
-import { MarkPoints } from "./MarkPoints";
-import { submittable, type CutMode, type Mark } from "./handCut";
+import { MarkPoints, type DraftSave } from "./MarkPoints";
+import { normalizeMarks, submittable, type CutMode, type Mark } from "./handCut";
 import { userFirstServerUpdate } from "./matchStructure";
 import type { MatchServer } from "./serving";
 import { RawExportRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
@@ -162,6 +162,23 @@ export function RawMatchView({
    */
   const [handCutReady, setHandCutReady] = useState(false);
   const draftCount = draftMarks.filter((m) => m.t1 !== null).length;
+  /**
+   * The draft row's updated_at as this page last read or wrote it, or null
+   * when there is no row.
+   *
+   * Every save is conditional on it: a write lands only if the row still
+   * carries the stamp this page knows, so a draft saved since on another
+   * device (the iPhone marks the same row) is never overwritten. The
+   * newer draft wins, and this page stops saving until it is reopened.
+   */
+  const draftStamp = useRef<string | null>(null);
+  /** Saves run one at a time, so each carries the stamp the last left. */
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  /** Each opening of the marker is a session; a conflict ends saving for
+   *  the session it happened in, and reopening starts a fresh one. */
+  const markerSession = useRef(0);
+  const conflictSession = useRef(-1);
+  const [openingMarker, setOpeningMarker] = useState(false);
   const [spokenOpen, setSpokenOpen] = useState(false);
   const spokenRows = cleanSpoken(match.spoken_scores);
   /** The browser refused the raw file (usually HEVC in a .mov). */
@@ -353,43 +370,121 @@ export function RawMatchView({
     return () => { active = false; clearInterval(timer); };
   }, [feedbackJobId, feedbackJobStatus, job?.id, job?.status, router]);
 
-  // Marking already done on this match, so re-opening resumes rather than
-  // starting over. A missing table (the migration has not run yet) is not
-  // an error the player should be shown: it simply means no draft.
+  /**
+   * Marking already done on this match, so re-opening resumes rather than
+   * starting over. Read in either stored shape (normalizeMarks): a draft
+   * handed back after a failed cut holds the short form claim_hand_cut
+   * was sent, which cast straight to marks read as every point called.
+   *
+   * Resolves false when the read failed. A missing table (the migration
+   * has not run yet) is not an error the player should be shown: it
+   * simply means no draft, and the feature stays hidden.
+   */
+  const loadDraft = useCallback(async (): Promise<boolean> => {
+    const supabase = createClient();
+    const { data, error: readError } = await supabase
+      .from("hand_cut_drafts")
+      .select("marks, mode, updated_at")
+      .eq("match_id", match.id)
+      .maybeSingle();
+    if (readError) return false;
+    const row = data as {
+      marks?: unknown;
+      mode?: string | null;
+      updated_at?: string | null;
+    } | null;
+    setDraftMarks(normalizeMarks(row?.marks));
+    setDraftMode(row?.mode === "cut" || row?.mode === "score" ? row.mode : null);
+    draftStamp.current = row?.updated_at ?? null;
+    return true;
+  }, [match.id]);
+
   useEffect(() => {
     if (!isOwner) return;
-    const supabase = createClient();
-    void supabase
-      .from("hand_cut_drafts")
-      .select("marks, mode")
-      .eq("match_id", match.id)
-      .maybeSingle()
-      .then(({ data, error: readError }) => {
-        if (readError) return; // no table yet: the feature stays hidden
-        setHandCutReady(true);
-        const row = data as { marks?: Mark[]; mode?: CutMode | null } | null;
-        if (Array.isArray(row?.marks)) setDraftMarks(row.marks);
-        setDraftMode(row?.mode ?? null);
-      });
-  }, [isOwner, match.id]);
+    let active = true;
+    void loadDraft().then((ok) => {
+      if (active && ok) setHandCutReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [isOwner, loadDraft]);
 
+  /**
+   * Open the marker on the draft as it is NOW, not as it was when this
+   * page loaded: another device may have marked since. A failed read
+   * opens on what the page already holds.
+   */
+  const openMarker = useCallback(async () => {
+    if (openingMarker) return;
+    setOpeningMarker(true);
+    await loadDraft();
+    markerSession.current += 1;
+    setOpeningMarker(false);
+    setMarkingUrl(rawUrl);
+    setMarking(true);
+  }, [openingMarker, loadDraft, rawUrl]);
+
+  /**
+   * Write the draft, but never over a newer one.
+   *
+   * A plain insert when there is no row yet and an update conditional on
+   * the stamp otherwise, never an upsert: an upsert's conflict branch
+   * rewrites match_id and user_id too, and the owner may only update
+   * marks, mode and updated_at (20260909181000), so every upsert after
+   * the first was refused. Resolves "conflict" when another device got
+   * there first; rejects on a network or server failure, which the
+   * marker retries on its next save.
+   */
   const saveDraft = useCallback(
-    async (marks: Mark[], mode: CutMode | null) => {
-      setDraftMarks(marks);
-      setDraftMode(mode);
-      const supabase = createClient();
-      await supabase.from("hand_cut_drafts").upsert(
-        {
-          match_id: match.id,
-          user_id: userId,
-          marks,
-          mode,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "match_id" },
-      );
+    (marks: Mark[], mode: CutMode | null): Promise<DraftSave> => {
+      const session = markerSession.current;
+      const conflict = (): DraftSave => {
+        conflictSession.current = session;
+        // Read the newer draft now, so the row's count and the next
+        // opening show it.
+        void loadDraft();
+        return "conflict";
+      };
+      const write = async (): Promise<DraftSave> => {
+        if (conflictSession.current === session) return "conflict";
+        const supabase = createClient();
+        const stamp = new Date().toISOString();
+        const known = draftStamp.current;
+        if (known === null) {
+          const { data, error: insertError } = await supabase
+            .from("hand_cut_drafts")
+            .insert({ match_id: match.id, user_id: userId, marks, mode, updated_at: stamp })
+            .select("updated_at")
+            .single();
+          if (insertError) {
+            // The row appeared since this page last looked.
+            if (insertError.code === "23505") return conflict();
+            throw insertError;
+          }
+          draftStamp.current = (data as { updated_at: string }).updated_at;
+        } else {
+          const { data, error: updateError } = await supabase
+            .from("hand_cut_drafts")
+            .update({ marks, mode, updated_at: stamp })
+            .eq("match_id", match.id)
+            .eq("updated_at", known)
+            .select("updated_at");
+          if (updateError) throw updateError;
+          const rows = (data ?? []) as { updated_at: string }[];
+          // Nothing matched: the row was saved since (or sent, or gone).
+          if (rows.length === 0) return conflict();
+          draftStamp.current = rows[0].updated_at;
+        }
+        setDraftMarks(marks);
+        setDraftMode(mode);
+        return "saved";
+      };
+      const run = saveQueue.current.then(write, write);
+      saveQueue.current = run.catch(() => undefined);
+      return run;
     },
-    [match.id, userId],
+    [match.id, userId, loadDraft],
   );
 
   const submitHandCut = useCallback(
@@ -983,11 +1078,8 @@ export function RawMatchView({
           {handCutEnabled && handCutReady && (
           <button
             type="button"
-            onClick={() => {
-              setMarkingUrl(rawUrl);
-              setMarking(true);
-            }}
-            disabled={!rawUrl || undecodable}
+            onClick={() => void openMarker()}
+            disabled={!rawUrl || undecodable || openingMarker}
             className="flex w-full items-center gap-3 border-t border-edge/60 p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40"
           >
             <span className="min-w-0 flex-1">
