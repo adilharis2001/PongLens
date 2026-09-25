@@ -44,8 +44,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { holdPageBehind } from "@/lib/pageBehind";
 import { ClipPlayer, type PictureBox } from "./ClipPlayer";
 import {
   BOTTOM_BAR_H,
@@ -568,6 +570,17 @@ export function MarkPoints({
    * with env(), since there is no other way to ask for them.
    */
   const rootRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * The marker owns the screen: while it is open the page behind it is not
+   * drawn and none of its videos plays (pageBehind.ts). A z-index alone
+   * lost to the match page's own player on a desktop, which was drawn on
+   * top of the marker's video.
+   */
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    return holdPageBehind(root, document);
+  }, []);
   const insetProbeRef = useRef<HTMLDivElement | null>(null);
   const [frame, setFrame] = useState<{
     w: number;
@@ -2700,7 +2713,13 @@ export function MarkPoints({
 
   /* --------------------------------------------------------------- render */
 
-  return (
+  // On <body>, from every host (the unprocessed page, More options, the
+  // preview page), so nothing the host sits inside can clip it, stack it
+  // or transform it, and so holdPageBehind can hide the whole page as
+  // <body>'s other children. The marker only ever opens from a tap, on
+  // the client.
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div
       ref={rootRef}
       className={
@@ -2923,6 +2942,7 @@ export function MarkPoints({
         onCancel={() => setConfirmClear(false)}
         onConfirm={clearAll}
       />
-    </div>
+    </div>,
+    document.body,
   );
 }
