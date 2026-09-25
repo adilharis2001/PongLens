@@ -125,3 +125,22 @@ export function uploadedMatchHref(matchId: string, choice: UploadChoice): string
 export function wantsMarkerOnOpen(search: string): boolean {
   return new URLSearchParams(search).get(MARK_ON_OPEN_PARAM) === "1";
 }
+
+/**
+ * The button under the card and the line that replaces it once pressed,
+ * for the selected row. Mark the points yourself used to read "Save video
+ * in library", which is true but not what happens next (Adil, 2026-09-25).
+ */
+export function uploadChoiceLabels(choice: UploadChoice): {
+  button: string;
+  committed: string;
+} {
+  switch (choice) {
+    case "automatic":
+      return { button: "Process video", committed: "Will process when the upload finishes" };
+    case "hand":
+      return { button: "Save and start marking", committed: "Marking starts when the upload finishes" };
+    default:
+      return { button: "Save video in library", committed: "Will stay in your library" };
+  }
+}

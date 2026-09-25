@@ -35,6 +35,7 @@ import {
   DEFAULT_UPLOAD_CHOICE,
   selectedUploadChoice,
   type UploadChoice,
+  uploadChoiceLabels,
   uploadChoicePlan,
   uploadChoiceRows,
   uploadLanding,
@@ -2134,9 +2135,7 @@ export function UploadCard({
                 (committed && phase !== "done" ? (
                   <>
                     <span className="text-sm font-medium text-emerald-400">
-                      {autoProcess
-                        ? "Will process when the upload finishes"
-                        : "Will stay in your library"}
+                      {uploadChoiceLabels(selectedChoice).committed}
                     </span>
                     <button
                       type="button"
@@ -2158,7 +2157,7 @@ export function UploadCard({
                     }}
                     className="glow-cta rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink"
                   >
-                    {autoProcess ? "Process video" : "Save video in library"}
+                    {uploadChoiceLabels(selectedChoice).button}
                   </button>
                 ))}
 

@@ -7,6 +7,7 @@ import {
   DEFAULT_UPLOAD_CHOICE,
   MARK_ON_OPEN_PARAM,
   selectedUploadChoice,
+  uploadChoiceLabels,
   uploadChoicePlan,
   uploadChoiceRows,
   uploadLanding,
@@ -161,4 +162,15 @@ test("the match page opens the marker once from the flag, then drops it", () => 
   assert.match(raw, /onMediaError=\{\(\) => setUndecodable\(true\)\}/);
   assert.match(effect, /setPickedWay\("hand"\)/);
   assert.match(effect, /void openMarker\(\)/);
+});
+
+test("the button says what happens next for each choice", () => {
+  assert.equal(uploadChoiceLabels("later").button, "Save video in library");
+  assert.equal(uploadChoiceLabels("automatic").button, "Process video");
+  assert.equal(uploadChoiceLabels("hand").button, "Save and start marking");
+  assert.equal(uploadChoiceLabels("hand").committed, "Marking starts when the upload finishes");
+  for (const c of CHOICES) {
+    const { button, committed } = uploadChoiceLabels(c);
+    assert.doesNotMatch(button + committed, /free|—|\bAI\b/);
+  }
 });
