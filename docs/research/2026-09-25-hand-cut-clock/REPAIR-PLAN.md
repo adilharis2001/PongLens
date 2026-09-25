@@ -215,3 +215,14 @@ again the same way.
 | `inventory.py` | the read-only query behind every step (the query was run through the Supabase MCP; this wrapper was not) |
 | `repair_hand_cut_clock.py` | timeline (re-run), plan (read-only), apply, rollback. `timeline` and `plan` were run on all eight; `apply` only with `--dry-run`; `rollback` never |
 | `r2ro.py` | read-only R2 access for the scripts above |
+
+## Run (2026-09-25)
+
+| Match | Re-run is the published cut | Points moved | Clips re-cut | After: max drift, all points |
+| --- | --- | --: | --: | --: |
+| 623c09c6 | yes | 55 | 40 | 0.007 s |
+| 7ba06eb1 | yes | 50 | 43 | 0.009 s |
+| 06deeba4 | yes | 64 | 55 | 0.009 s |
+| 9acef67c | yes | 99 | 85 | 0.010 s |
+
+All four planned from `mp4-concat-measured-v1` with 0 problems; `match.json` backups are under `~/Library/Caches/PongLens/hand-cut-clock-repair-20260925/<match>/match.json.before`. The re-cuts ran on the ordinary reclip path (fast lane) in 2 to 4 minutes a match. The four short hand cuts were left as they are (under 0.1 s). New hand cuts publish on the measured clock since hand-lane release 3 (`20d1aaa7`). Not yet done: the highlights reel on 623c09c6 still uses the old bounds until it is updated from the match page.
