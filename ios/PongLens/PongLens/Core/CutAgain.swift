@@ -15,8 +15,13 @@ import Foundation
 enum CutAgainCopy {
     static let moreOptions = "More options"
     /// The label over the two ways, which is what they do on a processed
-    /// match: process it again.
+    /// match: process it again. Also its button.
     static let processAgain = "Process again"
+    /// The unprocessed page's button under Automatically.
+    static let process = "Process"
+    /// The trim preview's two stamps: the handle to the picture.
+    static let startHere = "Start here"
+    static let endHere = "End here"
     /// The unprocessed page's word for the same row.
     static let automatically = "Automatically"
     static let markYourself = "Mark the points yourself"
@@ -153,7 +158,7 @@ struct MoreOptionsPlan: Equatable {
 /// The two ways to cut a match: the unprocessed page's "Automatically" and
 /// "Mark the points yourself", and the same two under More options'
 /// "Process again" label. They are one choice, not two rows that open
-/// (owner's option A, 2026-09-25): exactly one is selected, and only its
+/// (owner's option A, 2026-09-25): at most one is selected, and only its
 /// controls show under the pair, so there is only ever one cyan primary on
 /// screen (QA 2026-09-25).
 enum CutWay: Equatable {
@@ -162,27 +167,21 @@ enum CutWay: Equatable {
 
 /// Which way is selected. Local to the screen, never saved.
 struct CutWayChoice: Equatable {
-    /// The player's tap. Nil until they make one, so the default can follow
-    /// a draft that is read after the screen opens.
+    /// The player's tap. Nil until they make one.
     private(set) var chosen: CutWay?
 
     init(chosen: CutWay? = nil) { self.chosen = chosen }
 
     mutating func choose(_ way: CutWay) { chosen = way }
 
-    /// Automatically, unless marks are waiting to be sent (the row reads
-    /// "{N} marked"): then Mark the points yourself, to pick them up.
-    /// `draftCount` is the count that row trails (`MoreOptionsPlan.draftCount`),
-    /// so a prefilled or submitted draft does not count.
-    static func defaultWay(draftCount: Int) -> CutWay {
-        draftCount > 0 ? .byHand : .automatic
-    }
-
-    /// The way that is selected. When marking cannot be chosen (no original
-    /// to mark), Automatically is, whatever was tapped or drafted.
-    func selected(draftCount: Int, markingSelectable: Bool = true) -> CutWay {
-        guard markingSelectable else { return .automatic }
-        return chosen ?? Self.defaultWay(draftCount: draftCount)
+    /// The way that is selected: only ever the one the player tapped. There
+    /// is no default (owner, 2026-09-25): until a tap, neither is selected
+    /// and nothing shows under the pair, unsent marks included (their row
+    /// still reads "{N} marked"). Marking that cannot be chosen (no original
+    /// to mark) is never selected, even by an earlier tap.
+    func selected(markingSelectable: Bool = true) -> CutWay? {
+        if chosen == .byHand && !markingSelectable { return nil }
+        return chosen
     }
 }
 
@@ -341,16 +340,81 @@ enum ProcessCharge {
     }
 
     /// The button. `again` on a processed match (More options), where it
-    /// says it processes the match again.
-    static func label(minutes: Int?, again: Bool = false) -> String {
-        let verb = again ? CutAgainCopy.processAgain : "Process"
-        return minutes.map { "\(verb) · \($0) min" } ?? verb
+    /// says it processes the match again. No price on it: the cost is the
+    /// line under it (`usesLine`).
+    static func label(again: Bool = false) -> String {
+        again ? CutAgainCopy.processAgain : CutAgainCopy.process
+    }
+
+    /// The line under the button, and under the upload sheet's trim: what
+    /// this run costs, out of what the player has. It follows the trim, so
+    /// it moves as a handle does. Without a known balance, only the cost.
+    /// Nil while there is no length to quote. Out of minutes is said
+    /// elsewhere, in the words each place already had.
+    static func usesLine(minutes: Int?, balance: Int?) -> String? {
+        guard let minutes else { return nil }
+        guard let balance else {
+            return "Uses \(minutes) \(minutes == 1 ? "minute" : "minutes")."
+        }
+        return "Uses \(minutes) of your \(balance) \(balance == 1 ? "minute" : "minutes")."
     }
 
     static func enough(minutes: Int?, balance: Int?, needsMore: Bool) -> Bool {
         if needsMore { return false }
         guard let minutes, let balance else { return true }
         return balance >= minutes
+    }
+}
+
+// MARK: - What an automatic cut sends
+
+/// The automatic cut's settings, as /api/process and claim_auto_recut take
+/// them. Cut strictness is no longer the player's to choose (owner,
+/// 2026-09-25): every new request sends "normal", which is also what the
+/// server assumes. A match keeps the strictness it was cut with for its
+/// clip padding (Playhead.clipPad), which nothing here touches.
+struct ProcessSettings: Equatable {
+    var trimStart: Double?
+    var trimEnd: Double?
+
+    /// The only strictness a new request carries.
+    static let strictness = "normal"
+}
+
+/// /api/process's body, as the raw page and More options' Keep send it.
+/// Every processed upload asks for the analysis too (Adil, 2026-09-16).
+struct ProcessRequestBody: Encodable, Equatable {
+    let matchId: String
+    let trimStartS: Double?
+    let trimEndS: Double?
+    let points: Bool
+    let placement: Bool
+    let strictness: String
+
+    init(matchId: UUID, settings: ProcessSettings, placement: Bool = true) {
+        self.matchId = matchId.uuidString.lowercased()
+        trimStartS = settings.trimStart
+        trimEndS = settings.trimEnd
+        points = true
+        self.placement = placement
+        strictness = ProcessSettings.strictness
+    }
+}
+
+/// `claim_auto_recut`'s parameters: Replace, processed automatically.
+struct AutoRecutParams: Encodable, Equatable {
+    let p_match_id: String
+    let p_replace: Bool
+    let p_trim_start_s: Double?
+    let p_trim_end_s: Double?
+    let p_strictness: String
+
+    init(matchId: UUID, settings: ProcessSettings) {
+        p_match_id = matchId.uuidString.lowercased()
+        p_replace = true
+        p_trim_start_s = settings.trimStart
+        p_trim_end_s = settings.trimEnd
+        p_strictness = ProcessSettings.strictness
     }
 }
 

@@ -41,6 +41,7 @@ Task { @MainActor in
         runCutAgainChecks()
         runHandCutPlaybackChecks()
         runUploadCutChoiceChecks()
+        runTrimWindowChecks()
     }
 
     print("\n\(checks - failures)/\(checks) checks passed")

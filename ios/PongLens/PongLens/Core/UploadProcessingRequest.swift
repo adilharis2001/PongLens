@@ -25,11 +25,10 @@ enum UploadCutWay: Hashable, CaseIterable {
         marking ? [.later, .automatic, .byHand] : [.later, .automatic]
     }
 
-    /// "{N} min" on Automatically: every file of the session, each at
-    /// least a minute and each its trim window where one was chosen. The
-    /// sum the old switch quoted as "Uses N minutes of your balance",
-    /// because it is the number the charge will match. Zero while no file
-    /// has entered the queue yet.
+    /// The N of "Uses {N} of your {M} minutes." under the sheet's trim:
+    /// every file of the session, each at least a minute and each its trim
+    /// window where one was chosen, because it is the number the charge
+    /// will match. Zero while no file has entered the queue yet.
     static func minutes(_ files: [(durationS: Double, trimStartS: Double?, trimEndS: Double?)]) -> Int {
         files.reduce(0) { total, file in
             let kept = file.trimEndS.map { max(0, $0 - (file.trimStartS ?? 0)) } ?? file.durationS

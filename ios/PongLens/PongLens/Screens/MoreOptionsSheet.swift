@@ -24,6 +24,9 @@ struct MoreOptionsHooks {
     let afterDismiss: () -> Void
     /// Open another match (the new one, after Keep).
     let openMatch: (UUID) -> Void
+    /// The video under Process again's trim: this phone's own copy of the
+    /// original, else a link to it. Nil leaves the trim bar on its own.
+    var originalURL: () async -> URL? = { nil }
 }
 
 /// The row. Its trailing text is the cut running on this match, else the
@@ -45,10 +48,11 @@ struct MoreOptionsToolRow: View {
     /// has closed. Pushing while it is still on screen would either stack
     /// the page under it or have the push dropped.
     @State private var pendingReport = false
-    /// Full height when the two ways are offered, because the chosen way's
-    /// controls always show and its button would otherwise sit below the
-    /// fold; half height for the rest (a running cut, one line, Report a
-    /// problem).
+    /// Full height when a way's controls show on opening (a way already
+    /// picked, or the only way there is), because its button would
+    /// otherwise sit below the fold; half height for the rest (the two ways
+    /// with neither picked, a running cut, one line, Report a problem).
+    /// Picking a way expands it.
     @State private var detent: PresentationDetent = .medium
 
     init(match: MatchRow, hooks: MoreOptionsHooks?, issueClient: MatchIssueClient? = nil) {
@@ -62,14 +66,17 @@ struct MoreOptionsToolRow: View {
     init(match: MatchRow, hooks: MoreOptionsHooks?, issueClient: MatchIssueClient?, open: Bool) {
         self.init(match: match, hooks: hooks, issueClient: issueClient)
         _open = State(initialValue: open)
-        _detent = State(initialValue: offersWays ? .large : .medium)
+        _detent = State(initialValue: showsControls ? .large : .medium)
     }
     #endif
 
-    /// The sheet will show a way to process again, and so its controls.
-    private var offersWays: Bool {
+    /// The sheet will open on a way's controls: the only way offered, or
+    /// the way already picked when both are. Two ways with neither picked
+    /// show only their two rows (there is no default).
+    private var showsControls: Bool {
         guard let hooks else { return false }
         let plan = hooks.cutAgain.plan(handCutEnabled: hooks.handCut.enabled && hooks.handCut.ready)
+        if plan.automatic && plan.marking { return hooks.cutAgain.way.chosen != nil }
         return plan.automatic || plan.marking
     }
 
@@ -86,7 +93,7 @@ struct MoreOptionsToolRow: View {
 
     var body: some View {
         Button {
-            detent = offersWays ? .large : .medium
+            detent = showsControls ? .large : .medium
             pendingReport = false
             open = true
         } label: {
@@ -256,10 +263,6 @@ private struct CutAgainSections: View {
         if practice { return .cut }
         return model.markModeChoice ?? (hooks.cutScored ? .score : .cut)
     }
-    private var minutes: Int? {
-        ProcessCharge.minutes(durationS: match.durationS, trimStart: model.trimStart, trimEnd: model.trimEnd)
-    }
-
     var body: some View {
         let plan = plan
         if plan.running {
@@ -320,11 +323,10 @@ private struct CutAgainSections: View {
                     .padding(.horizontal, 16)
                 Group {
                     if plan.automatic && plan.marking {
-                        // Both ways: one choice, then the chosen way's
-                        // controls, as on the raw page.
+                        // Both ways: one choice with neither picked, then
+                        // the chosen way's controls, as on the raw page.
                         CutWayPicker(
-                            selected: model.way.selected(draftCount: handCut.openDraftCount),
-                            automaticTrailing: minutes.map { "\($0) min" },
+                            selected: model.way.selected(),
                             markingTrailing: MoreOptionsPlan.markingTrailing(draftCount: handCut.openDraftCount),
                             onSelect: { way in
                                 model.way.choose(way)
@@ -350,13 +352,18 @@ private struct CutAgainSections: View {
         }
     }
 
+    /// Process again, automatically: the trim over the original, the
+    /// Replace or Keep choice, and the button with what it uses. The
+    /// original is fetched the moment these controls show (the web signs
+    /// it as soon as Automatically shows in an open sheet), once.
     private var automaticControls: some View {
         @Bindable var model = model
         return AutoProcessControls(
             durationS: match.durationS,
             trimStart: $model.trimStart,
             trimEnd: $model.trimEnd,
-            strictness: $model.strictness,
+            previewURL: model.previewURL,
+            previewLoading: model.previewLoading,
             error: model.error,
             busy: model.busy,
             balance: model.minutesBalance,
@@ -384,6 +391,7 @@ private struct CutAgainSections: View {
                 }
             }
         )
+        .task { await model.resolvePreview(hooks.originalURL) }
     }
 
     private var markingControls: some View {

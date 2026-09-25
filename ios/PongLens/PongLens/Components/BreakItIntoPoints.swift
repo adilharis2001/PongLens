@@ -92,15 +92,16 @@ struct ChoiceLabel<Below: View>: View {
 }
 
 /// The two ways as one choice (owner's option A, 2026-09-25): two cells,
-/// exactly one selected, then only the selected way's controls. Used as is
-/// by the raw page's Break it into points and by More options, so both
-/// read the same. A player who cannot mark by hand never sees this: the
-/// caller draws the automatic controls on their own.
+/// neither selected until the player taps one (no default, 2026-09-25),
+/// then only the selected way's controls. Used as is by the raw page's
+/// Break it into points and by More options, so both read the same. A
+/// player who cannot mark by hand never sees this: the caller draws the
+/// automatic controls on their own.
 struct CutWayPicker<Automatic: View, Marking: View>: View {
-    let selected: CutWay
-    /// "{N} min" on Automatically.
-    let automaticTrailing: String?
-    /// "{N} marked" on Mark the points yourself.
+    /// Nil until a tap: nothing shows under the pair.
+    let selected: CutWay?
+    /// "{N} marked" on Mark the points yourself. Automatically trails
+    /// nothing: its cost is the line under its button.
     let markingTrailing: String?
     /// False greys Mark the points yourself (no original to mark).
     var markingEnabled = true
@@ -116,9 +117,13 @@ struct CutWayPicker<Automatic: View, Marking: View>: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
+            // The chosen way's controls carry their own padding; with none
+            // chosen the card still closes 20 under the cells.
+            .padding(.bottom, selected == nil ? 20 : 0)
             switch selected {
             case .automatic: automatic()
             case .byHand: marking()
+            case nil: EmptyView()
             }
         }
     }
@@ -127,7 +132,7 @@ struct CutWayPicker<Automatic: View, Marking: View>: View {
         let isAuto = way == .automatic
         let enabled = isAuto || markingEnabled
         let on = selected == way
-        let trailing = isAuto ? automaticTrailing : markingTrailing
+        let trailing = isAuto ? nil : markingTrailing
         return Button {
             withAnimation(.easeOut(duration: 0.15)) { onSelect(way) }
         } label: {
@@ -148,14 +153,19 @@ struct CutWayPicker<Automatic: View, Marking: View>: View {
     }
 }
 
-/// Automatically: what to process (the trim bar), cut strictness, then the
-/// button with the price and the balance under it. `choice` sits between
-/// the settings and the button; the raw page leaves it empty.
+/// Automatically: what to process (the trim with its preview), then the
+/// button with what it uses under it. `choice` sits between the trim and
+/// the button; the raw page leaves it empty. Cut strictness is gone from
+/// here (owner, 2026-09-25): every request sends "normal".
 struct AutoProcessControls<Choice: View>: View {
     let durationS: Double?
     @Binding var trimStart: Double
     @Binding var trimEnd: Double?
-    @Binding var strictness: String
+    /// The video under the trim: the phone's own copy or the original's
+    /// link. Nil leaves the bar on its own.
+    let previewURL: URL?
+    /// The link is on its way.
+    var previewLoading = false
     let error: String?
     let busy: Bool
     let balance: Int?
@@ -196,46 +206,14 @@ struct AutoProcessControls<Choice: View>: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    RawTrimBar(
+                    TrimPreview(
+                        source: previewURL,
+                        loading: previewLoading,
                         duration: duration,
                         start: $trimStart,
-                        end: Binding(
-                            get: { trimEnd ?? duration },
-                            set: { trimEnd = $0 }
-                        )
+                        end: $trimEnd
                     )
                 }
-            }
-
-            Divider().overlay(PL.edge)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Cut strictness")
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                Text("How much room to leave around each point.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                HStack(spacing: 4) {
-                    ForEach(["tight", "normal", "loose"], id: \.self) { level in
-                        let active = strictness == level
-                        Button(level.capitalized) {
-                            withAnimation(.easeOut(duration: 0.15)) { strictness = level }
-                        }
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(active ? PL.ink : PL.text400)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
-                        .background(
-                            active ? PL.cyan : .clear,
-                            in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
-                        )
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(3)
-                .background(PL.ink.opacity(0.5), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                .padding(.top, 8)
             }
 
             choice()
@@ -246,7 +224,7 @@ struct AutoProcessControls<Choice: View>: View {
                     .foregroundStyle(PL.warningText)
             }
 
-            // Full width, with the balance under it rather than floating
+            // Full width, with what it uses under it rather than floating
             // alongside. A hugging pill beside a loose sentence was the
             // single scrappiest thing on the raw page.
             VStack(spacing: 8) {
@@ -258,24 +236,26 @@ struct AutoProcessControls<Choice: View>: View {
                     // the label measures, so a frame outside the style
                     // stretches the tap target and leaves the pill hugging in
                     // the middle.
-                    Text(busy ? "Starting…" : ProcessCharge.label(minutes: minutes, again: again))
+                    Text(busy ? "Starting…" : ProcessCharge.label(again: again))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PLPrimaryButtonStyle())
                 .disabled(busy || !enough)
-                if let balance {
-                    Text(
-                        enough
-                            ? "\(balance) minutes left"
-                            : "Not enough minutes. You have \(balance)."
-                    )
-                    .font(.plCaption)
-                    .foregroundStyle(enough ? PL.text500 : PL.warningText)
-                }
                 if !enough {
+                    if let balance {
+                        Text("Not enough minutes. You have \(balance).")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.warningText)
+                    }
                     AllowanceRecoveryView(resource: "minutes", retryLabel: "Check minutes") {
                         try await recheckMinutes()
                     }
+                } else if let uses = ProcessCharge.usesLine(minutes: minutes, balance: balance) {
+                    // Follows the trim as a handle moves.
+                    Text(uses)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                        .monospacedDigit()
                 }
             }
             .padding(.top, 2)
@@ -287,13 +267,15 @@ struct AutoProcessControls<Choice: View>: View {
 extension AutoProcessControls where Choice == EmptyView {
     init(
         durationS: Double?, trimStart: Binding<Double>, trimEnd: Binding<Double?>,
-        strictness: Binding<String>, error: String?, busy: Bool, balance: Int?,
+        previewURL: URL?, previewLoading: Bool = false,
+        error: String?, busy: Bool, balance: Int?,
         needsMoreMinutes: Bool, recheckMinutes: @escaping () async throws -> Void,
         onProcess: @escaping () -> Void
     ) {
         self.init(
             durationS: durationS, trimStart: trimStart, trimEnd: trimEnd,
-            strictness: strictness, error: error, busy: busy, balance: balance,
+            previewURL: previewURL, previewLoading: previewLoading,
+            error: error, busy: busy, balance: balance,
             needsMoreMinutes: needsMoreMinutes, recheckMinutes: recheckMinutes,
             onProcess: onProcess, choice: { EmptyView() }
         )
