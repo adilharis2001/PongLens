@@ -211,6 +211,7 @@ export function AutoProcessPanel({
   picture,
   choice,
   onBalanceChecked,
+  actionLabel = "Process",
 }: {
   quote: ProcessQuote;
   onProcess: () => void;
@@ -218,6 +219,9 @@ export function AutoProcessPanel({
   error: string | null;
   picture?: ReactNode;
   choice?: ReactNode;
+  /** The button's verb: "Process" on the unprocessed page, "Process
+   *  again" in a processed match's More options. The minutes follow it. */
+  actionLabel?: string;
   /** "Check minutes" read a fresh balance: the host clears its refusal. */
   onBalanceChecked?: () => void;
 }) {
@@ -325,7 +329,7 @@ export function AutoProcessPanel({
               disabled={busy || !q.enough}
               className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink transition-opacity disabled:opacity-40"
             >
-              {q.charge != null ? `Process · ${q.charge} min` : "Process"}
+              {q.charge != null ? `${actionLabel} · ${q.charge} min` : actionLabel}
             </button>
             {q.availableMinutes != null && (
               <p

@@ -46,7 +46,7 @@ export function readRecutOptions(raw: unknown): RecutOptions | null {
 }
 
 export interface MoreOptionsView {
-  /** "Process automatically". */
+  /** "Automatically", under "Process again". */
   automatic: boolean;
   /** "Mark the points yourself". */
   hand: boolean;

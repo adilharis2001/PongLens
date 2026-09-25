@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import { handCutClaimError, normalizeMarks, scoreSwitchCopy, type Mark } from "../handCut.ts";
@@ -236,4 +238,19 @@ test("start_recut's marks read as marks (tap and rate null, source seconds)", ()
     { id: "p1", t0: 12.5, t1: 18.25, winner: "user", isLet: false, starred: true, tap: 12.5, rate: 1 },
     { id: "p2", t0: 20, t1: 26, winner: null, isLet: true, starred: false, tap: 20, rate: 1 },
   ]);
+});
+
+test("More options says it processes the match again (Adil, 2026-09-25)", () => {
+  const src = readFileSync(join(process.cwd(), "src/app/match/[id]/recut/MoreOptions.tsx"), "utf8");
+  const shared = readFileSync(join(process.cwd(), "src/app/match/[id]/BreakIntoPoints.tsx"), "utf8");
+  // A section label over the two ways, in the page's own label style.
+  assert.match(src, /<SectionHeading[^>]*>Process again<\/SectionHeading>/);
+  assert.ok(src.indexOf(">Process again<") < src.indexOf('title="Automatically"'));
+  assert.ok(src.indexOf('title="Automatically"') < src.indexOf('title="Mark the points yourself"'));
+  assert.doesNotMatch(src, /title="Process automatically"/);
+  // The button reads "Process again · {N} min"; the unprocessed page keeps "Process".
+  assert.match(src, /actionLabel="Process again"/);
+  assert.match(shared, /actionLabel = "Process"/);
+  assert.match(shared, /`\$\{actionLabel\} · \$\{q\.charge\} min`/);
+  assert.ok(src.includes("Report a problem"));
 });

@@ -15,7 +15,7 @@ const PORTRAIT_MAX_H = 360;
  * Returns 'near' | 'far'.
  *
  * Purely presentational: callers supply the chrome (upload form, first-open
- * banner, Tools sheet) and the src — a local object URL at upload time, the
+ * banner, Match details) and the src — a local object URL at upload time, the
  * presigned cut video afterwards. Skippable wherever a caller passes onSkip.
  *
  * `posterSrc` covers the one caller with no video to seek: a YouTube import

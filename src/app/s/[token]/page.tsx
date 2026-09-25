@@ -515,7 +515,7 @@ export default async function SharePage({
                 href="/"
                 className="glow-cta mt-8 block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink"
               >
-                Analyze your own match — free
+                Analyze your own match for free
               </Link>
             </div>
           </div>
@@ -865,7 +865,7 @@ export default async function SharePage({
             href="/"
             className="glow-cta mt-8 block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink"
           >
-            Analyze your own match — free
+            Analyze your own match for free
           </Link>
         </div>
       </div>

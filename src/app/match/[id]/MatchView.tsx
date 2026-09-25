@@ -90,7 +90,6 @@ import {
   type MatchServer,
 } from "./serving";
 import type { Side } from "./sides";
-import { BottomSheet } from "@/components/BottomSheet";
 import {
   userConfirmedFirstServer,
   userFirstServerUpdate,
@@ -526,7 +525,7 @@ export function MatchView({
    *  for rows that predate the column — so the pill is right at first
    *  paint instead of appearing a beat later and shifting the layout. */
   hasOriginal?: boolean;
-  /** app_config commerce: "Process automatically" in More options spends
+  /** app_config commerce: "Automatically" in More options spends
    *  minutes, so it is offered only where processing is sold, as on the
    *  unprocessed page. */
   commerceEnabled?: boolean;
@@ -634,8 +633,7 @@ export function MatchView({
   // "Which player are you?" — a snapshot picker against the cut video (a
   // real point of play ~60s in). The first-open banner shows while
   // user_side is still null (session-dismissable, re-shows on a fresh open);
-  // the Tools "Your side" row opens the same picker as a change sheet.
-  const [sideSheetOpen, setSideSheetOpen] = useState(false);
+  // Match details carries the same picker as its Your side field.
   const [firstOpenDismissed, setFirstOpenDismissed] = useState(false);
   const [sideError, setSideError] = useState<string | null>(null);
   const [cutPreviewUrl, setCutPreviewUrl] = useState<string | null>(null);
@@ -643,7 +641,7 @@ export function MatchView({
   // "Not now" used to live only in component state, so it came back on
   // every fresh open of the same match — the reason this question felt
   // like it never stopped asking. Remembering the refusal per match makes
-  // it a real answer. Tools > Your side is always there to reopen it.
+  // it a real answer. Match details > Your side is always there to change it.
   const sideAskKey = `ponglens:side-asked:${match.id}`;
   useEffect(() => {
     try {
@@ -1286,7 +1284,7 @@ export function MatchView({
   const firstServerBeforeAnalysis =
     isOwner && scored && firstServer === null && placement.view.actionKind !== null;
   const analysisRowSummary = !scored
-    ? `${placementMappedPoints} points mapped`
+    ? `${placementMappedPoints} ${placementMappedPoints === 1 ? "point" : "points"} mapped`
     : !cardsGate.open
       ? cardsGate.scored === 0
         ? "Score points to unlock"
@@ -2486,12 +2484,12 @@ export function MatchView({
 
   // Presigned cut-video URL for the side picker — the same inline preview
   // the Player fetches. Loaded lazily the moment the picker could show (the
-  // first-open banner while untagged, or the change sheet), so a tagged
+  // first-open banner while untagged, or Match details open), so a tagged
   // match that never opens it pays nothing.
-  // Whenever the end is unknown: the first-open banner, the Tools sheet
+  // Whenever the end is unknown: the first-open banner, Match details
   // and the deck's next-step row all answer it from the same frame.
   const needSidePicker =
-    isOwner && hasCutOffsets && (userSide === null || sideSheetOpen);
+    isOwner && hasCutOffsets && (userSide === null || titleEditing);
   useEffect(() => {
     if (!needSidePicker || cutPreviewUrl) return;
     let cancelled = false;
@@ -3552,6 +3550,31 @@ export function MatchView({
                 </button>
               ))}
             </div>
+            {/* Your side, the last field (2026-09-25; it used to be a
+                Tools row of its own opening a sheet). Same PickSide as the
+                first-open banner, against the cut video; picking writes
+                user_side through handleSetUserSide, exactly as the sheet
+                did, and the panel stays open. */}
+            {hasCutOffsets && (
+              <div>
+                <span className="text-xs font-medium text-zinc-400">
+                  Your side
+                </span>
+                <div className="mt-1.5">
+                  <PickSide
+                    src={cutPreviewUrl}
+                    atSeconds={60}
+                    selected={userSide}
+                    onPick={(s) => void handleSetUserSide(s)}
+                  />
+                </div>
+                {sideError && (
+                  <p role="alert" className="mt-2 text-sm text-amber-300/90">
+                    {sideError}
+                  </p>
+                )}
+              </div>
+            )}
             <button
               type="button"
               onClick={() => setTitleEditing(false)}
@@ -3881,43 +3904,23 @@ export function MatchView({
                 <ToolRowChevron />
               </span>
             </button>
-            {/* Your side: the one fact that orients maps and "Me" labels.
-                Shows the tagged anchor side; tap to change against the cut
-                video. Null reads "Set your side" (the first-open banner is
-                the primary path). */}
-            {hasCutOffsets && (
-              <button
-                type="button"
-                onClick={() => setSideSheetOpen(true)}
-                className={toolRowClass}
-                disabled={sampleViewer}
-              >
-                <span className="text-sm font-semibold">Your side</span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span
-                    className={`shrink-0 text-xs ${
-                      userSide !== null ? "text-zinc-400" : "text-zinc-500"
-                    }`}
-                  >
-                    {userSide === "near"
-                      ? "Bottom of video"
-                      : userSide === "far"
-                        ? "Top of video"
-                        : "Set your side"}
-                  </span>
-                  <ToolRowChevron />
-                </span>
-              </button>
-            )}
-            {/* More options took the Processing row's slot (Cut again,
-                2026-09-25): cut the match again automatically or by hand,
-                or report a problem through the same form as before. Both
-                rows are their own components and carry TOOL_ROW_CLASS
+            {/* Your side has no row of its own (2026-09-25): it is the last
+                field in Match details, one row up.
+
+                The last two rows, in this order (Adil, 2026-09-25):
+                Feedback and discussion, then More options at the very
+                bottom. More options took the Processing row's slot (Cut
+                again, 2026-09-25): cut the match again automatically or by
+                hand, or report a problem through the same form as before.
+                Both rows are their own components and carry TOOL_ROW_CLASS
                 themselves, so they never picked up the sample's greying and
                 stayed tappable — a visitor could open a problem report
                 against our match. Same wrapper the Export row uses. */}
             {sampleViewer ? (
               <>
+                <div className="pointer-events-none opacity-45" inert>
+                  <FeedbackBoardLink />
+                </div>
                 <div className="pointer-events-none opacity-45" inert>
                   <MoreOptions
                     match={match}
@@ -3928,12 +3931,10 @@ export function MatchView({
                     disabled
                   />
                 </div>
-                <div className="pointer-events-none opacity-45" inert>
-                  <FeedbackBoardLink />
-                </div>
               </>
             ) : (
               <>
+                <FeedbackBoardLink />
                 <MoreOptions
                   match={match}
                   userId={userId}
@@ -3943,7 +3944,6 @@ export function MatchView({
                     (p) => p.is_let || p.confirmed_winner !== null
                   )}
                 />
-                <FeedbackBoardLink />
               </>
             )}
           </div>
@@ -5333,29 +5333,6 @@ export function MatchView({
           userId={userId}
           matchId={match.id}
         />
-      )}
-
-      {/* "Your side" change sheet, from the Tools row. Same PickSide as the
-          first-open banner, against the cut video; picking writes user_side
-          (handleSetUserSide == PlayerTagging's chooseSide) and closes. */}
-      {isOwner && (
-        <BottomSheet
-          open={sideSheetOpen}
-          title="Which player are you?"
-          onClose={() => setSideSheetOpen(false)}
-        >
-          <div className="mt-4">
-            <PickSide
-              src={cutPreviewUrl}
-              atSeconds={60}
-              selected={userSide}
-              onPick={(s) => {
-                void handleSetUserSide(s);
-                setSideSheetOpen(false);
-              }}
-            />
-          </div>
-        </BottomSheet>
       )}
 
       {/* undo snackbar for structural edits (deletes, timing, splits) */}

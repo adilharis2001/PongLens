@@ -4,8 +4,9 @@
  * More options: the Tools row that took the place of "Processing" on a
  * processed match (Cut again, 2026-09-25), and the sheet it opens.
  *
- *   Process automatically    12 min   the raw page's "Automatically", then
- *                                     the choice, then Process
+ *   PROCESS AGAIN                      a section label over the two ways
+ *   Automatically            12 min   the raw page's "Automatically", then
+ *                                     the choice, then Process again
  *   Mark the points yourself 14 marked the raw page's switch and Start
  *                                     marking, into the marker on the
  *                                     ORIGINAL, prefilled from this cut
@@ -32,6 +33,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BottomSheet } from "@/components/BottomSheet";
+import { SectionHeading } from "@/components/SectionHeading";
 import { availabilityNotice, processingContext, serviceLane } from "@/lib/processingAvailability";
 import { feedbackForJob, onDevice, processingStageLabel } from "@/lib/processingFeedback";
 import { tracksServe } from "@/lib/matchTitle";
@@ -224,7 +226,7 @@ export function MoreOptions({
     return url;
   }, [match.id, rawUrl]);
 
-  /* ------------------------------------------------ Process automatically */
+  /* ------------------------------------------------------- Automatically */
 
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const quote = useProcessQuote({
@@ -509,11 +511,21 @@ export function MoreOptions({
           />
         )}
         {view.note && <p className="mt-4 text-sm text-zinc-400">{view.note}</p>}
-        <div className="-mx-5 mt-4 border-t border-edge/60">
+        {/* What the two ways do to a processed match, said once as a label
+            in the page's own section style (Adil, 2026-09-25), not as a
+            sentence under the title. */}
+        {(view.automatic || view.hand) && (
+          <SectionHeading className="mt-5">Process again</SectionHeading>
+        )}
+        <div
+          className={`-mx-5 border-t border-edge/60 ${
+            view.automatic || view.hand ? "mt-2" : "mt-4"
+          }`}
+        >
           {view.automatic && (
             <>
               <AccordionRow
-                title="Process automatically"
+                title="Automatically"
                 trailing={quote.charge != null ? `${quote.charge} min` : null}
                 open={autoOpen}
                 onToggle={() => toggleWay("automatic")}
@@ -522,6 +534,7 @@ export function MoreOptions({
                 <AutoProcessPanel
                   quote={quote}
                   onProcess={() => void processAutomatically()}
+                  actionLabel="Process again"
                   busy={busy}
                   error={autoError}
                   picture={picture}
