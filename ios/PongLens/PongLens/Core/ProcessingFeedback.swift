@@ -78,6 +78,24 @@ struct MatchProcessingFeedback: Decodable, Hashable {
         }
     }
 
+    /// The words for a cut that is queued or running, wherever it is shown:
+    /// the unprocessed page's card, and More options and the progress card
+    /// on a processed match, so a Replace waiting its turn reads "Waiting to
+    /// prepare clips" in both places, as an unprocessed hand cut does (QA
+    /// 2026-09-25). The feedback's stage while it describes an active job;
+    /// until it catches up with a job the screen already holds (the claim
+    /// that just returned), that job's own queued words. Nil leaves the
+    /// card's "Processing".
+    static func runningLabel(
+        _ feedback: MatchProcessingFeedback?, jobKind: String?, jobStatus: String?
+    ) -> String? {
+        if let feedback, feedback.jobStatus == "queued" || feedback.jobStatus == "processing" {
+            return feedback.stageLabel
+        }
+        guard jobStatus == "queued", jobKind != "content_check" else { return nil }
+        return jobKind == "hand_cut" ? "Waiting to prepare clips" : "Waiting to process"
+    }
+
     /// A hand cut runs its own stages (worker.py process_hand_cut). None of
     /// them finds points or removes dead time: the owner's marks already did
     /// both. The words are the same wherever the cut runs, so a player never

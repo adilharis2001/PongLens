@@ -59,6 +59,21 @@ func scoredCardsGate(_ points: [MatchPoint]) -> ScoredCardsGate {
     )
 }
 
+/// The Tools card's one Match analysis row, by the web's rule (MatchView:
+/// `scored || placementMappedPoints > 0`). A match that keeps a score
+/// always has the row: its section always holds the overview or the
+/// next-step card. A practice or drill has it only once the serve maps have
+/// a point to draw, and then says how many.
+enum AnalysisToolRow {
+    static func shown(scoredType: Bool, mappedPoints: Int) -> Bool {
+        scoredType || mappedPoints > 0
+    }
+
+    static func unscoredTrailing(mappedPoints: Int) -> String {
+        "\(mappedPoints) points mapped"
+    }
+}
+
 /// Cut-video seconds → source-video seconds, the clock the placement
 /// candidates carry. cut_t0 is the padded clip start on the cut clock and
 /// t0 minus the effective pre pad is the same instant on the source clock

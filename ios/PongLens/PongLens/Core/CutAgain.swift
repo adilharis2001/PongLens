@@ -120,10 +120,51 @@ struct MoreOptionsPlan: Equatable {
         }
     }
 
-    /// "Mark the points yourself" trails the count of an unsubmitted draft,
-    /// or nothing. A submitted draft is the cut that is already live.
-    static func markingTrailing(markedCount: Int, draftOpen: Bool) -> String? {
-        draftOpen && markedCount > 0 ? "\(markedCount) marked" : nil
+    /// The marks the player made and has not sent, which "{N} marked" and
+    /// "Keep marking" speak for. A submitted draft is the cut that is
+    /// already live. A prefilled one is the live cut's points as
+    /// start_recut wrote them for the marker to open on (20260925133555):
+    /// opening the marker and closing it again made nothing, so it counts
+    /// as nothing until a mark really changes. `submitted` is false on an
+    /// unprocessed match, whose row counts a failed cut's marks too.
+    static func draftCount(markedCount: Int, submitted: Bool, prefilled: Bool) -> Int {
+        submitted || prefilled ? 0 : markedCount
+    }
+
+    /// "Mark the points yourself" trails the count of marks made and not
+    /// sent (`draftCount`), or nothing.
+    static func markingTrailing(draftCount: Int) -> String? {
+        draftCount > 0 ? "\(draftCount) marked" : nil
+    }
+}
+
+// MARK: - The two ways, one open at a time
+
+/// The two ways to cut a match, as rows that open in place: the unprocessed
+/// page's "Automatically" and "Mark the points yourself", and More options'
+/// "Process automatically" and "Mark the points yourself". Opening one
+/// closes the other, so there is only ever one cyan primary on screen
+/// (QA 2026-09-25).
+enum CutWay: Equatable {
+    case automatic, byHand
+}
+
+struct CutWayAccordion: Equatable {
+    private(set) var open: CutWay?
+
+    init(open: CutWay? = nil) { self.open = open }
+
+    func isOpen(_ way: CutWay) -> Bool { open == way }
+
+    /// A tap on a row's header: open it (closing the other), or close it.
+    mutating func toggle(_ way: CutWay) {
+        open = open == way ? nil : way
+    }
+
+    /// Set one row open or closed, for code that thinks in one row at a
+    /// time. Opening still closes the other.
+    mutating func set(_ way: CutWay, open isOpen: Bool) {
+        if isOpen { open = way } else if open == way { open = nil }
     }
 }
 

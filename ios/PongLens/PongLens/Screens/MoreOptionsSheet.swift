@@ -58,8 +58,10 @@ struct MoreOptionsToolRow: View {
     #endif
 
     private var trailing: String? {
+        // The running cut in the unprocessed page's words: a paused lane's
+        // notice, else the stage, else its card's "Processing".
         if let cutAgain = hooks?.cutAgain, cutAgain.jobRunning {
-            return cutAgain.feedback?.stageLabel
+            return cutAgain.serviceNotice?.title ?? cutAgain.runningLabel ?? "Processing"
         }
         guard let state = issue.state else { return nil }
         let words = state.rowTrailing
@@ -201,9 +203,11 @@ private struct CutAgainSections: View {
 
     private var practice: Bool { !MatchTitle.tracksServe(match.matchType) }
     /// Where the switch stands: the player's flip; else an unsent draft's
-    /// own mode; else what start_recut will write from the live cut.
+    /// own mode (a prefilled one too: start_recut keeps the pass the
+    /// player switched to); else what start_recut will write from the live
+    /// cut.
     private var markMode: HandCutMode {
-        if handCut.openDraftCount > 0 {
+        if handCut.openDraftCount > 0 || (handCut.prefilled && !handCut.isSubmitted) {
             return HandCut.openingMode(
                 handCut.marks, recorded: handCut.mode,
                 tracksServe: !practice, chosen: model.markModeChoice
@@ -220,21 +224,27 @@ private struct CutAgainSections: View {
         let plan = plan
         if plan.running {
             Section {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(model.feedback?.stageLabel ?? plan.blocked ?? CutAgainCopy.busy)
+                if model.jobRunning {
+                    // The unprocessed page's processing card, word for word.
+                    MatchProcessingContent(
+                        notice: model.serviceNotice,
+                        stageLabel: model.runningLabel,
+                        warning: nil,
+                        progress: model.job?.progress,
+                        sendsReadyEmail: true,
+                        estimate: model.feedback?.estimate,
+                        jobStatus: model.feedback?.jobStatus ?? model.job?.status,
+                        serviceState: model.serviceState
+                    )
+                    .padding(.vertical, 6)
+                } else {
+                    // The server says something is running before its job is
+                    // seen: the contract's line for `processing`.
+                    Text(plan.blocked ?? CutAgainCopy.busy)
                         .font(.plCardTitle)
                         .foregroundStyle(PL.text100)
-                    if model.jobRunning {
-                        ProgressView(value: Double(min(100, max(4, model.job?.progress ?? 0))) / 100)
-                            .tint(PL.cyan)
-                        ProcessingEstimateNote(
-                            estimate: model.feedback?.estimate,
-                            jobStatus: model.feedback?.jobStatus,
-                            serviceState: nil
-                        )
-                    }
+                        .padding(.vertical, 6)
                 }
-                .padding(.vertical, 6)
             }
         } else if let line = plan.blocked {
             Section {
@@ -259,7 +269,7 @@ private struct CutAgainSections: View {
                         trailing: minutes.map { "\($0) min" },
                         open: model.autoOpen
                     ) {
-                        withAnimation(.easeOut(duration: 0.22)) { model.autoOpen.toggle() }
+                        withAnimation(.easeOut(duration: 0.22)) { model.ways.toggle(.automatic) }
                         if model.autoOpen { expand() }
                     }
                     .listRowInsets(EdgeInsets())
@@ -271,12 +281,10 @@ private struct CutAgainSections: View {
                 if plan.marking {
                     AccordionHeaderRow(
                         title: CutAgainCopy.markYourself,
-                        trailing: MoreOptionsPlan.markingTrailing(
-                            markedCount: handCut.markedCount, draftOpen: !handCut.isSubmitted
-                        ),
+                        trailing: MoreOptionsPlan.markingTrailing(draftCount: handCut.openDraftCount),
                         open: model.markOpen
                     ) {
-                        withAnimation(.easeOut(duration: 0.22)) { model.markOpen.toggle() }
+                        withAnimation(.easeOut(duration: 0.22)) { model.ways.toggle(.byHand) }
                         if model.markOpen { expand() }
                     }
                     .listRowInsets(EdgeInsets())

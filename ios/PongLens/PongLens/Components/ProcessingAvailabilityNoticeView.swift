@@ -26,6 +26,30 @@ struct MatchProcessingCard: View {
     var serviceState: String? = nil
 
     var body: some View {
+        MatchProcessingContent(
+            notice: notice, stageLabel: stageLabel, warning: warning, progress: progress,
+            sendsReadyEmail: sendsReadyEmail, estimate: estimate, jobStatus: jobStatus,
+            serviceState: serviceState
+        )
+        .plCard()
+    }
+}
+
+/// The card's contents without the card, for a sheet row: More options
+/// shows a cut running on a processed match in exactly the words and shape
+/// the unprocessed page uses (QA 2026-09-25), as the web's MoreOptions
+/// reuses RawMatchView's ProcessingProgress.
+struct MatchProcessingContent: View {
+    let notice: ProcessingAvailabilityNotice?
+    let stageLabel: String?
+    let warning: String?
+    let progress: Int?
+    let sendsReadyEmail: Bool
+    var estimate: ProcessingEstimate? = nil
+    var jobStatus: String? = nil
+    var serviceState: String? = nil
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let notice {
                 ProcessingAvailabilityNoticeView(notice: notice)
@@ -41,7 +65,6 @@ struct MatchProcessingCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard()
     }
 }
 

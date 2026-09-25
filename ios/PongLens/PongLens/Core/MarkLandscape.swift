@@ -205,11 +205,12 @@ struct MarkPortraitPad: Equatable {
     /// The tool row and the footer.
     static let rowH = 44.0
     static let refusalH = 16.0
-    /// Sensible ceilings for the gate's buttons; what they leave sits above
-    /// the footer.
+    /// Sensible ceilings for the gate's two buttons; what they leave sits
+    /// above the footer. A lone gate button has none: it fills the pad down
+    /// to the footer, as the web marker's does (QA 2026-09-25: capped, it
+    /// left an empty band on the largest phones).
     static let primaryMax = 240.0
     static let secondaryMax = 160.0
-    static let singleMax = 320.0
 
     /// The pass: the pair and the answers (0 when cutting only).
     static func pass(height: Double, refusal: Bool, answers: Bool) -> (pair: Double, answers: Double) {
@@ -229,7 +230,7 @@ struct MarkPortraitPad: Equatable {
         let fixed = 2 * padding + refusalBlock + rowH + gap
             + (startAgain ? rowH + gap : 0) + (buttons > 1 ? gap : 0)
         let flex = max(0, height - fixed)
-        if buttons <= 1 { return (min(singleMax, max(64, flex)), 0) }
+        if buttons <= 1 { return (max(64, flex), 0) }
         return (min(primaryMax, max(64, flex * 3 / 5)), min(secondaryMax, max(48, flex * 2 / 5)))
     }
 }
