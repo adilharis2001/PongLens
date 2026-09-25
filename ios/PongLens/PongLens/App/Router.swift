@@ -30,6 +30,10 @@ final class Router {
     /// Home's First steps, whose rows cannot present those sheets
     /// themselves. Cleared by CoachingScreen once it has opened it.
     var pendingLessonChoice: NewLessonChoice?
+    /// A match page asked for another match to take its place: the new
+    /// match "Keep this match and add a new one" made (cut again). The
+    /// navigation root replaces the page on top with that match's page.
+    var openMatchId: UUID?
 
     #if DEBUG
     /// Headless-verification hooks: open a match (and optionally the player)

@@ -88,6 +88,8 @@ struct CoachTabView: View {
     @Environment(CoachWorkspaceStore.self) private var workspace
 
     @State private var router = CoachRouter()
+    /// The app's router: a match page can ask for another match (cut again).
+    @Environment(Router.self) private var appRouter
     @State private var path = NavigationPath()
     @State private var bellOpen = false
     /// DEBUG-only presentation target for --dev-coach-invite; inert in
@@ -142,6 +144,11 @@ struct CoachTabView: View {
             // worse than the top of the match.
             .navigationDestination(for: MatchPointRoute.self) { route in
                 MatchDetailScreen(match: route.match, openPointId: route.pointId)
+            }
+            .onChange(of: appRouter.openMatchId) { _, id in
+                guard let id else { return }
+                appRouter.openMatchId = nil
+                Task { await replaceTopMatch(id, library: library, path: $path) }
             }
             .appRoutes()
         }

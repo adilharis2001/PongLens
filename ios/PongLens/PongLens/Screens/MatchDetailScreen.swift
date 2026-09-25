@@ -490,43 +490,23 @@ final class MatchDetailModel {
         _ match: MatchRow, placement: Bool,
         trimStart: Double?, trimEnd: Double?, strictness: String
     ) async -> String? {
-        struct Req: Encodable {
-            let matchId: String
-            let trimStartS: Double?
-            let trimEndS: Double?
-            let points = true
-            let placement: Bool
-            let strictness: String
-        }
-        struct Res: Decodable {
-            let jobId: String?
-            enum CodingKeys: String, CodingKey { case jobId = "job_id" }
-        }
-        do {
-            let res: Res = try await API.post(
-                "api/process",
-                Req(
-                    matchId: match.id.uuidString.lowercased(),
-                    trimStartS: trimStart, trimEndS: trimEnd,
-                    placement: placement, strictness: strictness
-                )
-            )
-            if let jobId = res.jobId.flatMap(UUID.init(uuidString:)) {
+        let result = await ProcessAPI.start(
+            matchId: match.id,
+            settings: ProcessSettings(trimStart: trimStart, trimEnd: trimEnd, strictness: strictness),
+            placement: placement
+        )
+        switch result {
+        case .started(let jobId):
+            if let jobId {
                 // The job the owner just asked for, so it counts as running
                 // straight away rather than waiting for the first poll.
                 job = MatchJob(id: jobId, status: "queued", progress: 0,
                                userMessage: nil, kind: "deadspace_cut")
             }
             return nil
-        } catch let APIError.http(_, code) {
+        case .refused(let code):
             if code == "insufficient_minutes" { needsMoreMinutes = true }
-            return switch code {
-            case "insufficient_minutes": "Not enough minutes for this video."
-            case "queue_full": "Your queue is full. Wait for a video to finish."
-            default: "Something went wrong. Try again."
-            }
-        } catch {
-            return "Something went wrong. Try again."
+            return ProcessAPI.message(code)
         }
     }
 
@@ -853,6 +833,14 @@ struct MatchDetailScreen: View {
     @State private var deleting = false
     /// The detected side-change marker the owner tapped in the point list.
     @State private var sideChangeSheet: MatchPoint?
+    /// More options on a processed match (cut again): what the server
+    /// allows, the cut running on it, the automatic cut's settings. Owner
+    /// only; nil everywhere else.
+    @State private var cutAgain: CutAgainModel?
+    /// The marker a More options sheet prepared, raised once it has gone.
+    @State private var pendingRecutPlayer: PlayerRequest?
+    /// The match to open once the marker has closed: Keep's new match.
+    @State private var pendingOpenMatch: UUID?
 
     private let pointsPreview = 10
 
@@ -1088,6 +1076,12 @@ struct MatchDetailScreen: View {
                         }
 
                         if current.status == .ready {
+                            // A new cut replacing this one: the match plays
+                            // on as it is, and the ordinary progress says
+                            // where the new cut has got to.
+                            if isOwner, let cutAgain, cutAgain.jobRunning {
+                                recutProgress(cutAgain)
+                            }
                             // Coach viewers never see Tools — every row is
                             // an owner action, matching the web.
                             if isOwner || sampleViewer {
@@ -1119,7 +1113,8 @@ struct MatchDetailScreen: View {
                                             await refreshMatch(refreshLibrary: true)
                                         }
                                     },
-                                    sampleViewer: sampleViewer
+                                    sampleViewer: sampleViewer,
+                                    moreOptions: moreOptionsHooks
                                 )
                             }
                             pointsSection(proxy: proxy)
@@ -1213,12 +1208,30 @@ struct MatchDetailScreen: View {
             guard watchKick > 0 else { return }
             await watchProcessing()
         }
+        // A processed match of the owner's own: what More options may offer,
+        // and whether a new cut is already running on it. Keyed so a match
+        // that finishes processing while open picks it up.
+        .task(id: current.status == .ready && isOwner) {
+            await loadCutAgain()
+        }
+        // Covered by the player or left: stop polling; back: carry on.
+        .onAppear { cutAgain?.startPolling() }
+        .onDisappear { cutAgain?.stopPolling() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await refreshMatch() } }
+            if phase == .active {
+                Task {
+                    await refreshMatch()
+                    await cutAgain?.load()
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .matchProcessingVersionChanged)) { notification in
             guard notification.object as? UUID == match.id else { return }
-            Task { await refreshMatch() }
+            Task {
+                await refreshMatch(refreshLibrary: cutAgain != nil)
+                // A re-cut that failed hands its marks back to the draft.
+                if cutAgain != nil { await handCut.refresh() }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .deviceHandCutChanged)) { notification in
             // Submitted, handed over, or let go: the server's job row is the
@@ -1240,7 +1253,13 @@ struct MatchDetailScreen: View {
         } message: {
             Text("Check your connection and try again.")
         }
-        .fullScreenCover(item: $playerRequest) { request in
+        .fullScreenCover(item: $playerRequest, onDismiss: {
+            // Keep made a new match: its page takes this one's place.
+            if let id = pendingOpenMatch {
+                pendingOpenMatch = nil
+                router.openMatchId = id
+            }
+        }) { request in
             PlayerTakeover(
                 match: current,
                 model: model,
@@ -1891,34 +1910,14 @@ struct MatchDetailScreen: View {
     }
 
     private var autoRow: some View {
-        Button {
+        AccordionHeaderRow(
+            title: "Automatically",
+            detail: "We find the rallies and cut them for you.",
+            trailing: minutesCharge.map { "\($0) min" },
+            open: autoOpen
+        ) {
             withAnimation(.easeOut(duration: 0.22)) { autoOpen.toggle() }
-        } label: {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Automatically")
-                        .font(.plRowTitle)
-                        .foregroundStyle(PL.text100)
-                    Text("We find the rallies and cut them for you.")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                }
-                Spacer(minLength: 8)
-                if let charge = minutesCharge {
-                    Text("\(charge) min")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(PL.text300)
-                        .monospacedDigit()
-                }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(PL.text500)
-                    .rotationEffect(.degrees(autoOpen ? 180 : 0))
-            }
-            .padding(20)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
     /// Opens in place like "Automatically": the Score switch and the button
@@ -1926,34 +1925,14 @@ struct MatchDetailScreen: View {
     /// marker.
     private var markRow: some View {
         let count = handCut.markedCount
-        return Button {
+        return AccordionHeaderRow(
+            title: "Mark the points yourself",
+            detail: "You mark where each point starts and ends.",
+            trailing: count > 0 ? "\(count) marked" : nil,
+            open: markOpen
+        ) {
             withAnimation(.easeOut(duration: 0.22)) { markOpen.toggle() }
-        } label: {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Mark the points yourself")
-                        .font(.plRowTitle)
-                        .foregroundStyle(PL.text100)
-                    Text("You mark where each point starts and ends.")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                }
-                Spacer(minLength: 8)
-                if count > 0 {
-                    Text("\(count) marked")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(PL.text300)
-                        .monospacedDigit()
-                }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(PL.text500)
-                    .rotationEffect(.degrees(markOpen ? 180 : 0))
-            }
-            .padding(20)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .disabled(!hasOriginal)
         .opacity(hasOriginal ? 1 : 0.4)
     }
@@ -1974,45 +1953,15 @@ struct MatchDetailScreen: View {
     /// The Score switch, the same rules as in the marker, and the button
     /// that opens the marker in that mode at its gate.
     private var markControls: some View {
-        let practice = markPractice
-        return VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Score")
-                        .font(.plRowTitle)
-                        .foregroundStyle(practice ? PL.text500 : PL.text100)
-                    if practice {
-                        Text("Matches only")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
-                    }
-                }
-                .accessibilityHidden(true)
-                Spacer(minLength: 8)
-                Toggle("Score", isOn: Binding(
-                    get: { markMode == .score },
-                    set: { markModeChoice = $0 ? .score : .cut }
-                ))
-                .labelsHidden()
-                .tint(PL.cyan)
-                .disabled(practice)
-                .accessibilityHint(practice ? "Matches only" : "")
-            }
-            Button {
-                Task { await openMarker() }
-            } label: {
-                // The width on the label, as the Process button does it.
-                HStack(spacing: 8) {
-                    if openingMarker { ProgressView().controlSize(.small).tint(PL.ink) }
-                    Text(handCut.markedCount > 0 ? "Keep marking" : "Start marking")
-                }
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 20)
-            }
-            .buttonStyle(PLPrimaryButtonStyle())
-            .disabled(openingMarker || !hasOriginal)
-        }
-        .padding(20)
+        MarkYourselfControls(
+            practice: markPractice,
+            mode: markMode,
+            onMode: { markModeChoice = $0 },
+            resuming: handCut.markedCount > 0,
+            opening: openingMarker,
+            enabled: hasOriginal,
+            onStart: { Task { await openMarker() } }
+        )
     }
 
     /// Open the marker on the original: a file already on the phone when
@@ -2095,150 +2044,38 @@ struct MatchDetailScreen: View {
             watchKick += 1
             return nil
         } catch {
-            let m = (error as? PostgrestError)?.message ?? error.localizedDescription
-            if m.contains("already_cut") { return "This match already has points." }
-            if m.contains("already_processing") { return "Something is already running on this match." }
-            if m.contains("queue_full") { return "Your queue is full. Wait for a video to finish." }
-            if m.contains("check_pending") { return "Still checking the video. Try again in a moment." }
-            if m.contains("invalid_marks") { return "Some marks are not valid. Check for very short points." }
-            return "That didn't send. Check your connection and try again."
+            return CutAgainErrors.handCut((error as? PostgrestError)?.message ?? error.localizedDescription)
         }
     }
 
     /// Trim, strictness and the charge: the automatic cut's controls.
     private var autoControls: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if let duration = current.durationS, duration > 10 {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("What to process")
-                            .font(.plRowTitle)
-                            .foregroundStyle(PL.text100)
-                        Spacer()
-                        if trimmed {
-                            Button("Reset") {
-                                trimStart = 0
-                                trimEnd = nil
-                            }
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(PL.cyan)
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    RawTrimBar(
-                        duration: duration,
-                        start: $trimStart,
-                        end: Binding(
-                            get: { trimEnd ?? duration },
-                            set: { trimEnd = $0 }
-                        )
-                    )
-                }
-            }
-
-            Divider().overlay(PL.edge)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Cut strictness")
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                Text("How much room to leave around each point.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                HStack(spacing: 4) {
-                    ForEach(["tight", "normal", "loose"], id: \.self) { level in
-                        let active = strictness == level
-                        Button(level.capitalized) {
-                            withAnimation(.easeOut(duration: 0.15)) { strictness = level }
-                        }
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(active ? PL.ink : PL.text400)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
-                        .background(
-                            active ? PL.cyan : .clear,
-                            in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
-                        )
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(3)
-                .background(PL.ink.opacity(0.5), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                .padding(.top, 8)
-            }
-
-            if let processError {
-                Text(processError)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.warningText)
-            }
-
-            // Full width, with the balance under it rather than
-            // floating alongside. A hugging pill beside a loose
-            // sentence was the single scrappiest thing on this
-            // screen.
-            VStack(spacing: 8) {
-                Button {
-                    Task { await runProcess() }
-                } label: {
-                    // The width has to be on the LABEL, not on the
-                    // Button: PLPrimaryButtonStyle paints its
-                    // capsule around whatever the label measures,
-                    // so a frame outside the style stretches the
-                    // tap target and leaves the pill hugging in
-                    // the middle. That was the "not optimised"
-                    // look — a small capsule adrift in a wide card.
-                    Text(processBusy ? "Starting…" : chargeLabel)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(processBusy || !enoughMinutes)
-                if let balance = model.minutesBalance {
-                    Text(
-                        enoughMinutes
-                            ? "\(balance) minutes left"
-                            : "Not enough minutes. You have \(balance)."
-                    )
-                    .font(.plCaption)
-                    .foregroundStyle(enoughMinutes ? PL.text500 : PL.warningText)
-                }
-                if !enoughMinutes {
-                    AllowanceRecoveryView(resource: "minutes", retryLabel: "Check minutes") {
-                        try await model.refreshMinutes()
-                        processError = nil
-                    }
-                }
-            }
-            .padding(.top, 2)
-        }
-        .padding(20)
+        AutoProcessControls(
+            durationS: current.durationS,
+            trimStart: $trimStart,
+            trimEnd: $trimEnd,
+            strictness: $strictness,
+            error: processError,
+            busy: processBusy,
+            balance: model.minutesBalance,
+            needsMoreMinutes: model.needsMoreMinutes,
+            recheckMinutes: {
+                try await model.refreshMinutes()
+                processError = nil
+            },
+            onProcess: { Task { await runProcess() } }
+        )
     }
 
     /// The kept window's length — what the charge is quoted on. The
     /// server recomputes the same number at claim time, so this label can
     /// only ever be wrong in the direction of an error message.
-    private var keptSeconds: Double? {
-        guard let duration = current.durationS else { return nil }
-        return max(0, (trimEnd ?? duration) - trimStart)
-    }
-
     private var trimmed: Bool {
-        guard let duration = current.durationS else { return false }
-        return trimStart > 0.5 || (trimEnd.map { $0 < duration - 0.5 } ?? false)
+        ProcessCharge.trimmed(durationS: current.durationS, trimStart: trimStart, trimEnd: trimEnd)
     }
 
     private var minutesCharge: Int? {
-        keptSeconds.map { max(1, Int(ceil($0 / 60))) }
-    }
-
-    private var chargeLabel: String {
-        minutesCharge.map { "Process · \($0) min" } ?? "Process"
-    }
-
-    private var enoughMinutes: Bool {
-        if model.needsMoreMinutes { return false }
-        guard let charge = minutesCharge, let balance = model.minutesBalance else { return true }
-        return balance >= charge
+        ProcessCharge.minutes(durationS: current.durationS, trimStart: trimStart, trimEnd: trimEnd)
     }
 
     private func runProcess() async {
@@ -2289,6 +2126,107 @@ struct MatchDetailScreen: View {
                 await refreshMatch(refreshLibrary: true)
                 return
             }
+        }
+    }
+
+    // MARK: - Cut again (More options on a processed match)
+
+    /// What the Tools row lends More options. Nil for anyone but the owner.
+    private var moreOptionsHooks: MoreOptionsHooks? {
+        guard isOwner, let cutAgain else { return nil }
+        return MoreOptionsHooks(
+            cutAgain: cutAgain,
+            handCut: handCut,
+            cutScored: model.visible.contains { $0.confirmedWinner != nil || $0.isLet },
+            prepareMarking: { chosen in await prepareRecutMarking(chosen) },
+            afterDismiss: {
+                guard let request = pendingRecutPlayer else { return }
+                pendingRecutPlayer = nil
+                playerRequest = request
+            },
+            openMatch: { id in router.openMatchId = id }
+        )
+    }
+
+    private func loadCutAgain() async {
+        guard current.status == .ready, isOwner, !SampleMatch.isSample(current) else { return }
+        if cutAgain == nil { cutAgain = CutAgainModel(matchId: match.id) }
+        await cutAgain?.load()
+        if let uid = app.userId { await handCut.load(matchId: match.id, userId: uid) }
+    }
+
+    /// The ordinary processing card, for the cut replacing this one.
+    private func recutProgress(_ cutAgain: CutAgainModel) -> some View {
+        let kind = cutAgain.feedback?.jobKind
+        return MatchProcessingCard(
+            notice: nil,
+            stageLabel: cutAgain.feedback?.stageLabel,
+            warning: nil,
+            progress: cutAgain.job?.progress,
+            sendsReadyEmail: true,
+            estimate: cutAgain.feedback?.estimate,
+            jobStatus: cutAgain.feedback?.jobStatus,
+            serviceState: ProcessingServiceStore.shared.state(
+                for: processingServiceLane(kind: kind, clipLane: ProcessingServiceStore.shared.clipLane)
+            ).rawValue
+        )
+    }
+
+    /// Start marking, from More options: the draft for marking again
+    /// (start_recut resumes an unsent one, or writes the live cut's points),
+    /// read back through the draft store so the phone's own copy is
+    /// reconciled as on the raw page, then the ORIGINAL's link, minted now
+    /// and frozen for the session. The marker is raised once the sheet has
+    /// gone. Never cut on the phone: a re-cut always goes to the server.
+    private func prepareRecutMarking(_ chosen: HandCutMode?) async -> String? {
+        guard isOwner, let cutAgain, let options = cutAgain.options, let uid = app.userId else {
+            return CutAgainCopy.somethingWrong
+        }
+        if case .failure(let refused) = await cutAgain.startRecut() {
+            switch CutAgainErrors.handRecut(refused.message) {
+            case .message(let sentence): return sentence
+            case .coachReview: return CutAgainCopy.somethingWrong
+            }
+        }
+        await handCut.load(matchId: current.id, userId: uid)
+        guard handCut.ready else { return CutAgainErrors.handCut("") }
+        let url: URL
+        switch await model.originalLink(current) {
+        case .url(let link): url = link
+        case .gone: return CutAgainCopy.noSource
+        case .failed: return "Couldn't open the original. Check your connection and try again."
+        }
+        let matchNow = current
+        let marker = HandCutMarker(
+            match: matchNow,
+            store: handCut,
+            mode: chosen,
+            // The raw page's claim is never used for a re-cut.
+            submitMarks: { _ in CutAgainCopy.somethingWrong },
+            saveFirstServer: { value in await model.setFirstServer(matchId: matchNow.id, value: value) },
+            recut: RecutChoiceState.byHand(options),
+            submitRecut: { marks, replace in await submitHandRecut(marks, replace: replace) }
+        )
+        pendingRecutPlayer = PlayerRequest(
+            url: url, startAt: nil, mode: .mark, source: .original, marker: marker
+        )
+        return nil
+    }
+
+    /// Cut the match, from the marker's review sheet on a processed match.
+    /// Replace: the match plays on and the ordinary progress shows. Keep:
+    /// the new match's page opens once the marker has closed.
+    private func submitHandRecut(_ marks: [HandCutMark], replace: Bool) async -> RecutRefusal? {
+        guard let cutAgain else { return .message(CutAgainCopy.somethingWrong) }
+        switch await cutAgain.claimHandRecut(marks, replace: replace) {
+        case .failure(let refusal):
+            return refusal
+        case .success(let claim):
+            if !replace, let id = claim.matchId, id != current.id {
+                pendingOpenMatch = id
+            }
+            await library.load()
+            return nil
         }
     }
 

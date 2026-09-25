@@ -38,6 +38,8 @@ Task { @MainActor in
         runDeviceCutChecks()
         runDeviceCutRouteChecks()
         runMarkLandscapeChecks()
+        runCutAgainChecks()
+        runHandCutPlaybackChecks()
     }
 
     print("\n\(checks - failures)/\(checks) checks passed")

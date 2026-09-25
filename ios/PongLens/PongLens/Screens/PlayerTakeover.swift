@@ -352,6 +352,9 @@ struct PlayerTakeover: View {
         case dot(UUID)
     }
     @State var removedArmed: UUID?
+    /// A hand-cut match, watched through: the observer that fires at each
+    /// kept point's end (see `markedTape`).
+    @State var tapeBoundary: Any?
     /// The seam the "Add a missing rally" sheet is open on.
     @State var insertSeam: InsertSeamPair?
     @State var toast: String?
@@ -502,6 +505,7 @@ struct PlayerTakeover: View {
         return deletedSpans(all: model.points, visible: points, pad: pad)
     }
 
+
     /// Tap-trimmed dead zones (2026-08-25): footage between a scored
     /// rally's effective end (winner tap + 0.5s, Playhead.effectiveEnd)
     /// and the next visible rally's padded start — ball retrieval,
@@ -649,6 +653,8 @@ struct PlayerTakeover: View {
         .onChange(of: model.points.count) { _, _ in
             Task { await loadOwnClips() }
         }
+        // An edit, a card's own clip arriving: the tape's joins move with it.
+        .onChange(of: markedTape) { _, _ in installTapeBoundary() }
         .onChange(of: isPlaying) { _, playing in
             if mode == .mark { marker?.playbackChanged(playing: playing) }
             if playing {
@@ -671,6 +677,7 @@ struct PlayerTakeover: View {
         .onDisappear {
             scorerSessionEffects.close()
             if let observer { player.removeTimeObserver(observer) }
+            removeTapeBoundary()
             for token in clipEndObservers {
                 NotificationCenter.default.removeObserver(token)
             }
@@ -3709,6 +3716,10 @@ struct PlayerTakeover: View {
                 startAt, spans: deadSpans, firstPointStart: firstPointStart,
                 alwaysToFirst: false
             ))
+        } else if mode == .watch, isCut, tapeActive {
+            // A hand-cut match opens on its first kept point's mark.
+            let landing = HandCutPlayback.landing(currentT, on: markedTape)
+            if landing > currentT + 0.01 { seek(to: landing) }
         } else if mode == .watch, isCut {
             // Poster → open with no explicit target: never start inside
             // dead footage. With the leading points deleted (a warm-up),
@@ -3721,6 +3732,7 @@ struct PlayerTakeover: View {
             )
             if snapped > currentT + 0.05 { seek(to: snapped) }
         }
+        installTapeBoundary()
         // Discovery: the double tap first, hold-for-speed on a later open
         // once the double tap is learned or spent. One hint per open.
         if mode == .watch, let next = GestureHints.nextWatchHint() {
@@ -3805,6 +3817,14 @@ struct PlayerTakeover: View {
             enterDetour(dp, at: t, andPlay: true)
             return
         }
+        // A hand-cut match watched through: the tape is the one rule. The
+        // boundary observer makes the joins; this catches whatever it could
+        // not (a scrub, a resume in the gap between two points).
+        if tapeActive {
+            tapeStep(at: t)
+            return
+        }
+
         // Deleted footage is dead in both modes: jump out of it rather than
         // play frames the owner removed. Only during playback — landing
         // inside a span on purpose (a scrub) stays put.
@@ -4049,14 +4069,22 @@ struct PlayerTakeover: View {
         if rate != 1 { player.rate = rate }
     }
 
-    func seek(to seconds: Double) {
+    /// `toleranceAfter` lets a join between two kept points of a hand-cut
+    /// match land on the first decodable frame just after the mark rather
+    /// than stall for the exact one; every other seek stays exact.
+    func seek(to seconds: Double, toleranceAfter: Double = 0) {
         clearSplitArm()
         scorerSessionEffects.navigate()
         scorePlaybackRun.invalidate()
         scoreSeekGeneration += 1
         let seekGeneration = scoreSeekGeneration
         lastTick = nil
-        let sec = max(0, seconds)
+        // A hand-cut match watched through: a chip, a chevron, a replay or a
+        // scrub that lands between two kept points moves on to the next
+        // one's mark, the highlights tape's rule.
+        let sec = tapeActive
+            ? HandCutPlayback.landing(max(0, seconds), on: markedTape)
+            : max(0, seconds)
         // Whose footage lives at this position? Every navigation lands
         // here — chip, chevron, advance, replay, scrub release — so this
         // one branch is what routes an insert card into its own clip.
@@ -4070,7 +4098,8 @@ struct PlayerTakeover: View {
         pendingSeekEpoch = epoch
         player.seek(
             to: CMTime(seconds: sec, preferredTimescale: 600),
-            toleranceBefore: .zero, toleranceAfter: .zero
+            toleranceBefore: .zero,
+            toleranceAfter: CMTime(seconds: max(0, toleranceAfter), preferredTimescale: 600)
         ) { finished in
             Task { @MainActor in
                 if pendingSeekEpoch == epoch { pendingSeekEpoch = nil }
@@ -4114,6 +4143,9 @@ struct PlayerTakeover: View {
         detourId = p.id
         detourBase = base
         lastTick = nil
+        // The clip runs on its own clock: the tape's boundaries belong to
+        // the cut and would fire at the wrong moments inside it.
+        removeTapeBoundary()
         if player.currentItem !== item {
             player.replaceCurrentItem(with: item)
         }
@@ -4138,6 +4170,7 @@ struct PlayerTakeover: View {
         if let cutItem, player.currentItem !== cutItem {
             player.replaceCurrentItem(with: cutItem)
         }
+        installTapeBoundary()
     }
 
     /// The detour's own tick: one card, so the crossing loop collapses to
@@ -4157,9 +4190,12 @@ struct PlayerTakeover: View {
         }
         guard mode == .score, phase == .play else {
             // Watching through: past the card's effective end is ball
-            // retrieval the cut never shows for any other card either.
-            if let prev, let end = effectiveEnd(p, pad, app.endOptions),
-               end > prev, end <= t {
+            // retrieval the cut never shows for any other card either. A
+            // hand-cut match stops at the End mark, like every other point.
+            let end = tapeActive
+                ? markedTape.first(where: { $0.pointId == id })?.end
+                : effectiveEnd(p, pad, app.endOptions)
+            if let prev, let end, end > prev, end <= t {
                 detourDone()
             }
             return
@@ -4217,8 +4253,10 @@ struct PlayerTakeover: View {
         let next = p.cutT0.flatMap { t0 in
             points.first { $0.id != id && $0.cutT0 != nil && $0.cutT0! > t0 }
         }
+        // On a hand-cut match's tape, the next kept point's mark.
+        let tapeNext = tapeActive ? HandCutPlayback.next(after: id, in: markedTape)?.start : nil
         exitDetour()
-        if let nt = next?.cutT0 {
+        if let nt = tapeNext ?? next?.cutT0 {
             // The card's boundary stays CONSUMED across the hand-back —
             // uniquely for a detour card it overhangs FORWARD past the
             // next card's start (the virtual overlap), so re-arming it

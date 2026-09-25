@@ -7,6 +7,8 @@ struct ContentView: View {
             ProcessingAvailabilityFixtureView()
         } else if ScorekeeperQAFixture.isEnabled {
             ScorekeeperQAFixtureView()
+        } else if CutAgainFixture.isEnabled {
+            CutAgainFixtureView()
         } else {
             RootView()
         }

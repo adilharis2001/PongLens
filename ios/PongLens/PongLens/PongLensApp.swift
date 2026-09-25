@@ -57,6 +57,8 @@ struct PongLensApp: App {
             return
         }
         if ScorekeeperQAFixture.isEnabled || ProcessingAvailabilityFixture.isEnabled { return }
+        // Cut again's harness talks to nothing: no queue wakes up either.
+        if CutAgainFixture.isEnabled { return }
         if DeviceCutQA.isEnabled {
             Task { @MainActor in await DeviceCutQA.run() }
             return
@@ -79,6 +81,7 @@ struct PongLensApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     #if DEBUG && targetEnvironment(simulator)
                     if ScorekeeperQAFixture.isEnabled || ProcessingAvailabilityFixture.isEnabled { return }
+                    if CutAgainFixture.isEnabled { return }
                     #endif
                     if phase == .active { Task { await LessonVideoQueue.shared.resume() } }
                 }

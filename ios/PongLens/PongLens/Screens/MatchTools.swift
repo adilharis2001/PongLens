@@ -20,6 +20,9 @@ struct ToolsSection: View {
     /// the real page, but every row except Highlights is dead — none of
     /// them is this reader's to press.
     var sampleViewer = false
+    /// More options (cut again): what the page lends the row. Nil on the
+    /// sample, where the row is shown dead like its neighbours.
+    var moreOptions: MoreOptionsHooks? = nil
 
     @Environment(AppState.self) private var app
     @State private var shareOpen = false
@@ -85,7 +88,10 @@ struct ToolsSection: View {
                 divider
                 locked(toolRow("Your side", trailing: .text(sideTrailing)) { sideOpen = true })
                 divider
-                locked(ProcessingToolRow(match: match))
+                // More options took Processing's place (cut again,
+                // 2026-09-25): cutting the match again, either way, and
+                // Report a problem, which is the Processing form unchanged.
+                locked(MoreOptionsToolRow(match: match, hooks: moreOptions))
                 divider
                 locked(FeedbackBoardToolRow(match: match))
             }

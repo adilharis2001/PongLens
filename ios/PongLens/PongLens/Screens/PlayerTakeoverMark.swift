@@ -40,6 +40,16 @@ extension PlayerTakeover {
                 markServeSheet(hc, landscape: landscape, bottomInset: geo.safeAreaInsets.bottom)
                 markReviewSheet(hc)
             }
+            .alert(
+                CutAgainCopy.clearTitle,
+                isPresented: Binding(
+                    get: { hc.confirmingStartAgain },
+                    set: { hc.confirmingStartAgain = $0 }
+                )
+            ) {
+                Button(CutAgainCopy.clear, role: .destructive) { markStartAgain() }
+                Button(CutAgainCopy.cancel, role: .cancel) {}
+            }
         }
     }
 
@@ -226,33 +236,36 @@ extension PlayerTakeover {
     }
 
     /// Refusal, then the gate or the pair, answers and tools, then the
-    /// footer. The pair and the answers share what is left 3:2.
+    /// footer, filling the pad in every state (MarkPortraitPad): the pair
+    /// and the answers share what is left 3:2, and the gate's buttons take
+    /// those same shares, so the footer always sits at the bottom.
     func markControls(_ hc: HandCutMarker, height: CGFloat) -> some View {
-        let gap: CGFloat = 10
-        let refusalH: CGFloat = markStatus(hc) == nil ? 0 : 16 + gap
+        let gap = CGFloat(MarkPortraitPad.gap)
+        let status = markStatus(hc)
         let answers = hc.mode == .score
-        let fixed: CGFloat = 24 + refusalH + 44 + gap + 44 + gap + (answers ? gap : 0)
-        let flex = max(0, height - fixed)
-        let pairH = answers ? max(64, flex * 3 / 5) : max(64, flex)
-        let answersH = max(56, flex * 2 / 5)
+        let pass = MarkPortraitPad.pass(height: Double(height), refusal: status != nil, answers: answers)
+        let gate = MarkPortraitPad.gate(
+            height: Double(height), refusal: status != nil,
+            buttons: hc.openedPartial ? 2 : 1, startAgain: hc.canStartAgain
+        )
         return VStack(spacing: gap) {
-            if let refusal = markStatus(hc) {
-                markRefusalLine(refusal).frame(height: 16)
+            if let status {
+                markRefusalLine(status).frame(height: CGFloat(MarkPortraitPad.refusalH))
             }
             if !hc.started {
-                markGate(hc)
+                markGate(hc, primary: CGFloat(gate.primary), secondary: CGFloat(gate.secondary))
+                    .frame(maxHeight: .infinity, alignment: .top)
                 markFooter(hc)
-                Spacer(minLength: 0)
             } else {
-                markPair(hc).frame(height: pairH)
+                markPair(hc).frame(height: CGFloat(pass.pair))
                 if answers {
-                    markAnswerRow(hc).frame(height: answersH)
+                    markAnswerRow(hc).frame(height: CGFloat(pass.answers))
                 }
                 markUtilRow(hc)
                 markFooter(hc)
             }
         }
-        .padding(12)
+        .padding(CGFloat(MarkPortraitPad.padding))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -650,31 +663,48 @@ extension PlayerTakeover {
 
     // MARK: - Pair, answers, tools, footer (portrait)
 
-    func markGate(_ hc: HandCutMarker) -> some View {
-        VStack(spacing: 8) {
+    /// Before the pass: the way in, as big as the pair and the answers it
+    /// gives way to, and, when a processed match is marked again, Start
+    /// again where the tool row will be.
+    func markGate(_ hc: HandCutMarker, primary: CGFloat, secondary: CGFloat) -> some View {
+        VStack(spacing: CGFloat(MarkPortraitPad.gap)) {
             if hc.openedPartial {
-                markBigButton("Keep marking", lit: true, height: 64) { markBeginMarking() }
-                Button {
+                markBigButton("Keep marking", lit: true, height: primary) { markBeginMarking() }
+                markBigButton("Review the points", lit: false, text: PL.text300, height: secondary) {
                     markBeginReview()
-                } label: {
-                    Text("Review the points")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(PL.text300)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(PL.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(PL.edge, lineWidth: 2)
-                        )
                 }
-                .buttonStyle(HCPressStyle())
             } else {
-                markBigButton(hc.openedFinished ? "Begin review" : "Begin Cutting", lit: true, height: 64) {
+                // A re-cut with points still to call carries on from the
+                // first of them: the cue is already there.
+                markBigButton(
+                    hc.openedFinished ? "Begin review"
+                        : hc.openedAs == .scoring ? "Keep marking" : "Begin Cutting",
+                    lit: true, height: primary
+                ) {
                     if hc.openedFinished { markBeginReview() } else { markBeginCutting() }
                 }
             }
+            if hc.canStartAgain {
+                markStartAgainButton(hc)
+            }
         }
+    }
+
+    /// Outlined, a step down from the gate's buttons: clearing every mark
+    /// is not the way in, and it asks first.
+    func markStartAgainButton(_ hc: HandCutMarker) -> some View {
+        Button {
+            hc.confirmingStartAgain = true
+        } label: {
+            Text(MarkerCopy.startAgain)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PL.text200)
+                .frame(maxWidth: .infinity)
+                .frame(height: CGFloat(MarkPortraitPad.rowH))
+                .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     /// The rhythm pair: Begin and End while marking, Adjust and Resume once
@@ -690,7 +720,7 @@ extension PlayerTakeover {
                     markResume()
                 }
             } else if hc.open != nil {
-                markBigButton("Reset", lit: false, text: PL.text400) { markReset() }
+                markBigButton(MarkerCopy.backToLastPoint, lit: false, text: PL.text400) { markReset() }
                 markBigButton("End Point", lit: true) { markEnd() }
             } else {
                 markBigButton("Begin Point", lit: true) { markBegin() }
@@ -704,6 +734,7 @@ extension PlayerTakeover {
     func markBigButton(
         _ label: String, lit: Bool, text: Color = PL.text400, enabled: Bool = true,
         height: CGFloat? = nil, radius: CGFloat = 12, font: CGFloat = 16,
+        lines: Int = 2, minScale: CGFloat = 0.8,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -711,8 +742,8 @@ extension PlayerTakeover {
                 .font(.system(size: font, weight: .bold))
                 .foregroundStyle(lit ? PL.ink : text)
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
+                .lineLimit(lines)
+                .minimumScaleFactor(minScale)
                 .padding(.horizontal, 8)
                 .frame(maxWidth: .infinity, maxHeight: height == nil ? .infinity : nil)
                 .frame(height: height)
@@ -840,32 +871,29 @@ extension PlayerTakeover {
         .frame(height: 44)
     }
 
-    /// "Score": whether the pass also says who won each point. It can be
-    /// flipped at any time and nothing already called is lost. Practice and
-    /// drills cannot be scored, so theirs stays off, greyed, "Matches only".
+    /// "Cut and score" or "Cut only": whether the pass also says who won
+    /// each point. It can be flipped at any time and nothing already called
+    /// is lost. Practice and drills cannot be scored, so theirs stays off,
+    /// greyed, "Cut only". The footer has room for the label alone; the
+    /// line under it lives on the match page's accordion.
     func markScoreSwitch(_ hc: HandCutMarker) -> some View {
         let practice = hc.practice
+        let on = hc.mode == .score && !practice
+        let label = MarkerCopy.scoreLabel(on: on, practice: practice)
         return HStack(spacing: 8) {
-            VStack(alignment: .trailing, spacing: 1) {
-                Text("Score")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(practice ? PL.text500 : PL.text200)
-                if practice {
-                    Text("Matches only")
-                        .font(.system(size: 10))
-                        .foregroundStyle(PL.text500)
-                }
-            }
-            .fixedSize()
-            .accessibilityHidden(true)
-            Toggle("Score", isOn: Binding(
-                get: { hc.mode == .score },
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(practice ? PL.text500 : PL.text200)
+                .fixedSize()
+                .accessibilityHidden(true)
+            Toggle(label, isOn: Binding(
+                get: { on },
                 set: { markSetScoring($0) }
             ))
             .labelsHidden()
             .tint(PL.cyan)
             .disabled(practice)
-            .accessibilityHint(practice ? "Matches only" : "")
+            .accessibilityHint(practice ? MarkerCopy.scoreDetail(on: false, practice: true) : "")
         }
     }
 
@@ -989,16 +1017,21 @@ extension PlayerTakeover {
     func markPairRail(_ hc: HandCutMarker, _ g: MarkLandscape) -> some View {
         let tiles = MarkLandscape.railPair(
             started: hc.started, opened: hc.openedAs, reviewing: hc.reviewingPoint,
-            adjusting: hc.adjustOn, open: hc.open != nil
+            adjusting: hc.adjustOn, open: hc.open != nil, startAgain: hc.canStartAgain
         )
         let fs = CGFloat(g.pairFont)
         return VStack(spacing: CGFloat(MarkLandscape.railGap)) {
             ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
+                // "Back to last point" may take three short lines but never
+                // shrinks below the tile beside it; Start again is a step
+                // down, like its portrait pill.
                 markBigButton(
                     tile.label, lit: tile.tone == .lit, text: PL.text300,
                     enabled: tile.tone != .off,
                     height: CGFloat(MarkLandscape.pairTileHeight(tile, count: tiles.count, boxH: g.boxH)),
-                    radius: 16, font: fs
+                    radius: 16, font: tile.action == .startAgain ? min(fs, 15) : fs,
+                    lines: tile.action == .reset ? 3 : 2,
+                    minScale: tile.action == .reset ? 1 : 0.8
                 ) { markRailAction(tile.action) }
             }
         }
@@ -1007,6 +1040,7 @@ extension PlayerTakeover {
 
     func markRailAction(_ action: MarkLandscape.Action) {
         switch action {
+        case .startAgain: marker?.confirmingStartAgain = true
         case .beginCutting: markBeginCutting()
         case .beginReview, .reviewPoints: markBeginReview()
         case .keepMarking: markBeginMarking()
@@ -1088,12 +1122,13 @@ extension PlayerTakeover {
         .accessibilityLabel(label)
     }
 
-    /// The footer's Score switch as a bottom-bar tile: a small switch that
-    /// shows on or off, "Score" beside it, and "Matches only" under it on
-    /// practice and drills, where it stays off and cannot be tapped.
+    /// The footer's switch as a bottom-bar tile: a small switch that shows
+    /// on or off and its label beside it ("Cut and score" or "Cut only").
+    /// Practice and drills stay off, greyed, and cannot be tapped.
     func markScoreTile(_ hc: HandCutMarker) -> some View {
         let practice = hc.practice
-        let on = hc.mode == .score
+        let on = hc.mode == .score && !practice
+        let label = MarkerCopy.scoreLabel(on: on, practice: practice)
         return Button {
             markSetScoring(!on)
         } label: {
@@ -1101,19 +1136,13 @@ extension PlayerTakeover {
                 markMiniSwitch(on: on)
                     .opacity(practice ? 0.35 : 1)
                 // A disabled plain button dims its label by itself, so the
-                // practice lines start brighter to stay readable.
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Score")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(practice ? PL.text300 : PL.text200)
-                    if practice {
-                        Text("Matches only")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(PL.text300)
-                    }
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                // practice label starts brighter to stay readable.
+                Text(label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(practice ? PL.text300 : PL.text200)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
             }
             .padding(.horizontal, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1122,9 +1151,9 @@ extension PlayerTakeover {
         }
         .buttonStyle(.plain)
         .disabled(practice)
-        .accessibilityLabel("Score")
+        .accessibilityLabel(label)
         .accessibilityValue(on ? "On" : "Off")
-        .accessibilityHint(practice ? "Matches only" : "")
+        .accessibilityHint(practice ? MarkerCopy.scoreDetail(on: false, practice: true) : "")
         .accessibilityAddTraits(.isToggle)
     }
 
@@ -1245,81 +1274,103 @@ extension PlayerTakeover {
         .buttonStyle(.plain)
     }
 
-    /// Done: what is about to be sent, in the web's words.
+    /// Done: what is about to be sent, in the web's words. Marking a
+    /// processed match again adds the Replace or Keep choice above Cut the
+    /// match. A phone on its side may not fit it all, so the card scrolls
+    /// when it has to and not otherwise.
     @ViewBuilder
     func markReviewSheet(_ hc: HandCutMarker) -> some View {
         if hc.reviewing {
-            let sum = hc.summary
             ZStack {
                 PL.ink.opacity(0.7)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {}
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("\(sum.total) \(sum.total == 1 ? "point" : "points") marked.")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(PL.text100)
-                    if hc.mode == .score && sum.unscored > 0 {
-                        Text(sum.unscored == 1
-                             ? "1 has no winner yet. You can score it from the match."
-                             : "\(sum.unscored) have no winner yet. You can score them from the match.")
-                            .font(.system(size: 14))
-                            .foregroundStyle(PL.text400)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 8)
-                    }
-                    if sum.open {
-                        Text("One point has no ending and will not be included.")
-                            .font(.system(size: 14))
-                            .foregroundStyle(amber300.opacity(0.9))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 8)
-                    }
-                    if sum.long > 0 {
-                        Text("\(sum.long) \(sum.long == 1 ? "point is" : "points are") over two minutes long. Check you did not miss an ending.")
-                            .font(.system(size: 14))
-                            .foregroundStyle(amber300.opacity(0.9))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 8)
-                    }
-                    if let error = hc.submitError {
-                        Text(error)
-                            .font(.system(size: 14))
-                            .foregroundStyle(amber300.opacity(0.9))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 12)
-                    }
-                    Button {
-                        Task { await markSubmit() }
-                    } label: {
-                        Text(hc.busy ? "Sending" : "Cut the match")
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: 20)
-                    }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    .disabled(hc.busy)
-                    .padding(.top, 20)
-                    Button {
-                        hc.reviewing = false
-                    } label: {
-                        Text("Keep marking")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(PL.text200)
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: 44)
-                            .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 12)
+                ViewThatFits(in: .vertical) {
+                    markReviewCard(hc)
+                    ScrollView { markReviewCard(hc) }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(maxWidth: 384 + 32)
                 }
-                .padding(24)
-                .frame(maxWidth: 384, alignment: .leading)
-                .background(PL.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(PL.edge, lineWidth: 1))
-                .padding(16)
             }
         }
+    }
+
+    func markReviewCard(_ hc: HandCutMarker) -> some View {
+        let sum = hc.summary
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("\(sum.total) \(sum.total == 1 ? "point" : "points") marked.")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(PL.text100)
+            if hc.mode == .score && sum.unscored > 0 {
+                Text(sum.unscored == 1
+                     ? "1 has no winner yet. You can score it from the match."
+                     : "\(sum.unscored) have no winner yet. You can score them from the match.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(PL.text400)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+            }
+            if sum.open {
+                Text("One point has no ending and will not be included.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(amber300.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+            }
+            if sum.long > 0 {
+                Text("\(sum.long) \(sum.long == 1 ? "point is" : "points are") over two minutes long. Check you did not miss an ending.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(amber300.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+            }
+            if hc.recut != nil {
+                RecutChoiceView(
+                    state: Binding(
+                        get: { hc.recut ?? RecutChoiceState(replaceAllowed: false, hasMatchNotes: false) },
+                        set: { hc.recut = $0 }
+                    ),
+                    disabled: hc.busy
+                )
+                .padding(.top, 20)
+            }
+            if let error = hc.submitError {
+                Text(error)
+                    .font(.system(size: 14))
+                    .foregroundStyle(amber300.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 12)
+            }
+            Button {
+                Task { await markSubmit() }
+            } label: {
+                Text(hc.busy ? "Sending" : "Cut the match")
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 20)
+            }
+            .buttonStyle(PLPrimaryButtonStyle())
+            .disabled(hc.busy)
+            .padding(.top, 20)
+            Button {
+                hc.reviewing = false
+            } label: {
+                Text("Keep marking")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PL.text200)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 44)
+                    .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 12)
+        }
+        .padding(24)
+        .frame(maxWidth: 384, alignment: .leading)
+        .background(PL.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(PL.edge, lineWidth: 1))
+        .padding(16)
     }
 
     // MARK: - Opening, the clock and the cue
@@ -1767,6 +1818,23 @@ extension PlayerTakeover {
         hc.busy = true
         hc.submitError = nil
         await hc.store.flush()
+        // A processed match: claim_hand_recut, with the choice.
+        if let recut = hc.recut, let submitRecut = hc.submitRecut {
+            let refusal = await submitRecut(hc.state.marks, recut.replace)
+            hc.busy = false
+            switch refusal {
+            case nil:
+                hc.store.submitted()
+                closeTakeover()
+            case .coachReview:
+                // A review arrived since the sheet opened: Replace greys
+                // with its reason and Keep is chosen. Nothing was sent.
+                hc.recut?.coachReviewFound()
+            case .message(let sentence):
+                hc.submitError = sentence
+            }
+            return
+        }
         let error = await hc.submitMarks(hc.state.marks)
         hc.busy = false
         if let error {
@@ -1775,6 +1843,15 @@ extension PlayerTakeover {
             hc.store.submitted()
             closeTakeover()
         }
+    }
+
+    /// Start again, confirmed: every mark goes, the picture goes back to
+    /// the start, and the gate reads Begin Cutting.
+    func markStartAgain() {
+        guard let hc = marker else { return }
+        player.pause()
+        hc.startAgain()
+        seek(to: 0)
     }
 
     /// Close saves at once: a pending save is never dropped by leaving.
