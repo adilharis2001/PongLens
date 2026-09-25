@@ -8,28 +8,104 @@ import SwiftUI
 // they moved here unchanged, with a slot for the Replace or Keep choice that
 // only More options fills.
 
-/// A row that opens in place: title, an optional line under it, the value
-/// it trails (the minutes, "{N} marked"), and a chevron that turns over.
-struct AccordionHeaderRow: View {
-    let title: String
-    var detail: String? = nil
-    var trailing: String? = nil
-    let open: Bool
-    let action: () -> Void
+/// The radio mark of every choice in this feature (the two ways, Replace or
+/// Keep): a ring, filled in the accent with a tick once chosen. Hidden from
+/// VoiceOver; the cell says it is selected.
+struct ChoiceMark: View {
+    let on: Bool
 
     var body: some View {
-        Button(action: action) {
+        ZStack {
+            Circle()
+                .strokeBorder(on ? PL.cyan : PL.text600, lineWidth: 1)
+                .background(Circle().fill(on ? PL.cyan : .clear))
+            if on {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundStyle(PL.ink)
+            }
+        }
+        .frame(width: 18, height: 18)
+        .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// The field a choice cell sits in: lit in the accent when chosen,
+    /// dimmed when it cannot be chosen, tappable across its whole area and
+    /// never under 44pt.
+    func choiceCell(on: Bool, enabled: Bool = true) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        return self
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(
+                !enabled ? PL.ink.opacity(0.2) : on ? PL.cyan.opacity(0.1) : PL.ink.opacity(0.4),
+                in: shape
+            )
+            .overlay(
+                shape.strokeBorder(
+                    !enabled ? PL.edge.opacity(0.6) : on ? PL.cyan.opacity(0.7) : PL.edge,
+                    lineWidth: 1
+                )
+            )
+            .opacity(enabled ? 1 : 0.5)
+            .contentShape(shape)
+    }
+}
+
+/// The two ways as one choice (owner's option A, 2026-09-25): two cells,
+/// exactly one selected, then only the selected way's controls. Used as is
+/// by the raw page's Break it into points and by More options, so both
+/// read the same. A player who cannot mark by hand never sees this: the
+/// caller draws the automatic controls on their own.
+struct CutWayPicker<Automatic: View, Marking: View>: View {
+    let selected: CutWay
+    /// "{N} min" on Automatically.
+    let automaticTrailing: String?
+    /// "{N} marked" on Mark the points yourself.
+    let markingTrailing: String?
+    /// False greys Mark the points yourself (no original to mark).
+    var markingEnabled = true
+    let onSelect: (CutWay) -> Void
+    @ViewBuilder var automatic: () -> Automatic
+    @ViewBuilder var marking: () -> Marking
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: 10) {
+                cell(.automatic)
+                cell(.byHand)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            switch selected {
+            case .automatic: automatic()
+            case .byHand: marking()
+            }
+        }
+    }
+
+    private func cell(_ way: CutWay) -> some View {
+        let isAuto = way == .automatic
+        let enabled = isAuto || markingEnabled
+        let on = selected == way
+        let trailing = isAuto ? automaticTrailing : markingTrailing
+        return Button {
+            withAnimation(.easeOut(duration: 0.15)) { onSelect(way) }
+        } label: {
             HStack(alignment: .center, spacing: 12) {
+                ChoiceMark(on: on)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text(isAuto ? CutAgainCopy.automatically : CutAgainCopy.markYourself)
                         .font(.plRowTitle)
-                        .foregroundStyle(PL.text100)
-                    if let detail {
-                        Text(detail)
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
-                    }
+                        .foregroundStyle(on ? PL.cyan : PL.text100)
+                    Text(isAuto ? CutAgainCopy.automaticallyDetail : CutAgainCopy.markYourselfDetail)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 if let trailing {
                     Text(trailing)
@@ -37,15 +113,12 @@ struct AccordionHeaderRow: View {
                         .foregroundStyle(PL.text300)
                         .monospacedDigit()
                 }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(PL.text500)
-                    .rotationEffect(.degrees(open ? 180 : 0))
             }
-            .padding(20)
-            .contentShape(Rectangle())
+            .choiceCell(on: on, enabled: enabled)
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
@@ -282,7 +355,6 @@ struct RecutChoiceView: View {
         let lines: [String] = isReplace
             ? (enabled ? state.replaceLines : state.replaceBlockedLine.map { [$0] } ?? [])
             : []
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return Button {
             withAnimation(.easeOut(duration: 0.15)) { state.select(choice) }
         } label: {
@@ -293,17 +365,7 @@ struct RecutChoiceView: View {
                         .foregroundStyle(on ? PL.cyan : PL.text100)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
-                    ZStack {
-                        Circle()
-                            .strokeBorder(on ? PL.cyan : PL.text600, lineWidth: 1)
-                            .background(Circle().fill(on ? PL.cyan : .clear))
-                        if on {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 9, weight: .heavy))
-                                .foregroundStyle(PL.ink)
-                        }
-                    }
-                    .frame(width: 18, height: 18)
+                    ChoiceMark(on: on)
                 }
                 ForEach(lines, id: \.self) { line in
                     Text(line)
@@ -312,21 +374,7 @@ struct RecutChoiceView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .background(
-                !enabled ? PL.ink.opacity(0.2) : on ? PL.cyan.opacity(0.1) : PL.ink.opacity(0.4),
-                in: shape
-            )
-            .overlay(
-                shape.strokeBorder(
-                    !enabled ? PL.edge.opacity(0.6) : on ? PL.cyan.opacity(0.7) : PL.edge,
-                    lineWidth: 1
-                )
-            )
-            .opacity(enabled ? 1 : 0.5)
-            .contentShape(shape)
+            .choiceCell(on: on, enabled: enabled)
         }
         .buttonStyle(.plain)
         .disabled(!enabled || disabled)

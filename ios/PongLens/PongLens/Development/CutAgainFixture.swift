@@ -14,7 +14,7 @@ import UIKit
 ///     --dev-ca-options <variant>       normal | notes | coach | auto-replace |
 ///                                      processing | queued | no-source | support
 ///     --dev-ca-sheet                   tools: More options already open
-///     --dev-ca-accordion <auto|mark>   tools: that row open
+///     --dev-ca-way <auto|mark>         tools: that way picked
 ///     --dev-ca-draft                   tools: an unsent draft of 7 marks
 ///     --dev-ca-recut                   marker: marking a processed match
 ///     --dev-ca-review                  marker: the review sheet up
@@ -326,9 +326,9 @@ struct CutAgainFixtureView: View {
                             ? Array(CutAgainFixture.marks(called: true).prefix(7)) : [],
                         mode: .score
                     )
-                    switch CutAgainFixture.argument("--dev-ca-accordion") {
-                    case "auto": cutAgain.autoOpen = true
-                    case "mark": cutAgain.markOpen = true
+                    switch CutAgainFixture.argument("--dev-ca-way") {
+                    case "auto": cutAgain.way.choose(.automatic)
+                    case "mark": cutAgain.way.choose(.byHand)
                     default: break
                     }
                     if CutAgainFixture.argument("--dev-ca-choice") == "replace" {

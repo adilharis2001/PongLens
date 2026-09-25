@@ -20,6 +20,9 @@ enum CutAgainCopy {
     /// The unprocessed page's word for the same row.
     static let automatically = "Automatically"
     static let markYourself = "Mark the points yourself"
+    /// The line under each way, the unprocessed page's own.
+    static let automaticallyDetail = "We find the rallies and cut them for you."
+    static let markYourselfDetail = "You mark where each point starts and ends."
     static let reportProblem = "Report a problem"
 
     static let replace = "Replace this match"
@@ -142,33 +145,41 @@ struct MoreOptionsPlan: Equatable {
     }
 }
 
-// MARK: - The two ways, one open at a time
+// MARK: - The two ways, pick one
 
-/// The two ways to cut a match, as rows that open in place: the unprocessed
-/// page's "Automatically" and "Mark the points yourself", and the same two
-/// under More options' "Process again" label. Opening one
-/// closes the other, so there is only ever one cyan primary on screen
-/// (QA 2026-09-25).
+/// The two ways to cut a match: the unprocessed page's "Automatically" and
+/// "Mark the points yourself", and the same two under More options'
+/// "Process again" label. They are one choice, not two rows that open
+/// (owner's option A, 2026-09-25): exactly one is selected, and only its
+/// controls show under the pair, so there is only ever one cyan primary on
+/// screen (QA 2026-09-25).
 enum CutWay: Equatable {
     case automatic, byHand
 }
 
-struct CutWayAccordion: Equatable {
-    private(set) var open: CutWay?
+/// Which way is selected. Local to the screen, never saved.
+struct CutWayChoice: Equatable {
+    /// The player's tap. Nil until they make one, so the default can follow
+    /// a draft that is read after the screen opens.
+    private(set) var chosen: CutWay?
 
-    init(open: CutWay? = nil) { self.open = open }
+    init(chosen: CutWay? = nil) { self.chosen = chosen }
 
-    func isOpen(_ way: CutWay) -> Bool { open == way }
+    mutating func choose(_ way: CutWay) { chosen = way }
 
-    /// A tap on a row's header: open it (closing the other), or close it.
-    mutating func toggle(_ way: CutWay) {
-        open = open == way ? nil : way
+    /// Automatically, unless marks are waiting to be sent (the row reads
+    /// "{N} marked"): then Mark the points yourself, to pick them up.
+    /// `draftCount` is the count that row trails (`MoreOptionsPlan.draftCount`),
+    /// so a prefilled or submitted draft does not count.
+    static func defaultWay(draftCount: Int) -> CutWay {
+        draftCount > 0 ? .byHand : .automatic
     }
 
-    /// Set one row open or closed, for code that thinks in one row at a
-    /// time. Opening still closes the other.
-    mutating func set(_ way: CutWay, open isOpen: Bool) {
-        if isOpen { open = way } else if open == way { open = nil }
+    /// The way that is selected. When marking cannot be chosen (no original
+    /// to mark), Automatically is, whatever was tapped or drafted.
+    func selected(draftCount: Int, markingSelectable: Bool = true) -> CutWay {
+        guard markingSelectable else { return .automatic }
+        return chosen ?? Self.defaultWay(draftCount: draftCount)
     }
 }
 
