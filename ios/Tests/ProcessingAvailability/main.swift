@@ -16,10 +16,10 @@ private func check(_ value: @autoclosure () -> Bool, _ label: String) {
     check(status.state(for: .fast, now: now) == .available, "fast remains healthy")
     check(status.state(for: .hand, now: now) == .maintenance, "hand maintenance stays independent")
     let feedback = try JSONDecoder().decode(MatchProcessingFeedback.self, from: Data("""
-    {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"processing","job_kind":"hand_cut","stage":"ball","worker_state":"fresh","service_state":"unavailable","lane":"hand"}
+    {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"processing","job_kind":"hand_cut","stage":"cut","worker_state":"fresh","service_state":"unavailable","lane":"hand"}
     """.utf8))
     check(feedback.serviceState == "unavailable" && feedback.lane == "hand", "feedback additive fields decode")
-    check(feedback.stageLabel == "Finding the ball", "feedback service state alone does not sustain an outage")
+    check(feedback.stageLabel == "Cutting the video", "feedback service state alone does not sustain an outage")
     check(status.state(for: .main, now: now.addingTimeInterval(91)) == .unknown, "old server result expires")
     check(status.state(for: .main, now: now.addingTimeInterval(-31)) == .unknown, "future timestamp is not trusted")
     let missing = try JSONDecoder().decode(ProcessingServiceStatus.self, from: Data("{}".utf8))
@@ -38,7 +38,7 @@ private func check(_ value: @autoclosure () -> Bool, _ label: String) {
         ProcessingWork(kind: "hand_cut", status: "processing", videoSaved: true, stageLabel: "Preparing clips")
     ], now: now)
     check(mixed.blockedCount == 1 && mixed.continuingCount == 1, "mixed queues keep healthy work visible")
-    check(mixed.continuingLabel == "Preparing clips" && !mixed.exitMessage.contains("email"), "healthy hand work makes no email promise")
+    check(mixed.continuingLabel == "Preparing clips" && mixed.exitMessage == "We’ll email you when your match is ready.", "healthy hand work promises the ready email the worker sends")
     let orphan = summarizeProcessingWork(mixedStatus, work: [ProcessingWork(kind: "youtube_import", status: "queued", videoSaved: false)], now: now)
     check(orphan.continuingCount == 0 && orphan.notice?.body == "Your import request is queued and will continue when service is restored. You can leave this page.", "orphan import has safe outage notice")
     var availableStatus = mixedStatus
@@ -74,7 +74,7 @@ private func check(_ value: @autoclosure () -> Bool, _ label: String) {
     check(store.matchNotice(matchStatus: "ready", jobKind: "deadspace_cut", jobStatus: "done") == nil, "completed match never claims queued")
     check(store.matchNotice(matchStatus: "failed", jobKind: "deadspace_cut", jobStatus: "failed") == nil, "failed match retains failure")
     check(store.matchNotice(matchStatus: "uploaded", jobKind: "content_check", jobStatus: "done")?.body == "Your video is saved. You can request processing, but it will not start until service is restored.", "finished check does not claim queued")
-    check(store.matchNotice(matchStatus: "processing", jobKind: "hand_cut", jobStatus: "queued", lane: "hand")?.body == "Your video is saved. Clip preparation will resume automatically when service is restored. You can leave this page.", "hand feedback routes to maintenance without email")
+    check(store.matchNotice(matchStatus: "processing", jobKind: "hand_cut", jobStatus: "queued", lane: "hand")?.body == "Your video is saved. Clip preparation will resume automatically when service is restored. You can leave this page. We’ll email you when your match is ready.", "hand feedback routes to maintenance and promises the ready email")
     check(store.matchNotice(matchStatus: "uploaded", jobKind: "youtube_import", jobStatus: "queued", videoSaved: false)?.body == "Your import request is queued and will continue when service is restored. You can leave this page.", "import does not claim remote video saved")
     await store.refresh()
     check(store.state(for: .main) == .unknown, "failed refresh clears last outage")

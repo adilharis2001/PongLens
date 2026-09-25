@@ -36,8 +36,9 @@ export function processingContext(kind: string | null | undefined, videoSaved: b
   return kind === "deadspace_cut" ? "saved_match" : "queued_work";
 }
 
+/** A saved automatic cut and a hand cut both end in the ready email. */
 export function processingExitMessage(context: AvailabilityContext): string {
-  return context === "saved_match" ? "You can leave this page. We email you when the match is ready."
+  return context === "saved_match" || context === "hand" ? "You can leave this page. We email you when the match is ready."
     : "You can leave this page and check back later.";
 }
 
@@ -74,7 +75,7 @@ export function summarizeProcessingWork(services: ProcessingServiceStatus, work:
       : first.kind === "hand_cut" ? queued ? "Waiting to prepare clips" : "Preparing clips"
       : queued ? "Waiting to process" : "Your match is processing")
     : `${continuing.length} videos are ${queued ? "waiting to process" : "processing"}`;
-  const sendsEmail = continuing.length > 0 && continuing.every((job) => job.kind === "deadspace_cut" && job.videoSaved);
+  const sendsEmail = continuing.length > 0 && continuing.every((job) => (job.kind === "deadspace_cut" || job.kind === "hand_cut") && job.videoSaved);
   const firstBlocked = blocked[0];
   const notice = firstBlocked ? availabilityNotice(
     services[firstBlocked.lane ?? serviceLane(firstBlocked.kind, services.clip_lane)],
@@ -93,7 +94,7 @@ export function availabilityNotice(state: unknown, context: AvailabilityContext)
     saved_match: "Your video is saved and queued. Processing will resume automatically when service is restored. You can leave this page. We’ll email you when your match is ready.",
     saved_video: "Your video is saved. Its video check will continue when service is restored. You can leave this page.",
     saved_idle: "Your video is saved. You can request processing, but it will not start until service is restored.",
-    hand: "Your video is saved. Clip preparation will resume automatically when service is restored. You can leave this page.",
+    hand: "Your video is saved. Clip preparation will resume automatically when service is restored. You can leave this page. We’ll email you when your match is ready.",
     queued_work: "Your processing requests are saved. Work on the affected videos will continue when service is restored. You can leave this page.",
     import: "Your import request is queued and will continue when service is restored. You can leave this page.",
     uploading: "Keep this page open until your upload finishes. Processing requests will wait until service is restored.",

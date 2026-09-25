@@ -150,7 +150,7 @@ struct ProcessingAvailabilityFixtureView: View {
                         HomeProcessingStatusView(summary: summarizeProcessingWork(ProcessingServiceStore.shared.status, work: jobs)).plCard()
                     } else if context == .savedMatch || context == .hand {
                         let warning = ProcessInfo.processInfo.arguments.contains("--qa-camera-warning") ? "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table." : nil
-                        MatchProcessingCard(notice: notice, stageLabel: "Finding the ball", warning: warning, progress: 38, sendsReadyEmail: context == .savedMatch)
+                        MatchProcessingCard(notice: notice, stageLabel: context == .hand ? "Cutting the video" : "Finding the ball", warning: warning, progress: 38, sendsReadyEmail: true)
                     } else if let notice {
                         ProcessingAvailabilityNoticeView(notice: notice).plCard()
                     }

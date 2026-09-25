@@ -17,14 +17,30 @@ export interface ProcessingFeedback {
   camera_check: { status: string; changes?: unknown[] } | null;
 }
 
+/**
+ * A hand cut runs its own stages on the Mac (worker.py process_hand_cut),
+ * named here the way /admin/processing names them. None of them finds
+ * points or removes dead time: the owner's marks already did both.
+ */
+const HAND_CUT_STAGES: Record<string, string> = {
+  marks: "Reading the marks",
+  download: "Preparing video",
+  cut: "Cutting the video",
+  upload: "Uploading the result",
+  points: "Building the points",
+  publish: "Saving the match",
+};
+
 export function processingStageLabel(feedback: ProcessingFeedback | null): string | null {
   if (feedback?.job_kind === "content_check") return null;
   if (!feedback || !["queued", "processing"].includes(feedback.job_status ?? "")) return null;
   if (feedback.service_state === "maintenance") return "Paused for maintenance";
   if (feedback.service_state === "unavailable") return "Processing is delayed";
   if (feedback.worker_state === "silent") return "Processing is delayed";
-  if (feedback.job_status === "queued") return "Waiting to process";
+  const handCut = feedback.job_kind === "hand_cut";
+  if (feedback.job_status === "queued") return handCut ? "Waiting to prepare clips" : "Waiting to process";
   if (feedback.worker_state !== "fresh") return null;
+  if (handCut) return HAND_CUT_STAGES[feedback.stage ?? ""] ?? "Preparing clips";
   const stages: Record<string, string> = {
     content_check: "Processing your match",
     camera_check: "Checking the camera view",

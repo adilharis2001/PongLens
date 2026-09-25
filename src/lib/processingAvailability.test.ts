@@ -2,18 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { availabilityNotice, normalizeServiceStatus, serviceLane, processingContext, processingExitMessage, summarizeProcessingWork, importedProcessingContext, selectImportedProcessingJob } from "./processingAvailability.ts";
 
-test("completion email wording is limited to a saved automatically processed match", () => {
+test("completion email wording is limited to a saved match being cut, automatically or by hand", () => {
   assert.equal(processingContext("youtube_import", false), "import");
   assert.equal(processingContext("hand_cut", true), "hand");
   assert.equal(processingContext("content_check", true), "saved_video");
   assert.equal(processingContext("deadspace_cut", true), "saved_match");
   assert.equal(processingContext(null, true), "queued_work");
-  for (const context of ["hand", "saved_idle", "queued_work", "before_import", "export"] as const) {
+  for (const context of ["saved_idle", "queued_work", "before_import", "export"] as const) {
     assert.doesNotMatch(availabilityNotice("unavailable", context)!.body, /email/);
   }
   assert.doesNotMatch(availabilityNotice("unavailable", "saved_idle")!.body, /queued|check will continue/);
-  assert.match(processingExitMessage("saved_match"), /email/);
-  for (const context of ["hand", "saved_video", "import"] as const) assert.doesNotMatch(processingExitMessage(context), /email/);
+  // The worker sends the ready email for a hand cut as for an automatic one.
+  for (const context of ["saved_match", "hand"] as const) {
+    assert.match(processingExitMessage(context), /email/);
+    assert.match(availabilityNotice("unavailable", context)!.body, /We’ll email you when your match is ready\./);
+  }
+  for (const context of ["saved_video", "import"] as const) assert.doesNotMatch(processingExitMessage(context), /email/);
 });
 
 test("only an unavailable lane gets an outage notice", () => {
@@ -81,7 +85,7 @@ test("Home preserves healthy hand progress beside a blocked main job", () => {
   assert.equal(summary.blockedCount, 1);
   assert.equal(summary.continuingCount, 1);
   assert.equal(summary.continuingLabel, "Preparing clips");
-  assert.doesNotMatch(summary.exitMessage, /email/);
+  assert.match(summary.exitMessage, /email/);
   assert.ok(summary.notice);
 });
 test("orphan imports have an outage notice without claiming a saved video", () => {
@@ -92,7 +96,7 @@ test("orphan imports have an outage notice without claiming a saved video", () =
 test("Home email promises follow only active primary processing", () => {
   const services = { ...mixedService, main: "available" } as const;
   const hand = summarizeProcessingWork(services, [{ kind: "hand_cut", status: "processing", videoSaved: true }]);
-  assert.doesNotMatch(hand.exitMessage, /email/);
+  assert.equal(hand.exitMessage, "We’ll email you when your match is ready.");
   const primary = summarizeProcessingWork(services, [{ kind: "deadspace_cut", status: "processing", videoSaved: true }]);
   assert.match(primary.exitMessage, /email/i);
   const completed = summarizeProcessingWork(services, [{ kind: "deadspace_cut", status: "done", videoSaved: true }]);
