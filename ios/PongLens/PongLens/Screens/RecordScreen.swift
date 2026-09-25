@@ -566,7 +566,11 @@ struct RecordScreen: View {
             }
             Button("Keep recording", role: .cancel) {}
         } message: {
-            Text("Nothing will be uploaded and the footage is deleted.")
+            // A roll that already reached Photos stays there: the app never
+            // deletes the player's own copy.
+            Text(queue.sessionSavedToPhotos(sessionId)
+                ? "Nothing will be uploaded. The copy in Photos stays."
+                : "Nothing will be uploaded and the footage is deleted.")
         }
         .statusBarHidden()
         .onAppear {
@@ -614,7 +618,8 @@ struct RecordScreen: View {
                     fileURL: url, durationS: duration, sessionId: sessionId,
                     metadata: draft,
                     processOn: kind.forcesProcessingOff ? false : settings.processAfterUpload,
-                    placementOn: !kind.forcesProcessingOff
+                    placementOn: !kind.forcesProcessingOff,
+                    recordedInApp: true
                 )
             }
             recorder.onSessionEnd = {
@@ -1818,7 +1823,9 @@ struct MatchDetailsSheet: View {
                 }
                 Button("Keep uploading", role: .cancel) {}
             } message: {
-                Text("The upload stops and the footage is deleted.")
+                Text(queue.sessionSavedToPhotos(sessionId)
+                    ? "The upload stops. The copy in Photos stays."
+                    : "The upload stops and the footage is deleted.")
             }
             .plKeyboardDismiss()
         }

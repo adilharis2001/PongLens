@@ -467,7 +467,7 @@ struct UploadScreen: View {
 /// PHPicker hands the video over with a Progress object, which is the
 /// whole reason it replaced the SwiftUI picker: a multi-gigabyte export
 /// out of the photo library gets a percentage instead of dead air.
-private struct VideoPicker: UIViewControllerRepresentable {
+struct VideoPicker: UIViewControllerRepresentable {
     /// Called once with the picked item, or nil when the user cancels.
     let onFinish: (NSItemProvider?) -> Void
 

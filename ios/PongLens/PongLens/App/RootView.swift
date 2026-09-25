@@ -228,6 +228,12 @@ struct RootView: View {
             // the account just changed.
             lessonVideoLink = nil
             Task { await app.refreshAdmin(); await LessonVideoQueue.shared.resume() }
+            // Recordings to Photos and the kept match videos follow the
+            // account, so both are asked again whenever it changes.
+            Task {
+                await DeviceVideoPolicy.shared.refresh()
+                if next != nil { await LocalMatchVideos.shared.reconcile() }
+            }
             // A different account (or none) owns the screen now. Stores
             // are process-lifetime objects, so without this the next
             // account inherits the last one's rendered data — that is
@@ -249,6 +255,9 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { RecordingQueue.shared.resumeProcessingRequests() }
+            if phase == .active && app.userId != nil {
+                Task { await LocalMatchVideos.shared.reconcile() }
+            }
             if phase == .active && app.userId != nil { ProcessingServiceStore.shared.start() }
             else { ProcessingServiceStore.shared.stop() }
         }

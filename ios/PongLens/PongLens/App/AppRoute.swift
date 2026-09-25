@@ -22,6 +22,10 @@ enum AppRouteDestination: Equatable {
     case coachProfile
     case coachSponsored
     case guide(LearnGuide)
+    /// Videos this phone kept for matches waiting to be marked.
+    case deviceVideos
+    /// The admin-only cutting speed test (hand cut step 0).
+    case cuttingSpeedTest
     case unknown
 
     static func resolve(
@@ -43,6 +47,8 @@ enum AppRouteDestination: Equatable {
         case "coach-offerings": return .coachOfferings
         case "coach-profile": return .coachProfile
         case "coach-sponsored": return .coachSponsored
+        case "device-videos": return .deviceVideos
+        case "cutting-speed-test": return .cuttingSpeedTest
         default:
             if route.hasPrefix("match-feedback:"),
                let id = UUID(uuidString: String(route.dropFirst("match-feedback:".count))) {
@@ -120,6 +126,11 @@ private struct AppRoute: View {
             if AppConfig.coachMarketplace { CoachSponsoredScreen() }
         case .guide(let guide):
             GuideDetailScreen(guide: guide)
+        case .deviceVideos:
+            DeviceVideosScreen()
+        case .cuttingSpeedTest:
+            // The row is admin only; so is the screen behind the route.
+            if app.isAdmin { HandCutBenchmarkScreen() }
         case .unknown:
             EmptyView()
         }
