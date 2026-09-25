@@ -31,6 +31,7 @@ import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { CoachCta } from "@/components/reviews/CoachCta";
 import { OriginalVideoButton } from "@/components/OriginalVideo";
 import { FeedbackBoardLink, MatchFeedbackLink } from "./feedback/MatchFeedback";
+import { MoreOptions } from "./recut/MoreOptions";
 import {
   computeMatchScore,
   sortPoints,
@@ -472,6 +473,7 @@ export function MatchView({
   gameEndDetection = false,
   ends = { tapEnd: false },
   hasOriginal = false,
+  commerceEnabled = false,
   up = { href: "/matches", label: "Matches" },
 }: {
   match: Match;
@@ -524,6 +526,10 @@ export function MatchView({
    *  for rows that predate the column — so the pill is right at first
    *  paint instead of appearing a beat later and shifting the layout. */
   hasOriginal?: boolean;
+  /** app_config commerce: "Process automatically" in More options spends
+   *  minutes, so it is offered only where processing is sold, as on the
+   *  unprocessed page. */
+  commerceEnabled?: boolean;
 }) {
   // MatchPage keys this entire state tree by the active processing version.
   // Publish/restore starts from that version's rows, never a merge of scores,
@@ -3902,14 +3908,24 @@ export function MatchView({
                 </span>
               </button>
             )}
-            {/* Both rows are their own components and carry TOOL_ROW_CLASS
+            {/* More options took the Processing row's slot (Cut again,
+                2026-09-25): cut the match again automatically or by hand,
+                or report a problem through the same form as before. Both
+                rows are their own components and carry TOOL_ROW_CLASS
                 themselves, so they never picked up the sample's greying and
                 stayed tappable — a visitor could open a problem report
                 against our match. Same wrapper the Export row uses. */}
             {sampleViewer ? (
               <>
                 <div className="pointer-events-none opacity-45" inert>
-                  <MatchFeedbackLink matchId={match.id} isOwner matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
+                  <MoreOptions
+                    match={match}
+                    userId={userId}
+                    commerceEnabled={false}
+                    hasOriginal={false}
+                    anyCalled={false}
+                    disabled
+                  />
                 </div>
                 <div className="pointer-events-none opacity-45" inert>
                   <FeedbackBoardLink />
@@ -3917,7 +3933,15 @@ export function MatchView({
               </>
             ) : (
               <>
-                <MatchFeedbackLink matchId={match.id} isOwner matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
+                <MoreOptions
+                  match={match}
+                  userId={userId}
+                  commerceEnabled={commerceEnabled}
+                  hasOriginal={hasOriginal}
+                  anyCalled={visiblePoints.some(
+                    (p) => p.is_let || p.confirmed_winner !== null
+                  )}
+                />
                 <FeedbackBoardLink />
               </>
             )}

@@ -8,7 +8,7 @@ import { SectionHeading } from "@/components/SectionHeading";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { failedHandCutMatchIds, matchDisplayStatus } from "@/lib/primaryMatchJob";
+import { failedHandCutMatchIds, jobBehindMatch, matchDisplayStatus } from "@/lib/primaryMatchJob";
 import type { Job, SharedPlayer } from "@/lib/types";
 import { formatClock } from "@/lib/commerce/minutes";
 import { deriveMatchTitle, deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
@@ -319,8 +319,7 @@ export function MatchLibrary({
   const pendingPointJobs = (jobs ?? []).filter(
     (j) =>
       j.options?.points === true &&
-      !matchJobIds.has(j.id) &&
-      !ownMatchIds.has(String(j.options?.match_id ?? "")) &&
+      !jobBehindMatch(j, matchJobIds, ownMatchIds) &&
       (j.status === "queued" || j.status === "processing")
   );
 
