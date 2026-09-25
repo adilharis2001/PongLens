@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
 import { ScoreBug, scoreBugPlacement } from "@/app/match/[id]/ScoreBug";
+import { useFrameSkips } from "@/app/match/[id]/useFrameSkips";
 import { SharePlayer } from "./SharePlayer";
 import {
   buildSharePlaybackTimeline,
@@ -42,6 +43,7 @@ export function ShareView({
   points = [],
   timeline: suppliedTimeline,
   skipSpans = [],
+  frameAccurate = false,
   showScore = false,
   you,
   them,
@@ -63,6 +65,8 @@ export function ShareView({
    *  Computed by the page (playhead.skipSpans); absent means no jumping,
    *  exactly the pre-139 page. */
   skipSpans?: { start: number; end: number }[];
+  /** A hand-cut match: jump on the frame, not the tick (useFrameSkips). */
+  frameAccurate?: boolean;
   showScore?: boolean;
   you: string;
   them: string;
@@ -73,6 +77,7 @@ export function ShareView({
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const skipSpansRef = useRef(skipSpans);
   skipSpansRef.current = skipSpans;
+  useFrameSkips(videoElRef, skipSpans, frameAccurate, videoUrl, setPlayheadT);
 
   /** Every playhead move goes through here: inside dead footage —
    *  deleted cards, tap-trimmed tails — playback jumps forward, the same

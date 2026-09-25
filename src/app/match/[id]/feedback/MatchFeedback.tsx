@@ -68,11 +68,16 @@ function useMatchIssueState(matchId: string, initialState: MatchIssueState | nul
   return { state, loadError, refresh, saved };
 }
 
-/** The Processing row in Tools, with a live trailing status even on a ready match. */
-export function MatchFeedbackLink({ matchId, isOwner, matchStatus, activeVersionId }: {
+/**
+ * The request state behind a match's Tools row: the row's trailing status,
+ * and a refresh the moment a new cut goes live (a reviewed reprocess, or a
+ * player's own replaced cut), so the page never plays a superseded one.
+ * The Processing row and More options both run on it.
+ */
+export function useMatchIssueRow({ matchId, isOwner, matchStatus, activeVersionId }: {
   matchId: string; isOwner: boolean; matchStatus: MatchIssueState["matchStatus"]; activeVersionId?: string | null;
 }) {
-  const { state } = useMatchIssueState(matchId);
+  const { state, refresh } = useMatchIssueState(matchId);
   const router = useRouter();
   useEffect(() => {
     if (shouldRefreshActiveVersion(activeVersionId, state?.activeProcessingVersionId)) router.refresh();
@@ -81,6 +86,14 @@ export function MatchFeedbackLink({ matchId, isOwner, matchStatus, activeVersion
     role: isOwner ? "owner" : "coach", matchStatus, activeIssue: null, events: [],
     refundableMinutes: null, canPositive: false, canProblem: false, canReprocess: false, canRefund: false,
   });
+  return { trailing: view.trailing, requestStatus: view.statusLabel ? view.trailing : null, refresh };
+}
+
+/** The Processing row in Tools, with a live trailing status even on a ready match. */
+export function MatchFeedbackLink({ matchId, isOwner, matchStatus, activeVersionId }: {
+  matchId: string; isOwner: boolean; matchStatus: MatchIssueState["matchStatus"]; activeVersionId?: string | null;
+}) {
+  const view = useMatchIssueRow({ matchId, isOwner, matchStatus, activeVersionId });
   return <Link href={`/match/${matchId}/feedback`} className={TOOL_ROW_CLASS}>
     <span className="text-sm font-semibold">Processing</span>
     <span className="flex min-w-0 shrink-0 items-center gap-2">

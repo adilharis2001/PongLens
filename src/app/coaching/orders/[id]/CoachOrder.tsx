@@ -69,6 +69,7 @@ export function CoachOrder({
   match,
   points,
   skipSpans = [],
+  frameAccurate = false,
   userId,
   sponsored = false,
   hasOriginal = false,
@@ -83,6 +84,8 @@ export function CoachOrder({
   points: WorkspacePoint[];
   /** Dead footage the workspace player jumps (playhead.skipSpans). */
   skipSpans?: { start: number; end: number }[];
+  /** A hand-cut match: the spans are its gaps, jumped on the frame. */
+  frameAccurate?: boolean;
   userId: string;
   /** funding = 'sponsored' (096): the coach covers this one. */
   sponsored?: boolean;
@@ -246,6 +249,7 @@ export function CoachOrder({
           attachments={attachments}
           points={points}
           skipSpans={skipSpans}
+          frameAccurate={frameAccurate}
           messages={messages}
           matchId={match?.id ?? null}
           hasOriginal={hasOriginal}
@@ -457,6 +461,7 @@ function Workspace({
   attachments,
   points,
   skipSpans,
+  frameAccurate,
   messages,
   matchId,
   hasOriginal,
@@ -476,6 +481,7 @@ function Workspace({
   points: WorkspacePoint[];
   /** Dead footage the workspace player jumps (playhead.skipSpans). */
   skipSpans: { start: number; end: number }[];
+  frameAccurate: boolean;
   messages: ReviewMessageRow[];
   matchId: string | null;
   /** Is there an original upload behind this match? Resolved on the
@@ -745,6 +751,7 @@ function Workspace({
             tall={focus}
             points={points}
             skipSpans={skipSpans}
+            frameAccurate={frameAccurate}
             findings={findings}
             findingPoints={findingPoints}
             suggested={detail.suggested_patterns ?? []}

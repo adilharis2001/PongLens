@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 
 import { Annotator } from "@/app/match/[id]/Annotator";
 import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
+import { useFrameSkips } from "@/app/match/[id]/useFrameSkips";
 import {
   createBoundaryWalk,
   resolvedGameWinner,
@@ -62,6 +63,7 @@ function CutPlayer({
   matchId,
   points,
   skipSpans,
+  frameAccurate,
   tall,
   keysActive,
   currentIdx,
@@ -75,6 +77,8 @@ function CutPlayer({
   points: WorkspacePoint[];
   /** Dead footage to jump during playback (playhead.skipSpans). */
   skipSpans: { start: number; end: number }[];
+  /** A hand-cut match: jump on the frame, not the tick (useFrameSkips). */
+  frameAccurate: boolean;
   /** Desktop full-width mode: let the picture use more of the screen. */
   tall: boolean;
   /** Off while the pattern sheet is up: those keys are the sheet's, and
@@ -88,6 +92,7 @@ function CutPlayer({
   onTag: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
+  useFrameSkips(videoElRef, skipSpans, frameAccurate, url);
   const [failed, setFailed] = useState(false);
   const retried = useRef(false);
   /** Where the coach was when the media died; a re-mint remounts the
@@ -774,6 +779,7 @@ export function FindingEditor({
   tall = false,
   points,
   skipSpans = [],
+  frameAccurate = false,
   findings,
   findingPoints,
   suggested = [],
@@ -788,6 +794,8 @@ export function FindingEditor({
    *  tap-end flag on, the tail after each winner tap (playhead.skipSpans,
    *  computed by the page — the client only sees visible points). */
   skipSpans?: { start: number; end: number }[];
+  /** A hand-cut match: the spans are its gaps, jumped on the frame. */
+  frameAccurate?: boolean;
   findings: ReviewFindingRow[];
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
   /** Pattern names this offering expects. The coach's own prompt, never
@@ -872,6 +880,7 @@ export function FindingEditor({
           matchId={matchId}
           points={points}
           skipSpans={skipSpans}
+          frameAccurate={frameAccurate}
           tall={tall}
           keysActive={!sheetOpen}
           currentIdx={currentIdx}

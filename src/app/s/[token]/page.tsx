@@ -20,7 +20,7 @@ import { Logo } from "@/components/Logo";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
 import { clipPad } from "@/app/match/[id]/clipEdit";
-import { skipSpans } from "@/app/match/[id]/playhead";
+import { handCutGaps, skipSpans } from "@/app/match/[id]/playhead";
 import { computeServing } from "@/app/match/[id]/serving";
 import {
   collectServePlacementObservations,
@@ -168,7 +168,8 @@ const resolveSharePads = cache(
 const resolveShareSkips = cache(
   async (
     token: string,
-    visible: Point[]
+    visible: Point[],
+    handCut = false,
   ): Promise<{ start: number; end: number }[]> => {
     const supabase = await createClient();
     const [removedRes, pads, tapEnd, rallyOn, rallyBuffer,
@@ -214,7 +215,9 @@ const resolveShareSkips = cache(
         Number(a.cut_t0 ?? Number.POSITIVE_INFINITY) -
         Number(b.cut_t0 ?? Number.POSITIVE_INFINITY)
     );
-    return skipSpans(rows, pad, ends);
+    // A hand-cut match plays its marks, cut to cut: the gaps between them
+    // are the whole list (handCutGaps), deleted cards and lets included.
+    return handCut ? handCutGaps(rows, pad) : skipSpans(rows, pad, ends);
   }
 );
 
@@ -699,7 +702,10 @@ export default async function SharePage({
     link.match_id,
     showMaps ? await resolveSharePlacement(token, servesOnly) : undefined,
   );
-  const deadSpans = isMatch ? await resolveShareSkips(token, asPoints) : [];
+  const handCut = isMatch && link.cut_source === "manual";
+  const deadSpans = isMatch
+    ? await resolveShareSkips(token, asPoints, handCut)
+    : [];
   const score = scored ? computeMatchScore(asPoints) : null;
   if (scored) {
     const diagnostic = canonicalShareScoreDiagnostic(
@@ -821,6 +827,7 @@ export default async function SharePage({
               points={points}
               timeline={playbackTimeline}
               skipSpans={deadSpans}
+              frameAccurate={handCut}
               showScore={Boolean(scored)}
               you={you}
               them={them}

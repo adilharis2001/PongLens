@@ -159,7 +159,7 @@ test("the right rail: gate, pair and review, top to bottom", () => {
     "Review the points:unlit",
   ]);
   assert.deepEqual(labels(base), ["Begin Point:lit", "End Point:off"]);
-  assert.deepEqual(labels({ ...base, open: true }), ["Reset:unlit", "End Point:lit"]);
+  assert.deepEqual(labels({ ...base, open: true }), ["Back to last point:unlit", "End Point:lit"]);
   assert.deepEqual(labels({ ...base, reviewing: true }), ["Adjust:lit", "Resume:unlit"]);
   assert.deepEqual(labels({ ...base, reviewing: true, adjusting: true }), [
     "Confirm:lit",
@@ -179,4 +179,36 @@ test("rail tile heights follow the board", () => {
   close(pairTileHeight(begin, 2, boxH), (boxH - RAIL_GAP) / 2, "half");
   const [gate] = railPair({ started: false, opened: "fresh", reviewing: false, adjusting: false, open: false });
   assert.equal(pairTileHeight(gate, 1, boxH), boxH);
+});
+
+test("marking a processed match again: the gate always has a way to start again", () => {
+  const gate = { started: false, reviewing: false, adjusting: false, open: false, startAgain: true };
+  const labels = (s: Parameters<typeof railPair>[0]) =>
+    railPair(s).map((t) => `${t.label}:${t.tone}:${t.action}`);
+  assert.deepEqual(labels({ ...gate, opened: "choice" }), [
+    "Keep marking:lit:keepMarking",
+    "Review the points:unlit:reviewPoints",
+    "Start again:unlit:startAgain",
+  ]);
+  assert.deepEqual(labels({ ...gate, opened: "review" }), [
+    "Begin review:lit:beginReview",
+    "Start again:unlit:startAgain",
+  ]);
+  // A draft with points still to call opens at the gate only here, and
+  // carries on from the first uncalled point.
+  assert.deepEqual(labels({ ...gate, opened: "scoring" }), [
+    "Keep marking:lit:beginCutting",
+    "Start again:unlit:startAgain",
+  ]);
+  // Nothing to clear: no Start again.
+  assert.deepEqual(labels({ ...gate, opened: "fresh", startAgain: false }), [
+    "Begin Cutting:lit:beginCutting",
+  ]);
+  // The shares still fill the rail exactly.
+  for (const opened of ["choice", "review", "scoring"] as const) {
+    const tiles = railPair({ ...gate, opened });
+    const boxH = 265;
+    const sum = tiles.reduce((h, t) => h + pairTileHeight(t, tiles.length, boxH), 0);
+    close(sum + RAIL_GAP * (tiles.length - 1), boxH, `${opened} fills the rail`);
+  }
 });

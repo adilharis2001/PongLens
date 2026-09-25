@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CameraGuide } from "@/components/CameraGuide";
 import { TitleRow, UploadAction } from "@/components/Fab";
 import { createClient } from "@/lib/supabase/client";
-import { failedHandCutMatchIds } from "@/lib/primaryMatchJob";
+import { failedHandCutMatchIds, jobBehindMatch } from "@/lib/primaryMatchJob";
 import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
 import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
@@ -340,8 +340,7 @@ export function HomeOverview({
   const pendingPointJobs = (jobs ?? []).filter(
     (j) =>
       (j.options?.points === true || j.kind === "youtube_import") &&
-      !matchJobIds.has(j.id) &&
-      !ownMatchIds.has(String(j.options?.match_id ?? "")) &&
+      !jobBehindMatch(j, matchJobIds, ownMatchIds) &&
       (j.status === "queued" || j.status === "processing")
   );
   // A match counts as working when its own row says so OR when a job of
@@ -363,14 +362,17 @@ export function HomeOverview({
 
   // Legacy cut-only jobs, plus finished point jobs that never got a match
   // row (their cut video is still worth surfacing). Internal job kinds
-  // (reel renders, reclips) never belong here.
+  // (reel renders, reclips) never belong here. A point job whose match is
+  // on this page is that match's, never a card of its own: after a cut is
+  // replaced, the original upload's job is linked to its match only by
+  // match_id (jobBehindMatch).
   const downloadJobs = (jobs ?? []).filter(
     (j) =>
       j.kind !== "reel" &&
       j.kind !== "reclip" &&
       j.kind !== "hand_cut" &&
       (j.options?.points !== true ||
-        (!matchJobIds.has(j.id) &&
+        (!jobBehindMatch(j, matchJobIds, ownMatchIds) &&
           (j.status === "done" || j.status === "failed")))
   );
 

@@ -41,6 +41,11 @@ export interface ResolvedShareLink {
    *  was swept before commerce (096) protected library videos. */
   raw_path: string | null;
   original_name: string | null;
+  /** 'manual' when the owner marked the points by hand: the link then
+   *  plays the marks with hard cuts between them (playhead.handCutGaps).
+   *  Optional: a resolver that does not return it plays every match as an
+   *  automatic one, exactly as before. */
+  cut_source?: "auto" | "manual" | null;
   point_number: number | null;
   point_t0: number | null;
   point_t1: number | null;

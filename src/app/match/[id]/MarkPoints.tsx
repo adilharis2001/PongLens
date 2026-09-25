@@ -20,8 +20,9 @@
  * it is not to touch it. What is shared is shared by IMPORT (ClipPlayer,
  * serving, gameScore), so the ITTF rotation stays one implementation.
  *
- * ONE SWITCH, "Score", not a question asked first (Adil, 2026-09-25). On,
- * it is the full three-tap loop. Off, the pass wants the rallies as clips
+ * ONE SWITCH, not a question asked first (Adil, 2026-09-25). It reads
+ * "Cut and score" on and "Cut only" off (scoreSwitchCopy). On, it is the
+ * full three-tap loop. Off, the pass wants the rallies as clips
  * and nothing else, so it never shows a score, a server or an answer row:
  * a scoreboard nobody is filling in is furniture. The raw match page sets
  * it before the marker opens (on for a match, off for practice, a draft's
@@ -41,8 +42,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ClipPlayer, type PictureBox } from "./ClipPlayer";
 import { computeMatchScore } from "./gameScore";
 import {
@@ -72,7 +75,9 @@ import {
   lastClosedEnd as lastEnd,
   type CutMode,
   type Gap,
+  type OpenAs,
   openAs,
+  scoreSwitchCopy,
   scoringAsksFirstServer,
   MIN_POINT_S,
   emptyState,
@@ -304,6 +309,8 @@ export function MarkPoints({
   saveDraft,
   submit,
   onClose,
+  reviewChoice,
+  canStartAgain = false,
 }: {
   rawUrl: string;
   durationS: number | null;
@@ -330,9 +337,22 @@ export function MarkPoints({
    * which this session saves nothing more.
    */
   saveDraft: (marks: Mark[], mode: CutMode | null) => Promise<DraftSave>;
-  /** Hands the marks to claim_hand_cut. Resolves to a message or null. */
+  /** Hands the marks to the claim. Resolves null when sent (the marker
+   *  closes), a message to show, or "" to stay open without one: the host
+   *  changed something the player should look at again (a coach review
+   *  arriving takes Replace away, and the choice is back on Keep). */
   submit: (marks: Mark[]) => Promise<string | null>;
   onClose: () => void;
+  /** Marking a processed match again: the Replace / Keep choice, set in
+   *  the review sheet directly above "Cut the match". */
+  reviewChoice?: ReactNode;
+  /**
+   * Marking a processed match again (Cut again, 2026-09-25). The marker
+   * opens on the current cut's points, so it always opens at the gate
+   * while there are marks, and the gate carries an outlined "Start again"
+   * that clears them after "Clear all marks?".
+   */
+  canStartAgain?: boolean;
 }) {
   /** A draft reopens where the work is, not at the front door: the pad is
    *  live at once, in scoring mode, with the first point that still has
@@ -366,9 +386,11 @@ export function MarkPoints({
   const openedMode = useRef<CutMode>(
     scoringAllowed ? startMode : "cut"
   ).current;
-  const openedAs = useRef(
+  /** How the pad was opened. Fixed for the session, bar one change:
+   *  "Start again" clears the marks and turns it into a fresh pass. */
+  const [openedAs, setOpenedAs] = useState<OpenAs>(() =>
     openAs(initialMarks, durationS, openedMode)
-  ).current;
+  );
   const openedCalled = openedAs === "review" || openedAs === "choice";
   const openedFinished = openedAs === "review";
   const openedPartial = openedAs === "choice";
@@ -407,7 +429,11 @@ export function MarkPoints({
   );
   /** Has the session started? Until it has, the pad is one button, because
    *  one button is the only thing there is to do. */
-  const [started, setStarted] = useState(resumed && !openedCalled);
+  const [started, setStarted] = useState(
+    resumed && !openedCalled && !canStartAgain
+  );
+  /** "Clear all marks?" is up. */
+  const [confirmClear, setConfirmClear] = useState(false);
   /**
    * The pad's own speed control, mirroring the scorekeeper's. The picture
    * gestures (hold left for 0.25x, hold right for 2x) still work, but the
@@ -1167,6 +1193,29 @@ export function MarkPoints({
   }, [resumeMarking]);
 
   /**
+   * "Start again", confirmed: every mark goes and the pad is a fresh pass
+   * from the top of the video. The empty draft is saved like any other
+   * change, so reopening starts empty too. There is no undo for this; the
+   * confirmation is the safeguard.
+   */
+  const clearAll = useCallback(() => {
+    setConfirmClear(false);
+    playApi.current?.pause();
+    previewUntil.current = null;
+    pausedForAnswer.current = false;
+    setAdjusting(null);
+    adjustDraftRef.current = null;
+    setState(emptyState);
+    setOpenedAs("fresh");
+    setStarted(false);
+    const v = videoRef.current;
+    if (v) {
+      v.currentTime = 0;
+      setPlayhead(0);
+    }
+  }, []);
+
+  /**
    * Start this point over. The mark goes, and the playhead lands a few
    * seconds before it began so there is a run-up to the serve — but never
    * back inside the previous rally, which is already cut and does not want
@@ -1263,7 +1312,7 @@ export function MarkPoints({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || reviewing) return;
+      if (e.repeat || reviewing || confirmClear) return;
       const t = e.target;
       if (t instanceof HTMLElement && t.closest("input, textarea, select")) return;
 
@@ -1347,6 +1396,11 @@ export function MarkPoints({
     tapStar,
     seekBy,
     reviewing,
+    confirmClear,
+    openedPartial,
+    openedFinished,
+    beginMarking,
+    beginReview,
   ]);
 
   /* ---------------------------------------------------------- draft saves */
@@ -1531,8 +1585,10 @@ export function MarkPoints({
     setSubmitError(null);
     const err = await submit(stateRef.current.marks);
     setBusy(false);
-    if (err) setSubmitError(err);
-    else {
+    if (err !== null) {
+      // "" is the host asking for a second look, with nothing to say.
+      if (err) setSubmitError(err);
+    } else {
       // The claim froze the row with these marks in it; a save after it
       // would only be refused.
       pendingSave.current = false;
@@ -1700,7 +1756,7 @@ export function MarkPoints({
             : "glow-cta border-cyan-glow bg-cyan-glow text-ink"
         }`}
       >
-        {open ? "Reset" : "Begin Point"}
+        {open ? "Back to last point" : "Begin Point"}
       </button>
       <button
         type="button"
@@ -1967,14 +2023,14 @@ export function MarkPoints({
     <div className="hidden shrink-0 flex-wrap gap-x-3 gap-y-1 text-[10px] text-zinc-500 lg:flex">
       {(mode === "cut"
         ? [
-            ["S", open ? "Reset" : "Begin"],
+            ["S", open ? "Back to last point" : "Begin"],
             ["E", "End"],
             ["U", "Undo"],
             ["T", "Star"],
             ["Space", "Play"],
           ]
         : [
-            ["S", open ? "Reset" : "Begin"],
+            ["S", open ? "Back to last point" : "Begin"],
             ["E", "End"],
             ["←", youLabel],
             ["→", themLabel],
@@ -2016,12 +2072,15 @@ export function MarkPoints({
   );
 
   /**
-   * The Score switch (portrait and desktop footer), from the gate on.
-   * Practice and drills have no score to keep: the switch is shown off,
-   * greyed and cannot be turned on, with the reason in two words beside
-   * it rather than a sentence.
+   * The Score switch (portrait and desktop footer), from the gate on. Its
+   * label names the pass, "Cut and score" or "Cut only", with no sentence
+   * beside it here: the footer has no room for one (Adil, 2026-09-25).
+   * Practice and drills have no score to keep: the switch reads "Cut
+   * only", greyed, and cannot be turned on; the reason is there for a
+   * screen reader.
    */
   const scoring = mode === "score";
+  const switchCopy = scoreSwitchCopy(mode, scoringAllowed);
   const scoreTrack = (small: boolean) => (
     <span
       aria-hidden="true"
@@ -2049,44 +2108,83 @@ export function MarkPoints({
         aria-describedby={scoringAllowed ? undefined : "mark-score-matches-only"}
         onClick={toggleScoring}
         disabled={!scoringAllowed}
-        className="flex min-h-11 shrink-0 items-center gap-2 text-[12px] font-semibold text-zinc-300 transition-colors enabled:hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap text-[12px] font-semibold text-zinc-300 transition-colors enabled:hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        Score
+        {switchCopy.label}
         {scoreTrack(false)}
       </button>
       {!scoringAllowed && (
-        <span id="mark-score-matches-only" className="whitespace-nowrap text-[11px] text-zinc-500">
-          Matches only
+        <span id="mark-score-matches-only" className="sr-only">
+          {switchCopy.line}
         </span>
       )}
     </div>
   );
 
-  const beginCuttingButton = openedPartial ? (
-    <div className="flex shrink-0 flex-col gap-2">
-      <button
-        type="button"
-        onClick={beginMarking}
-        className="glow-cta h-16 w-full rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]"
-      >
-        Keep marking
-      </button>
-      <button
-        type="button"
-        onClick={beginReview}
-        className="h-12 w-full rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]"
-      >
-        Review the points
-      </button>
-    </div>
-  ) : (
-    <button
-      type="button"
-      onClick={openedFinished ? beginReview : beginCutting}
-      className="glow-cta h-16 w-full shrink-0 rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]"
+  /**
+   * The gate: the one thing to press before the pass begins. On a phone in
+   * portrait it fills the pad the way the pair and the answers fill it
+   * while marking, in the same proportions (the primary takes the pair's
+   * share, the second choice the answers'), with the footer at the foot,
+   * so there is no empty band under a pair of small buttons (Adil,
+   * 2026-09-25). The floating desktop card keeps fixed heights: it is
+   * sized by its content. "Start again" sits where the tools row sits
+   * while marking.
+   */
+  const startAgainShown = canStartAgain && state.marks.length > 0;
+  const gateLabel =
+    openedAs === "review"
+      ? "Begin review"
+      : openedAs === "scoring"
+        ? "Keep marking"
+        : "Begin Cutting";
+  const beginCuttingButton = (
+    <div
+      className={
+        floating
+          ? "flex shrink-0 flex-col gap-2"
+          : "flex min-h-0 flex-1 flex-col gap-2.5"
+      }
     >
-      {openedFinished ? "Begin review" : "Begin Cutting"}
-    </button>
+      <button
+        type="button"
+        onClick={
+          openedPartial
+            ? beginMarking
+            : openedFinished
+              ? beginReview
+              : beginCutting
+        }
+        className={`${
+          floating ? "h-16" : "min-h-16 flex-[3]"
+        } glow-cta w-full rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]`}
+      >
+        {openedPartial ? "Keep marking" : gateLabel}
+      </button>
+      {openedPartial && (
+        <button
+          type="button"
+          onClick={beginReview}
+          className={`${
+            floating ? "h-12" : "min-h-12 flex-[2]"
+          } w-full rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]`}
+        >
+          Review the points
+        </button>
+      )}
+      {startAgainShown && (
+        <button
+          type="button"
+          onClick={() => {
+            playApi.current?.pause();
+            setConfirmClear(true);
+          }}
+          className="h-11 w-full shrink-0 rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-amber-400/50 hover:text-amber-200 active:scale-[0.99]"
+        >
+          Start again
+        </button>
+      )}
+    </div>
   );
 
   /** The refusal of the moment, or, once a newer draft has turned up,
@@ -2283,6 +2381,7 @@ export function MarkPoints({
       reviewing: reviewing_,
       adjusting: adjustOn,
       open: open !== null,
+      startAgain: startAgainShown,
     });
     const onPair = (t: PairTile) => {
       switch (t.action) {
@@ -2306,6 +2405,9 @@ export function MarkPoints({
           return confirmAdjust();
         case "resume":
           return resumeMarking();
+        case "startAgain":
+          playApi.current?.pause();
+          return setConfirmClear(true);
       }
     };
 
@@ -2431,26 +2533,20 @@ export function MarkPoints({
         type="button"
         role="switch"
         aria-checked={scoring}
-        aria-label="Score"
         aria-describedby={scoringAllowed ? undefined : "mark-score-matches-only-land"}
         onClick={toggleScoring}
         disabled={!scoringAllowed}
-        className={`flex h-[34px] min-w-0 flex-col items-center justify-center overflow-hidden rounded-[9px] bg-surface-2 px-0.5 text-zinc-200 transition-colors active:scale-[0.98] ${
-          scoringAllowed ? "gap-[3px]" : "gap-px"
-        }`}
+        className="flex h-[34px] min-w-0 flex-col items-center justify-center gap-[3px] overflow-hidden rounded-[9px] bg-surface-2 px-0.5 text-zinc-200 transition-colors active:scale-[0.98]"
       >
         <span className={`flex flex-col items-center gap-[3px] ${scoringAllowed ? "" : "opacity-35"}`}>
           {scoreTrack(true)}
           <span className="whitespace-nowrap text-[10px] font-medium leading-[1.1]">
-            Score
+            {switchCopy.label}
           </span>
         </span>
         {!scoringAllowed && (
-          <span
-            id="mark-score-matches-only-land"
-            className="whitespace-nowrap text-[9px] leading-none text-zinc-400"
-          >
-            Matches only
+          <span id="mark-score-matches-only-land" className="sr-only">
+            {switchCopy.line}
           </span>
         )}
       </button>,
@@ -2797,7 +2893,7 @@ export function MarkPoints({
 
       {reviewing && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl border border-edge bg-surface p-6">
+          <div className="max-h-full w-full max-w-sm overflow-y-auto overscroll-contain rounded-2xl border border-edge bg-surface p-6">
             <p className="text-lg font-semibold">
               {sum.total} {sum.total === 1 ? "point" : "points"} marked.
             </p>
@@ -2819,6 +2915,7 @@ export function MarkPoints({
                 minutes long. Check you did not miss an ending.
               </p>
             )}
+            {reviewChoice && <div className="mt-5">{reviewChoice}</div>}
             {submitError && (
               <p className="mt-3 text-sm text-amber-300/90">{submitError}</p>
             )}
@@ -2840,6 +2937,14 @@ export function MarkPoints({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear all marks?"
+        confirmLabel="Clear"
+        onCancel={() => setConfirmClear(false)}
+        onConfirm={clearAll}
+      />
     </div>
   );
 }
