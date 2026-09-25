@@ -111,3 +111,23 @@ test("a failed hand cut reads as failed only while the match sits at uploaded wi
   assert.equal(matchDisplayStatus("ready", false, true), "ready");
   assert.equal(matchDisplayStatus("processing", false, true), "processing");
 });
+
+test("a job behind a match on the page is never a card of its own", async () => {
+  const { jobBehindMatch } = await import("./primaryMatchJob.ts");
+  const matches = [
+    // Cut again and replaced: job_id moved to the new cut's job.
+    { id: "m1", job_id: "j-new" },
+    // Commerce upload the worker has not linked yet.
+    { id: "m2", job_id: null },
+  ];
+  const jobIds = new Set(matches.map((m) => m.job_id));
+  const ids = new Set(matches.map((m) => m.id));
+  // The original upload's job, linked only by its match_id now.
+  assert.equal(jobBehindMatch({ id: "j-orig", options: { match_id: "m1" } }, jobIds, ids), true);
+  assert.equal(jobBehindMatch({ id: "j-new", options: { match_id: "m1" } }, jobIds, ids), true);
+  assert.equal(jobBehindMatch({ id: "j2", options: { match_id: "m2" } }, jobIds, ids), true);
+  // A legacy job with no match row at all still surfaces.
+  assert.equal(jobBehindMatch({ id: "j-legacy", options: {} }, jobIds, ids), false);
+  assert.equal(jobBehindMatch({ id: "j-gone", options: { match_id: "deleted" } }, jobIds, ids), false);
+  assert.equal(jobBehindMatch({ id: "j-none" }, jobIds, ids), false);
+});

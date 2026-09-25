@@ -315,6 +315,111 @@ export function tapeMove(
 }
 
 /**
+ * A HAND-CUT match, played as marked (Adil, 2026-09-25).
+ *
+ * When the owner marked the points themselves, the marks ARE the match:
+ * each point plays from where it was marked to start to where it was
+ * marked to end, then cuts straight to the next point's start. The clip
+ * pads (1.2 s before, 1.3 s after), the 0.15 s segment pads and whatever
+ * lies between merged windows are cut footage, not the player's marks, so
+ * a watch-through never shows them. Lets and deleted cards play nothing,
+ * as they already do. Automatic matches are untouched by all of this.
+ *
+ * On the cut clock a point's mark start is cut_t0 plus its effective pre
+ * pad, except where the clip start was clamped at the top of the video
+ * (t0 inside the pre pad): the clip then starts at source 0, so the mark
+ * sits t0 in. One expression covers both: cut_t0 + min(pre, t0). The mark
+ * end is that start plus the rally, t1 - t0, which is rallyEnd() whenever
+ * the start was not clamped (rallyEnd assumes a full pre pad, so on a
+ * clamped first point it would run pre - t0 late).
+ */
+export function markStart(p: Point, pad: ClipPad): number | null {
+  if (p.cut_t0 === null || p.cut_t0 === undefined || p.t0 === null) return null;
+  const eff = effectivePad(pad, p.tight_start, p.tight_end);
+  return Number(p.cut_t0) + Math.min(eff.pre, Math.max(0, Number(p.t0)));
+}
+
+export function markEnd(p: Point, pad: ClipPad): number | null {
+  const start = markStart(p, pad);
+  if (start === null || p.t0 === null || p.t1 === null) return null;
+  return start + Math.max(0, Number(p.t1) - Number(p.t0));
+}
+
+/**
+ * The hand-cut tape: the spans a watch-through plays, in cut seconds,
+ * sorted, overlaps merged. Walk it with tapeMove, the one skip rule: stay
+ * inside a span, jump to the next span's start, end after the last.
+ *
+ * A card that plays its OWN clip (an inserted card whose footage the cut
+ * does not hold; `ownClip`, from insertGeometry.ownClipIds) keeps its
+ * whole padded card on the tape, so the jump lands on its start and the
+ * player's detour takes over and plays that clip as it is.
+ */
+export function handCutTape(
+  points: Point[],
+  pad: ClipPad,
+  ownClip: ReadonlySet<string> = new Set()
+): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  for (const p of points) {
+    if (p.deleted || p.is_let) continue;
+    if (p.cut_t0 === null || p.cut_t0 === undefined) continue;
+    if (ownClip.has(p.id)) {
+      const end = paddedEnd(p, pad);
+      if (end !== null && end > Number(p.cut_t0)) {
+        spans.push({ start: Number(p.cut_t0), end });
+      }
+      continue;
+    }
+    const start = markStart(p, pad);
+    const end = markEnd(p, pad);
+    if (start === null || end === null || end <= start) continue;
+    spans.push({ start, end });
+  }
+  spans.sort((a, b) => a.start - b.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const sp of spans) {
+    const last = merged[merged.length - 1];
+    if (last && sp.start <= last.end + EDGE_EPS_S) last.end = Math.max(last.end, sp.end);
+    else merged.push({ ...sp });
+  }
+  return merged;
+}
+
+/**
+ * The same tape as dead spans, for the players that only know how to jump
+ * a list of them (the public match link, the coach's review workspace):
+ * the lead before the first mark, every gap between two marks, and the
+ * tail after the last mark up to the end of the last card. Each jump ends
+ * exactly on the next mark's start, so the one list does the whole job;
+ * nothing else may be added to it, or a gap would be crossed in two hops.
+ * `rows` is every point with cut offsets, deleted included.
+ */
+export function handCutGaps(
+  rows: Point[],
+  pad: ClipPad,
+  ownClip: ReadonlySet<string> = new Set()
+): { start: number; end: number }[] {
+  const tape = handCutTape(rows, pad, ownClip);
+  if (tape.length === 0) return [];
+  const gaps: { start: number; end: number }[] = [];
+  if (tape[0].start > 0.05) gaps.push({ start: 0, end: tape[0].start });
+  for (let i = 0; i + 1 < tape.length; i++) {
+    if (tape[i + 1].start - tape[i].end > 0.05) {
+      gaps.push({ start: tape[i].end, end: tape[i + 1].start });
+    }
+  }
+  let fileEnd = tape[tape.length - 1].end;
+  for (const p of rows) {
+    const e = paddedEnd(p, pad);
+    if (e !== null && e > fileEnd) fileEnd = e;
+  }
+  const last = tape[tape.length - 1].end;
+  if (fileEnd - last > 0.05) gaps.push({ start: last, end: fileEnd });
+  return gaps;
+}
+
+/**
  * Dead footage spans for surfaces WITHOUT their own span builders (the
  * coach review workspace, the public share page). The match page's
  * Player/MatchView build these inline with per-mode nuances; this is the

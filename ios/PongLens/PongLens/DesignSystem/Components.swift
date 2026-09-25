@@ -313,6 +313,37 @@ struct SectionHeading: View {
     }
 }
 
+// MARK: - Scroll targets under a floating bar
+
+/// The match page's floating title bar, as tall as it stands: the 52 pill
+/// with 6 above and 4 below (MatchDetailScreen.stickyHeader).
+enum FloatingBar {
+    static let height: CGFloat = 62
+    /// The second scroll target a section carries, `height` above it.
+    static func underBarId(_ id: String) -> String { "\(id)-under-bar" }
+}
+
+extension View {
+    /// A section a Tools row scrolls to. `id` lands the section's top at the
+    /// top of the visible area; `FloatingBar.underBarId(id)` lands it one
+    /// bar lower. The bar is a safe-area inset that appears only once the
+    /// page has scrolled, so a jump that starts with it hidden must aim at
+    /// the second, or the heading ends up under the bar (QA 2026-09-25).
+    func floatingBarScrollTarget(_ id: String) -> some View {
+        self
+            .background(alignment: .top) {
+                Color.clear
+                    .frame(height: FloatingBar.height)
+                    .id(FloatingBar.underBarId(id))
+                    .accessibilityHidden(true)
+                    // Last, so the guide is the one the background aligns
+                    // by: the target sits wholly above the section.
+                    .alignmentGuide(.top) { $0[.bottom] }
+            }
+            .id(id)
+    }
+}
+
 // MARK: - Status chip
 
 enum PLStatus {

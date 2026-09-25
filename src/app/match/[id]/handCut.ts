@@ -384,6 +384,46 @@ export function openingMode(
 }
 
 /**
+ * What the Score switch says (Adil, 2026-09-25). Its label names the pass
+ * it is set to, so the one control reads as the choice it is: "Cut and
+ * score" on, "Cut only" off. On the "Mark the points yourself" panel one
+ * short line under the label says what that pass asks of you; the marker's
+ * footer and landscape tile show the label alone, having no room for it.
+ * Practice and drills can only ever be cut, so they read "Cut only",
+ * greyed, and the line gives the reason instead.
+ *
+ * The iPhone carries the same words.
+ */
+export function scoreSwitchCopy(
+  mode: CutMode,
+  scoringAllowed: boolean
+): { label: string; line: string } {
+  if (!scoringAllowed) return { label: "Cut only", line: "Scoring is for matches." };
+  return mode === "score"
+    ? { label: "Cut and score", line: "Say who won each point as you go." }
+    : { label: "Cut only", line: "Mark where each rally starts and ends." };
+}
+
+/**
+ * The player's sentence for a refused hand-cut claim, read off the
+ * database's error code. One list, so the unprocessed page and a match
+ * being cut again say the same thing for the same refusal.
+ */
+export function handCutClaimError(message: string): string {
+  const m = message || "";
+  if (m.includes("already_cut")) return "This match already has points.";
+  if (m.includes("already_processing"))
+    return "Something is already running on this match.";
+  if (m.includes("queue_full"))
+    return "Your queue is full. Wait for a video to finish.";
+  if (m.includes("check_pending"))
+    return "Still checking the video. Try again in a moment.";
+  if (m.includes("invalid_marks"))
+    return "Some marks are not valid. Check for very short points.";
+  return "That didn't send. Check your connection and try again.";
+}
+
+/**
  * Whether turning Score on (at the gate or mid-pass) asks "Who served
  * first?". Only where a rotation exists and nobody has said who served,
  * and never over a rally still being marked; it is not asked later for

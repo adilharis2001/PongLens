@@ -369,6 +369,7 @@ export default async function MatchPage({
             keepScoreFullCard: await getKeepScoreFullCard(),
           }}
           hasOriginal={hasOriginal}
+          commerceEnabled={matchRes.data.user_id === user.id && (await getCommerceEnabled())}
           initialPointTags={(pointTagsRes.data ?? []).map(
             (r) =>
               ({

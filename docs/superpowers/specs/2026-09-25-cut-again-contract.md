@@ -38,3 +38,9 @@ Existing `hand_cut_drafts` rules apply unchanged: insert when no row is known, c
 | After Keep | Opens the new match's page (it shows as processing) |
 | Failure (Replace) | Bell "The new cut didn't finish." with "Your marks are saved." for a hand cut. The match is unchanged |
 | Never | "free", "Mac", "iPhone", "version", explanations of what automatic does to scores |
+
+## Phase 2 (not built yet)
+
+Automatic Replace will be `claim_auto_recut(p_match_id uuid, p_replace boolean, p_trim_start_s numeric, p_trim_end_s numeric, p_strictness text)` returning jsonb `{job_id, match_id}`: charged like `claim_processing`, refunded if it fails, the candidate made live when ready. It arrives with the main/fast release that gives candidates the body-first assembler; until then `recut_auto_replace` stays `off` and `replace_automatic` false.
+
+As built in phase 1 (database half): `docs/research/2026-09-25-cut-again/RELEASE.md`, "Contract notes for web and iOS".

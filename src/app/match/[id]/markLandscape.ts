@@ -131,7 +131,8 @@ export type PairAction =
   | "end"
   | "adjust"
   | "confirm"
-  | "resume";
+  | "resume"
+  | "startAgain";
 
 export interface PairTile {
   label: string;
@@ -149,7 +150,13 @@ export interface PairTile {
  * the points" for a draft that was left part way.
  *
  * `opened` is how the screen was opened (handCut.openAs): "choice" is the
- * part-way draft, "review" a finished one, anything else a fresh pass.
+ * part-way draft, "review" a finished one, "scoring" a draft with points
+ * still to call (which only reaches the gate when a processed match is
+ * being marked again), anything else a fresh pass. `startAgain` adds an
+ * unlit "Start again" at the foot of the gate for that same case.
+ *
+ * With a rally open, the left slot takes the pad back to where the last
+ * point ended: "Back to last point" (Adil, 2026-09-25; it was "Reset").
  */
 export function railPair(s: {
   started: boolean;
@@ -160,17 +167,30 @@ export function railPair(s: {
   adjusting: boolean;
   /** A rally is in progress. */
   open: boolean;
+  /** A processed match marked again, with marks to clear. */
+  startAgain?: boolean;
 }): PairTile[] {
   if (!s.started) {
+    const again: PairTile = { label: "Start again", action: "startAgain", tone: "unlit", share: 0.26 };
     if (s.opened === "choice") {
-      return [
-        { label: "Keep marking", action: "keepMarking", tone: "lit", share: 0.58 },
-        { label: "Review the points", action: "reviewPoints", tone: "unlit", share: 0.42 },
-      ];
+      return s.startAgain
+        ? [
+            { label: "Keep marking", action: "keepMarking", tone: "lit", share: 0.44 },
+            { label: "Review the points", action: "reviewPoints", tone: "unlit", share: 0.3 },
+            again,
+          ]
+        : [
+            { label: "Keep marking", action: "keepMarking", tone: "lit", share: 0.58 },
+            { label: "Review the points", action: "reviewPoints", tone: "unlit", share: 0.42 },
+          ];
     }
-    return s.opened === "review"
-      ? [{ label: "Begin review", action: "beginReview", tone: "lit", share: 1 }]
-      : [{ label: "Begin Cutting", action: "beginCutting", tone: "lit", share: 1 }];
+    const first: PairTile =
+      s.opened === "review"
+        ? { label: "Begin review", action: "beginReview", tone: "lit", share: 1 }
+        : s.opened === "scoring"
+          ? { label: "Keep marking", action: "beginCutting", tone: "lit", share: 1 }
+          : { label: "Begin Cutting", action: "beginCutting", tone: "lit", share: 1 };
+    return s.startAgain ? [{ ...first, share: 0.74 }, again] : [first];
   }
   if (s.reviewing) {
     return s.adjusting
@@ -185,7 +205,7 @@ export function railPair(s: {
   }
   return s.open
     ? [
-        { label: "Reset", action: "reset", tone: "unlit", share: 0.5 },
+        { label: "Back to last point", action: "reset", tone: "unlit", share: 0.5 },
         { label: "End Point", action: "end", tone: "lit", share: 0.5 },
       ]
     : [

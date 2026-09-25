@@ -294,6 +294,30 @@ enum HandCut {
         (n * 100 + 0.5).rounded(.down) / 100
     }
 
+    /// Two lists of marks that mean the same thing: start and end to the
+    /// centisecond, the answer and the skip, in start order. Ids, stars,
+    /// taps and rates do not count. The database's `_marks_signature`
+    /// (20260925133555), which decides when a prefilled draft stops being
+    /// one; the phone asks the same question before its save lands.
+    static func sameMarks(_ a: [HandCutMark], _ b: [HandCutMark]) -> Bool {
+        struct Sig: Equatable {
+            let t0: Double
+            let t1: Double?
+            let winner: Winner?
+            let isLet: Bool
+        }
+        func cents(_ n: Double) -> Double { (n * 100).rounded() / 100 }
+        func signature(_ marks: [HandCutMark]) -> [Sig] {
+            marks.enumerated()
+                .map { (ord: $0.offset, sig: Sig(
+                    t0: cents($0.element.t0), t1: $0.element.t1.map(cents),
+                    winner: $0.element.winner, isLet: $0.element.isLet)) }
+                .sorted { $0.sig.t0 != $1.sig.t0 ? $0.sig.t0 < $1.sig.t0 : $0.ord < $1.ord }
+                .map(\.sig)
+        }
+        return signature(a) == signature(b)
+    }
+
     // MARK: - Readers
 
     /// The rally in progress, wherever it sits in the list.

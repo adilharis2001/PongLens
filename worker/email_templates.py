@@ -319,6 +319,24 @@ def hand_cut_failed_message(match_url: str, safe_reason: str) -> EmailMessage:
     )
 
 
+def hand_recut_failed_message(match_url: str) -> EmailMessage:
+    # A re-cut that would have replaced a match did not finish. The match
+    # is exactly as it was, so the email says that and nothing else: no
+    # reason, and never where the cut ran.
+    return EmailMessage(
+        template_id="match.hand-recut-failed", template_version=1,
+        category="match", audience="player",
+        subject="The new cut of your match didn't finish",
+        preheader="Your match hasn't changed, and your marks are saved.",
+        heading="The new cut didn't finish",
+        blocks=[
+            {"type": "paragraph", "text": "Your match hasn't changed. The points you marked are saved, so you can open the match and cut it again."},
+        ],
+        action={"label": "Open your match", "url": match_url},
+        reason="You received this because a match you marked again by hand could not finish cutting.",
+    )
+
+
 def export_ready_message(match_url: str) -> EmailMessage:
     return EmailMessage(
         template_id="match.export-ready", template_version=1, category="match", audience="player",
@@ -352,6 +370,7 @@ def worker_outcome_fixtures() -> list[dict[str, Any]]:
         {"id": "match.upload-failed", "message": upload_failed_message("upload", "We could not find enough playable table tennis footage in this video.")},
         {"id": "match.import-failed", "message": upload_failed_message("youtube", "That video is private or unavailable.")},
         {"id": "match.hand-cut-failed", "message": hand_cut_failed_message("https://www.ponglens.com/match/preview", "The original video could not be read.")},
+        {"id": "match.hand-recut-failed", "message": hand_recut_failed_message("https://www.ponglens.com/match/preview")},
         {"id": "match.export-ready", "message": export_ready_message("https://www.ponglens.com/match/preview")},
         {"id": "ops.job-failed", "message": admin_job_failure_message("12345678-0000-0000-0000-preview", "decoder stopped at frame 91", "https://www.ponglens.com/admin/uploads/preview")},
     ]

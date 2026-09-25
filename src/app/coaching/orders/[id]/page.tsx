@@ -11,7 +11,7 @@ import type {
 } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/server";
 import { clipPad } from "@/app/match/[id]/clipEdit";
-import { skipSpans } from "@/app/match/[id]/playhead";
+import { handCutGaps, skipSpans } from "@/app/match/[id]/playhead";
 import { sortPoints } from "@/app/match/[id]/gameScore";
 import {
   getCoachReviewsEnabled,
@@ -109,7 +109,7 @@ export default async function CoachOrderPage({
       ? supabase
           .from("matches")
           .select(
-            "id, opponent_name, venue, played_at, status, user_side, clip_pads, raw_path",
+            "id, opponent_name, venue, played_at, status, user_side, clip_pads, raw_path, cut_source",
           )
           .eq("id", detail.match_id)
           .maybeSingle()
@@ -149,22 +149,27 @@ export default async function CoachOrderPage({
   // 143). Computed here because the client only ever sees the visible,
   // re-numbered points; the full rows with the deleted cards live on
   // this side.
-  const deadSpans = skipSpans(
-    sortPoints((points ?? []) as unknown as Point[]),
-    clipPad(
-      null,
-      (match as { clip_pads?: { pre: number; post: number } | null } | null)
-        ?.clip_pads ?? null,
-    ),
-    {
-      tapEnd: await getTapEndPlayback(),
-      rallyEnd: {
-        on: await getUnscoredRallyEnd(),
-        bufferS: await getUnscoredRallyEndBufferS(),
-        tightBufferS: await getUnscoredRallyEndTightBufferS(),
-      },
-    },
+  //
+  // A hand-cut match plays the owner's marks and nothing else, cut to cut:
+  // the gaps between them are the whole list (playhead.handCutGaps).
+  const handCut =
+    (match as { cut_source?: string | null } | null)?.cut_source === "manual";
+  const rows = sortPoints((points ?? []) as unknown as Point[]);
+  const workspacePad = clipPad(
+    null,
+    (match as { clip_pads?: { pre: number; post: number } | null } | null)
+      ?.clip_pads ?? null,
   );
+  const deadSpans = handCut
+    ? handCutGaps(rows, workspacePad)
+    : skipSpans(rows, workspacePad, {
+        tapEnd: await getTapEndPlayback(),
+        rallyEnd: {
+          on: await getUnscoredRallyEnd(),
+          bufferS: await getUnscoredRallyEndBufferS(),
+          tightBufferS: await getUnscoredRallyEndTightBufferS(),
+        },
+      });
 
   const { data: fundingRow } = await supabase
     .from("review_orders")
@@ -193,6 +198,7 @@ export default async function CoachOrderPage({
           // deleted points there too).
           .map((p, i) => ({ ...p, idx: i }))}
         skipSpans={deadSpans}
+        frameAccurate={handCut}
         userId={user.id}
         sponsored={fundingRow?.funding === "sponsored"}
       />

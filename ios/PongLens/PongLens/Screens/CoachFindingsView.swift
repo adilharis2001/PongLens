@@ -362,6 +362,8 @@ private struct CutPlayerView: View {
     @State private var failed = false
     @State private var playing = false
     @State private var timeObserver: Any?
+    /// A hand-cut match: the observer at every kept point's End mark.
+    @State private var tapeBoundary: Any?
     /// Measured, so a double tap knows which third of the picture it hit.
     @State private var pictureWidth: CGFloat = 0
 
@@ -616,8 +618,10 @@ private struct CutPlayerView: View {
     private func seek(to point: WorkspacePoint) {
         guard let cutT0 = point.cutT0 else { return }
         currentIndex = store.points.firstIndex(where: { $0.id == point.id })
+        // A hand-cut match: the point starts at its mark, not its pad.
+        let at = tape.first(where: { $0.pointId == point.id })?.start ?? cutT0
         player.seek(
-            to: CMTime(seconds: cutT0, preferredTimescale: 600),
+            to: CMTime(seconds: at, preferredTimescale: 600),
             toleranceBefore: .zero, toleranceAfter: .zero
         )
     }
@@ -639,8 +643,51 @@ private struct CutPlayerView: View {
                 currentIndex = store.points.firstIndex(where: { $0.id == first.id })
             }
             startClock()
+            installTapeBoundary()
         } else {
             failed = true
+        }
+    }
+
+    /// A match cut by hand plays exactly what the player marked, with hard
+    /// cuts (HandCutPlayback, the same tape as the match page's watch
+    /// player). Empty for every other match.
+    private var tape: [MarkedSpan] {
+        guard HandCutPlayback.isHandCut(cutSource: store.match?.cutSource) else { return [] }
+        return HandCutPlayback.spans(
+            store.allPoints.map(\.playheadPoint),
+            pad: clipPad(strictness: nil, stored: store.match?.clipPads)
+        )
+    }
+
+    /// The tape's one rule at `t`: stay inside a kept point, else on to the
+    /// next one's mark, else stop.
+    private func tapeStep(at t: Double) {
+        switch tapeMove(tape.map(\.timeSpan), at: t) {
+        case .stay: return
+        case .jump(let to):
+            player.seek(
+                to: CMTime(seconds: to, preferredTimescale: 600),
+                toleranceBefore: .zero,
+                toleranceAfter: CMTime(seconds: HandCutPlayback.joinTolerance, preferredTimescale: 600)
+            )
+        case .end:
+            player.pause()
+            playing = false
+        }
+    }
+
+    /// The joins on time, at each End mark, not on the half-second clock.
+    private func installTapeBoundary() {
+        guard tapeBoundary == nil else { return }
+        let times = tape.map { NSValue(time: CMTime(seconds: $0.end, preferredTimescale: 600)) }
+        guard !times.isEmpty else { return }
+        tapeBoundary = player.addBoundaryTimeObserver(forTimes: times, queue: .main) {
+            MainActor.assumeIsolated {
+                guard playing else { return }
+                let t = player.currentTime().seconds
+                if t.isFinite { tapeStep(at: t + 0.02) }
+            }
         }
     }
 
@@ -666,6 +713,16 @@ private struct CutPlayerView: View {
             Task { @MainActor in
                 guard playing else { return }
                 let t = time.seconds
+                if !tape.isEmpty {
+                    // A hand-cut match: the tape is the whole rule.
+                    tapeStep(at: t)
+                    if let i = store.points.lastIndex(where: { p in
+                        (tape.first { $0.pointId == p.id }?.start ?? p.cutT0 ?? .infinity) <= t + 0.05
+                    }) {
+                        currentIndex = i
+                    }
+                    return
+                }
                 // Dead footage is dead here too — jump out of it during
                 // playback, the same contract as the match players.
                 if let out = spanEnd(deadSpans, at: t) {

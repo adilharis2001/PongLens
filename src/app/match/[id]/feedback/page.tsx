@@ -26,7 +26,8 @@ export default async function MatchFeedbackPage({ params }: { params: Promise<{ 
   ]);
   if (error || !data) notFound();
   const match = data as Match;
-  const title = deriveMatchTitleParts({ opponentName: match.opponent_name, venue: match.venue, playedAt: match.played_at, matchType: match.match_type });
+  const titleFacts = { opponentName: match.opponent_name, venue: match.venue, playedAt: match.played_at, matchType: match.match_type };
+  const title = deriveMatchTitleParts(titleFacts);
   let thumbnail: string | null = null;
   if (match.thumb_path?.startsWith("r2://ponglens-media/")) {
     try { thumbnail = await presignGet("ponglens-media", match.thumb_path.slice("r2://ponglens-media/".length), { expiresSeconds: 3600, disposition: "inline" }); }
@@ -39,7 +40,7 @@ export default async function MatchFeedbackPage({ params }: { params: Promise<{ 
       <div className="mx-auto max-w-2xl">
         <UpLink href={`/match/${id}`} label="Match" />
         <MatchFeedback matchId={id} initialState={(stateResult.data as MatchIssueState | null) ?? null} isOwner={match.user_id === user.id} matchStatus={match.status}
-          title={title.primary} detail={title.secondary} thumbnail={thumbnail} hasOriginal={hasOriginalVideo(match.raw_path)} />
+          title={title.primary} detail={title.secondary} titleFacts={titleFacts} thumbnail={thumbnail} hasOriginal={hasOriginalVideo(match.raw_path)} />
       </div>
     </main>
   </>;

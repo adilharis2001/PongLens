@@ -20,6 +20,12 @@ struct ToolsSection: View {
     /// the real page, but every row except Highlights is dead — none of
     /// them is this reader's to press.
     var sampleViewer = false
+    /// More options (cut again): what the page lends the row. Nil on the
+    /// sample, where the row is shown dead like its neighbours.
+    var moreOptions: MoreOptionsHooks? = nil
+    /// Points the serve maps can draw (mappedPointCount). On a match that
+    /// keeps no score, the analysis row shows only when there is one.
+    var mappedPoints = 0
 
     @Environment(AppState.self) private var app
     @State private var shareOpen = false
@@ -61,7 +67,10 @@ struct ToolsSection: View {
                 // the video cards and the serve maps live under it, and its
                 // trailing text names whatever the section is waiting on.
                 // Generating maps is a card in that section now.
-                if MatchTitle.tracksServe(match.matchType) || match.placementStatus == "ready" {
+                // The web's rule (MatchView): a match that keeps a score
+                // always has the row; a practice or drill only once the maps
+                // have a point to draw, so it never jumps to an empty section.
+                if AnalysisToolRow.shown(scoredType: MatchTitle.tracksServe(match.matchType), mappedPoints: mappedPoints) {
                     toolRow("Match analysis", trailing: .text(analysisTrailing)) {
                         // Past the bar the row triggers the analysis, which
                         // is a job the demo has no business queueing.
@@ -85,7 +94,10 @@ struct ToolsSection: View {
                 divider
                 locked(toolRow("Your side", trailing: .text(sideTrailing)) { sideOpen = true })
                 divider
-                locked(ProcessingToolRow(match: match))
+                // More options took Processing's place (cut again,
+                // 2026-09-25): cutting the match again, either way, and
+                // Report a problem, which is the Processing form unchanged.
+                locked(MoreOptionsToolRow(match: match, hooks: moreOptions))
                 divider
                 locked(FeedbackBoardToolRow(match: match))
             }
@@ -210,7 +222,7 @@ struct ToolsSection: View {
     }
 
     private var analysisTrailing: String {
-        if !MatchTitle.tracksServe(match.matchType) { return "Serve maps" }
+        if !MatchTitle.tracksServe(match.matchType) { return AnalysisToolRow.unscoredTrailing(mappedPoints: mappedPoints) }
         let gate = scoredCardsGate(model.visible)
         if !gate.open {
             return gate.scored == 0

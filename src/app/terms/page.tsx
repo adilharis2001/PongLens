@@ -448,6 +448,8 @@ export default async function TermsPage() {
           <br />
           971 US Highway 202N, Ste N, Branchburg, NJ 08876, United States
           <br />
+          Phone: (929) 688-2716
+          <br />
           Email:{" "}
           <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
         </p>

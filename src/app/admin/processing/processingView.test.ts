@@ -896,3 +896,8 @@ test("the phone's stages and the Mac's check are taught to the page", () => {
   }
   assert.equal(stageLabel("device_verify"), "Checking the iPhone's cut");
 });
+
+test("a hand cut replacing a processed match names its wait for the swap", () => {
+  assert.ok(isKnownStage("recut_activate"));
+  assert.equal(stageLabel("recut_activate"), "Making the new cut live");
+});

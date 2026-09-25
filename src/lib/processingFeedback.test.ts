@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   cameraViewWarning,
+  feedbackForJob,
   onDevice,
   processingStageLabel,
   type ProcessingFeedback,
@@ -322,4 +323,29 @@ test("no hand-cut label a player can read says where the cut runs", () => {
     "Uploading the result",
     "Waiting to prepare clips",
   ]);
+});
+
+
+test("a cut asked for a moment ago reads as its own status, not the finished one", () => {
+  // The poll still names the cut that made this match, done. More options
+  // must word a queued Replace the way the unprocessed page words a queued
+  // cut, from the same labels.
+  const stale = feedback({ job_id: "old", job_status: "done", job_kind: "deadspace_cut", stage: null });
+  const hand = { id: "new", status: "queued", kind: "hand_cut" };
+  assert.equal(processingStageLabel(stale), null);
+  assert.equal(processingStageLabel(feedbackForJob(stale, hand)), "Waiting to prepare clips");
+  assert.equal(processingStageLabel(feedbackForJob(null, hand)), "Waiting to prepare clips");
+  assert.equal(
+    processingStageLabel(feedbackForJob(stale, { id: "new", status: "queued", kind: "match_reprocess" })),
+    "Waiting to process",
+  );
+  // Started, with no word from the worker yet: no stage to name, the same
+  // as the unprocessed page before its first pulse ("Processing").
+  assert.equal(processingStageLabel(feedbackForJob(stale, { ...hand, status: "processing" })), null);
+  // The poll has caught up: its own reading (stage, lane, delays) stands.
+  const caught = feedback({ job_id: "new", job_status: "processing", job_kind: "hand_cut", stage: "cut" });
+  assert.equal(feedbackForJob(caught, { ...hand, status: "queued" }), caught);
+  assert.equal(processingStageLabel(feedbackForJob(caught, hand)), "Cutting the video");
+  // Nothing running: the feedback as it is.
+  assert.equal(feedbackForJob(stale, null), stale);
 });

@@ -54,3 +54,22 @@ export function matchDisplayStatus<S extends string>(
 ): S | "failed" {
   return status === "uploaded" && !hasLiveJob && handCutFailed ? "failed" : status;
 }
+
+/**
+ * Is this job the one behind a match the page already shows?
+ *
+ * Two links, because either can be the only one. Commerce mode writes the
+ * match first and the worker links `matches.job_id` later, so a queued job
+ * is found by its own `options.match_id`. And once a match is cut again
+ * and the new cut goes live, `matches.job_id` moves to the new job, so the
+ * original upload's job is linked by nothing BUT its `match_id`. Reading
+ * `job_id` alone put that original on Home as a stray "Processed videos"
+ * card beside the match it made.
+ */
+export function jobBehindMatch(
+  job: { id: string; options?: { match_id?: string | null } | null },
+  matchJobIds: ReadonlySet<string | null>,
+  matchIds: ReadonlySet<string>,
+): boolean {
+  return matchJobIds.has(job.id) || matchIds.has(String(job.options?.match_id ?? ""));
+}

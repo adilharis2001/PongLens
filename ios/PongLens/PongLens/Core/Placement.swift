@@ -557,6 +557,22 @@ func collectServePlacementObservations(
     return observations
 }
 
+/// Points the maps can put a dot on: the web's mappedPointCount
+/// (PlacementAggregate.tsx). On a match that keeps no score it decides
+/// whether Tools has a Match analysis row at all, and the map cards need
+/// three of them.
+func mappedPointCount(
+    _ points: [MatchPoint], userSide: String?, gameIndexByPoint: [UUID: Int],
+    serving: [UUID: ServeInfo], servesOnly: Bool
+) -> Int {
+    let points = unflaggedPlacementPoints(points)
+    return trustedPlacementPointCount(servesOnly
+        ? collectServePlacementObservations(
+            points: points, userSide: userSide, gameIndexByPoint: gameIndexByPoint, serving: serving)
+        : collectTrustedPlacementObservations(
+            points: points, userSide: userSide, gameIndexByPoint: gameIndexByPoint, serving: serving))
+}
+
 enum PlacementNoticeMode { case hidden, review }
 
 func placementHypothesisNotice(

@@ -22,16 +22,14 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { SpokenGamesToggle, SpokenLine, cleanSpoken } from "./SpokenScore";
 import { useRouter } from "next/navigation";
-import { AllowanceRecovery } from "@/components/AllowanceRecovery";
 import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
 import { useProcessingService } from "@/lib/useProcessingService";
-import { availabilityNotice, serviceLane, processingContext, processingExitMessage } from "@/lib/processingAvailability";
-import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
+import { availabilityNotice, serviceLane, processingContext } from "@/lib/processingAvailability";
 import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 import { cameraViewWarning, onDevice, processingStageLabel } from "@/lib/processingFeedback";
 import { NoteComposer, NoteItem } from "./Notes";
 
-import { chargeMinutes, formatClock, formatMinutes } from "@/lib/commerce/minutes";
+import { formatClock } from "@/lib/commerce/minutes";
 import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, NoteAuthor } from "@/lib/types";
@@ -39,35 +37,26 @@ import { NameCombobox } from "@/app/dashboard/NameCombobox";
 import { SectionHeading } from "@/components/SectionHeading";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
-import { Switch } from "@/components/Switch";
-import { TrimBar } from "@/components/TrimBar";
-import { ClipPlayer } from "./ClipPlayer";
+import { ClipPlayer, clock as playerClock } from "./ClipPlayer";
 import { MatchFeedbackLink } from "./feedback/MatchFeedback";
-import { MarkPoints, type DraftSave } from "./MarkPoints";
-import { normalizeMarks, openingMode, submittable, type CutMode, type Mark } from "./handCut";
+import { MarkPoints } from "./MarkPoints";
+import { handCutClaimError, openingMode, submittable, type CutMode, type Mark } from "./handCut";
+import {
+  AccordionRow,
+  AutoProcessPanel,
+  ExpandChevron,
+  MarkYourselfPanel,
+  ProcessingProgress,
+  postProcess,
+  useProcessQuote,
+} from "./BreakIntoPoints";
+import { processErrorMessage } from "./recut/recutView";
+import { useHandCutDraft } from "./useHandCutDraft";
 import { userFirstServerUpdate } from "./matchStructure";
 import type { MatchServer } from "./serving";
 import { RawExportRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 
 const MATCH_TYPES = ["drills", "practice", "match", "league", "tournament"] as const;
-
-/** The chevron an accordion row in this card turns when it opens. */
-function ExpandChevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
-        open ? "rotate-180" : ""
-      }`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
 
 interface ActiveJob {
   id: string;
@@ -118,21 +107,19 @@ export function RawMatchView({
   }, [noteAuthors]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  const [duration, setDuration] = useState<number | null>(
-    match.duration_s ?? null,
-  );
-  const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState<number | null>(
-    match.duration_s ?? null,
-  );
+  // The window, strictness, price and balance: the same hook the More
+  // options sheet runs on a processed match (BreakIntoPoints).
+  const quote = useProcessQuote({
+    durationS: match.duration_s ?? null,
+    minutesBalance,
+    videoRef,
+  });
+  const { duration, trimStart, trimEnd, charge, learnDuration } = quote;
   const feedbackByMatch = useProcessingFeedback(isOwner ? [match.id] : []);
   const feedback = feedbackByMatch[match.id] ?? null;
   const services = useProcessingService();
   const processingLabel = processingStageLabel(feedback);
   const cameraWarning = cameraViewWarning(feedback, trimStart, trimEnd ?? Infinity);
-  const [strictness, setStrictness] = useState<"tight" | "normal" | "loose">(
-    "normal",
-  );
   const [job, setJob] = useState<ActiveJob | null>(initialJob);
   const serviceState = services[feedback?.lane ?? serviceLane(feedback?.job_kind ?? job?.kind)];
   const availabilityContext = processingContext(feedback?.job_kind ?? job?.kind, !!match.raw_path);
@@ -145,9 +132,6 @@ export function RawMatchView({
   const serviceNotice = phoneCut ? null : availabilityNotice(serviceState, availabilityContext);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [availableMinutes, setAvailableMinutes] = useState(minutesBalance);
-  const [minutesShort, setMinutesShort] = useState(false);
-  useEffect(() => { setAvailableMinutes(minutesBalance); }, [minutesBalance]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   /** Is the process card open? Closed on a fresh upload; a failed one
    *  opens itself, because its reason and its retry are why anyone is
@@ -157,13 +141,24 @@ export function RawMatchView({
       || (initialJob?.kind === "hand_cut" && initialJob.status === "failed"),
   );
   /** Which of the two ways is open. Neither, until the reader picks one:
-   *  the card's job is to show that there IS a choice. Each row opens and
-   *  closes on its own, the same way. A hand cut that failed opens its
-   *  own row, because its marks and the way back into them are the point. */
+   *  the card's job is to show that there IS a choice. One at a time:
+   *  each ends in a cyan button, and two primaries open together leave the
+   *  reader to work out which is meant, so opening one closes the other
+   *  (More options does the same). A hand cut that failed opens its own
+   *  row, because its marks and the way back into them are the point. */
   const [autoOpen, setAutoOpen] = useState(false);
   const [handOpen, setHandOpen] = useState(
     initialJob?.kind === "hand_cut" && initialJob.status === "failed",
   );
+  const toggleWay = (way: "automatic" | "hand") => {
+    if (way === "automatic") {
+      setAutoOpen(!autoOpen);
+      if (!autoOpen) setHandOpen(false);
+    } else {
+      setHandOpen(!handOpen);
+      if (!handOpen) setAutoOpen(false);
+    }
+  };
   /** The hand-marking takeover, and whatever marking is already done. */
   const [marking, setMarking] = useState(false);
   /**
@@ -177,37 +172,18 @@ export function RawMatchView({
    * hours, so freezing the one we opened with is both safe and the fix.
    */
   const [markingUrl, setMarkingUrl] = useState<string | null>(null);
-  const [draftMarks, setDraftMarks] = useState<Mark[]>([]);
-  /** Cutting only, or cutting and scoring: the owner's own choice, kept
-   *  on the row so reopening does not have to guess at it. */
-  const [draftMode, setDraftMode] = useState<CutMode | null>(null);
-  /**
-   * Does the hand-cut backend exist yet?
-   *
-   * Self-disabling rather than config-gated: the draft read below answers
-   * it. Until the migration runs the table is missing, the read errors,
-   * this stays false and the row never appears — so the code can ship
-   * ahead of the schema without offering anyone a button that cannot
-   * finish. It reveals itself the moment the migration lands.
-   */
-  const [handCutReady, setHandCutReady] = useState(false);
-  const draftCount = draftMarks.filter((m) => m.t1 !== null).length;
-  /**
-   * The draft row's updated_at as this page last read or wrote it, or null
-   * when there is no row.
-   *
-   * Every save is conditional on it: a write lands only if the row still
-   * carries the stamp this page knows, so a draft saved since on another
-   * device (the iPhone marks the same row) is never overwritten. The
-   * newer draft wins, and this page stops saving until it is reopened.
-   */
-  const draftStamp = useRef<string | null>(null);
-  /** Saves run one at a time, so each carries the stamp the last left. */
-  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
-  /** Each opening of the marker is a session; a conflict ends saving for
-   *  the session it happened in, and reopening starts a fresh one. */
-  const markerSession = useRef(0);
-  const conflictSession = useRef(-1);
+  /** Whatever marking is already done, and the saves that never write
+   *  over a newer copy (useHandCutDraft, shared with a processed match's
+   *  More options). Its read doubles as the check that the hand-cut
+   *  backend exists at all. */
+  const draft = useHandCutDraft(match.id, userId, isOwner);
+  const draftMarks: Mark[] = draft.marks;
+  const draftMode: CutMode | null = draft.mode;
+  const handCutReady = draft.ready;
+  // A prefill start_recut wrote and nobody changed is nothing marked yet
+  // (the same rule as More options, unsentMarkCount); the marker still
+  // opens on it.
+  const draftCount = draft.prefilled ? 0 : draftMarks.filter((m) => m.t1 !== null).length;
   const [openingMarker, setOpeningMarker] = useState(false);
   const [spokenOpen, setSpokenOpen] = useState(false);
   const spokenRows = cleanSpoken(match.spoken_scores);
@@ -372,8 +348,7 @@ export function RawMatchView({
   const onMetadata = useCallback(() => {
     const d = videoRef.current?.duration;
     if (!d || !Number.isFinite(d) || d <= 0) return;
-    setDuration((prev) => prev ?? d);
-    setTrimEnd((prev) => prev ?? d);
+    learnDuration(d);
     if (isOwner && match.duration_s == null) {
       const supabase = createClient();
       supabase
@@ -383,7 +358,7 @@ export function RawMatchView({
         })
         .then(() => undefined);
     }
-  }, [isOwner, match.duration_s, match.id]);
+  }, [isOwner, match.duration_s, match.id, learnDuration]);
 
   // The owner RPC selects the match-producing job ahead of housekeeping.
   // Keep its progress fresh and ignore late responses after navigation.
@@ -414,121 +389,20 @@ export function RawMatchView({
   }, [feedbackJobId, feedbackJobStatus, job?.id, job?.status, router]);
 
   /**
-   * Marking already done on this match, so re-opening resumes rather than
-   * starting over. Read in either stored shape (normalizeMarks): a draft
-   * handed back after a failed cut holds the short form claim_hand_cut
-   * was sent, which cast straight to marks read as every point called.
-   *
-   * Resolves false when the read failed. A missing table (the migration
-   * has not run yet) is not an error the player should be shown: it
-   * simply means no draft, and the feature stays hidden.
-   */
-  const loadDraft = useCallback(async (): Promise<boolean> => {
-    const supabase = createClient();
-    const { data, error: readError } = await supabase
-      .from("hand_cut_drafts")
-      .select("marks, mode, updated_at")
-      .eq("match_id", match.id)
-      .maybeSingle();
-    if (readError) return false;
-    const row = data as {
-      marks?: unknown;
-      mode?: string | null;
-      updated_at?: string | null;
-    } | null;
-    setDraftMarks(normalizeMarks(row?.marks));
-    setDraftMode(row?.mode === "cut" || row?.mode === "score" ? row.mode : null);
-    draftStamp.current = row?.updated_at ?? null;
-    return true;
-  }, [match.id]);
-
-  useEffect(() => {
-    if (!isOwner) return;
-    let active = true;
-    void loadDraft().then((ok) => {
-      if (active && ok) setHandCutReady(true);
-    });
-    return () => {
-      active = false;
-    };
-  }, [isOwner, loadDraft]);
-
-  /**
    * Open the marker on the draft as it is NOW, not as it was when this
    * page loaded: another device may have marked since. A failed read
    * opens on what the page already holds.
    */
+  const { load: loadDraft, beginSession } = draft;
   const openMarker = useCallback(async () => {
     if (openingMarker) return;
     setOpeningMarker(true);
     await loadDraft();
-    markerSession.current += 1;
+    beginSession();
     setOpeningMarker(false);
     setMarkingUrl(rawUrl);
     setMarking(true);
-  }, [openingMarker, loadDraft, rawUrl]);
-
-  /**
-   * Write the draft, but never over a newer one.
-   *
-   * A plain insert when there is no row yet and an update conditional on
-   * the stamp otherwise, never an upsert: an upsert's conflict branch
-   * rewrites match_id and user_id too, and the owner may only update
-   * marks, mode and updated_at (20260909181000), so every upsert after
-   * the first was refused. Resolves "conflict" when another device got
-   * there first; rejects on a network or server failure, which the
-   * marker retries on its next save.
-   */
-  const saveDraft = useCallback(
-    (marks: Mark[], mode: CutMode | null): Promise<DraftSave> => {
-      const session = markerSession.current;
-      const conflict = (): DraftSave => {
-        conflictSession.current = session;
-        // Read the newer draft now, so the row's count and the next
-        // opening show it.
-        void loadDraft();
-        return "conflict";
-      };
-      const write = async (): Promise<DraftSave> => {
-        if (conflictSession.current === session) return "conflict";
-        const supabase = createClient();
-        const stamp = new Date().toISOString();
-        const known = draftStamp.current;
-        if (known === null) {
-          const { data, error: insertError } = await supabase
-            .from("hand_cut_drafts")
-            .insert({ match_id: match.id, user_id: userId, marks, mode, updated_at: stamp })
-            .select("updated_at")
-            .single();
-          if (insertError) {
-            // The row appeared since this page last looked.
-            if (insertError.code === "23505") return conflict();
-            throw insertError;
-          }
-          draftStamp.current = (data as { updated_at: string }).updated_at;
-        } else {
-          const { data, error: updateError } = await supabase
-            .from("hand_cut_drafts")
-            .update({ marks, mode, updated_at: stamp })
-            .eq("match_id", match.id)
-            .eq("updated_at", known)
-            .select("updated_at");
-          if (updateError) throw updateError;
-          const rows = (data ?? []) as { updated_at: string }[];
-          // Nothing matched: the row was saved since (or sent, or gone).
-          if (rows.length === 0) return conflict();
-          draftStamp.current = rows[0].updated_at;
-        }
-        setDraftMarks(marks);
-        setDraftMode(mode);
-        return "saved";
-      };
-      const run = saveQueue.current.then(write, write);
-      saveQueue.current = run.catch(() => undefined);
-      return run;
-    },
-    [match.id, userId, loadDraft],
-  );
+  }, [openingMarker, loadDraft, beginSession, rawUrl]);
 
   const submitHandCut = useCallback(
     async (marks: Mark[]): Promise<string | null> => {
@@ -537,19 +411,7 @@ export function RawMatchView({
         p_match_id: match.id,
         p_marks: submittable(marks),
       });
-      if (rpcError) {
-        const m = rpcError.message || "";
-        if (m.includes("already_cut")) return "This match already has points.";
-        if (m.includes("already_processing"))
-          return "Something is already running on this match.";
-        if (m.includes("queue_full"))
-          return "Your queue is full. Wait for a video to finish.";
-        if (m.includes("check_pending"))
-          return "Still checking the video. Try again in a moment.";
-        if (m.includes("invalid_marks"))
-          return "Some marks are not valid. Check for very short points.";
-        return "That didn't send. Check your connection and try again.";
-      }
+      if (rpcError) return handCutClaimError(rpcError.message || "");
       const jobId = (data as { job_id?: string } | null)?.job_id ?? null;
       setJob({
         id: jobId ?? "pending",
@@ -564,62 +426,19 @@ export function RawMatchView({
     [match.id, router],
   );
 
-  const stampStart = () => {
-    const t = videoRef.current?.currentTime ?? 0;
-    setTrimStart(Math.min(t, (trimEnd ?? duration ?? t) - 5));
-  };
-  const stampEnd = () => {
-    const t = videoRef.current?.currentTime ?? 0;
-    setTrimEnd(Math.max(t, trimStart + 5));
-  };
-  const resetTrim = () => {
-    setTrimStart(0);
-    setTrimEnd(duration);
-  };
-
-  const windowS =
-    duration != null ? Math.max(0, (trimEnd ?? duration) - trimStart) : null;
-  const charge = windowS != null ? chargeMinutes(windowS) : null;
-  const trimmed =
-    duration != null &&
-    (trimStart > 0.5 || (trimEnd != null && trimEnd < duration - 0.5));
-  const enough =
-    charge != null && availableMinutes != null && availableMinutes >= charge && !minutesShort;
-
   const process = async () => {
     if (busy || charge == null) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/process", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          matchId: match.id,
-          trimStartS: trimmed ? trimStart : null,
-          trimEndS: trimmed ? trimEnd : null,
-          points: true,
-          // The detailed analysis rides on the same run for nothing
-          // (the ball is detected and the table found for the cut anyway);
-          // generating it later re-detects the whole video.
-          placement: true,
-          strictness,
-        }),
-      });
-      const data = await res.json();
+      const res = await postProcess(match.id, quote.request());
       if (!res.ok) {
-        if (data.code === "insufficient_minutes") setMinutesShort(true);
-        setError(
-          data.code === "insufficient_minutes"
-            ? "Not enough minutes for this video."
-            : data.code === "queue_full"
-              ? "Your queue is full. Wait for a video to finish."
-              : "Something went wrong. Try again.",
-        );
+        if (res.code === "insufficient_minutes") quote.setMinutesShort(true);
+        setError(processErrorMessage(res.code));
         return;
       }
       setJob({
-        id: data.job_id,
+        id: res.jobId,
         status: "queued",
         progress: 0,
         user_message: null,
@@ -754,7 +573,15 @@ export function RawMatchView({
               day: "numeric",
               year: "numeric",
             })}
-            {duration != null && <> · {formatClock(duration)}</>}
+            {/* The file's own length in the player's clock once the
+                player has read it (a 441.96 s file is 7:21 in both), the
+                stored length until then. Display only: the charge stays
+                on the stored length. */}
+            {quote.videoDuration != null ? (
+              <> · {playerClock(quote.videoDuration)}</>
+            ) : (
+              duration != null && <> · {formatClock(duration)}</>
+            )}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -857,24 +684,17 @@ export function RawMatchView({
       </div>
 
       {jobRunning && (
-        <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
-          {serviceNotice ? <ProcessingAvailabilityNotice state={serviceState} context={availabilityContext} className="" /> : <>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            {processingLabel ?? "Processing"}
-          </h2>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2">
-            <div
-              className="h-full rounded-full bg-cyan-400 transition-all"
-              style={{ width: `${Math.max(4, job?.progress ?? 0)}%` }}
-            />
-          </div>
-          <p className="mt-3 text-sm text-zinc-400">
-            {processingExitMessage(availabilityContext)}
-          </p>
-          <ProcessingEstimateNote estimate={feedback?.estimate} jobStatus={feedback?.job_status ?? job?.status ?? null} serviceState={serviceState} />
-          </>}
-          {cameraWarning && <p className="mt-3 text-sm text-amber-300/90">{cameraWarning}</p>}
-        </section>
+        <ProcessingProgress
+          className="mt-4 rounded-2xl border border-edge bg-surface p-5"
+          serviceNotice={!!serviceNotice}
+          serviceState={serviceState}
+          availabilityContext={availabilityContext}
+          label={processingLabel}
+          progress={job?.progress ?? null}
+          estimate={feedback?.estimate}
+          jobStatus={feedback?.job_status ?? job?.status ?? null}
+          cameraWarning={cameraWarning}
+        />
       )}
 
       {/* A hand cut that did not finish. The match itself is back to
@@ -952,220 +772,52 @@ export function RawMatchView({
               behind a setting. The automatic one carries the price and the
               trim, because a charge is computed from the window it will
               process; marking by hand has neither, so offering a trim there
-              would be a control that changes nothing. */}
-          <button
-            type="button"
-            onClick={() => setAutoOpen((v) => !v)}
-            aria-expanded={autoOpen}
-            className="flex w-full items-center gap-3 p-5 text-left transition-colors hover:bg-ink/20"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-zinc-100">
-                Automatically
-              </span>
-              <span className="mt-0.5 block text-xs text-zinc-500">
-                We find the rallies and cut them for you.
-              </span>
-            </span>
-            {charge != null && (
-              <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-300">
-                {charge} min
-              </span>
-            )}
-            <ExpandChevron open={autoOpen} />
-          </button>
+              would be a control that changes nothing. Both rows and what
+              they open are shared with a processed match's More options
+              (BreakIntoPoints), so the two places cannot drift. */}
+          <AccordionRow
+            title="Automatically"
+            detail="We find the rallies and cut them for you."
+            trailing={charge != null ? `${charge} min` : null}
+            open={autoOpen}
+            onToggle={() => toggleWay("automatic")}
+          />
           {autoOpen && (
-          <div className="border-t border-edge/60 p-5">
-          {duration == null ? (
-            <p className="text-sm text-zinc-400">
-              Play the video once so we can read its length.
-            </p>
-          ) : (
-            <>
-              {/* No paragraph here. The bar reads 0:00 · 12:04 kept · 12:04
-                  under itself and the two buttons say what they do, so a
-                  sentence explaining them only pushes the handles further
-                  from the picture they are cut against. */}
-              <p className="text-sm font-medium text-zinc-200">
-                What to process
-              </p>
-              <div className="mt-3" />
-              <TrimBar
-                duration={duration}
-                start={trimStart}
-                end={trimEnd ?? duration}
-                onChange={(s, e) => {
-                  setTrimStart(s);
-                  setTrimEnd(e);
-                }}
-                onScrub={(t) => {
-                  if (videoRef.current) videoRef.current.currentTime = t;
-                }}
-              />
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <button
-                  onClick={stampStart}
-                  className="rounded-full border border-edge px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
-                >
-                  Start here
-                </button>
-                <button
-                  onClick={stampEnd}
-                  className="rounded-full border border-edge px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
-                >
-                  End here
-                </button>
-                {trimmed && (
-                  <button
-                    onClick={resetTrim}
-                    className="ml-auto text-sm text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-
-              {/* Same shape as the upload sheet's options: a labelled row
-                  with a switch, not a pill that hides what it means. */}
-              <div className="mt-5 divide-y divide-edge/60 rounded-xl border border-edge bg-ink/20">
-                <div className="p-3.5">
-                  <p className="text-sm text-zinc-200">Cut strictness</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    How much room to leave around each point.
-                  </p>
-                  <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-lg border border-edge bg-ink/40 p-1">
-                    {(["tight", "normal", "loose"] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => setStrictness(s)}
-                        aria-pressed={strictness === s}
-                        className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
-                          strictness === s
-                            ? "bg-cyan-glow text-ink"
-                            : "text-zinc-400 hover:text-zinc-200"
-                        }`}
-                      >
-                        {s === "tight"
-                          ? "Tight"
-                          : s === "loose"
-                            ? "Loose"
-                            : "Normal"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Full width, with the balance under it rather than
-                  floating alongside. A hugging pill beside a loose
-                  sentence was the scrappiest thing on this screen. */}
-              <div className="mt-6">
-                <button
-                  onClick={process}
-                  disabled={busy || !enough}
-                  className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink transition-opacity disabled:opacity-40"
-                >
-                  {charge != null ? `Process · ${charge} min` : "Process"}
-                </button>
-                {availableMinutes != null && (
-                  <p
-                    className={`mt-2 w-full text-center text-xs ${
-                      enough ? "text-zinc-500" : "text-amber-300/90"
-                    }`}
-                  >
-                    {enough
-                      ? `${formatMinutes(availableMinutes)} left`
-                      : `Not enough minutes. You have ${formatMinutes(availableMinutes)}.`}
-                  </p>
-                )}
-                {charge != null && availableMinutes != null && !enough && (
-                  <AllowanceRecovery resource="minutes" retryLabel="Check minutes" onRetry={async () => {
-                    const { data, error } = await createClient().rpc("my_processing_state").single();
-                    const state = data as { minutes_balance?: number } | null;
-                    if (error || typeof state?.minutes_balance !== "number") throw new Error("Balance unavailable");
-                    setAvailableMinutes(state.minutes_balance);
-                    setMinutesShort(false);
-                    setError(null);
-                  }} />
-                )}
-              </div>
-            </>
+            <AutoProcessPanel
+              quote={quote}
+              onProcess={() => void process()}
+              busy={busy}
+              error={error}
+              onBalanceChecked={() => setError(null)}
+            />
           )}
-          {error && <p className="mt-3 text-sm text-amber-300/90">{error}</p>}
-          </div>
-          )}
-          {/* Desktop web and mobile web, on an unprocessed match, which is
-              the only place this card renders. The same accordion row as
-              "Automatically": it opens in place on the choice that matters
-              before marking (Score on or off) and the button that starts,
-              rather than dropping straight into the marker. Nothing here
-              is priced, and it never says so: "Free" read as a sales line
-              beside a row that is simply another way to do it. */}
+          {/* Desktop web and mobile web, on an unprocessed match. The same
+              accordion row as "Automatically": it opens in place on the
+              choice that matters before marking (the Score switch) and the
+              button that starts, rather than dropping straight into the
+              marker. Nothing here is priced, and it never says so: "Free"
+              read as a sales line beside a row that is simply another way
+              to do it. */}
           {handCutEnabled && handCutReady && (
           <>
-          <button
-            type="button"
-            onClick={() => setHandOpen((v) => !v)}
-            aria-expanded={handOpen}
+          <AccordionRow
+            bordered
+            title="Mark the points yourself"
+            detail="You mark where each point starts and ends."
+            trailing={draftCount > 0 ? `${draftCount} marked` : null}
+            open={handOpen && !!rawUrl && !undecodable}
+            onToggle={() => toggleWay("hand")}
             disabled={!rawUrl || undecodable}
-            className="flex w-full items-center gap-3 border-t border-edge/60 p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-zinc-100">
-                Mark the points yourself
-              </span>
-              <span className="mt-0.5 block text-xs text-zinc-500">
-                You mark where each point starts and ends.
-              </span>
-            </span>
-            {draftCount > 0 && (
-              <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-300">
-                {draftCount} marked
-              </span>
-            )}
-            <ExpandChevron open={handOpen && !!rawUrl && !undecodable} />
-          </button>
+          />
           {handOpen && rawUrl && !undecodable && (
-          <div className="border-t border-edge/60 p-5">
-            {/* Same shape as Cut strictness above: a labelled row with the
-                app's switch. Practice and drills show it off and greyed,
-                with the reason in two words. */}
-            <div className="rounded-xl border border-edge bg-ink/20">
-              <div className="flex items-center gap-3 p-3.5">
-                <span className="min-w-0 flex-1">
-                  <span
-                    className={`block text-sm ${
-                      markScoringAllowed ? "text-zinc-200" : "text-zinc-500"
-                    }`}
-                  >
-                    Score
-                  </span>
-                  {!markScoringAllowed && (
-                    <span className="mt-0.5 block text-xs text-zinc-500">
-                      Matches only
-                    </span>
-                  )}
-                </span>
-                <Switch
-                  on={markMode === "score"}
-                  onChange={(on) => setMarkModeChoice(on ? "score" : "cut")}
-                  label={markScoringAllowed ? "Score" : "Score, matches only"}
-                  disabled={!markScoringAllowed}
-                />
-              </div>
-            </div>
-            <div className="mt-6">
-              <button
-                type="button"
-                onClick={() => void openMarker()}
-                disabled={openingMarker}
-                className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink transition-opacity disabled:opacity-40"
-              >
-                {draftMarks.length > 0 ? "Keep marking" : "Start marking"}
-              </button>
-            </div>
-          </div>
+            <MarkYourselfPanel
+              mode={markMode}
+              scoringAllowed={markScoringAllowed}
+              onMode={setMarkModeChoice}
+              resume={!draft.prefilled && draftMarks.length > 0}
+              opening={openingMarker}
+              onStart={() => void openMarker()}
+            />
           )}
           </>
           )}
@@ -1479,7 +1131,7 @@ export function RawMatchView({
             // the switch off if the type later changes to a match.
             if (markScoringAllowed) setMarkModeChoice(mode);
           }}
-          saveDraft={saveDraft}
+          saveDraft={draft.save}
           submit={submitHandCut}
           onClose={() => {
             setMarking(false);

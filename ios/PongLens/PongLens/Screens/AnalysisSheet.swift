@@ -33,8 +33,6 @@ struct VideoCardsInput {
     let servesOnly: Bool
     /// The match type keeps a score; a practice gets the maps only.
     let scoredType: Bool
-    /// Placement ran, or any point carries data.
-    let showMaps: Bool
     /// Placement is ready: the video cards may read it.
     let placementTrusted: Bool
     let onScore: (() -> Void)?
@@ -129,6 +127,12 @@ struct AnalysisCards: View {
     /// match. Nil keeps the owner's or the coach's wording.
     var neutralLabels: (you: String, them: String)? = nil
     var video: VideoCardsInput? = nil
+    /// The section's heading and scroll target. The whole section, heading
+    /// included, is absent when the deck has no card to show, as the web's
+    /// AnalysisCards returns nothing (QA 2026-09-25: a hand-cut practice
+    /// match showed "Match analysis" over an empty deck).
+    var heading: String? = nil
+    var anchor: String? = nil
 
     private var voice: CardVoice {
         if let neutralLabels { return .named(you: neutralLabels.you, them: neutralLabels.them) }
@@ -141,7 +145,23 @@ struct AnalysisCards: View {
 
     var body: some View {
         let cards = deck()
+        if !cards.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                if let heading { SectionHeading(heading) }
+                deckView(cards)
+            }
+            .modifier(AnchorIfAny(id: anchor))
+        }
+    }
 
+    private struct AnchorIfAny: ViewModifier {
+        let id: String?
+        func body(content: Content) -> some View {
+            if let id { content.floatingBarScrollTarget(id) } else { content }
+        }
+    }
+
+    private func deckView(_ cards: [DeckCard]) -> some View {
         VStack(spacing: 10) {
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 12) {
@@ -224,15 +244,10 @@ struct AnalysisCards: View {
         // The maps are the worker's own evidence and need no score, only an
         // end to be drawn from and three placed points, the floor the share
         // page uses: a table with two dots on it reads as broken, not empty.
-        let mapped: Int = {
-            guard video.showMaps, video.userSide != nil else { return 0 }
-            let collect = video.servesOnly
-                ? collectServePlacementObservations
-                : collectTrustedPlacementObservations
-            return trustedPlacementPointCount(
-                collect(unflaggedPlacementPoints(video.points), video.userSide, video.gameIndexByPoint, video.serving)
-            )
-        }()
+        let mapped = mappedPointCount(
+            video.points, userSide: video.userSide, gameIndexByPoint: video.gameIndexByPoint,
+            serving: video.serving, servesOnly: video.servesOnly
+        )
         if mapped >= 3 {
             for page in [PlacementMapPage.landings, .heat] {
                 cards.append(DeckCard(id: page == .landings ? "landings" : "heat", view: AnyView(
@@ -263,8 +278,11 @@ struct AnalysisCards: View {
         // score, an analysis to generate or retry. While any of it is open
         // the deck ends on the next-step card; once none is, and only then,
         // on the teaser. A coach gets the teaser only for a complete match
-        // and never the card.
-        let sideMissing = video.userSide == nil && video.showMaps
+        // and never the card. The web's AnalysisCards: the end is asked for
+        // only once the analysis is ready (the maps are drawn from it), and
+        // only where the page can answer it from the cut video.
+        let hasCutOffsets = video.points.contains { $0.cutT0 != nil }
+        let sideMissing = video.userSide == nil && video.placementTrusted && hasCutOffsets
         let status = video.match.placementStatus ?? "not_requested"
         let analysisPending = status != "ready" && status != "final_failed"
         // The maps read whose serve each dot is from the rotation, so a

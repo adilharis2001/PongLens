@@ -40,7 +40,11 @@ nonisolated enum AvailabilityQAData {
         ["id": matchID.uuidString, "user_id": ownerID.uuidString, "job_id": jobID.uuidString,
          "opponent_name": "Alex", "match_type": "match", "played_at": "2026-09-13T12:00:00Z",
          "status": ready ? "ready" : ["saved_idle", "saved_video"].contains(argument("--qa-availability-context") ?? "") ? "uploaded" : "processing",
-         "duration_s": 1240, "raw_path": "qa/owned-recording.mp4", "user_side": "near",
+         "duration_s": 1240,
+         // --qa-hand-cut: an original in the raw bucket, so marking by hand is offered.
+         "raw_path": ProcessInfo.processInfo.arguments.contains("--qa-hand-cut")
+            ? "r2://ponglens-raw/\(ownerID.uuidString.lowercased())/qa.mp4" : "qa/owned-recording.mp4",
+         "user_side": "near",
          "first_server": "user", "clip_pads": ["pre": 1, "post": 1],
          "created_at": "2026-09-13T12:00:00Z", "points": [["count": 0]]]
     }
@@ -178,6 +182,11 @@ nonisolated enum AvailabilityQAData {
                 "canProblem": false, "canReprocess": false, "canRefund": false, "events": []]])
         }
         if method == "POST" {
+            // --qa-hand-cut: the account may mark by hand and has no draft,
+            // so the raw page shows both of its ways in.
+            if path == "/rest/v1/rpc/hand_cut_enabled" {
+                return (200, ProcessInfo.processInfo.arguments.contains("--qa-hand-cut"))
+            }
             switch path {
             case "/rest/v1/rpc/my_match_processing_feedback": return (200, libraryFeedback)
             case "/rest/v1/rpc/my_processing_estimates": return (200, [["job_id": jobID.uuidString, "estimate": estimate], ["job_id": importID.uuidString, "estimate": estimate]])
@@ -204,7 +213,8 @@ nonisolated enum AvailabilityQAData {
             let importing = url.query?.contains(importID.uuidString.lowercased()) == true || url.query?.contains(importID.uuidString) == true
             return (200, importing ? [jobObject(importing: true)] : libraryJobs)
         case "/rest/v1/points", "/rest/v1/point_notes", "/rest/v1/point_tags", "/rest/v1/tags", "/rest/v1/custom_reasons", "/rest/v1/notes", "/rest/v1/loss_reason_labels",
-             "/rest/v1/share_links", "/rest/v1/coach_links", "/rest/v1/match_reels", "/rest/v1/app_config": return (200, [])
+             "/rest/v1/share_links", "/rest/v1/coach_links", "/rest/v1/match_reels", "/rest/v1/app_config",
+             "/rest/v1/hand_cut_drafts": return (200, [])
         default: return (403, ["code": "qa_unexpected_read"])
         }
     }
@@ -235,7 +245,7 @@ nonisolated final class AvailabilityQAURLProtocol: URLProtocol, @unchecked Senda
         guard let url = request.url,
               let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
                   headerFields: ["Content-Type": "application/json", "Content-Range": "0-0/0"]),
-              let data = try? JSONSerialization.data(withJSONObject: object) else {
+              let data = try? JSONSerialization.data(withJSONObject: object, options: .fragmentsAllowed) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)); return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
