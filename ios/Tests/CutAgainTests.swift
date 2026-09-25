@@ -297,18 +297,23 @@ private func runPortraitPadChecks() {
 
 /// Landscape: Start again at the foot of the gate, only with marks.
 private func runStartAgainRailChecks() {
+    // The web's own cases (markLandscape.test.ts), label, tone and action.
     func labels(_ opened: HandCutOpenAs, again: Bool) -> [String] {
         MarkLandscape.railPair(started: false, opened: opened, reviewing: false,
                                adjusting: false, open: false, startAgain: again)
-            .map { "\($0.label):\($0.tone.rawValue)" }
+            .map { "\($0.label):\($0.tone.rawValue):\($0.action.rawValue)" }
     }
-    eq(labels(.choice, again: true), ["Keep marking:lit", "Review the points:unlit", "Start again:unlit"],
+    eq(labels(.choice, again: true),
+       ["Keep marking:lit:keepMarking", "Review the points:unlit:reviewPoints", "Start again:unlit:startAgain"],
        "choice gate with Start again")
-    eq(labels(.review, again: true), ["Begin review:lit", "Start again:unlit"], "review gate with Start again")
-    eq(labels(.fresh, again: true), ["Begin Cutting:lit"], "no Start again with nothing marked")
-    eq(labels(.choice, again: false), ["Keep marking:lit", "Review the points:unlit"],
+    eq(labels(.review, again: true), ["Begin review:lit:beginReview", "Start again:unlit:startAgain"],
+       "review gate with Start again")
+    eq(labels(.scoring, again: true), ["Keep marking:lit:beginCutting", "Start again:unlit:startAgain"],
+       "points still to call: carry on from the first of them")
+    eq(labels(.fresh, again: false), ["Begin Cutting:lit:beginCutting"], "no Start again with nothing marked")
+    eq(labels(.choice, again: false), ["Keep marking:lit:keepMarking", "Review the points:unlit:reviewPoints"],
        "the raw page's gate is unchanged")
-    for opened in [HandCutOpenAs.choice, .review] {
+    for opened in [HandCutOpenAs.choice, .review, .scoring] {
         let tiles = MarkLandscape.railPair(started: false, opened: opened, reviewing: false,
                                            adjusting: false, open: false, startAgain: true)
         near(tiles.map(\.share).reduce(0, +), 1, "the gate's shares fill the rail (\(opened))")

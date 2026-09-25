@@ -545,13 +545,8 @@ final class HandCutMarker {
         let openedMode = HandCut.openingMode(
             initial, recorded: store.mode, tracksServe: scoringAllowed, chosen: chosen)
         let opened = HandCut.openAs(initial, durationS: match.durationS, mode: openedMode)
-        // Marking a processed match again always opens at the gate, where
-        // Start again lives. A pass with points still to score has no gate
-        // of its own, so it offers the partial one: Keep marking, or Review
-        // the points, which stops on each point without a winner.
-        let openedGate: HandCutOpenAs = recut != nil && opened == .scoring ? .choice : opened
-        openedAs = openedGate
-        let openedCalled = openedGate == .review || openedGate == .choice
+        openedAs = opened
+        let openedCalled = opened == .review || opened == .choice
         state = resumed
             ? HandCutState(
                 marks: initial,
@@ -562,7 +557,10 @@ final class HandCutMarker {
         // Score on, a rotation to follow and nobody named as first server:
         // "Who served first?" on the way in, fresh or resumed.
         serveStep = openedMode == .score && MatchTitle.tracksServe(matchType) && first == nil
-        started = resumed && !openedCalled
+        // Marking a processed match again always opens at the gate, where
+        // Start again lives. A pass with points still to call gets a gate
+        // of its own there: Keep marking, from the first uncalled point.
+        started = resumed && !openedCalled && recut == nil
         // A switch flipped on the match page is the draft's mode from now
         // on. The store writes nothing for a draft that does not exist yet.
         if chosen != nil, openedMode != store.mode {

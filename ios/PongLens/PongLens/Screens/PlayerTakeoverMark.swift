@@ -674,7 +674,13 @@ extension PlayerTakeover {
                     markBeginReview()
                 }
             } else {
-                markBigButton(hc.openedFinished ? "Begin review" : "Begin Cutting", lit: true, height: primary) {
+                // A re-cut with points still to call carries on from the
+                // first of them: the cue is already there.
+                markBigButton(
+                    hc.openedFinished ? "Begin review"
+                        : hc.openedAs == .scoring ? "Keep marking" : "Begin Cutting",
+                    lit: true, height: primary
+                ) {
                     if hc.openedFinished { markBeginReview() } else { markBeginCutting() }
                 }
             }

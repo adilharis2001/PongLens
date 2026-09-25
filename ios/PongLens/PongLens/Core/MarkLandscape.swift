@@ -113,12 +113,12 @@ struct MarkLandscape: Equatable {
     ) -> [PairTile] {
         if !started {
             let again = PairTile(
-                label: MarkerCopy.startAgain, action: .startAgain, tone: .unlit, share: 0.22)
+                label: MarkerCopy.startAgain, action: .startAgain, tone: .unlit, share: 0.26)
             if opened == .choice {
                 return startAgain
                     ? [
-                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.46),
-                        PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.32),
+                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.44),
+                        PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.3),
                         again,
                     ]
                     : [
@@ -126,14 +126,16 @@ struct MarkLandscape: Equatable {
                         PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.42),
                     ]
             }
-            let only = opened == .review
+            // A draft with points still to call reaches the gate only when a
+            // processed match is marked again; it carries on from the first
+            // point without a winner (markLandscape.ts, the same tiles).
+            let first = opened == .review
                 ? PairTile(label: "Begin review", action: .beginReview, tone: .lit, share: 1)
-                : PairTile(label: "Begin Cutting", action: .beginCutting, tone: .lit, share: 1)
-            guard startAgain, opened != .fresh else { return [only] }
-            return [
-                PairTile(label: only.label, action: only.action, tone: .lit, share: 0.78),
-                again,
-            ]
+                : opened == .scoring
+                    ? PairTile(label: "Keep marking", action: .beginCutting, tone: .lit, share: 1)
+                    : PairTile(label: "Begin Cutting", action: .beginCutting, tone: .lit, share: 1)
+            guard startAgain else { return [first] }
+            return [PairTile(label: first.label, action: first.action, tone: .lit, share: 0.74), again]
         }
         if reviewing {
             return adjusting

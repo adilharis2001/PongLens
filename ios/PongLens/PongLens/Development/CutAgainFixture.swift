@@ -9,7 +9,7 @@ import UIKit
 ///     --dev-cut-again <scene>          tools | marker | watch (a hand-cut
 ///                                      match watched through: the tape)
 ///     --dev-ca-video <path on the Mac> the marker's picture (any mp4)
-///     --dev-ca-marker <state>          fresh | choice | review | marking |
+///     --dev-ca-marker <state>          fresh | choice | review | scoring | marking |
 ///                                      open | held | selected | adjusting
 ///     --dev-ca-options <variant>       normal | notes | coach | auto-replace |
 ///                                      processing | no-source | support
@@ -337,6 +337,11 @@ struct CutAgainFixtureView: View {
         case "fresh": store.previewDraft([], mode: nil)
         case "review": store.previewDraft(CutAgainFixture.marks(called: true, throughEnd: true), mode: .score)
         case "choice": store.previewDraft(CutAgainFixture.marks(called: true), mode: .score)
+        case "scoring":
+            // Scored part way: the last five points have no winner yet.
+            var marks = CutAgainFixture.marks(called: true)
+            for i in 7..<marks.count { marks[i].winner = nil }
+            store.previewDraft(marks, mode: .score)
         default: store.previewDraft(CutAgainFixture.marks(called: true), mode: .score)
         }
         let recut = CutAgainFixture.flag("--dev-ca-recut")
