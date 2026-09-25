@@ -241,6 +241,131 @@ nonisolated enum HandCutEncoder {
             compositionStarts: compositionStarts, measuredStarts: result.firstFrames)
     }
 
+    // MARK: - A hand cut's video
+
+    /// Encode a hand cut planned by CutPlan: `segments` are the plan's
+    /// two-decimal source seconds, `offsets` where each one starts on the
+    /// cut's clock (contract section 5).
+    ///
+    /// Each segment is inserted AT its planned offset, not at a running
+    /// cursor, on a timescale where every two-decimal second is a whole
+    /// number of ticks, so the measured clock equals the planned one by
+    /// construction. `compositionStarts` is, per segment, where its first
+    /// source second landed according to the composition's own time
+    /// mapping (the manifest's `cut_segment_offsets`); `measuredStarts` the
+    /// presentation time of its first written frame (`cut_first_frame_s`).
+    static func encodePlannedCut(
+        source: URL, segments: [[Double]], offsets: [Double], to output: URL,
+        videoBitrate: Int, audioBitrate: Int = cutAudioBitrate,
+        cancel: HandCutCancel,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> HandCutCutOutput {
+        guard !segments.isEmpty, segments.count == offsets.count else { throw HandCutEncoderError.emptyPlan }
+        let asset = AVURLAsset(url: source, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+        guard let sourceVideo = try await asset.loadTracks(withMediaType: .video).first else {
+            throw HandCutEncoderError.noVideoTrack
+        }
+        let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first
+        let (size, transform, fps, videoRange, naturalTimeScale) = try await sourceVideo.load(
+            .naturalSize, .preferredTransform, .nominalFrameRate, .timeRange, .naturalTimeScale)
+        let audioFormat = try await audioShape(sourceAudio)
+        let audioRange = try await sourceAudio?.load(.timeRange)
+
+        let timescale = CutPlan.compositionTimescale(natural: naturalTimeScale)
+        // Rounded, not CMTime(seconds:preferredTimescale:), which truncates:
+        // 83.92999999999998 s became 50357/600 instead of 50358/600, and the
+        // last segment landed a tick early.
+        func tick(_ seconds: Double) -> CMTime {
+            CMTime(value: CMTimeValue((seconds * Double(timescale)).rounded()), timescale: timescale)
+        }
+
+        let composition = AVMutableComposition()
+        guard let compVideo = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+        else { throw HandCutEncoderError.noVideoTrack }
+        compVideo.naturalTimeScale = timescale
+        let compAudio = sourceAudio == nil ? nil : composition.addMutableTrack(
+            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+
+        var compositionStarts: [Double] = []
+        var end = CMTime.zero
+        for (segment, offset) in zip(segments, offsets) {
+            let range = CMTimeRange(start: tick(segment[0]), end: tick(segment[1]))
+            let at = tick(offset)
+            // A segment's tail can run past the video track (the plan clamps
+            // to the asset's length, which the audio can set): insert what
+            // the track has, at the place the plan gives it.
+            let clipped = range.intersection(videoRange)
+            guard clipped.duration > .zero else { throw HandCutEncoderError.emptyPlan }
+            do {
+                try compVideo.insertTimeRange(clipped, of: sourceVideo, at: at + (clipped.start - range.start))
+            } catch {
+                throw HandCutEncoderError.readFailed(describe(error))
+            }
+            if let compAudio, let sourceAudio, let audioRange {
+                let heard = range.intersection(audioRange)
+                if heard.duration > .zero {
+                    try? compAudio.insertTimeRange(heard, of: sourceAudio, at: at + (heard.start - range.start))
+                }
+            }
+            // Where this segment's first source second landed, read back
+            // from the composition's own mapping rather than assumed.
+            let placed = compVideo.segments.first { s in
+                !s.isEmpty && s.timeMapping.target.start >= at - CMTime(value: 1, timescale: timescale)
+            }
+            if let placed {
+                let mapping = placed.timeMapping
+                compositionStarts.append(
+                    mapping.target.start.seconds + (segment[0] - mapping.source.start.seconds))
+            } else {
+                compositionStarts.append(at.seconds)
+            }
+            end = max(end, at + range.duration)
+        }
+
+        let encoded = evenSize(width: Int(size.width.rounded()), height: Int(size.height.rounded()))
+        let orientation = orientedTransform(degrees: rotationDegrees(transform),
+                                            width: encoded.width, height: encoded.height)
+
+        let reader: AVAssetReader
+        do { reader = try AVAssetReader(asset: composition) } catch {
+            throw HandCutEncoderError.readFailed(describe(error))
+        }
+        let videoOut = AVAssetReaderTrackOutput(track: compVideo, outputSettings: decodedPixels)
+        videoOut.alwaysCopiesSampleData = false
+        guard reader.canAdd(videoOut) else { throw HandCutEncoderError.readFailed("video output") }
+        reader.add(videoOut)
+        var audioOut: AVAssetReaderOutput?
+        if let compAudio, let audioFormat {
+            let mix = AVAssetReaderAudioMixOutput(
+                audioTracks: [compAudio], audioSettings: pcmSettings(audioFormat))
+            mix.alwaysCopiesSampleData = false
+            if reader.canAdd(mix) {
+                reader.add(mix)
+                audioOut = mix
+            }
+        }
+
+        let writer = try makeWriter(output)
+        let videoIn = try makeVideoInput(
+            writer: writer, width: encoded.width, height: encoded.height,
+            fps: Double(fps), bitrate: videoBitrate, scaled: false, transform: orientation)
+        let audioIn = try audioOut == nil ? nil : makeAudioInput(
+            writer: writer, shape: audioFormat!, bitrate: audioBitrate)
+
+        let job = Job(reader: reader, writer: writer, videoOut: videoOut, audioOut: audioOut,
+                      videoIn: videoIn, audioIn: audioIn)
+        let result = try await pump(
+            job, sessionStart: .zero, sessionEnd: end, cancel: cancel,
+            segmentStarts: compositionStarts, progress: progress)
+        let file = HandCutFileOutput(
+            url: output, bytes: fileSize(output), mediaSeconds: end.seconds,
+            wallSeconds: result.wall, width: encoded.width, height: encoded.height)
+        return HandCutCutOutput(
+            file: file, plannedStarts: offsets,
+            compositionStarts: compositionStarts, measuredStarts: result.firstFrames)
+    }
+
     // MARK: - A clip
 
     /// Encode one clip window (source seconds) at `width` wide as displayed,
