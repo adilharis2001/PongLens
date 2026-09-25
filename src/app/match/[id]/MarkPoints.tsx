@@ -2122,14 +2122,11 @@ export function MarkPoints({
   );
 
   /**
-   * The gate: the one thing to press before the pass begins. On a phone in
-   * portrait it fills the pad the way the pair and the answers fill it
-   * while marking, in the same proportions (the primary takes the pair's
-   * share, the second choice the answers'), with the footer at the foot,
-   * so there is no empty band under a pair of small buttons (Adil,
-   * 2026-09-25). The floating desktop card keeps fixed heights: it is
-   * sized by its content. "Start again" sits where the tools row sits
-   * while marking.
+   * The gate: the one thing to press before the pass begins. Ordinary
+   * buttons at the top of the pad, the same heights everywhere (Adil,
+   * 2026-09-25: stretched to fill the portrait pad, "Begin Cutting" read
+   * as a giant slab; he chose the plain buttons back over a full pad). The
+   * footer still sits at the foot. "Start again" follows the buttons.
    */
   const startAgainShown = canStartAgain && state.marks.length > 0;
   const gateLabel =
@@ -2155,9 +2152,7 @@ export function MarkPoints({
               ? beginReview
               : beginCutting
         }
-        className={`${
-          floating ? "h-16" : "min-h-16 flex-[3]"
-        } glow-cta w-full rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]`}
+        className="glow-cta h-16 w-full shrink-0 rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]"
       >
         {openedPartial ? "Keep marking" : gateLabel}
       </button>
@@ -2165,9 +2160,7 @@ export function MarkPoints({
         <button
           type="button"
           onClick={beginReview}
-          className={`${
-            floating ? "h-12" : "min-h-12 flex-[2]"
-          } w-full rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]`}
+          className="h-12 w-full shrink-0 rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]"
         >
           Review the points
         </button>
