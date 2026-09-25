@@ -19,6 +19,20 @@ struct ThemeGallery: View {
                         .tracking(-0.6)
                         .foregroundStyle(PL.textBody)
 
+                    // The raw match page's card while the iPhone cuts, in
+                    // its states, with no account or match needed.
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionHeading("Cutting on the iPhone")
+                        DeviceHandCutCard(live: .init(step: .encodeCut, progress: 34, foregroundOnly: true,
+                                                      line: DeviceCutCopy.keepOpen), onCutOnMac: {})
+                        DeviceHandCutCard(live: .init(step: .upload(parts: [2], clips: [19, 20]), progress: 88),
+                                          onCutOnMac: {})
+                        DeviceHandCutCard(live: .init(step: .encodeClip(4), progress: 63, paused: true,
+                                                      line: DeviceCutCopy.cooling), onCutOnMac: {})
+                        DeviceHandCutCard(live: .init(step: .encodeClip(9), progress: 70, stopped: true,
+                                                      line: DeviceCutCopy.hold(.lowPower)), onCutOnMac: {})
+                    }
+
                     VStack(alignment: .leading, spacing: 12) {
                         SectionHeading("Typography")
                         VStack(alignment: .leading, spacing: 8) {

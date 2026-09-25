@@ -1169,6 +1169,8 @@ struct MatchDetailScreen: View {
                 if match.status == .failed { processOpen = true }
                 if isOwner, let uid = app.userId {
                     await handCut.load(matchId: match.id, userId: uid)
+                    // A cut this phone started and has not finished carries on.
+                    DeviceHandCutQueue.shared.resume()
                 }
                 // A hand cut that died opens the card too: its marks and
                 // the way back into them are why anyone is here.
@@ -1212,6 +1214,16 @@ struct MatchDetailScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .matchProcessingVersionChanged)) { notification in
             guard notification.object as? UUID == match.id else { return }
             Task { await refreshMatch() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .deviceHandCutChanged)) { notification in
+            // Submitted, moved to the Mac, or let go: the server's job row is
+            // the truth again, so read it and keep watching.
+            guard notification.object as? UUID == match.id else { return }
+            Task {
+                await model.refreshJob()
+                await refreshMatch(refreshLibrary: true)
+                watchKick += 1
+            }
         }
         .alert("The original is no longer available", isPresented: $originalMissing) {
             Button("OK", role: .cancel) {}
@@ -1670,7 +1682,11 @@ struct MatchDetailScreen: View {
     /// process decision with real numbers when the video just sits there.
     @ViewBuilder
     private func rawSection(proxy: ScrollViewProxy) -> some View {
-        if model.jobRunning || current.status == .processing {
+        if isOwner, let phone = DeviceHandCutQueue.shared.live(forMatch: current.id) {
+            DeviceHandCutCard(live: phone) {
+                Task { await DeviceHandCutQueue.shared.cutOnMac(matchId: current.id) }
+            }
+        } else if model.jobRunning || current.status == .processing {
             MatchProcessingCard(
                 notice: processingAvailabilityNotice,
                 stageLabel: model.processingFeedback?.stageLabel,
@@ -1682,6 +1698,18 @@ struct MatchDetailScreen: View {
                 jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
                 serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: model.processingFeedback?.jobKind ?? model.job?.kind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue
             )
+            // A phone cut another device (or an earlier install) holds and
+            // has not reported for a day: the web's offer, here too.
+            if isOwner, let feedback = model.processingFeedback, feedback.offersMacInstead(),
+               let jobId = feedback.jobId {
+                DeviceHandCutQuietOffer(jobId: jobId) {
+                    Task {
+                        await model.refreshJob()
+                        await refreshMatch(refreshLibrary: true)
+                        watchKick += 1
+                    }
+                }
+            }
         } else if sourceGone {
             VStack(alignment: .leading, spacing: 10) {
                 Text(model.job?.userMessage ?? "This video couldn't be processed.")
@@ -1970,7 +1998,25 @@ struct MatchDetailScreen: View {
     /// claim_hand_cut with the marks, exactly as the web sends them, and the
     /// web's sentences for each refusal. On success the job is known at once
     /// and the ordinary processing card takes over.
+    ///
+    /// When this iPhone holds the video and the account may cut on the
+    /// phone, the phone claims the job instead and cuts it here
+    /// (DeviceHandCutQueue); anything that stops that before the claim falls
+    /// through to the Mac, exactly as from the web.
     private func submitHandCut(_ marks: [HandCutMark]) async -> String? {
+        if isOwner, HandCutVideo.localFile(current.id) != nil {
+            switch await DeviceHandCutQueue.shared.start(match: current, marks: marks) {
+            case .started(let jobId):
+                model.job = MatchJob(id: jobId, status: "processing", progress: 0, userMessage: nil, kind: "hand_cut")
+                await refreshMatch(refreshLibrary: true)
+                watchKick += 1
+                return nil
+            case .refused(let sentence):
+                return sentence
+            case .useMac:
+                break
+            }
+        }
         nonisolated struct Claim: Encodable {
             let p_match_id: String
             let p_marks: [HandCutSubmission]

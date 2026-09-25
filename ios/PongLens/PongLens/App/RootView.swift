@@ -234,6 +234,8 @@ struct RootView: View {
                 await DeviceVideoPolicy.shared.refresh()
                 if next != nil { await LocalMatchVideos.shared.reconcile() }
             }
+            // A cut this iPhone was making for the account carries on.
+            if next != nil { DeviceHandCutQueue.shared.resume() }
             // A different account (or none) owns the screen now. Stores
             // are process-lifetime objects, so without this the next
             // account inherits the last one's rendered data — that is
