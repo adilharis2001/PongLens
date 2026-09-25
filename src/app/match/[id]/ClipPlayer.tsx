@@ -58,6 +58,9 @@ const TAP_SLOP = 8;
  *  finger travels, the hold cancels and the drag is a pan again. */
 const HOLD_MS = 250;
 const HOLD_SLOW = 0.25;
+/** A bare player's transport shows for this long after playback starts or
+ *  the picture is touched, then clears off the picture. */
+const TRANSPORT_PEEK_MS = 2500;
 const HOLD_FAST = 2;
 /** Double-tap seek, the step and the window. Same ±10s every phone uses. */
 const SEEK_STEP_S = 10;
@@ -138,6 +141,7 @@ export function ClipPlayer({
   playRef,
   hostSwipeX = false,
   quietChrome = false,
+  bare = false,
 }: {
   src: string;
   /** Optional saved preview for media that has not decoded its first frame. */
@@ -265,6 +269,15 @@ export function ClipPlayer({
    *  this player again with its full chrome — so buttons on the poster
    *  are unreachable clutter. From sm up everything returns. */
   quietChrome?: boolean;
+  /**
+   * Nothing permanent on the picture. The host carries its own close,
+   * speed and seek controls in solid bars around the video (the phone
+   * landscape marker, where the rule is that nothing sits on the footage),
+   * so mute, close and the speed and zoom pills are left out, and the cut
+   * transport shows only for a moment after playback starts or the picture
+   * is touched, and while it is being dragged. Gestures are unchanged.
+   */
+  bare?: boolean;
   /** Lift the desktop height cap. Width alone does not make a 16:9 picture
    *  bigger: past 52vh the box just grows black bars either side, so a
    *  full-width layout has to raise the ceiling too. */
@@ -324,6 +337,24 @@ export function ClipPlayer({
   const onLoadedMetadataRef = useRef(onLoadedMetadata);
   onLoadedMetadataRef.current = onLoadedMetadata;
   const [scrubbing, setScrubbing] = useState(false);
+  /** A bare player's transport, showing for the moment (see `bare`). */
+  const [transportPeek, setTransportPeek] = useState(false);
+  const transportTimer = useRef<number | null>(null);
+  const peekTransport = useCallback(() => {
+    if (!bare) return;
+    setTransportPeek(true);
+    if (transportTimer.current !== null) window.clearTimeout(transportTimer.current);
+    transportTimer.current = window.setTimeout(() => {
+      transportTimer.current = null;
+      setTransportPeek(false);
+    }, TRANSPORT_PEEK_MS);
+  }, [bare]);
+  useEffect(
+    () => () => {
+      if (transportTimer.current !== null) window.clearTimeout(transportTimer.current);
+    },
+    []
+  );
   /** Brief ±10s flash so a double-tap is visibly acknowledged. */
   const [seekHint, setSeekHint] = useState<"back" | "fwd" | null>(null);
   const seekHintTimer = useRef<number | null>(null);
@@ -835,7 +866,10 @@ export function ClipPlayer({
     e.stopPropagation();
     scrubRef.current = null;
     setScrubbing(false);
-  }, []);
+    // A bare transport stays a moment after the finger lifts, so the
+    // result of the drag can be read before it clears.
+    peekTransport();
+  }, [peekTransport]);
 
   // ---- gesture handlers (on the wrapper: the video and, while paused, ----
   // ---- the glyph overlay both funnel here; small controls opt out) -------
@@ -1090,7 +1124,10 @@ export function ClipPlayer({
                   : "pan-y",
             }
       }
-      onPointerDown={onPointerDown}
+      onPointerDown={(e) => {
+        peekTransport();
+        onPointerDown(e);
+      }}
       onPointerMove={onPointerMove}
       onPointerUp={(e) => endPointer(e, false)}
       onPointerCancel={(e) => endPointer(e, true)}
@@ -1174,6 +1211,7 @@ export function ClipPlayer({
           setPaused(false);
           setEverPlayed(true);
           maybeTeachSeek();
+          peekTransport();
         }}
         onPause={() => setPaused(true)}
         onTimeUpdate={(e) => {
@@ -1373,6 +1411,7 @@ export function ClipPlayer({
           }`}
         />
       )}
+      {!bare && (
       <div className="absolute right-2 top-2 flex items-center gap-1.5">
       <button
         type="button"
@@ -1437,9 +1476,11 @@ export function ClipPlayer({
         </button>
       )}
       </div>
+      )}
       {/* speed + zoom, same controls the match player carries on its
           transport — pinch is invisible and desktop has nothing to pinch
           with. Bottom-right, clear of the progress bar's hit area. */}
+      {!bare && (
       <div
         data-nozoom
         data-noswipe
@@ -1551,6 +1592,7 @@ export function ClipPlayer({
           </button>
         )}
       </div>
+      )}
       {mode === "cut" ? (
         /* A full match needs a real transport. The hairline below is fine
            for a four-second rally — on seventeen minutes it is invisible,
@@ -1564,7 +1606,14 @@ export function ClipPlayer({
           onPointerMove={onScrubMove}
           onPointerUp={onScrubUp}
           onPointerCancel={onScrubUp}
-          className="absolute inset-x-0 bottom-0 cursor-pointer touch-none bg-gradient-to-t from-ink/85 to-transparent px-3 pb-2.5 pt-6"
+          aria-hidden={bare && !transportPeek && !scrubbing ? true : undefined}
+          className={`absolute inset-x-0 bottom-0 cursor-pointer touch-none bg-gradient-to-t from-ink/85 to-transparent px-3 pb-2.5 pt-6 ${
+            bare
+              ? `transition-opacity duration-200 ${
+                  transportPeek || scrubbing ? "opacity-100" : "pointer-events-none opacity-0"
+                }`
+              : ""
+          }`}
         >
           <div className="flex items-center gap-2.5">
             {/* Play/pause where the match player keeps it: bottom-left of
