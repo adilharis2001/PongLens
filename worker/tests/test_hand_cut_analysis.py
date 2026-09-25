@@ -51,6 +51,17 @@ class WindowTests(unittest.TestCase):
             [[0.0, 10.3], [18.8, 26.3], [96.8, 100.0]],
         )
 
+    def test_database_numerics_are_times(self):
+        # points.t0/t1 are numeric columns, so psycopg2 hands them back as
+        # Decimal. The first hand-cut highlights job in production refused
+        # every point as unmarked because only int and float counted.
+        from decimal import Decimal
+        points = [{"t0": Decimal("20.00"), "t1": Decimal("25.00")}]
+        self.assertEqual(
+            hca.clip_windows(points, Decimal("100.0"), 1.2, 1.3), [[18.8, 26.3]])
+        self.assertFalse(hca._finite(Decimal("NaN")))
+        self.assertFalse(hca._finite(True))
+
     def test_deleted_and_untimed_points_are_not_tracked(self):
         points = [{"t0": 10, "t1": 12, "deleted": True}, {"t0": None, "t1": 3}]
         self.assertEqual(hca.clip_windows(points, 50, 1.2, 1.3), [])

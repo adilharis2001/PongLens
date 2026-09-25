@@ -31,6 +31,7 @@ import bisect
 import gzip
 import json
 import math
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -288,5 +289,10 @@ def load_frame_clock(frames: Mapping[str, Any], fps: float) -> FrameClock:
 
 
 def _finite(value: Any) -> bool:
-    return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and math.isfinite(value))
+    """A usable time. Point times read from the database are numeric
+    columns, which psycopg2 returns as Decimal, so Decimal counts too."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, Decimal):
+        return value.is_finite()
+    return isinstance(value, (int, float)) and math.isfinite(value)
