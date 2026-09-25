@@ -3,8 +3,9 @@ import SwiftUI
 // More options: the Tools row of a PROCESSED match that took the place of
 // "Processing" (cut again design, 2026-09-25). It opens a sheet with the
 // raw page's two ways to cut a match, as the same components, then Report a
-// problem, which is today's Processing form unchanged. Owner only: a coach
-// keeps the Processing row under the hero.
+// problem, which closes the sheet and pushes the match's report page (the
+// Processing form unchanged), as the web's row navigates to it. Owner only:
+// a coach keeps the Processing row under the hero.
 
 /// What the match page lends the row: the model, the draft, and the three
 /// things only the page can do (open the marker over itself, open another
@@ -33,10 +34,17 @@ struct MoreOptionsToolRow: View {
     let match: MatchRow
     let hooks: MoreOptionsHooks?
     @Environment(\.scenePhase) private var scenePhase
+    /// Optional so the simulator fixture, which has no navigation root,
+    /// still draws the row.
+    @Environment(Router.self) private var router: Router?
     @State private var issue: MatchIssueModel
     @State private var open = false
     /// A match the sheet asked to open once it has closed.
     @State private var pendingOpen: UUID?
+    /// Report a problem was tapped: push the report page once the sheet
+    /// has closed. Pushing while it is still on screen would either stack
+    /// the page under it or have the push dropped.
+    @State private var pendingReport = false
     /// Full height when the two ways are offered, because the chosen way's
     /// controls always show and its button would otherwise sit below the
     /// fold; half height for the rest (a running cut, one line, Report a
@@ -79,6 +87,7 @@ struct MoreOptionsToolRow: View {
     var body: some View {
         Button {
             detent = offersWays ? .large : .medium
+            pendingReport = false
             open = true
         } label: {
             HStack(spacing: 8) {
@@ -115,6 +124,11 @@ struct MoreOptionsToolRow: View {
             if let id = pendingOpen {
                 pendingOpen = nil
                 hooks?.openMatch(id)
+            } else if pendingReport {
+                pendingReport = false
+                // The same route the bell pushes for a request's update,
+                // onto the match's own stack: Back returns to the match.
+                router?.openRoute = "match-feedback:\(match.id.uuidString.lowercased())"
             } else {
                 hooks?.afterDismiss()
             }
@@ -125,6 +139,10 @@ struct MoreOptionsToolRow: View {
                 issue: issue,
                 close: { opening in
                     pendingOpen = opening
+                    open = false
+                },
+                report: {
+                    pendingReport = true
                     open = false
                 },
                 expand: { detent = .large }
@@ -146,9 +164,11 @@ struct MoreOptionsSheet: View {
     let issue: MatchIssueModel
     /// Close the sheet, optionally opening a match once it has gone.
     let close: (UUID?) -> Void
+    /// Report a problem: close the sheet, then show the match's report
+    /// page. Never a second sheet over this one.
+    let report: () -> Void
     /// A way was picked: the sheet goes to full height.
     var expand: () -> Void = {}
-    @State private var reportOpen = false
 
     var body: some View {
         PLSheetScaffold(title: CutAgainCopy.moreOptions) {
@@ -157,7 +177,7 @@ struct MoreOptionsSheet: View {
                     CutAgainSections(match: match, hooks: hooks, close: close, expand: expand)
                 }
                 Section {
-                    Button { reportOpen = true } label: {
+                    Button { report() } label: {
                         HStack(spacing: 8) {
                             Text(CutAgainCopy.reportProblem)
                                 .font(.plRowTitle)
@@ -184,14 +204,6 @@ struct MoreOptionsSheet: View {
         .task {
             await hooks?.cutAgain.load()
             hooks?.cutAgain.startPolling()
-        }
-        .sheet(isPresented: $reportOpen) {
-            MatchProcessingSheet(
-                model: issue,
-                hasOriginal: match.rawPath?.hasPrefix("r2://ponglens-raw/") == true
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
     }
 }
@@ -298,9 +310,11 @@ private struct CutAgainSections: View {
                 }
                 .listRowInsets(EdgeInsets())
             } header: {
-                // What both rows do on a processed match, in the page's
-                // own section label ("TOOLS", "POINTS"). Nothing under it.
-                SectionHeading(CutAgainCopy.processAgain)
+                // What both rows do on a processed match, in the sheets'
+                // own section header (Match details' "Your side"), not the
+                // page's uppercase label: a sheet reads like every other
+                // sheet off the Tools list. Nothing under it.
+                Text(CutAgainCopy.processAgain)
             }
         }
     }

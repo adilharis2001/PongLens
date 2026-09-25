@@ -34,6 +34,11 @@ final class Router {
     /// match "Keep this match and add a new one" made (cut again). The
     /// navigation root replaces the page on top with that match's page.
     var openMatchId: UUID?
+    /// A shared route (AppRoute.swift) a match page asked for once its
+    /// sheet had gone: More options' Report a problem pushes the match's
+    /// report page. The navigation root pushes it onto the stack the page
+    /// is on, so Back returns to the match. Cleared once pushed.
+    var openRoute: String?
 
     #if DEBUG
     /// Headless-verification hooks: open a match (and optionally the player)

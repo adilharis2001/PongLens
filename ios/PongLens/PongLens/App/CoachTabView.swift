@@ -150,6 +150,13 @@ struct CoachTabView: View {
                 appRouter.openMatchId = nil
                 Task { await replaceTopMatch(id, library: library, path: $path) }
             }
+            // A match page's sheet has closed and asked for a page on top
+            // of the match (Report a problem), as the player's root does.
+            .onChange(of: appRouter.openRoute) { _, route in
+                guard let route else { return }
+                appRouter.openRoute = nil
+                path.append(route)
+            }
             .appRoutes()
         }
         .environment(router)
