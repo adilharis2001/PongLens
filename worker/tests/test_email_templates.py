@@ -3,6 +3,7 @@ import unittest
 
 from worker.email_templates import (
     hand_cut_failed_message,
+    hand_recut_failed_message,
     EmailMessage,
     admin_job_failure_message,
     cost_alert_message,
@@ -64,8 +65,8 @@ class EmailRendererTests(unittest.TestCase):
 class WorkerOutcomeCatalogTests(unittest.TestCase):
     def test_every_outcome_fixture_has_a_unique_rendered_identity(self):
         fixtures = worker_outcome_fixtures()
-        self.assertEqual(len(fixtures), 6)
-        self.assertEqual(len({f["message"].template_id for f in fixtures}), 6)
+        self.assertEqual(len(fixtures), 7)
+        self.assertEqual(len({f["message"].template_id for f in fixtures}), 7)
         for fixture in fixtures:
             rendered = render_email(fixture["message"])
             self.assertTrue(rendered.html)
@@ -80,6 +81,17 @@ class WorkerOutcomeCatalogTests(unittest.TestCase):
         self.assertIn("The original video could not be read.", rendered.text)
         self.assertIn("The points you marked are saved.", rendered.text)
         self.assertIn("https://www.ponglens.com/match/preview", rendered.text)
+
+    def test_a_failed_recut_says_the_match_is_unchanged_and_nothing_else(self):
+        rendered = render_email(hand_recut_failed_message(
+            "https://www.ponglens.com/match/preview"))
+        self.assertEqual(rendered.subject,
+                         "The new cut of your match didn't finish")
+        self.assertIn("Your match hasn't changed.", rendered.text)
+        self.assertIn("The points you marked are saved", rendered.text)
+        self.assertIn("https://www.ponglens.com/match/preview", rendered.text)
+        for word in ("Mac", "iPhone", "version", "free", "\u2014"):
+            self.assertNotIn(word, rendered.text)
 
     def test_match_ready_names_the_file_and_destination(self):
         rendered = render_email(match_ready_message(
