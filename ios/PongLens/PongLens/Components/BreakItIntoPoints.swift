@@ -256,68 +256,78 @@ struct MarkYourselfControls: View {
     }
 }
 
-/// Replace this match, or keep it and add a new one: two rows, one
-/// selected, Keep by default. Under Replace, while it is selected, what it
-/// deletes; a greyed Replace says why only when the reason is the player's
-/// to know (a coach review).
+/// Replace this match, or keep it and add a new one: two cells, one
+/// selected, Keep by default. The web's RecutChoice, cell for cell: a
+/// rounded field lit in the accent when chosen, with a radio mark so both
+/// read as a choice before either is picked. Under Replace, while it is
+/// chosen, what it deletes; a greyed Replace says why only when the reason
+/// is the player's to know (a coach review).
 struct RecutChoiceView: View {
     @Binding var state: RecutChoiceState
     var disabled = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            row(.replace)
-            Rectangle().fill(PL.edge).frame(height: 1)
-            row(.keep)
+        VStack(spacing: 10) {
+            cell(.replace)
+            cell(.keep)
         }
-        .background(PL.ink.opacity(0.35), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                .strokeBorder(PL.edge, lineWidth: 1)
-        )
     }
 
-    private func row(_ choice: RecutChoice) -> some View {
+    private func cell(_ choice: RecutChoice) -> some View {
         let isReplace = choice == .replace
-        let greyed = isReplace && !state.replaceAllowed
-        let selected = state.selected == choice && !greyed
+        let enabled = !isReplace || state.replaceAllowed
+        let on = state.selected == choice && enabled
+        let lines: [String] = isReplace
+            ? (enabled ? state.replaceLines : state.replaceBlockedLine.map { [$0] } ?? [])
+            : []
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return Button {
             withAnimation(.easeOut(duration: 0.15)) { state.select(choice) }
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
                     Text(isReplace ? CutAgainCopy.replace : CutAgainCopy.keep)
-                        .font(.plRowTitle)
-                        .foregroundStyle(greyed ? PL.text500 : PL.text100)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(on ? PL.cyan : PL.text100)
                         .fixedSize(horizontal: false, vertical: true)
-                    if isReplace, greyed, let line = state.replaceBlockedLine {
-                        Text(line)
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
-                    }
-                    if isReplace {
-                        ForEach(Array(state.replaceLines.enumerated()), id: \.offset) { i, line in
-                            Text(line)
-                                .font(.plCaption)
-                                .foregroundStyle(i == 0 ? PL.warningText : PL.text400)
-                                .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    ZStack {
+                        Circle()
+                            .strokeBorder(on ? PL.cyan : PL.text600, lineWidth: 1)
+                            .background(Circle().fill(on ? PL.cyan : .clear))
+                        if on {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .heavy))
+                                .foregroundStyle(PL.ink)
                         }
                     }
+                    .frame(width: 18, height: 18)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(selected ? PL.cyan : PL.text600)
-                    .opacity(greyed ? 0.5 : 1)
+                ForEach(lines, id: \.self) { line in
+                    Text(line)
+                        .font(.plBody)
+                        .foregroundStyle(PL.text400)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(
+                !enabled ? PL.ink.opacity(0.2) : on ? PL.cyan.opacity(0.1) : PL.ink.opacity(0.4),
+                in: shape
+            )
+            .overlay(
+                shape.strokeBorder(
+                    !enabled ? PL.edge.opacity(0.6) : on ? PL.cyan.opacity(0.7) : PL.edge,
+                    lineWidth: 1
+                )
+            )
+            .opacity(enabled ? 1 : 0.5)
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
-        .disabled(greyed || disabled)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityHint(greyed ? (state.replaceBlockedLine ?? "") : "")
+        .disabled(!enabled || disabled)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
