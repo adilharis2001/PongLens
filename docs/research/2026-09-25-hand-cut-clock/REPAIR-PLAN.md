@@ -169,8 +169,8 @@ $PY -B repair_hand_cut_clock.py apply $M
    ```
 7. Verify, once `waiting` is 0: repeat step 1, delete `$D/$M/match.json`
    so the corrected file is fetched, and repeat the `measure_drift.py` line.
-   Expected: every point early by at most one frame (±0.017 s), and every
-   re-cut clip opening within a frame of its `clip_t0` and closing within a
+   Expected: every point early by at most one frame (±0.017 s), and each
+   sampled re-cut clip opening within a frame of its `clip_t0` and closing within a
    frame of its `clip_t1`.
 8. Highlights on 623c09c6: its reel now reads as out of date, and the
    match page offers to update it; press it from the admin account. The
@@ -213,5 +213,5 @@ again the same way.
 | `clip_open.py` | what a drifted clip opens on |
 | `summarise.py`, `measurements.json`, `drift_chart.py`, `drift.svg` | the tables and chart above |
 | `inventory.py` | the read-only query behind every step (the query was run through the Supabase MCP; this wrapper was not) |
-| `repair_hand_cut_clock.py` | timeline (re-run), plan (read-only), apply, rollback. `apply` and `rollback` have only been dry-run |
+| `repair_hand_cut_clock.py` | timeline (re-run), plan (read-only), apply, rollback. `timeline` and `plan` were run on all eight; `apply` only with `--dry-run`; `rollback` never |
 | `r2ro.py` | read-only R2 access for the scripts above |
