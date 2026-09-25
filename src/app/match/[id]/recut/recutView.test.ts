@@ -429,7 +429,7 @@ test("More options says it processes the match again (Adil, 2026-09-25)", () => 
   const group2 = src.indexOf("{processRows && (");
   const report = src.indexOf(">\n              Report a problem");
   assert.ok(group2 > 0 && report > group2);
-  assert.match(src.slice(group2, report), /<\/>\s*\)\}[\s\S]*processRows \? "mt-9 border-b" : "mt-4"/);
+  assert.match(src.slice(group2, report), /<\/>\s*\)\}[\s\S]*processRows \? "mt-9 border-b lg:mt-6" : "mt-4"/);
 });
 
 test("cut strictness is gone from every player surface; new runs ask for normal (Adil, 2026-09-25)", () => {
@@ -483,4 +483,31 @@ test("one trim with its preview, on all three surfaces (Adil, 2026-09-25)", () =
   // A file the browser cannot play: the bar alone, never a broken player.
   assert.match(tp, /const showPicture = playable && !failed && !unavailable;/);
   assert.match(tp, /onMediaError=\{\(\) => setFailed\(true\)\}/);
+});
+
+test("More options on a desktop: a wide dialog, the ways side by side, trim left and action right (Adil, 2026-09-25)", () => {
+  const src = readMatch("recut/MoreOptions.tsx");
+  const shared = readMatch("BreakIntoPoints.tsx");
+  // A stock max-width from lg up; the phone's sheet and sm card unchanged.
+  assert.match(src, /widthClass="sm:max-w-md lg:max-w-4xl"/);
+  // The same pick-one group, two columns from lg up.
+  const group = src.slice(src.indexOf("<WayChoice"), src.indexOf("<AutoProcessPanel"));
+  assert.match(group, /className="mt-3 lg:grid-cols-2"/);
+  // Both ways' content in columns; the unprocessed page keeps one column.
+  assert.match(src, /actionLabel="Process again"\s*columns/);
+  assert.match(src, /<MarkYourselfPanel\s*className="mt-5 lg:mt-4"\s*columns/);
+  assert.doesNotMatch(readMatch("RawMatchView.tsx"), /\bcolumns\b/);
+  // One tree with responsive classes, never a second copy for desktop:
+  // one TrimPreview, so two videos never load or play.
+  const panel = shared.slice(shared.indexOf("export function AutoProcessPanel"), shared.indexOf("export function MarkYourselfPanel"));
+  assert.equal(panel.split("<TrimPreview").length - 1, 1);
+  assert.match(panel, /columns \? "lg:flex lg:items-start lg:gap-8"/);
+  assert.match(panel, /className=\{columns \? "lg:min-w-0 lg:shrink-0 lg:basis-3\/5" : ""\}/);
+  assert.match(panel, /columns \? "lg:min-w-0 lg:flex-1"/);
+  // The choice sits above the button in the right column.
+  assert.ok(panel.indexOf("{choice}") < panel.indexOf("{actionLabel}"));
+  assert.doesNotMatch(src + shared, /hidden lg:|lg:hidden|createPortal\(\s*<AutoProcessPanel/);
+  const mark = shared.slice(shared.indexOf("export function MarkYourselfPanel"), shared.indexOf("export function ProcessingProgress"));
+  assert.match(mark, /columns \? "lg:flex lg:items-center lg:gap-8"/);
+  assert.match(mark, /columns \? "mt-6 lg:mt-0 lg:min-w-0 lg:flex-1" : "mt-6"/);
 });

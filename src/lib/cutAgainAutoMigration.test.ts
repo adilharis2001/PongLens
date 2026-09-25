@@ -12,6 +12,7 @@ const sql = readFileSync("supabase/migrations/20260925170532_cut_again_auto_repl
 const code = sql.replace(/--.*$/gm, "");
 const web = readFileSync("src/app/match/[id]/recut/MoreOptions.tsx", "utf8");
 const ios = readFileSync("ios/PongLens/PongLens/Core/CutAgainModel.swift", "utf8");
+const iosCore = readFileSync("ios/PongLens/PongLens/Core/CutAgain.swift", "utf8");
 
 function fn(name: string): string {
   const start = code.search(new RegExp(`create or replace function public\\.${name}\\(`, "i"));
@@ -59,11 +60,17 @@ test("web and iOS send exactly the claim's parameters", () => {
   const params = ["p_match_id", "p_replace", "p_trim_start_s", "p_trim_end_s", "p_strictness"];
   const webCall = web.slice(web.indexOf('rpc("claim_auto_recut"'), web.indexOf('rpc("claim_auto_recut"') + 300);
   const iosCall = ios.slice(ios.indexOf("claimAutoRecut: { id, settings in"), ios.indexOf("claimAutoRecut: { id, settings in") + 900);
+  // The iPhone's parameters are a struct of their own (AutoRecutParams,
+  // Core/CutAgain.swift) since strictness became a constant there.
+  assert.match(iosCall, /"claim_auto_recut", params: AutoRecutParams\(matchId: id, settings: settings\)/);
+  const iosParams = iosCore.slice(iosCore.indexOf("struct AutoRecutParams"), iosCore.indexOf("// MARK: - start_recut"));
   for (const name of params) {
     assert.ok(webCall.includes(`${name}:`), `web sends ${name}`);
-    assert.ok(iosCall.includes(`let ${name}:`), `iOS sends ${name}`);
+    assert.ok(iosParams.includes(`let ${name}:`), `iOS sends ${name}`);
   }
-  assert.ok(iosCall.includes('rpc("claim_auto_recut"'));
+  // Both always ask for "normal" (Adil, 2026-09-25).
+  assert.match(iosParams, /p_strictness = ProcessSettings\.strictness/);
+  assert.match(iosCore, /static let strictness = "normal"/);
 });
 
 test("a failed re-cut never touches the live match and gives the minutes back", () => {

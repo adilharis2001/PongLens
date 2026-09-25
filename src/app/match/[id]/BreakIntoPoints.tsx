@@ -300,9 +300,15 @@ export function AutoProcessPanel({
   choice,
   onBalanceChecked,
   actionLabel = "Process",
+  columns = false,
   className = "p-5",
 }: {
   className?: string;
+  /** From `lg` up, two columns: the trim with its preview on the left
+   *  (three fifths, so the picture is wide) and the choice, the button and
+   *  its minutes on the right. One tree either way, so there is only ever
+   *  one preview player. More options on a desktop (Adil, 2026-09-25). */
+  columns?: boolean;
   quote: ProcessQuote;
   onProcess: () => void;
   busy: boolean;
@@ -328,11 +334,13 @@ export function AutoProcessPanel({
   const line = minutesUseLine(q.charge, q.availableMinutes, q.minutesShort);
   return (
     <div className={className}>
+      <div className={columns ? "lg:flex lg:items-start lg:gap-8" : undefined}>
       {/* No paragraph around the trim. The bar reads 0:00 · 12:04 kept ·
           12:04 under itself and the two buttons say what they do, so a
           sentence explaining them only pushes the handles further from
           the picture they are cut against. */}
       <TrimPreview
+        className={columns ? "lg:min-w-0 lg:shrink-0 lg:basis-3/5" : ""}
         src={preview.src}
         playable={preview.playable}
         aspect={preview.aspect}
@@ -359,12 +367,13 @@ export function AutoProcessPanel({
         onReset={q.resetTrim}
       />
       {q.duration != null && (
-        <>
-          {choice && <div className="mt-5">{choice}</div>}
+        <div className={columns ? "lg:min-w-0 lg:flex-1" : undefined}>
+          {choice && <div className={columns ? "mt-5 lg:mt-0" : "mt-5"}>{choice}</div>}
 
-          {/* Full width, with what it spends under it rather than
-              floating alongside. A hugging pill beside a loose sentence
-              was the scrappiest thing on this screen. */}
+          {/* Full width (of its column, on a desktop), with what it
+              spends under it rather than floating alongside. A hugging
+              pill beside a loose sentence was the scrappiest thing on
+              this screen. */}
           <div className="mt-6">
             <button
               onClick={onProcess}
@@ -393,8 +402,9 @@ export function AutoProcessPanel({
               }} />
             )}
           </div>
-        </>
+        </div>
       )}
+      </div>
       {error && <p className="mt-3 text-sm text-amber-300/90">{error}</p>}
     </div>
   );
@@ -413,10 +423,15 @@ export function MarkYourselfPanel({
   resume,
   opening,
   onStart,
+  columns = false,
   className = "p-5",
 }: {
   /** The host's spacing, as on AutoProcessPanel. */
   className?: string;
+  /** From `lg` up, the switch in the left three fifths and the button in
+   *  the right column, where Automatically keeps its own button, so
+   *  neither control stretches across a wide dialog. */
+  columns?: boolean;
   mode: CutMode;
   scoringAllowed: boolean;
   onMode: (mode: CutMode) => void;
@@ -427,10 +442,16 @@ export function MarkYourselfPanel({
 }) {
   const copy = scoreSwitchCopy(mode, scoringAllowed);
   return (
-    <div className={className}>
+    <div
+      className={`${className} ${columns ? "lg:flex lg:items-center lg:gap-8" : ""}`}
+    >
       {/* A labelled row with the app's switch, the shape the upload
           card's rows have. */}
-      <div className="rounded-xl border border-edge bg-ink/20">
+      <div
+        className={`rounded-xl border border-edge bg-ink/20 ${
+          columns ? "lg:min-w-0 lg:shrink-0 lg:basis-3/5" : ""
+        }`}
+      >
         <div className="flex items-center gap-3 p-3.5">
           <span className="min-w-0 flex-1">
             <span
@@ -452,7 +473,7 @@ export function MarkYourselfPanel({
           />
         </div>
       </div>
-      <div className="mt-6">
+      <div className={columns ? "mt-6 lg:mt-0 lg:min-w-0 lg:flex-1" : "mt-6"}>
         <button
           type="button"
           onClick={onStart}

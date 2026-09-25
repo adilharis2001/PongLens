@@ -513,7 +513,10 @@ export function MoreOptions({
         portal
         title="More options"
         onClose={() => setOpen(false)}
-        widthClass="sm:max-w-md"
+        // A phone's sheet and a small tablet's card as before; a desktop
+        // gets a wide dialog, so the trim's preview is a real picture
+        // (Adil, 2026-09-25).
+        widthClass="sm:max-w-md lg:max-w-4xl"
       >
         {view.running && (
           <ProcessingProgress
@@ -540,7 +543,8 @@ export function MoreOptions({
                 Each way ends in one cyan button, so exactly one shows. */}
             {ways.group && (
               <WayChoice
-                className="mt-3"
+                // Side by side on a desktop.
+                className="mt-3 lg:grid-cols-2"
                 label="Process again"
                 selected={ways.selected}
                 onSelect={setPickedWay}
@@ -552,10 +556,11 @@ export function MoreOptions({
             )}
             {ways.selected === "automatic" && (
               <AutoProcessPanel
-                className="mt-5"
+                className="mt-5 lg:mt-4"
                 quote={quote}
                 onProcess={() => void processAutomatically()}
                 actionLabel="Process again"
+                columns
                 busy={busy}
                 error={autoError}
                 // The original upload, signed once and held (originalUrl),
@@ -582,7 +587,8 @@ export function MoreOptions({
             {ways.selected === "hand" && (
               <>
                 <MarkYourselfPanel
-                  className="mt-5"
+                  className="mt-5 lg:mt-4"
+                  columns
                   mode={markMode}
                   scoringAllowed={scoringAllowed}
                   onMode={setModeChoice}
@@ -603,7 +609,7 @@ export function MoreOptions({
             over it. Alone in the sheet, it reads as it always has. */}
         <div
           className={`-mx-5 border-t border-edge/60 ${
-            processRows ? "mt-9 border-b" : "mt-4"
+            processRows ? "mt-9 border-b lg:mt-6" : "mt-4"
           }`}
         >
           <Link
