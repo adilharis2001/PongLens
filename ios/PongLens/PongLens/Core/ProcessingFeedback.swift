@@ -36,6 +36,29 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     /// The owner's iPhone is cutting this match; no Mac lane is involved yet.
     var onDevice: Bool { jobKind == "hand_cut" && phase == "device" }
 
+    /// Seconds since the phone last reported (or was handed the job). The
+    /// web's deviceQuietSeconds.
+    func deviceQuietSeconds(now: Date = Date()) -> Double? {
+        guard let deviceSeenAtString, let at = Self.stamp(deviceSeenAtString) else { return nil }
+        return max(0, now.timeIntervalSince(at))
+    }
+
+    /// A phone job with no word for a day: offer "Cut on the Mac instead",
+    /// as the web's offerMacInstead does.
+    func offersMacInstead(now: Date = Date()) -> Bool {
+        guard onDevice, let quiet = deviceQuietSeconds(now: now) else { return false }
+        return quiet >= 24 * 3600
+    }
+
+    /// A Postgres timestamp as JSON carries it ("2026-09-25T10:00:00.123456+00:00").
+    /// The fraction is dropped: a second is plenty for "over a day".
+    static func stamp(_ text: String) -> Date? {
+        let whole = text.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f.date(from: whole)
+    }
+
     struct CameraCheck: Decodable, Hashable {
         let statusString: String
         let changes: [Change]

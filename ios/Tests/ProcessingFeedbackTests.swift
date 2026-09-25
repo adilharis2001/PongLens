@@ -258,6 +258,12 @@ func runProcessingFeedbackChecks() {
         eq(phone(",\"device_seen_at\":\"2026-09-25T10:00:00+00:00\"")?.deviceSeenAtString,
            Optional("2026-09-25T10:00:00+00:00"), "last report crosses the boundary")
         check(phone("")?.onDevice == true, "a phone job is on the device")
+        let day = ISO8601DateFormatter().date(from: "2026-09-26T10:00:01Z")!
+        let seen = phone(",\"device_seen_at\":\"2026-09-25T10:00:00.123456+00:00\"")
+        eq(seen?.deviceQuietSeconds(now: day), Optional(86401), "quiet seconds from a Postgres stamp")
+        check(seen?.offersMacInstead(now: day) == true, "a day without word offers the Mac")
+        check(seen?.offersMacInstead(now: day.addingTimeInterval(-3600)) == false, "23 hours does not")
+        check(phone("")?.offersMacInstead(now: day) == false, "no stamp, no offer")
 
         let verifying = decodeProcessingFeedback("""
         {"match_id":"00000000-0000-0000-0000-000000000001","job_status":"queued","job_kind":"hand_cut","worker_state":"missing","cutter":"device","phase":"verify"}
