@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { validEndingLabel, normalizeEndingLabel, sameEndingLabel, bounceReviewInPoint } from '@/lib/research/pointEndings';
 import {suggestionKeys,validSuggestion,type EndingSuggestion} from '@/lib/research/endingSuggestions';
 import {validRallyPrediction} from '@/lib/research/rallyPredictions';
+import {START_REVIEW_CASES} from '@/lib/research/startReviewCases';
+import {startReviewAllowed} from '@/lib/research/startReview';
 import {cutReviewInPoint} from '@/lib/research/cutReview';
 export const runtime='nodejs';
 export async function POST(request:Request) {
@@ -16,9 +18,10 @@ export async function POST(request:Request) {
   const {data:current,error:readError}=await db.from('point_ending_research').select('id,label,revision,source').eq('id',body.id).eq('batch','out-ball-479-v1').maybeSingle();
   if(readError)return NextResponse.json({error:'Could not load the saved answer. Try again.'},{status:500});
   if(!current)return NextResponse.json({error:'Point not found.'},{status:404});
-  // Preserve optional bounce/contact answers omitted by older open tabs.
+  // Preserve optional review answers omitted by older open tabs.
   const label=normalizeEndingLabel(body.label,current.label);
   if(label.cutReview&&!cutReviewInPoint(label.cutReview,current.source))return NextResponse.json({error:'Mark the serve start and point end within this video window, with the start before the end.'},{status:400});
+  if(label.startReview&&!startReviewAllowed(label.startReview,current.label?.startReview,label.cutReview?.serveStart??null,START_REVIEW_CASES.find(item=>item.pointId===body.id)))return NextResponse.json({error:'The serve mark changed. Review the proposed start again before saving your answer.'},{status:400});
   if(label.bounceReview){
     const {data:evidence,error:evidenceError}=await db.from('point_ending_evidence').select('payload').eq('point_id',body.id).maybeSingle();
     if(evidenceError||!evidence)return NextResponse.json({error:'Could not load bounce references. Try again.'},{status:503});
