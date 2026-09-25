@@ -8,7 +8,7 @@ import test from "node:test";
 // Postgres by supabase/tests/marker_game_ends.sql (commands in
 // supabase/tests/marker_game_ends_stubs.sql); the marker's own score by
 // handCut.test.ts and the iOS parity fixture.
-const sql = readFileSync("supabase/migrations/20260925182951_marker_game_ends.sql", "utf8");
+const sql = readFileSync("supabase/migrations/20260925184230_marker_game_ends.sql", "utf8");
 const code = sql.replace(/--.*$/gm, "");
 const web = readFileSync("src/app/match/[id]/handCut.ts", "utf8");
 const swift = readFileSync("ios/PongLens/PongLens/Core/HandCut.swift", "utf8");

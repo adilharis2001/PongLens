@@ -20,7 +20,7 @@
 --            supabase/migrations/20260925133639_recut_prefill_guard_definer.sql \
 --            supabase/tests/cut_again_auto_stubs.sql \
 --            supabase/migrations/20260925170532_cut_again_auto_replace.sql \
---            supabase/migrations/20260925182951_marker_game_ends.sql \
+--            supabase/migrations/20260925184230_marker_game_ends.sql \
 --            supabase/tests/cut_again.sql \
 --            supabase/tests/cut_again_auto.sql \
 --            supabase/tests/marker_game_ends_stubs.sql \

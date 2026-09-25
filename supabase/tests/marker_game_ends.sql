@@ -1,4 +1,4 @@
--- Behaviour of 20260925182951_marker_game_ends.sql on the isolated database
+-- Behaviour of 20260925184230_marker_game_ends.sql on the isolated database
 -- marker_game_ends_stubs.sql describes (the header there has the commands),
 -- with production's canonical projection, so each publish is checked down
 -- to the games it projects. Every fixture rolls back. A failure raises
