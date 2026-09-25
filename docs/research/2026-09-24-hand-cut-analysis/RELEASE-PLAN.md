@@ -1,7 +1,7 @@
 # Hand-cut analysis: release plan (hand lane only)
 
 Detailed analysis and highlights for hand-cut matches need one new sealed
-release on the Mac's hand-cut lane, then migration `20260924210000`, then the
+release on the Mac's hand-cut lane, then migration `20260925025504`, then the
 web deploy, in that order. Main, fast, the health monitor and the cloud twin
 keep their current releases and are not touched. Nothing below has been
 executed; every step is for the owner to run or approve.
@@ -13,7 +13,7 @@ executed; every step is for the owner to run or approve.
 | Hand lane (`com.adil.ponglens-worker-hand`) | `18c66c589723…` from source `762ea2c0` | New release built from `codex/hc-worker` (worker code = main's `f78a93f7` plus this work) |
 | Main and fast lanes, health monitor | `a8b089021d26…` from `f78a93f7` | Unchanged |
 | Cloud twin (Modal) | `bb39d41fce2d…`, paired with `a8b08902` | Unchanged. It never reads `jobs_hand`, and `cloud_worker_decision` no longer counts anything routed there |
-| Database | Hand cuts refused by both placement requests; all placement and reels go to `jobs` | `20260924210000_hand_cut_analysis.sql`: refusals gone, hand-cut placement and highlights reel go to `jobs_hand` |
+| Database | Hand cuts refused by both placement requests; all placement and reels go to `jobs` | `20260925025504_hand_cut_analysis.sql`: refusals gone, hand-cut placement and highlights reel go to `jobs_hand` |
 | Web | Highlights route refuses hand cuts | Refusals removed; end rule knows the hand-cut pad |
 
 The worker source the new hand release carries: `git diff f78a93f7 <commit> -- worker`
@@ -53,7 +53,7 @@ that touches a staged or live release runs with `-B`.
 | 12 | Back up and write the launcher | Copy `~/Library/LaunchAgents/com.adil.ponglens-worker-hand.plist` to `$OPS/launcher-backup/`. Write the new one with the same launcher code `macos27-rebuild/make_plists.py` uses, label `com.adil.ponglens-worker-hand`, lane `hand`, new id (that script only writes main, fast and health; do not edit it, copy its `launcher()` into `$OPS/make_hand_plist.py`) | New plist differs from the backup only in the release id |
 | 13 | Switch | `touch <new state>/drain-hand`; `launchctl bootout gui/$(id -u)/com.adil.ponglens-worker-hand`; copy the new plist in; `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.adil.ponglens-worker-hand.plist` | `mac:hand` pulses the new id, stage `drained`, within a minute |
 | 14 | Open the lane | Remove `<new state>/drain-hand` | Pulse idle on the new id. Main and fast pulses unchanged (`a8b08902`) |
-| 15 | Apply the migration | `supabase/migrations/20260924210000_hand_cut_analysis.sql` | Read-only checks: `select public.job_queue_name('placement_generate', jsonb_build_object('match_id','04f1b393-f16f-4242-9f51-a853a276bae8'))` is `jobs_hand`; the same for an automatic match is `jobs`; `select public.cloud_worker_decision(false)` returns the same `reason` as before |
+| 15 | Apply the migration | `supabase/migrations/20260925025504_hand_cut_analysis.sql` | Read-only checks: `select public.job_queue_name('placement_generate', jsonb_build_object('match_id','04f1b393-f16f-4242-9f51-a853a276bae8'))` is `jobs_hand`; the same for an automatic match is `jobs`; `select public.cloud_worker_decision(false)` returns the same `reason` as before |
 | 16 | Deploy the web | Merge to `main`; Vercel deploys | Highlights GET on a hand cut no longer answers `unavailable` |
 | 17 | First real job | On a practice hand cut (04f1b393), request detailed analysis | Hand row on `/admin/processing` shows "Detailed analysis", then "Finding the ball"; placement ready; `hand-tracking.jsonl.gz` beside its `match.json` |
 | 18 | First highlights | On a scored hand cut past 75% (623c09c6 or 7ba06eb1), generate highlights after its detailed analysis | Hand-lane log says "reusing the saved hand-cut tracking"; reel renders; each rally ends at the rally's end, not 1.2 s early |
@@ -83,3 +83,11 @@ new release has run real hand-cut jobs. The runnable main/fast rollback
 | Placement on 04f1b393 with the hand-cut path | 20 of 20 points drawable; identical whether fed the windowed or the full-video tracking |
 | Share of frames the model runs on, the eight live hand cuts | The four matches 59 to 77%; the practice and untyped clips 6 to 73% (3 s warm-up included). Decoding every frame costs about 6% of a full run. Less saving than the spec's "roughly halves" on dense matches |
 | Variable frame rate, 62 recent originals (46 distinct videos) | 8 drift more than one frame from seconds x rate, 3 by more than 0.5 s; all 8 hand-cut originals within 2 ms. Method and rows: `measure_vfr.py`, `vfr-2026-09-24.json` |
+
+## Rolled out (2026-09-25, about 02:55 UTC)
+
+| Step | Result |
+| --- | --- |
+| 1 to 10 | Release `8d11ea7ee075a24375d6b31805120041d9272c9081954c40a770f8c5842948f3` built from `88092c90`, verified, smoke and windowed-equality checks passed (0 differing lines in 4,630 in-window frames on 04f1b393), staged |
+| 11 to 14 | Old hand lane drained, launcher backed up in `~/Library/Caches/PongLens/hand-cut-analysis-2026-09-24/launcher-backup/`, switched (the first `launchctl bootstrap` returned error 5 while the old service was still tearing down; the retry eight seconds later succeeded), `mac:hand` pulses the new id idle. Main and fast still `a8b08902`. The old state keeps its `drain-hand` file; remove it only for a rollback |
+| 15 | Applied through the Supabase MCP as versions `20260925025504` (`hand_cut_analysis`) and `20260925025508` (`recordings_to_photos`); the files carry those versions. Before applying, the live definitions were diffed against the file: only the two hand-cut refusals and the cloud decision's two filters change. Checks: hand-cut placement and highlights reel route to `jobs_hand`, automatic placement and uploads to `jobs`, reclips to `jobs_fast`; `authenticated` cannot execute `job_queue_name`; the cloud switch was `disabled` throughout |

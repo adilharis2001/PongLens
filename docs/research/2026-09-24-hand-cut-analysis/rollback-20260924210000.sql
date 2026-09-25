@@ -1,4 +1,4 @@
--- Rollback for supabase/migrations/20260924210000_hand_cut_analysis.sql.
+-- Rollback for supabase/migrations/20260925025504_hand_cut_analysis.sql.
 -- NOT a migration: kept out of supabase/migrations so nothing applies it by
 -- accident. Every body below is the live definition pulled with
 -- pg_get_functiondef on 2026-09-24, before the migration; CREATE OR REPLACE
