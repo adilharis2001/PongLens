@@ -162,7 +162,7 @@ videos). The rest of the app works without it.
   upload without it (403 ai_consent_required, which older iPhone builds
   already turn into the sheet). Later steps of an upload under way check
   only the terms, so switching it off never strands a half-sent video.
-- Migration `20260926200000` bumps `ai_consent_version` to 2026-09-26 and
+- Migration `20260926194732` bumps `ai_consent_version` to 2026-09-26 and
   asks the 14 accounts that allowed the older wording once more.
 - The "I have the right to upload this video" checkbox and the camera's
   "Before you record" sheet are gone. The promise is in the Terms.

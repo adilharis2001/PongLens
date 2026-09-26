@@ -98,7 +98,7 @@ export const getRecollectEnabled = cache(async (): Promise<boolean> => {
  *  features sheet. Bumping a value does not re-prompt by itself: the apps
  *  read only ai_features_enabled. A wording change that needs a fresh
  *  answer also clears the flag on rows stamped with an older version, as
- *  migration 20260926200000 did when match frames joined the sheet. */
+ *  migration 20260926194732 did when match frames joined the sheet. */
 export const FALLBACK_TERMS_VERSION = "2026-09-14";
 export const FALLBACK_AI_CONSENT_VERSION = "2026-09-26";
 export const getTermsVersion = cache(async (): Promise<string> => {

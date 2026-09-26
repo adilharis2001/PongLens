@@ -12,7 +12,7 @@
  * asks for something new also needs a fresh answer from everyone who
  * allowed the old wording: bump app_config.ai_consent_version and clear
  * ai_features_enabled on rows stamped with an older one (see migration
- * 20260926200000).
+ * 20260926194732).
  */
 export const AI_CONSENT_COPY = [
   "PongLens shares some of your data with two companies that help run the app. OpenAI looks at still frames from each match you record or upload, to confirm it is table tennis and to find the table. It also reads your notes, photos and lesson recordings to write summaries, answer your questions and tidy up what you write. Deepgram turns your voice notes into text.",
