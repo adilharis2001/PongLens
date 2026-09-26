@@ -11,9 +11,11 @@ import { TOOL_ROW_CLASS, ToolRowChevron } from "../ReelBar";
 import { matchFeedbackPresentation, submissionAttempt } from "./matchFeedbackView";
 
 /*
- * Private feedback about how a match was processed — Try processing again,
- * Request minutes back, or a plain report when neither applies — and the
- * review that follows.
+ * Report a problem: private feedback about how a match was processed —
+ * Try processing again, Request minutes back, or a plain report when
+ * neither applies — and the review that follows. The page, its heading,
+ * its tab title and every row that opens it read "Report a problem"
+ * (post-rollout audit N, 2026-09-26); they used to read Processing.
  * The public Feedback board is a different thing at /feedback; the match
  * page offers both, one row each, so an idea or a bug never has to be
  * squeezed into a question about one match's cut.
@@ -73,7 +75,8 @@ function useMatchIssueState(matchId: string, initialState: MatchIssueState | nul
  * The request state behind a match's Tools row: the row's trailing status,
  * and a refresh the moment a new cut goes live (a reviewed reprocess, or a
  * player's own replaced cut), so the page never plays a superseded one.
- * The Processing row and More options both run on it.
+ * The Report a problem row and More options both run on it. The row
+ * shows `requestStatus` on its right, which is null with no request open.
  */
 export function useMatchIssueRow({ matchId, isOwner, matchStatus, activeVersionId }: {
   matchId: string; isOwner: boolean; matchStatus: MatchIssueState["matchStatus"]; activeVersionId?: string | null;
@@ -87,25 +90,26 @@ export function useMatchIssueRow({ matchId, isOwner, matchStatus, activeVersionI
     role: isOwner ? "owner" : "coach", matchStatus, activeIssue: null, events: [],
     refundableMinutes: null, canPositive: false, canProblem: false, canReprocess: false, canRefund: false,
   });
-  return { trailing: view.trailing, requestStatus: view.statusLabel ? view.trailing : null, refresh };
+  return { requestStatus: view.trailing, refresh };
 }
 
-/** The Processing row in Tools, with a live trailing status even on a ready match. */
+/** The Report a problem row, with a request's live status on its right
+ *  when there is one. */
 export function MatchFeedbackLink({ matchId, isOwner, matchStatus, activeVersionId }: {
   matchId: string; isOwner: boolean; matchStatus: MatchIssueState["matchStatus"]; activeVersionId?: string | null;
 }) {
   const view = useMatchIssueRow({ matchId, isOwner, matchStatus, activeVersionId });
   return <Link href={`/match/${matchId}/feedback`} className={TOOL_ROW_CLASS}>
-    <span className="text-sm font-semibold">Processing</span>
+    <span className="text-sm font-semibold">Report a problem</span>
     <span className="flex min-w-0 shrink-0 items-center gap-2">
-      <span className="text-xs text-zinc-500">{view.trailing}</span>
+      {view.requestStatus && <span className="text-xs text-zinc-500">{view.requestStatus}</span>}
       <ToolRowChevron />
     </span>
   </Link>;
 }
 
 /**
- * The public Feedback board, one row under Processing. Ideas and bugs have
+ * The public Feedback board, one row under Report a problem. Ideas and bugs have
  * nothing to do with how one match was cut, but a match page is where most
  * of them occur to people. It used to open the board with this match
  * already attached; it no longer does (Adil, 2026-09-16), because a post
@@ -200,7 +204,7 @@ export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, tit
   };
 
   return <>
-    <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">Processing</h1>
+    <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">Report a problem</h1>
     <header className="my-5 flex min-w-0 items-center gap-3">
       {thumbnail && <div className="h-12 w-20 shrink-0 overflow-hidden rounded-lg bg-black">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -223,7 +227,7 @@ export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, tit
         {/* A coach, or an owner whose match is not ready, has one thing
             to say and no choice to make: the note is the whole form. */}
         {view.choices[0].kind !== "problem" && <fieldset disabled={busy || dictating} className="grid gap-3 sm:grid-cols-2">
-          <legend className="sr-only">Processing</legend>
+          <legend className="sr-only">Report a problem</legend>
           {view.choices.map(c => {
             const on = selected === c.kind;
             // The app's choose-one cells, side by side on a wide screen the

@@ -31,6 +31,7 @@ export function ShareAnalysis({
   servesOnly,
   pads,
   placementTrusted,
+  handCut = false,
 }: {
   /** The link's visible points, placement already reduced for the page. */
   points: Point[];
@@ -43,6 +44,12 @@ export function ShareAnalysis({
   pads: { pre: number; post: number } | null;
   /** Placement is ready, unflagged, and drew enough to show. */
   placementTrusted: boolean;
+  /** matches.cut_source = 'manual': the owner marked the points, so point
+   *  length and serve start come from the marks, as on the match page.
+   *  Without it a hand cut read as an automatic one here: the Point
+   *  length card needed a side it does not need, and the numbers differed
+   *  from the owner's. */
+  handCut?: boolean;
 }) {
   const score = useMemo(() => computeMatchScore(points), [points]);
   const serving = useMemo(
@@ -92,6 +99,7 @@ export function ShareAnalysis({
       gameIndexByPoint={gameIndexByPoint}
       serving={serving}
       prePad={(p) => effectivePad(pad, p.tight_start, p.tight_end).pre}
+      handCut={handCut}
       customReasonLabels={new Map()}
       labels={named}
       servesOnly={servesOnly}

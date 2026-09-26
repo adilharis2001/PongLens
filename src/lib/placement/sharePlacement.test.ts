@@ -271,3 +271,37 @@ test("slim placement drops the pixels and the noise, and keeps the table", () =>
   );
   assert.equal(slimPlacementForShare(null, true), null);
 });
+
+test("a hand-cut link computes the owner's cards from the marks, without a side", () => {
+  // The share page passes handCut for cut_source = 'manual' (ShareAnalysis,
+  // post-rollout audit I). The slim record the page ships reads the same
+  // as the full one, and a hand cut's point length needs no side.
+  const slim = synthetic.map((p) => ({
+    ...p,
+    placement: slimPlacementForShare(p.placement, true),
+  }));
+  const hand = (points: Point[], userSide: "near" | null) => ({
+    ...cardInputs(points),
+    userSide,
+    handCut: true,
+  });
+  const full = computeScoredCards(hand(synthetic, "near"));
+  assert.ok(full);
+  assert.deepEqual(computeScoredCards(hand(slim, "near")), full);
+  // Without a side, an automatic cut shows no cards at all; a hand cut
+  // still has its point length.
+  assert.equal(computeScoredCards({ ...cardInputs(slim), userSide: null }), null);
+  const sideless = computeScoredCards(hand(slim, null));
+  assert.ok(sideless);
+  assert.equal(sideless.pointLength.covered, 12);
+});
+
+test("the share page hands the cut source to the analysis deck", () => {
+  const read = (path: string) =>
+    readFileSync(new URL(`../../app/s/[token]/${path}`, import.meta.url), "utf8");
+  const page = read("page.tsx");
+  const deck = read("ShareAnalysis.tsx");
+  assert.match(page, /const handCut = isMatch && link\.cut_source === "manual"/);
+  assert.match(page, /<ShareAnalysis[\s\S]*?handCut=\{handCut\}[\s\S]*?\/>/);
+  assert.match(deck, /<AnalysisCards[\s\S]*?handCut=\{handCut\}[\s\S]*?\/>/);
+});

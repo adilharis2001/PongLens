@@ -11,10 +11,10 @@ export interface FeedbackChoice {
  * each only when the server says it applies to this match. A match with no
  * remedy left (the original no longer stored, nothing to refund) gets a
  * plain report instead, so there is always a way to say something went
- * wrong. Never "Looks good": the row this opens from says "Report a
- * problem", and on an old match the positive was the only thing on the
- * page, with nothing it could lead to. `hasOriginal` is only read to say
- * why a processed match has no remedy; null means not known.
+ * wrong. Never "Looks good": the page and the row that opens it are
+ * called "Report a problem", and on an old match the positive was the only
+ * thing on the page, with nothing it could lead to. `hasOriginal` is only
+ * read to say why a processed match has no remedy; null means not known.
  */
 export function matchFeedbackPresentation(state: MatchIssueState, hasOriginal: boolean | null = null) {
   const owner = state.role === "owner";
@@ -56,12 +56,12 @@ export function matchFeedbackPresentation(state: MatchIssueState, hasOriginal: b
   }
   const reportOnly = choices.length === 1 && choices[0].kind === "problem";
   return {
-    // The row's label never changes, so a status appearing in the trailing
-    // slot reads as one; with no request open, the slot is the door.
+    // The row reads "Report a problem" (post-rollout audit N, 2026-09-26),
+    // so its right side shows a request's status only when there is one,
+    // and nothing otherwise: repeating the label there said it twice.
     trailing: status === "resolved_refunded" && owner && typeof minutes === "number"
       ? `${minutes} ${minutes === 1 ? "minute" : "minutes"} returned`
-      : automaticMinutes !== null ? `${automaticMinutes} ${automaticMinutes === 1 ? "minute" : "minutes"} returned`
-      : status === "reprocess_queued" ? "Reprocessing" : statusLabel ?? "Report a problem",
+      : status === "reprocess_queued" ? "Reprocessing" : statusLabel,
     choices, statusLabel, message,
     automaticRefundMessage: automaticMinutes !== null
       ? `${automaticMinutes} processing ${automaticMinutes === 1 ? "minute was" : "minutes were"} returned automatically after processing failed.`

@@ -121,7 +121,10 @@ export function RawMatchView({
   const processingLabel = processingStageLabel(feedback);
   const cameraWarning = cameraViewWarning(feedback, trimStart, trimEnd ?? Infinity);
   const [job, setJob] = useState<ActiveJob | null>(initialJob);
-  const serviceState = services[feedback?.lane ?? serviceLane(feedback?.job_kind ?? job?.kind)];
+  const serviceState = services[
+    feedback?.lane ??
+      serviceLane(feedback?.job_kind ?? job?.kind, services.clip_lane, "", match.cut_source === "manual")
+  ];
   const availabilityContext = processingContext(feedback?.job_kind ?? job?.kind, !!match.raw_path);
   // A hand cut the owner's iPhone is cutting (claim_device_hand_cut). No
   // server lane is involved until the phone hands it over, so no lane's

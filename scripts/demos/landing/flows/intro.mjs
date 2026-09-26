@@ -376,8 +376,10 @@ export function makeFlow(layout) {
     // -------------------------------------------------- placement maps
     await clock.until(beat("season").end + 0.1);
     await go(page, `${base}/match/${ALEX}?skiphero=${layout.placementSkip}`);
-    await bring(page, clock, "Placement maps", layout.headerClear, "start");
-    await place(page, clock, { sectionOf: "Placement maps" }, layout.chromeClear + 10);
+    // The maps are cards in the Match analysis deck (2026-09-15); the tap
+    // below brings the heat map card into view as it goes.
+    await bring(page, clock, "Match analysis", layout.headerClear, "start");
+    await place(page, clock, { sectionOf: "Match analysis" }, layout.chromeClear + 10);
     await clock.until(beat("placement").start + 2.8);
     await tap(page, clock, { aria: "Placement heat map" }, 1400);
     await clock.until(beat("placement").end);

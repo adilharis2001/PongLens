@@ -346,44 +346,64 @@ export function markEnd(p: Point, pad: ClipPad): number | null {
 }
 
 /**
+ * Every kept point of a hand-cut match as its marks, on the cut clock,
+ * sorted by start: the unmerged tape, one span per point, each naming its
+ * point. Lets, deleted cards and points without marks play nothing.
+ * The iPhone's `HandCutPlayback.spans`.
+ */
+export function markedSpans(
+  points: Point[],
+  pad: ClipPad
+): { id: string; start: number; end: number }[] {
+  const spans: { id: string; start: number; end: number }[] = [];
+  for (const p of points) {
+    if (p.deleted || p.is_let) continue;
+    const start = markStart(p, pad);
+    const end = markEnd(p, pad);
+    if (start === null || end === null || end <= start) continue;
+    spans.push({ id: p.id, start, end });
+  }
+  return spans.sort((a, b) => a.start - b.start);
+}
+
+/**
  * The hand-cut tape: the spans a watch-through plays, in cut seconds,
  * sorted, overlaps merged. Walk it with tapeMove, the one skip rule: stay
  * inside a span, jump to the next span's start, end after the last.
  *
  * A card that plays its OWN clip (an inserted card whose footage the cut
- * does not hold; `ownClip`, from insertGeometry.ownClipIds) keeps its
- * whole padded card on the tape, so the jump lands on its start and the
- * player's detour takes over and plays that clip as it is.
+ * does not hold; insertGeometry.ownClipIds) is on the tape by its marks
+ * too, like every other point (post-rollout audit S5, 2026-09-26; the
+ * iPhone always did this). The player's detour plays it from its own clip
+ * on the same virtual clock, so the jump lands on its mark and the detour
+ * stops at its End mark (markEnd). It used to keep its whole padded card,
+ * so a point added after a hand cut played its pads on the web and not on
+ * the iPhone.
  */
 export function handCutTape(
   points: Point[],
-  pad: ClipPad,
-  ownClip: ReadonlySet<string> = new Set()
+  pad: ClipPad
 ): { start: number; end: number }[] {
-  const spans: { start: number; end: number }[] = [];
-  for (const p of points) {
-    if (p.deleted || p.is_let) continue;
-    if (p.cut_t0 === null || p.cut_t0 === undefined) continue;
-    if (ownClip.has(p.id)) {
-      const end = paddedEnd(p, pad);
-      if (end !== null && end > Number(p.cut_t0)) {
-        spans.push({ start: Number(p.cut_t0), end });
-      }
-      continue;
-    }
-    const start = markStart(p, pad);
-    const end = markEnd(p, pad);
-    if (start === null || end === null || end <= start) continue;
-    spans.push({ start, end });
-  }
-  spans.sort((a, b) => a.start - b.start);
   const merged: { start: number; end: number }[] = [];
-  for (const sp of spans) {
+  for (const sp of markedSpans(points, pad)) {
     const last = merged[merged.length - 1];
     if (last && sp.start <= last.end + EDGE_EPS_S) last.end = Math.max(last.end, sp.end);
-    else merged.push({ ...sp });
+    else merged.push({ start: sp.start, end: sp.end });
   }
   return merged;
+}
+
+/**
+ * Where a hand-cut watch-through goes after point `id`: the next kept
+ * point's Begin mark, or null when it was the last. The detour hands back
+ * here rather than to the next card's padded start. The iPhone's
+ * `HandCutPlayback.next`.
+ */
+export function nextMarkStart(points: Point[], pad: ClipPad, id: string): number | null {
+  const spans = markedSpans(points, pad);
+  const i = spans.findIndex((sp) => sp.id === id);
+  if (i < 0) return null;
+  return spans.slice(i + 1).find((sp) => sp.start >= spans[i].start)?.start ?? null;
 }
 
 /**
@@ -397,10 +417,9 @@ export function handCutTape(
  */
 export function handCutGaps(
   rows: Point[],
-  pad: ClipPad,
-  ownClip: ReadonlySet<string> = new Set()
+  pad: ClipPad
 ): { start: number; end: number }[] {
-  const tape = handCutTape(rows, pad, ownClip);
+  const tape = handCutTape(rows, pad);
   if (tape.length === 0) return [];
   const gaps: { start: number; end: number }[] = [];
   if (tape[0].start > 0.05) gaps.push({ start: 0, end: tape[0].start });

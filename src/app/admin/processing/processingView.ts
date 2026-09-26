@@ -26,6 +26,13 @@ export const SLOW_BEAT_STALE_S = 300;
  * "too long" means.
  */
 export const WAIT_ATTENTION_S = 1800;
+/**
+ * The same, for work queued on the hand lane. One process drains it, and a
+ * hand cut of a long match (a player's Replace by hand, most of all) holds
+ * it for an hour or more, so the next one waiting half an hour is the lane
+ * doing its job, not a backlog (post-rollout audit S2, 2026-09-26).
+ */
+export const HAND_WAIT_ATTENTION_S = 2 * 3600;
 
 /**
  * How recently a job's own progress must have moved for that movement to
@@ -46,8 +53,10 @@ export const JOB_MOVED_S = 180;
  * How long an iPhone may go without reporting before its row stops saying
  * what the phone is doing and says it is waiting for it. Never amber: a
  * phone in a pocket, locked or out of signal is not a fault in anything
- * this page watches, and after 72 hours the database hands the marks back
- * on its own (release_stale_device_hand_cuts).
+ * this page watches, and the database moves the job to the hand lane on
+ * its own once the phone has been quiet for 15 minutes, or 60 when its
+ * last report was the upload (release_stale_device_hand_cuts). The row
+ * then goes, and the job carries on as an ordinary hand cut.
  */
 export const DEVICE_QUIET_S = 300;
 
@@ -102,9 +111,21 @@ export interface WorkerPulse {
   host_cpu_count: number | null;
   player: string | null;
   job_created_at: string | null;
+  /** The held job is a player's own Replace (RecutFlag). */
+  job_player_replace?: boolean | null;
 }
 
-export interface QueuedJob {
+/**
+ * Whether a job is a player's own Replace ("Cut again", by hand or
+ * automatic), as the overview says it (20260926141940). False for support
+ * reprocessing a match. Optional: a database from before the field
+ * reports nothing, and the job reads as its kind alone.
+ */
+export interface RecutFlag {
+  player_replace?: boolean | null;
+}
+
+export interface QueuedJob extends RecutFlag {
   id: string;
   kind: string;
   created_at: string;
@@ -113,9 +134,11 @@ export interface QueuedJob {
   player: string | null;
   estimated_work_seconds: number | null;
   eta_latest_at: string | null;
+  /** The queue it waits in, where the overview says (jobs_hand, ...). */
+  queue_name?: string | null;
 }
 
-export interface RunningJob {
+export interface RunningJob extends RecutFlag {
   id: string;
   kind: string;
   created_at: string;
@@ -126,12 +149,14 @@ export interface RunningJob {
   player: string | null;
 }
 
-export interface FinishedJob {
+export interface FinishedJob extends RecutFlag {
   id: string;
   kind: string;
   status: "done" | "failed" | "cancelled";
-  /** A phone hand cut, released by its owner or by the 72-hour sweep.
-   *  Nothing about it proves a Mac worker ran. */
+  /** A phone hand cut its owner handed back, finished without a Mac
+   *  worker. (A quiet phone's job is not one: after 15 minutes without a
+   *  report, 60 while uploading, it moves to the hand lane and finishes
+   *  there.) Nothing about it proves a Mac worker ran. */
   on_device?: boolean;
   created_at: string;
   updated_at: string;
@@ -236,7 +261,7 @@ export interface LessonWorkers {
  * moving phone job must never read as a Mac lane alive, nor a quiet one as
  * a Mac job stalled.
  */
-export interface DeviceJob {
+export interface DeviceJob extends RecutFlag {
   id: string;
   created_at: string;
   updated_at: string;
@@ -295,6 +320,28 @@ export function isKnownKind(kind: string | null | undefined): boolean {
   return !!kind && kind in KIND_LABELS;
 }
 
+/**
+ * Is this job a player's Replace: a "Cut again" that will take the place
+ * of the match's current cut? Automatic (match_reprocess) or by hand
+ * (hand_cut). Support's reprocessing, the other match_reprocess, is not.
+ */
+export function isPlayerReplace(job: RecutFlag): boolean {
+  return job.player_replace === true;
+}
+
+/**
+ * A job's name on this page: its kind, and for a player's Replace, that
+ * it is one, so it is never mistaken for support reprocessing a match or
+ * for a first hand cut (post-rollout audit S2, 2026-09-26).
+ */
+export function jobLabel(kind: string | null | undefined, job: RecutFlag = {}): string {
+  const label = kindLabel(kind);
+  if (!isPlayerReplace(job)) return label;
+  if (kind === "match_reprocess") return "Player's Replace, automatic";
+  if (kind === "hand_cut") return "Player's Replace, by hand";
+  return label;
+}
+
 /** The stages a worker reports, as sentences rather than log tokens. */
 const STAGE_LABELS: Record<string, string> = {
   release_invalid: "Release verification failed",
@@ -305,6 +352,9 @@ const STAGE_LABELS: Record<string, string> = {
   camera_check: "Checking camera stability",
   trim: "Trimming to the claimed window",
   ball: "Finding the ball",
+  // The second pass of a vision-calibrated upload: detected again on the
+  // crop around the table the first pass found.
+  ball_recrop: "Finding the ball again, closer in",
   candidate_prepare: "Preparing candidate video",
   candidate_points: "Finding candidate points",
   candidate_save: "Saving candidate version",
@@ -510,7 +560,7 @@ export function loadNote(
 
 function pulseDetail(p: WorkerPulse, now: Date): string {
   const stage = stageLabel(p.stage);
-  const kind = kindLabel(p.job_kind);
+  const kind = jobLabel(p.job_kind, { player_replace: p.job_player_replace });
   const who = p.player ? ` · ${p.player}` : "";
   if (!p.job_id) return "Waiting for work";
   return `${stage ?? kind}${stage ? ` · ${kind}` : ""}${who} · ${durationLabel(
@@ -542,7 +592,7 @@ const STATE_DETAIL: Record<WorkerState, string> = {
  */
 function jobDetail(j: RunningJob, now: Date): string {
   const who = j.player ? ` · ${j.player}` : "";
-  return `${kindLabel(j.kind)}${who} · ${durationLabel(
+  return `${jobLabel(j.kind, j)}${who} · ${durationLabel(
     secondsBetween(j.created_at, now),
   )}`;
 }
@@ -619,6 +669,7 @@ export function deviceRows(
     const quietS = secondsBetween(d.reported_at ?? d.created_at, now);
     const quiet = quietS === null || quietS > DEVICE_QUIET_S;
     const who = d.player ? ` · ${d.player}` : "";
+    const kind = isPlayerReplace(d) ? `${DEVICE_KIND_LABEL}, player's Replace` : DEVICE_KIND_LABEL;
     const heard = d.reported_at
       ? `last report ${agoLabel(d.reported_at, now)}`
       : "no report yet";
@@ -627,8 +678,8 @@ export function deviceRows(
       title: "iPhone",
       state: quiet ? "waiting" : "working",
       detail: quiet
-        ? `Waiting for the iPhone · ${DEVICE_KIND_LABEL}${who} · ${heard}`
-        : `${stageLabel(d.stage) ?? "Cutting on the iPhone"} · ${DEVICE_KIND_LABEL}${who} · ${durationLabel(
+        ? `Waiting for the iPhone · ${kind}${who} · ${heard}`
+        : `${stageLabel(d.stage) ?? "Cutting on the iPhone"} · ${kind}${who} · ${durationLabel(
             secondsBetween(d.created_at, now),
           )}`,
       caveat: null,
@@ -1060,8 +1111,16 @@ export function cloudSummary(
 
 export interface WaitingRow extends QueuedJob {
   waited: number;
-  /** Waited past the cloud dispatcher's own overflow trigger. */
+  /** Waited past the cloud dispatcher's own overflow trigger, or, on the
+   *  hand lane, past HAND_WAIT_ATTENTION_S. */
   attention: boolean;
+}
+
+/** Whether a queued job waits for the hand lane: a hand cut, or whatever
+ *  the overview says is queued there. */
+export function waitsForHandLane(job: Pick<QueuedJob, "kind" | "queue_name">): boolean {
+  if (job.queue_name) return job.queue_name === "jobs_hand";
+  return job.kind === "hand_cut";
 }
 
 export function waitingRows(
@@ -1071,7 +1130,8 @@ export function waitingRows(
   return doc.waiting
     .map((job) => {
       const waited = secondsBetween(job.created_at, now) ?? 0;
-      return { ...job, waited, attention: waited >= WAIT_ATTENTION_S };
+      const limit = waitsForHandLane(job) ? HAND_WAIT_ATTENTION_S : WAIT_ATTENTION_S;
+      return { ...job, waited, attention: waited >= limit };
     })
     .sort((a, b) => b.waited - a.waited);
 }

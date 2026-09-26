@@ -175,11 +175,20 @@ function SubmitWizard({
         })),
       }),
     }).catch(() => null);
-    setBusy(false);
     if (!res?.ok) {
-      setNote("Could not send it. Try again.");
+      const data = await res?.json().catch(() => null);
+      setBusy(false);
+      // submit_review_order refuses while the match is being cut again
+      // (a Replace running, or its new cut waiting to go live): the coach
+      // would review a cut that is about to be replaced.
+      setNote(
+        data?.code === "recut_in_progress"
+          ? "This match is being cut again. Send it once the new cut is ready."
+          : "Could not send it. Try again.",
+      );
       return;
     }
+    setBusy(false);
     onDone();
   }
 

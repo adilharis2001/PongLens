@@ -22,10 +22,32 @@ export function normalizeServiceStatus(value: unknown, now = Date.now()): Proces
     clip_lane: row.clip_lane === "fast" ? "fast" : "main", observed_at: row.observed_at as string };
 }
 
-/** Mirrors enqueue_job's routing; status comes from the server, not this map. */
-export function serviceLane(kind: string | null | undefined, clipLane: "main" | "fast" = "main", scope = ""): ServiceLane {
+/**
+ * Mirrors the database's job_queue_name, the one routing every job is
+ * queued by (20260925145751); status comes from the server, not this map.
+ *
+ *   re-cuts, a video's content check and vertical exports ("v:" reels)
+ *     follow app_config.reclip_lane: the fast lane when it says fast
+ *   a hand cut, and the detailed analysis and highlights reel of a match
+ *     cut by hand, run on the hand lane
+ *   everything else runs on the main lane
+ *
+ * `handCutMatch` is matches.cut_source = 'manual' for the job's match. The
+ * notices used to read the main lane for content checks and for a hand
+ * cut's follow-ups (post-rollout audit S1, 2026-09-26), so an idle main
+ * lane hid a stopped one and the other way round.
+ */
+export function serviceLane(
+  kind: string | null | undefined,
+  clipLane: "main" | "fast" = "main",
+  scope = "",
+  handCutMatch = false,
+): ServiceLane {
+  if (kind === "reclip" || kind === "content_check" || (kind === "reel" && scope.startsWith("v:"))) return clipLane;
   if (kind === "hand_cut") return "hand";
-  if (kind === "reclip" || (kind === "reel" && scope.startsWith("v:"))) return clipLane;
+  if (handCutMatch && (kind === "placement_generate" || kind === "placement_retry" || (kind === "reel" && scope === "highlights"))) {
+    return "hand";
+  }
   return "main";
 }
 
@@ -63,6 +85,9 @@ export interface ProcessingWork {
   /** A hand cut the owner's phone is cutting. No server lane is involved
    *  until the phone hands it over, so no lane's outage blocks it. */
   onDevice?: boolean;
+  /** The job's match was cut by hand: its analysis and highlights run on
+   *  the hand lane (serviceLane). */
+  handCutMatch?: boolean;
 }
 
 /** Only blocked work contributes to the outage notice; other lanes keep their
@@ -70,7 +95,7 @@ export interface ProcessingWork {
 export function summarizeProcessingWork(services: ProcessingServiceStatus, work: ProcessingWork[]) {
   const active = work.filter((job) => job.status === "queued" || job.status === "processing");
   const blocked = active.filter((job) => !job.onDevice
-    && availabilityNotice(services[job.lane ?? serviceLane(job.kind, services.clip_lane)], "queued_work"));
+    && availabilityNotice(services[job.lane ?? serviceLane(job.kind, services.clip_lane, "", job.handCutMatch)], "queued_work"));
   const continuing = active.filter((job) => !blocked.includes(job));
   const first = continuing[0];
   const queued = continuing.length > 0 && continuing.every((job) => job.status === "queued");
@@ -82,7 +107,7 @@ export function summarizeProcessingWork(services: ProcessingServiceStatus, work:
   const sendsEmail = continuing.length > 0 && continuing.every((job) => (job.kind === "deadspace_cut" || job.kind === "hand_cut") && job.videoSaved);
   const firstBlocked = blocked[0];
   const notice = firstBlocked ? availabilityNotice(
-    services[firstBlocked.lane ?? serviceLane(firstBlocked.kind, services.clip_lane)],
+    services[firstBlocked.lane ?? serviceLane(firstBlocked.kind, services.clip_lane, "", firstBlocked.handCutMatch)],
     blocked.length === 1 ? processingContext(firstBlocked.kind, firstBlocked.videoSaved) : "queued_work",
   ) : null;
   return { blockedCount: blocked.length, continuingCount: continuing.length, continuingLabel, queued, notice,

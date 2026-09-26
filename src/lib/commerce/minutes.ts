@@ -92,6 +92,23 @@ export function minutesUseLine(
   return { text: `Uses ${charge} of your ${formatMinutes(balance)}.`, short: false };
 }
 
+/**
+ * Whether the automatic run's button can be pressed: there is a charge to
+ * pay, the server has not just refused it, and the balance covers it or is
+ * not known. An unknown balance used to disable the button on the web
+ * while the iPhone left it on (post-rollout audit S4, 2026-09-26); the
+ * claim checks the balance itself and refuses when it is short, so both
+ * now let the press through, with "Uses N minutes." under it.
+ */
+export function processAllowed(
+  charge: number | null,
+  balance: number | null,
+  refused = false,
+): boolean {
+  if (charge == null || refused) return false;
+  return balance == null || balance >= charge;
+}
+
 /** "1:07:24" / "7:24" — video durations shown next to the player. */
 export function formatClock(durationS: number): string {
   if (!Number.isFinite(durationS) || durationS < 0) return "0:00";

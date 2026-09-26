@@ -522,7 +522,10 @@ export function makeFlow(layout) {
       // No chip. The ring underlines a sentence that already says "lands in
       // your library", so a chip would repeat it, and at this height the
       // chip sits above the box and lands squarely on the page title.
-      // The processing toggle, which IS the choice the line describes.
+      // The "Break it into points" choice, which IS the choice the line
+      // describes. It replaced the "Process when the upload finishes"
+      // switch on 2026-09-25, and the ring was still looking for the switch
+      // (post-rollout audit R4, 2026-09-26).
       //
       // This used to ring the page's subtitle, "Pick a video and it lands in
       // your library. Process it into points whenever you like." That
@@ -531,8 +534,8 @@ export function makeFlow(layout) {
       // that cannot find its target fails quietly and the beat just has no
       // box in it. The row is the better target anyway: it is the control,
       // not a description of the control.
-      spec: { text: "Process when the upload finishes", tag: "div, p, span" },
-      // A row of small type, not a section: the 40px floor drops it.
+      spec: { aria: "Break it into points" },
+      // A small group, not a section: the 40px floor drops it.
       min: 18,
       until: beat("upload").end,
     });
@@ -837,12 +840,14 @@ export function makeFlow(layout) {
     // ---------------------------------------------------- 7. placement
     await clock.until(beat("season").end + 0.1);
     await go(page, `${base}/match/${ALEX}?skiphero=${layout.placementSkip}`);
-    await bring(page, clock, "Placement maps", layout.headerClear, "start");
+    // The maps are cards in the Match analysis deck since 2026-09-15; the
+    // "Placement maps" section this used to scroll to is gone.
+    await bring(page, clock, "Match analysis", layout.headerClear, "start");
     // The whole section, sat just under the chrome. It used to be nudged a
     // fixed distance past its heading, which put the heading and the game
     // filter half behind the fixed match bar — a title sliced down the
     // middle is the first thing anyone notices in a still.
-    await place(page, clock, { sectionOf: "Placement maps" }, layout.chromeClear + 10);
+    await place(page, clock, { sectionOf: "Match analysis" }, layout.chromeClear + 10);
     await clock.until(beat("placement").start + 2.6);
     await tap(page, clock, { aria: "Placement heat map" }, 1400);
     // Nothing ringed. The ring here lasted half a second — the beat spends

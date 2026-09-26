@@ -54,8 +54,11 @@ import {
   LET_H,
   RAIL_GAP,
   TOP_BAR_H,
+  type GateButton,
   type PairTile,
   type SafeInsets,
+  gateButtons,
+  gateDetailFont,
   markLandscape,
   pairTileHeight,
   railPair,
@@ -69,7 +72,11 @@ import {
   type Outcome,
   clearAwaiting,
   firstUnscored,
+  followPlayback,
   gapsAround,
+  gateStart,
+  CLIP_POST_S as CLIP_POST,
+  CLIP_PRE_S as CLIP_PRE,
   insertMark,
   lastClosedEnd as lastEnd,
   markNextServer,
@@ -104,16 +111,11 @@ const REFUSE_MS = 2000;
  *  network, so a flaky connection costs a later save and never a tap. */
 const SAVE_DEBOUNCE_MS = 1500;
 
-/** The floating desktop card, and where it was last dropped. Its own key,
- *  because it is a different card at a different size from Keep score's. */
-/** The pads the worker cuts a hand-marked clip with, mirrored here so the
- *  preview shows the clip the player will actually get rather than the
- *  bare rally. Must match claim_hand_cut's clip_pads. */
 /** Longer than ClipPlayer's own double-tap window (280ms), so the pause
- *  inside a double tap never paints a play button. */
+ *  inside a double tap never paints a play button. The clip pads,
+ *  CLIP_PRE and CLIP_POST, are handCut's: the ones the worker cuts a
+ *  hand-marked clip with. */
 const PAUSE_GLYPH_MS = 340;
-const CLIP_PRE = 1.2;
-const CLIP_POST = 1.3;
 
 /** How far before a point Redo drops the playhead, so there is a run-up to
  *  the serve rather than landing on top of it. */
@@ -393,8 +395,6 @@ export function MarkPoints({
     openAs(initialMarks, durationS, openedMode)
   );
   const openedCalled = openedAs === "review" || openedAs === "choice";
-  const openedFinished = openedAs === "review";
-  const openedPartial = openedAs === "choice";
   const [state, setState] = useState<MarkState>(() =>
     resumed
       ? {
@@ -1205,6 +1205,51 @@ export function MarkPoints({
   }, [resumeMarking]);
 
   /**
+   * The gate's lit button, whatever it says (handCut.gateStart): a fresh
+   * pass plays from where the tape is; "Keep marking" on a draft with
+   * points still to call plays the first of them as its clip and stops at
+   * its end; "Begin review" does the same from the first point; "Keep
+   * marking" on a called draft carries on from the last point's end. The
+   * portrait pad, the desktop card, the landscape rail and the keyboard
+   * all come through here.
+   */
+  const startFromGate = useCallback(() => {
+    const g = gateStart(openedAs, stateRef.current.marks);
+    if (g.kind === "clip") {
+      setStarted(true);
+      playMark(g.id);
+    } else if (g.kind === "carryOn") {
+      beginMarking();
+    } else {
+      beginCutting();
+    }
+  }, [openedAs, playMark, beginMarking, beginCutting]);
+
+  /**
+   * The selection follows the picture (handCut.followPlayback): played on
+   * from a selected point, the next point's clip selects that point and
+   * stops at its end. Only while a point is selected and nothing is being
+   * adjusted, answered or marked.
+   */
+  const followTape = useCallback(
+    (t: number) => {
+      if (pausedForAnswer.current) return;
+      const s = stateRef.current;
+      const next = followPlayback({
+        marks: s.marks,
+        selectedId: s.selectedId,
+        awaitingId: s.awaitingId,
+        adjusting: adjusting !== null,
+        t,
+      });
+      if (!next) return;
+      setState((st) => (st.selectedId === next.id ? st : selectMark(st, next.id)));
+      previewUntil.current = next.stopAt;
+    },
+    [adjusting]
+  );
+
+  /**
    * "Start again", confirmed: every mark goes and the pad is a fresh pass
    * from the top of the video. The empty draft is saved like any other
    * change, so reopening starts empty too. There is no undo for this; the
@@ -1331,9 +1376,7 @@ export function MarkPoints({
       if (!started) {
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
-          if (openedPartial) beginMarking();
-          else if (openedFinished) beginReview();
-          else beginCutting();
+          startFromGate();
         }
         return;
       }
@@ -1398,7 +1441,6 @@ export function MarkPoints({
     speed,
     chooseSpeed,
     started,
-    beginCutting,
     open,
     tapBegin,
     tapReset,
@@ -1409,10 +1451,7 @@ export function MarkPoints({
     seekBy,
     reviewing,
     confirmClear,
-    openedPartial,
-    openedFinished,
-    beginMarking,
-    beginReview,
+    startFromGate,
   ]);
 
   /* ---------------------------------------------------------- draft saves */
@@ -2127,12 +2166,26 @@ export function MarkPoints({
    * footer still sits at the foot. "Start again" follows the buttons.
    */
   const startAgainShown = canStartAgain && state.marks.length > 0;
-  const gateLabel =
-    openedAs === "review"
-      ? "Begin review"
-      : openedAs === "scoring"
-        ? "Keep marking"
-        : "Begin Cutting";
+  /**
+   * Each button with the line under it (markLandscape.gateButtons): a
+   * 12 px grey line that says what Keep marking and Start again do, shown
+   * when the marker opens on points already there (post-rollout audit B,
+   * wording approved by Adil 2026-09-26).
+   */
+  const gateTap = (b: GateButton) => {
+    if (b.action === "reviewPoints") return beginReview();
+    if (b.action === "startAgain") {
+      playApi.current?.pause();
+      return setConfirmClear(true);
+    }
+    return startFromGate();
+  };
+  const gateButtonClass = (b: GateButton) =>
+    b.lit
+      ? "glow-cta h-16 w-full shrink-0 rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]"
+      : b.action === "startAgain"
+        ? "h-11 w-full shrink-0 rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-amber-400/50 hover:text-amber-200 active:scale-[0.99]"
+        : "h-12 w-full shrink-0 rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]";
   const beginCuttingButton = (
     <div
       className={
@@ -2141,40 +2194,16 @@ export function MarkPoints({
           : "flex min-h-0 flex-1 flex-col gap-2.5"
       }
     >
-      <button
-        type="button"
-        onClick={
-          openedPartial
-            ? beginMarking
-            : openedFinished
-              ? beginReview
-              : beginCutting
-        }
-        className="glow-cta h-16 w-full shrink-0 rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]"
-      >
-        {openedPartial ? "Keep marking" : gateLabel}
-      </button>
-      {openedPartial && (
-        <button
-          type="button"
-          onClick={beginReview}
-          className="h-12 w-full shrink-0 rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]"
-        >
-          Review the points
-        </button>
-      )}
-      {startAgainShown && (
-        <button
-          type="button"
-          onClick={() => {
-            playApi.current?.pause();
-            setConfirmClear(true);
-          }}
-          className="h-11 w-full shrink-0 rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-amber-400/50 hover:text-amber-200 active:scale-[0.99]"
-        >
-          Start again
-        </button>
-      )}
+      {gateButtons(openedAs, startAgainShown).map((b) => (
+        <div key={b.action} className="flex shrink-0 flex-col gap-1.5">
+          <button type="button" onClick={() => gateTap(b)} className={gateButtonClass(b)}>
+            {b.label}
+          </button>
+          {b.detail && (
+            <p className="px-1 text-[12px] leading-snug text-zinc-500">{b.detail}</p>
+          )}
+        </div>
+      ))}
     </div>
   );
 
@@ -2377,11 +2406,9 @@ export function MarkPoints({
     const onPair = (t: PairTile) => {
       switch (t.action) {
         case "beginCutting":
-          return beginCutting();
         case "beginReview":
-          return beginReview();
         case "keepMarking":
-          return beginMarking();
+          return startFromGate();
         case "reviewPoints":
           return beginReview();
         case "begin":
@@ -2675,7 +2702,25 @@ export function MarkPoints({
                 fontSize: g.pairFont,
               }}
             >
-              {t.label}
+              {t.detail ? (
+                // The gate's line, smaller, inside the tile. The column
+                // wraps rather than overflows: on a rail too short for
+                // it the line moves into a second column this box
+                // clips, so the label is never pushed out of its tile.
+                <span className="flex h-full w-full flex-col flex-wrap content-start items-center justify-center overflow-hidden py-1.5">
+                  <span className="w-full">{t.label}</span>
+                  <span
+                    className={`w-full pt-1 font-medium leading-[1.2] ${
+                      t.tone === "lit" ? "text-ink/75" : "text-zinc-400"
+                    }`}
+                    style={{ fontSize: gateDetailFont(g.tileW) }}
+                  >
+                    {t.detail}
+                  </span>
+                </span>
+              ) : (
+                t.label
+              )}
             </button>
           ))}
         </div>
@@ -2784,7 +2829,9 @@ export function MarkPoints({
               previewUntil.current = null;
               playApi.current?.pause();
               chainAfterPreview();
+              return;
             }
+            if (started) followTape(el.currentTime);
           }}
           onLoadedMetadata={(el) => {
             if (el.videoWidth > 0 && el.videoHeight > 0) {

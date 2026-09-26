@@ -16,7 +16,7 @@ import {
   cloudSummary,
   durationLabel,
   isKnownKind,
-  kindLabel,
+  jobLabel,
   queueSummary,
   secondsBetween,
   sourceName,
@@ -25,6 +25,7 @@ import {
   waitingRows,
   type CloudMode,
   type ProcessingOverview,
+  type RecutFlag,
   type WorkerRow,
   type WorkerState,
 } from "./processingView";
@@ -92,10 +93,10 @@ const STATE_TEXT: Record<WorkerState, string> = {
 
 /** A job kind the page has not been taught reads as its raw name, with a
  *  marker, so the gap gets noticed on that kind's first job. */
-function Kind({ kind }: { kind: string }) {
+function Kind({ kind, job }: { kind: string; job?: RecutFlag }) {
   return (
     <>
-      {kindLabel(kind)}
+      {jobLabel(kind, job)}
       {!isKnownKind(kind) && (
         <span className="ml-1.5 rounded-full bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
           new kind
@@ -320,7 +321,7 @@ export function ProcessingSection({
             <ul className="mt-3 space-y-2">
               {stalled.map((job) => (
                 <li key={job.id} className="text-sm text-zinc-300">
-                  <Kind kind={job.kind} />
+                  <Kind kind={job.kind} job={job} />
                   {job.player && (
                     <span className="text-zinc-500"> · {job.player}</span>
                   )}
@@ -369,7 +370,7 @@ export function ProcessingSection({
             >
               <div className="min-w-0">
                 <p className="truncate text-sm text-zinc-200">
-                  <Kind kind={job.kind} />
+                  <Kind kind={job.kind} job={job} />
                   {job.player && (
                     <span className="text-zinc-500"> · {job.player}</span>
                   )}
@@ -412,7 +413,7 @@ export function ProcessingSection({
             >
               <div className="min-w-0">
                 <p className="truncate text-sm text-zinc-200">
-                  <Kind kind={job.kind} />
+                  <Kind kind={job.kind} job={job} />
                   {job.player && (
                     <span className="text-zinc-500"> · {job.player}</span>
                   )}

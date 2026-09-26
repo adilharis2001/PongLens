@@ -197,6 +197,33 @@ async function openPlayer(page, matchId = MATCH_A) {
   await pauseVideos(page);
 }
 
+/**
+ * Scroll to the Match analysis deck and swipe it to the card holding
+ * `needle`: text on the card, or the start of an aria label on it. The
+ * serve maps and the next-step card are cards in the deck (2026-09-15),
+ * placed after whatever cards the match has, so they are found by what
+ * they hold. Reading only: nothing here is pressed.
+ */
+async function showAnalysisCard(page, needle) {
+  await page.getByRole("heading", { name: "Match analysis", exact: true }).waitFor({ timeout: 20000 });
+  await page.waitForFunction(
+    (n) =>
+      [...document.querySelectorAll("[aria-label]")].some((el) => el.getAttribute("aria-label").startsWith(n)) ||
+      document.body.innerText.includes(n),
+    needle,
+    { timeout: 20000 }
+  );
+  await page.evaluate((n) => {
+    const heading = [...document.querySelectorAll("h2")].find((h) => h.textContent.trim() === "Match analysis");
+    heading?.scrollIntoView({ block: "start" });
+    window.scrollBy(0, -70);
+    const byAria = [...document.querySelectorAll("[aria-label]")].find((el) => el.getAttribute("aria-label").startsWith(n));
+    const byText = [...document.querySelectorAll("p, span, h3")].find((el) => el.textContent.trim() === n);
+    const card = (byAria ?? byText)?.closest(".snap-center");
+    card?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, needle);
+}
+
 const shots = {
   // The Learn-only Playing/Coaching selector. Miguel is a staged dual-role
   // account, so this shows the control without changing his active workspace.
@@ -371,8 +398,11 @@ const shots = {
 
   // Requires an explicitly designated staged owner. The live database has
   // retryable rows, but this harness never guesses that unknown footage is
-  // safe to photograph. Opening the sheet is read-only; the guard blocks its
-  // Try placement again action even if a selector changes accidentally.
+  // safe to photograph. The retry is a card in the Match analysis deck
+  // now, reached by scrolling: tapping the Tools row would START the retry
+  // (the guard would abort it and the shot would show the error), and the
+  // "Placement maps" row and its "Try placement again?" sheet are gone
+  // (post-rollout audit R4, 2026-09-26).
   "placement-retry-m": {
     viewport: "m",
     manualOnly: true,
@@ -384,8 +414,7 @@ const shots = {
         );
       }
       await page.goto(`${BASE}/match/${PLACEMENT_RETRY_MATCH}`);
-      await page.getByRole("button", { name: /^Placement maps/ }).click();
-      await page.waitForSelector("text=Try placement again?", { timeout: 15000 });
+      await showAnalysisCard(page, "The table was hard to detect.");
       await sleep(900);
     },
   },
@@ -396,8 +425,7 @@ const shots = {
     run: async (page) => {
       if (!PLACEMENT_RETRY_MATCH || !PLACEMENT_RETRY_ACCOUNT) throw new Error("PLACEMENT_RETRY_MATCH and PLACEMENT_RETRY_ACCOUNT must name a staged retryable match");
       await page.goto(`${BASE}/match/${PLACEMENT_RETRY_MATCH}`);
-      await page.getByRole("button", { name: /^Placement maps/ }).click();
-      await page.waitForSelector("text=Try placement again?", { timeout: 15000 });
+      await showAnalysisCard(page, "The table was hard to detect.");
       await sleep(900);
     },
   },
@@ -408,8 +436,7 @@ const shots = {
     run: async (page) => {
       if (!CURRENT_PLACEMENT_MATCH || !CURRENT_PLACEMENT_ACCOUNT) throw new Error("CURRENT_PLACEMENT_MATCH and CURRENT_PLACEMENT_ACCOUNT must name an approved match with populated current maps");
       await page.goto(`${BASE}/match/${CURRENT_PLACEMENT_MATCH}`);
-      await page.getByRole("button", { name: /^Placement maps/ }).click();
-      await page.getByRole("heading", { name: /^(Serve placement|Placement maps)$/ }).waitFor({ timeout: 20000 });
+      await showAnalysisCard(page, "Placement map, ");
       await sleep(1200);
     },
   },
@@ -420,8 +447,7 @@ const shots = {
     run: async (page) => {
       if (!CURRENT_PLACEMENT_MATCH || !CURRENT_PLACEMENT_ACCOUNT) throw new Error("CURRENT_PLACEMENT_MATCH and CURRENT_PLACEMENT_ACCOUNT must name an approved match with populated current maps");
       await page.goto(`${BASE}/match/${CURRENT_PLACEMENT_MATCH}`);
-      await page.getByRole("button", { name: /^Placement maps/ }).click();
-      await page.getByRole("heading", { name: /^(Serve placement|Placement maps)$/ }).waitFor({ timeout: 20000 });
+      await showAnalysisCard(page, "Placement map, ");
       await sleep(1200);
     },
   },

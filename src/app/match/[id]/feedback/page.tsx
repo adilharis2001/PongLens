@@ -11,7 +11,7 @@ import type { Match } from "@/lib/types";
 import type { MatchIssueState } from "@/lib/matchIssues/types";
 import { MatchFeedback } from "./MatchFeedback";
 
-export const metadata: Metadata = { title: "Processing", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "Report a problem", robots: { index: false, follow: false } };
 
 export default async function MatchFeedbackPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

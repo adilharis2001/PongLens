@@ -284,9 +284,14 @@ test("analysis jumps to the remounted placement section before measuring it", as
   const trace = [];
   const analysis = await import("./flows/player/analysis.mjs");
   await scheduledBeats(analysis, trace);
+  // The maps are cards in the Match analysis deck (2026-09-15), so the
+  // jump is to that heading; the Tools row of the same name is a button
+  // and scrolls smoothly on purpose.
   const placementScrolls = trace.filter(
     ({ type, source }) =>
-      type === "evaluate" && source?.includes('startsWith("Serve placement")'),
+      type === "evaluate" &&
+      source?.includes('querySelectorAll("h2")') &&
+      source.includes('startsWith("Match analysis")'),
   ).filter(({ source }) => source.includes("scrollIntoView"));
   assert.ok(placementScrolls.length >= 2);
   assert.equal(placementScrolls.some(({ source }) => source.includes('behavior: "smooth"')), false);
