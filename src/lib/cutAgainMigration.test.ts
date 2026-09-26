@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 // The guards that make cutting a match again safe, read out of the
@@ -182,10 +182,29 @@ test("the public link says how the match was cut, and keeps its grants", () => {
   assert.match(sql, /grant execute on function public\.resolve_share_link\(text\)\s+to anon, authenticated, service_role;/);
 });
 
+// start_recut as it is now: the post-rollout audit (2026-09-26) replaced it
+// last. Behaviour: supabase/tests/audit_db_fixes.sql.
+const auditFile = readdirSync("supabase/migrations").find((name) =>
+  name.endsWith("_post_rollout_audit_fixes.sql"),
+);
+assert.ok(auditFile, "the post-rollout audit migration is present");
+const audit = readFileSync(`supabase/migrations/${auditFile}`, "utf8");
+
 test("start_recut resumes only marks made for this cut", () => {
-  const start = fn("start_recut");
+  const start = fn("start_recut", audit);
   assert.match(start, /greatest\(v\.created_at, v\.completed_at, v\.activated_at\)/);
-  assert.match(start, /v_draft\.submitted_at is null and not coalesce\(p_fresh, false\)\s+and v_draft\.updated_at >= coalesce\(v_cut_since, '-infinity'::timestamptz\)/);
+  // An unsent draft of the owner's own, with at least one mark, made
+  // since this cut; anything else is written again from the points (an
+  // empty draft after "Start again" used to reopen the match empty).
+  assert.match(
+    start,
+    /v_draft\.submitted_at is null and not coalesce\(p_fresh, false\)\s+and not v_draft\.prefilled\s+and v_draft\.user_id = v_me\s+and jsonb_typeof\(v_draft\.marks\) = 'array'\s+and jsonb_array_length\(v_draft\.marks\) > 0\s+and v_draft\.updated_at >= coalesce\(v_cut_since, '-infinity'::timestamptz\)/,
+  );
+  // The prefill takes the row over, whoever wrote it.
+  assert.match(start, /on conflict \(match_id\) do update\s+set user_id = excluded\.user_id,/);
+  assert.match(start, /where id = p_match_id and user_id = v_me/);
+  assert.match(audit, /revoke all on function public\.start_recut\(uuid, boolean\) from public, anon;/);
+  assert.match(audit, /grant execute on function public\.start_recut\(uuid, boolean\) to authenticated, service_role;/);
 });
 
 test("the three fixes that had to land first", () => {
