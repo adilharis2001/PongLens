@@ -157,6 +157,9 @@ export interface RecutChoiceView {
 }
 
 export const REPLACE_LINE = "Points, scores and point notes will be deleted.";
+/** Marking by hand keeps each point's score through its mark, so only the
+ *  point notes go (Adil, 2026-09-26: the automatic line overstated it). */
+export const HAND_REPLACE_LINE = "Point notes will be deleted.";
 export const MATCH_NOTES_LINE = "Match notes stay with the match.";
 export const COACH_REVIEW_NOTE = "Has a coach review";
 
@@ -181,7 +184,10 @@ export function recutChoiceView(
     selected,
     replaceLines:
       selected === "replace"
-        ? [REPLACE_LINE, ...(options?.hasMatchNotes ? [MATCH_NOTES_LINE] : [])]
+        ? [
+            way === "hand" ? HAND_REPLACE_LINE : REPLACE_LINE,
+            ...(options?.hasMatchNotes ? [MATCH_NOTES_LINE] : []),
+          ]
         : [],
   };
 }

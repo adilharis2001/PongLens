@@ -155,13 +155,18 @@ private func runRecutChoiceChecks() {
     eq(byHand.replaceLines, [], "nothing under Replace while Keep is chosen")
     byHand.select(.replace)
     eq(byHand.replace, true, "Replace can be chosen by hand")
-    eq(byHand.replaceLines, ["Points, scores and point notes will be deleted."],
-       "Replace says what it deletes")
+    eq(byHand.replaceLines, ["Point notes will be deleted."],
+       "Replace by hand says what it deletes: the marks keep each score")
+    var automatic = RecutChoiceState.automatic(
+        RecutOptions(available: true, replaceAutomatic: true, hasMatchNotes: false))
+    automatic.select(.replace)
+    eq(automatic.replaceLines, ["Points, scores and point notes will be deleted."],
+       "automatic Replace deletes the scores too")
 
     var withNotes = RecutChoiceState.byHand(RecutOptions(available: true, hasMatchNotes: true))
     withNotes.select(.replace)
     eq(withNotes.replaceLines,
-       ["Points, scores and point notes will be deleted.", "Match notes stay with the match."],
+       ["Point notes will be deleted.", "Match notes stay with the match."],
        "the second line only when the match has match notes")
     withNotes.select(.keep)
     eq(withNotes.replaceLines, [], "the lines go when Keep is chosen again")

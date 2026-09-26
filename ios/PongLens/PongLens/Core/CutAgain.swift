@@ -33,6 +33,9 @@ enum CutAgainCopy {
     static let replace = "Replace this match"
     static let keep = "Keep this match and add a new one"
     static let replaceDeletes = "Points, scores and point notes will be deleted."
+    /// Marking by hand keeps each point's score through its mark, so only the
+    /// point notes go (Adil, 2026-09-26).
+    static let handReplaceDeletes = "Point notes will be deleted."
     static let matchNotesStay = "Match notes stay with the match."
     static let hasCoachReview = "Has a coach review"
 
@@ -199,11 +202,16 @@ struct RecutChoiceState: Equatable {
     /// greyed for a reason the player is not told (automatic, phase 1).
     private(set) var replaceBlockedLine: String?
     let hasMatchNotes: Bool
+    /// What Replace deletes on this way: everything for an automatic cut,
+    /// only the point notes when the points are marked by hand.
+    let deletesLine: String
 
-    init(replaceAllowed: Bool, replaceBlockedLine: String? = nil, hasMatchNotes: Bool) {
+    init(replaceAllowed: Bool, replaceBlockedLine: String? = nil, hasMatchNotes: Bool,
+         deletesLine: String = CutAgainCopy.replaceDeletes) {
         self.replaceAllowed = replaceAllowed
         self.replaceBlockedLine = replaceAllowed ? nil : replaceBlockedLine
         self.hasMatchNotes = hasMatchNotes
+        self.deletesLine = deletesLine
     }
 
     /// Marking by hand: Replace unless a coach review exists (assumption A).
@@ -212,7 +220,8 @@ struct RecutChoiceState: Equatable {
         return RecutChoiceState(
             replaceAllowed: allowed,
             replaceBlockedLine: o.hasCoachReview ? CutAgainCopy.hasCoachReview : nil,
-            hasMatchNotes: o.hasMatchNotes
+            hasMatchNotes: o.hasMatchNotes,
+            deletesLine: CutAgainCopy.handReplaceDeletes
         )
     }
 
@@ -248,8 +257,8 @@ struct RecutChoiceState: Equatable {
     var replaceLines: [String] {
         guard replace else { return [] }
         return hasMatchNotes
-            ? [CutAgainCopy.replaceDeletes, CutAgainCopy.matchNotesStay]
-            : [CutAgainCopy.replaceDeletes]
+            ? [deletesLine, CutAgainCopy.matchNotesStay]
+            : [deletesLine]
     }
 }
 

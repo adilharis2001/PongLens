@@ -511,3 +511,14 @@ test("More options on a desktop: a wide dialog, the ways side by side, trim left
   assert.match(mark, /columns \? "lg:flex lg:items-center lg:gap-8"/);
   assert.match(mark, /columns \? "mt-6 lg:mt-0 lg:min-w-0 lg:flex-1" : "mt-6"/);
 });
+
+test("marking by hand warns only about point notes; automatic keeps the full line", async () => {
+  const { recutChoiceView, HAND_REPLACE_LINE, REPLACE_LINE } = await import("./recutView.ts");
+  const options = {
+    available: true, reason: null, replaceByHand: true, replaceAutomatic: true,
+    hasCoachReview: false, hasMatchNotes: false, cutSource: "auto",
+  } as unknown as Parameters<typeof recutChoiceView>[1];
+  assert.deepEqual(recutChoiceView("hand", options, "replace").replaceLines, [HAND_REPLACE_LINE]);
+  assert.deepEqual(recutChoiceView("automatic", options, "replace").replaceLines, [REPLACE_LINE]);
+  assert.equal(HAND_REPLACE_LINE, "Point notes will be deleted.");
+});
