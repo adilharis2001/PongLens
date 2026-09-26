@@ -196,6 +196,35 @@ private func runMarkerGateCaptionChecks() {
     eq(details(.review, again: true), ["Begin review:-", "Start again:\(MarkerCopy.startAgainDetail)"],
        "review gate: only Start again has a line")
     eq(details(.fresh, again: false), ["Begin Cutting:-"], "a fresh pass has no lines")
+    // The web's shares: with Start again at the foot, its tile carries a
+    // line of its own and the tiles above give way.
+    func shares(_ opened: HandCutOpenAs, again: Bool) -> [Double] {
+        MarkLandscape.railPair(started: false, opened: opened, reviewing: false,
+                               adjusting: false, open: false, startAgain: again).map(\.share)
+    }
+    eq(shares(.choice, again: true), [0.4, 0.24, 0.36], "three tiles: 0.40 / 0.24 / 0.36")
+    eq(shares(.scoring, again: true), [0.62, 0.38], "two tiles with Start again: 0.62 / 0.38")
+    eq(shares(.review, again: true), [0.62, 0.38], "the review gate the same")
+    eq(shares(.choice, again: false), [0.58, 0.42], "the approved board's split without Start again")
+    eq(shares(.fresh, again: false), [1], "one tile fills the rail")
+
+    // A gate line fits its tile on a phone held sideways (the web's case):
+    // iPhone 12, a rail about 101 wide and 286 tall.
+    let twelve = MarkLandscape(w: 844, h: 390, insets: MarkLandscapeInsets(left: 47, right: 47, bottom: 21))
+    eq(MarkLandscape.gateDetailFont(tileW: twelve.tileW), 10, "a phone's rail: the small line")
+    eq(MarkLandscape.gateDetailFont(tileW: 150), 12, "a wide rail: a step up")
+    for opened in [HandCutOpenAs.choice, .scoring, .review] {
+        let tiles = MarkLandscape.railPair(started: false, opened: opened, reviewing: false,
+                                           adjusting: false, open: false, startAgain: true)
+        let again = tiles[tiles.count - 1]
+        check(MarkLandscape.pairTileHeight(again, count: tiles.count, boxH: twelve.boxH) >= 90,
+              "\(opened): Start again has room for its line")
+        if tiles[0].detail != nil {
+            check(MarkLandscape.pairTileHeight(tiles[0], count: tiles.count, boxH: twelve.boxH) >= 90,
+                  "\(opened): Keep marking has room for its line")
+        }
+    }
+
     // Once the pass has started no tile has a second line.
     for (reviewing, adjusting, open) in [(false, false, false), (false, false, true), (true, false, false), (true, true, false)] {
         check(MarkLandscape.railPair(started: true, opened: .scoring, reviewing: reviewing,

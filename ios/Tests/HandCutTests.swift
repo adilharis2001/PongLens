@@ -129,6 +129,8 @@ private func runHandCutGateChecks() {
        "a jump past a whole point lands on the one the picture is in")
     check(HandCut.follow(s, at: 101.4, adjusting: false, pre: pre, post: post) == nil,
           "past the last point's window there is nothing to follow")
+    check(HandCut.follow(s, at: 71.3, adjusting: false, pre: pre, post: post) == nil,
+          "a clip's padded end is not inside it, and the gap after it follows nothing")
     check(HandCut.follow(s, at: 58.9, adjusting: true, pre: pre, post: post) == nil,
           "never while an edge is being adjusted")
     s.awaitingId = "b"
@@ -141,14 +143,28 @@ private func runHandCutGateChecks() {
     check(HandCut.follow(HandCutState(marks: open, selectedId: "b"), at: 58.9, adjusting: false,
                          pre: pre, post: post) == nil,
           "never while a rally is being marked")
-    // Windows that overlap: the next point's pad starts inside the selected
-    // point's tail. The picture must leave the rally first.
+    // Clips that overlap (points under 2.5 s apart): the selected clip keeps
+    // the picture, its stop and its hold for an answer until its padded
+    // end, as the web's followPlayback does.
     let close = [mark("x", 10, 20), mark("y", 21, 30)]
     let tight = HandCutState(marks: close, selectedId: "x")
     check(HandCut.follow(tight, at: 19.9, adjusting: false, pre: pre, post: post) == nil,
           "an overlapping pad does not take the selection mid-rally")
-    eq(HandCut.follow(tight, at: 20.2, adjusting: false, pre: pre, post: post)?.id, "y",
-       "past the rally's end, the next point's pad takes it")
+    check(HandCut.follow(tight, at: 20.2, adjusting: false, pre: pre, post: post) == nil,
+          "nor in the selected clip's padded tail")
+    check(HandCut.follow(tight, at: 21.29, adjusting: false, pre: pre, post: post) == nil,
+          "nor a moment before the selected clip ends")
+    let taken = HandCut.follow(tight, at: 21.3, adjusting: false, pre: pre, post: post)
+    eq(taken?.id, "y", "at the selected clip's padded end, the next clip takes it")
+    near(taken?.stopAt, 31.3, "and stops at the next clip's padded end")
+    // At the very start of the tape a clip's padded start is zero, and
+    // the selected clip's end still comes first.
+    let early = HandCutState(marks: [mark("p", 0.1, 0.8), mark("q", 0.9, 3)], selectedId: "p")
+    check(HandCut.follow(early, at: 1.0, adjusting: false, pre: pre, post: post) == nil,
+          "inside the first clip's tail the first point keeps it")
+    let second = HandCut.follow(early, at: 2.1, adjusting: false, pre: pre, post: post)
+    eq(second?.id, "q", "once the first clip has ended the second takes it")
+    near(second?.stopAt, 4.3, "stopping at the second clip's end")
 }
 
 // MARK: - Replaying a case

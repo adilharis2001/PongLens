@@ -764,25 +764,36 @@ extension PlayerTakeover {
     func markBigButton(
         _ label: String, lit: Bool, text: Color = PL.text400, enabled: Bool = true,
         height: CGFloat? = nil, radius: CGFloat = 12, font: CGFloat = 16,
-        lines: Int = 2, minScale: CGFloat = 0.8, detail: String? = nil,
+        lines: Int = 2, minScale: CGFloat = 0.8, detail: String? = nil, detailFont: CGFloat = 10,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Text(label)
-                    .font(.system(size: font, weight: .bold))
-                    .foregroundStyle(lit ? PL.ink : text)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(lines)
-                    .minimumScaleFactor(minScale)
-                // The landscape gate's second line: smaller, and quieter
-                // than the label on either tone.
+        let title = Text(label)
+            .font(.system(size: font, weight: .bold))
+            .foregroundStyle(lit ? PL.ink : text)
+            .multilineTextAlignment(.center)
+            .lineLimit(lines)
+            .minimumScaleFactor(minScale)
+        return Button(action: action) {
+            Group {
                 if let detail {
-                    Text(detail)
-                        .font(.system(size: max(11, (font * 0.6).rounded()), weight: .medium))
-                        .foregroundStyle(lit ? PL.ink.opacity(0.72) : PL.text400)
-                        .multilineTextAlignment(.center)
-                        .minimumScaleFactor(0.7)
+                    // The landscape gate's second line: smaller, and quieter
+                    // than the label on either tone. Where the tile is too
+                    // short for it whole, the line goes and the label stays
+                    // as it was; neither is ever cut off.
+                    ViewThatFits(in: .vertical) {
+                        VStack(spacing: 4) {
+                            title
+                            Text(detail)
+                                .font(.system(size: detailFont, weight: .medium))
+                                .foregroundStyle(lit ? PL.ink.opacity(0.75) : PL.text400)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.vertical, 6)
+                        title
+                    }
+                } else {
+                    title
                 }
             }
                 .padding(.horizontal, detail == nil ? 8 : 6)
@@ -1074,7 +1085,8 @@ extension PlayerTakeover {
                     radius: 16, font: tile.action == .startAgain ? min(fs, 15) : fs,
                     lines: tile.action == .reset ? 3 : tile.action == .startAgain ? 1 : 2,
                     minScale: tile.action == .reset ? 1 : tile.action == .startAgain ? 0.7 : 0.8,
-                    detail: tile.detail
+                    detail: tile.detail,
+                    detailFont: CGFloat(MarkLandscape.gateDetailFont(tileW: g.tileW))
                 ) { markRailAction(tile.action) }
             }
         }

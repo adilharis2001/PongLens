@@ -115,16 +115,21 @@ struct MarkLandscape: Equatable {
         startAgain: Bool = false
     ) -> [PairTile] {
         if !started {
+            // With Start again at the foot, its tile carries a line of its
+            // own, about a third of a phone's rail, and the tiles above give
+            // way (markLandscape.ts gateShares): 0.40 / 0.24 / 0.36 under a
+            // choice, 0.62 / 0.38 under one button. Without it the approved
+            // board's 0.58 / 0.42 stands.
             let again = PairTile(
-                label: MarkerCopy.startAgain, action: .startAgain, tone: .unlit, share: 0.26,
+                label: MarkerCopy.startAgain, action: .startAgain, tone: .unlit, share: 0.36,
                 detail: MarkerCopy.startAgainDetail)
             let keepDetail = MarkerCopy.keepMarkingDetail(opened)
             if opened == .choice {
                 return startAgain
                     ? [
-                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.44,
+                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.4,
                                  detail: keepDetail),
-                        PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.3),
+                        PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.24),
                         again,
                     ]
                     : [
@@ -143,8 +148,10 @@ struct MarkLandscape: Equatable {
                                detail: keepDetail)
                     : PairTile(label: "Begin Cutting", action: .beginCutting, tone: .lit, share: 1)
             guard startAgain else { return [first] }
-            return [PairTile(label: first.label, action: first.action, tone: .lit, share: 0.74,
-                             detail: first.detail), again]
+            return [PairTile(label: first.label, action: first.action, tone: .lit, share: 0.62,
+                             detail: first.detail),
+                    PairTile(label: again.label, action: again.action, tone: again.tone, share: 0.38,
+                             detail: again.detail)]
         }
         if reviewing {
             return adjusting
@@ -166,6 +173,12 @@ struct MarkLandscape: Equatable {
                 PairTile(label: "Begin Point", action: .begin, tone: .lit, share: 0.5),
                 PairTile(label: "End Point", action: .end, tone: .off, share: 0.5),
             ]
+    }
+
+    /// A gate tile's second line: small, and a step up only where the rail
+    /// is wide (markLandscape.ts gateDetailFont).
+    static func gateDetailFont(tileW: Double) -> Double {
+        tileW >= 150 ? 12 : 10
     }
 
     /// A tile's height for a rail `boxH` tall.

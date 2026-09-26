@@ -164,11 +164,10 @@ struct MatchIssueState: Decodable {
 
     /// The Report a problem row's trailing text: what a request is doing,
     /// or nothing when there is none. The row's label already says Report
-    /// a problem, so it is never said twice (post-rollout audit N).
+    /// a problem, so it is never said twice (post-rollout audit N). Minutes
+    /// returned automatically after a failure are not a request, so they
+    /// show on the page only, as on the web.
     var rowTrailing: String? {
-        if automaticRefundMessage != nil, let receipt = automaticRefund {
-            return "\(receipt.minutes) \(receipt.minutes == 1 ? "minute" : "minutes") returned"
-        }
         if isOwner, activeIssue?.status == "resolved_refunded", let minutes = activeIssue?.refundableMinutes {
             return "\(minutes) \(minutes == 1 ? "minute" : "minutes") returned"
         }
