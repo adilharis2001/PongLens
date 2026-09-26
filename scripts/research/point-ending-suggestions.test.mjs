@@ -64,7 +64,8 @@ test('new trajectory review confirms only its last bounce and preserves human an
  const source={matchName:'Test match',slug:'test',number:1,game:1,scoreBefore:[0,0],winner:'Near',server:'Near',start:0,end:20,tap:18,fps:30,rawOffset:0,sourceHash:'test',imported:false};
  const legacy={version:1,runId:'contact-review-20260922-v1',reason:{value:null,confidence:'uncertain',detail:''},lastRallyContact:{value:null,confidence:'uncertain',detail:''},lastBounce:{value:null,confidence:'uncertain',detail:''},events:[{id:'detected:0',kind:'floor',side:null,confidence:'tentative',detail:'Old floor suggestion'}]};
  const rallyPrediction={version:2,ranking:{method:'ball_pose',margin:.3,poseCoverage:.8,candidateCount:2,reason:'available'},runId:'pose-last-bounce-20260924-v1',lastBounce:{id:'detected:0',rawTime:5,side:'far',origin:'detected',agreement:.6},winner:{side:'near',score:.85,threshold:.8},baselineWinner:null};
- const rows=[{id:'p0',match_id:'m0',sequence:0,revision:0,source,label:{reason:null,custom:'',note:'preserve me'},rallyPrediction,suggestion:legacy},{id:'p1',match_id:'m0',sequence:1,revision:0,source:{...source,number:2},label:{reason:'net',custom:'',note:'human',bounceReview:{version:1,events:[],lastBounce:'detected:1'}},rallyPrediction}];
+ const check={version:1,runId:'winner-check-20260926-v1',group:'development',players:{near:'Adil',far:'Lester'},savedSide:'far',predicted:{side:'near',basis:'model',score:.85}};
+ const rows=[{id:'p0',match_id:'m0',sequence:0,revision:0,source,label:{reason:null,custom:'',note:'preserve me'},rallyPrediction,suggestion:legacy,check},{id:'p1',match_id:'m0',sequence:1,revision:0,source:{...source,number:2},label:{reason:'net',custom:'',note:'human',bounceReview:{version:1,events:[],lastBounce:'detected:1'}},rallyPrediction}];
  const sent=[];
  globalThis.fetch=async(url,init)=>{
   if(init?.method==='POST'){const b=JSON.parse(init.body);sent.push(b);const r=rows.find(r=>r.id===b.id);r.label=b.label;r.revision++;return {ok:true,json:async()=>({saved:{id:r.id,label:r.label,revision:r.revision}})};}
@@ -74,7 +75,7 @@ test('new trajectory review confirms only its last bounce and preserves human an
  const root=createRoot(document.getElementById('root'));const button=t=>[...document.querySelectorAll('button')].find(b=>b.textContent===t);
  try{
   await act(async()=>root.render(React.createElement(PointEndingReview,{initialRows:structuredClone(rows),initialCustom:[]})));
-  assert.equal(sent.length,0);assert.match(document.body.textContent,/85.0 \/ 100/);assert.match(document.body.textContent,/Ball path \+ body pose/);assert.match(document.body.textContent,/Ranking margin: 0.30/);
+  assert.equal(sent.length,0);assert.match(document.body.textContent,/Model’s winner: Adil/);assert.match(document.body.textContent,/Model score 85 \/ 100/);assert.match(document.body.textContent,/Does not match your saved winner/);assert.match(document.body.textContent,/Model got the winner wrong · 1/);assert.match(document.body.textContent,/Suggested last bounce: Bounce 1/);
   await act(async()=>button('Confirm last bounce').click());
   assert.equal(sent.at(-1).label.bounceReview.lastBounce,'detected:0');assert.equal(sent.at(-1).label.reason,null);assert.equal(sent.at(-1).label.note,'preserve me');assert.equal(sent.at(-1).label.rallyReview.runId,'pose-last-bounce-20260924-v1');
   await act(async()=>[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Bounce details')).click());

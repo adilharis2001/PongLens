@@ -21,7 +21,7 @@ export type EndingSource = {
   winner: string; server: string | null; start: number; end: number; tap: number | null;
   fps: number; rawOffset: number; sourceHash: string; imported: boolean;
 };
-export type EndingRow = {id:string; match_id:string; sequence:number; source:EndingSource; label:EndingLabel; revision:number;rallyPrediction?:import('./rallyPredictions').RallyPrediction;suggestion?:import('./endingSuggestions').EndingSuggestion};
+export type EndingRow = {id:string; match_id:string; sequence:number; source:EndingSource; label:EndingLabel; revision:number;rallyPrediction?:import('./rallyPredictions').RallyPrediction;suggestion?:import('./endingSuggestions').EndingSuggestion;check?:import('./winnerCheck').WinnerCheck};
 export const EMPTY_LABEL: EndingLabel = {reason:null, custom:'', note:''};
 export function validEndingLabel(value: unknown): value is EndingLabel {
   if(!value || typeof value !== 'object' || Array.isArray(value)) return false;

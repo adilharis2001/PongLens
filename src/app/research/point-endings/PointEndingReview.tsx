@@ -4,7 +4,6 @@ import Link from 'next/link';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {clock,BOUNCE_KINDS,EMPTY_BOUNCE_REVIEW,sameEndingLabel,ENDING_REASONS,frameStep,nextUnlabeled,reasonText,savedLabel,validEndingLabel,type EndingLabel,type EndingRow} from '@/lib/research/pointEndings';
 import {confirmSuggestions,displayLabel,pendingSuggestionKeys,reviewChangedFields,suggestionState} from '@/lib/research/endingSuggestions';
-import {researchPlayers} from '@/lib/research/researchWinner';
 import {LastBounceGuide} from './LastBounceGuide';
 import {RallyPredictionReview} from './RallyPredictionReview';
 import {finishRallyReview,confirmRallyBounce,rallyPending,reviewRallyBounce,withoutLegacyLastBounce} from '@/lib/research/rallyPredictions';
@@ -14,7 +13,9 @@ import type {EndingEvidence} from '@/lib/research/endingEvidence';
 import {BallEvidence} from './BallEvidence';
 import {BounceDetails} from './BounceDetails';
 import {CutReview} from './CutReview';
-import {OvernightResults} from './OvernightResults';
+import {CheckResults} from './CheckResults';
+import {WinnerCheckPanel} from './WinnerCheckPanel';
+import {CHECK_GROUPS,checkGroup,checkState} from '@/lib/research/winnerCheck';
 import {cutReviewComplete} from '@/lib/research/cutReview';
 import {nextStartReview,startReviewWindow,startReviewComplete,startReviewRows,type StartReviewCase} from '@/lib/research/startReview';
 import {CUT_REVIEW_POINTS} from '@/lib/research/cutReviewStudy';
@@ -30,7 +31,7 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
  const rowsRef=useRef(rows);rowsRef.current=rows;
  const [selected,setSelected]=useState(()=>(initialStartReview?(nextStartReview(initialRows,startCases)??startReviewRows(initialRows,startCases)[0])?.id:undefined)??(initialCutReview?(initialRows.find(r=>CUT_REVIEW_POINTS.has(r.id)&&!cutReviewComplete(r.label.cutReview))??initialRows.find(r=>CUT_REVIEW_POINTS.has(r.id)))?.id:undefined)??initialRows.find(r=>rallyPending(r.label,r.rallyPrediction)&&!r.label.bounceReview?.lastBounce)?.id??initialRows.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)?.id??nextUnlabeled(initialRows)?.id??initialRows[0]?.id??'');
  const [matchId,setMatchId]=useState('all');
- const [filter,setFilter]=useState<'all'|'unlabeled'|'labeled'|'suggested'|'rally'|'cuts'|'starts'>(initialStartReview?'starts':initialCutReview?'cuts':'all');
+ const [filter,setFilter]=useState<'all'|'unlabeled'|'labeled'|'suggested'|'rally'|'cuts'|'starts'|'wrong'|'nocall'>(initialStartReview?'starts':initialCutReview?'cuts':'all');
  const [statuses,setStatuses]=useState<Record<string,SaveStatus>>({});
  const [exitBlocked,setExitBlocked]=useState(false);
  const writers=useRef(new Map<string,EndingSaveQueue>());
@@ -56,12 +57,15 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
  const point=rows.find(r=>r.id===selected)??rows[0];
  const pointRef=useRef(point);pointRef.current=point;
  const evidence=evidenceResult?.id===point?.id?evidenceResult?.data??null:null;
- const matches=useMemo(()=>Array.from(new Map((filter==='starts'?startReviewRows(rows,startCases):rows).map(r=>[r.match_id,r.source.matchName])).entries()),[rows,filter,startCases]);
+ const matches=useMemo(()=>Array.from(new Map((filter==='starts'?startReviewRows(rows,startCases):rows).map(r=>[r.match_id,{name:r.source.matchName,group:checkGroup(r.check)}])).entries()),[rows,filter,startCases]);
  const matchRows=rows.filter(r=>matchId==='all'||r.match_id===matchId);
- const navigationRows=filter==='starts'?startReviewRows(matchRows,startCases):filter==='cuts'?matchRows.filter(r=>CUT_REVIEW_POINTS.has(r.id)):matchRows;
+ const byCheck=(r:EndingRow)=>filter==='wrong'?checkState(r.check)==='disagrees':checkState(r.check)==='no_call';
+ const navigationRows=filter==='starts'?startReviewRows(matchRows,startCases):filter==='cuts'?matchRows.filter(r=>CUT_REVIEW_POINTS.has(r.id)):filter==='wrong'||filter==='nocall'?matchRows.filter(byCheck):matchRows;
+ const wrongCount=matchRows.filter(r=>checkState(r.check)==='disagrees').length;
+ const noCallCount=matchRows.filter(r=>checkState(r.check)==='no_call').length;
  const startRemaining=rows.filter(r=>startCases.some(item=>item.pointId===r.id)&&!startReviewComplete(r.label,startCases.find(item=>item.pointId===r.id))).length;
  const cutRemaining=rows.filter(r=>CUT_REVIEW_POINTS.has(r.id)&&!cutReviewComplete(r.label.cutReview)).length;
- const visible=matchRows.filter(r=>filter==='all'||(filter==='starts'?startCases.some(item=>item.pointId===r.id):filter==='cuts'?CUT_REVIEW_POINTS.has(r.id):filter==='rally'?rallyPending(r.label,r.rallyPrediction):filter==='suggested'?pendingSuggestionKeys(r.label,r.suggestion).length>0:(filter==='labeled')===savedLabel(r.label)));
+ const visible=matchRows.filter(r=>filter==='all'||(filter==='wrong'||filter==='nocall'?byCheck(r):filter==='starts'?startCases.some(item=>item.pointId===r.id):filter==='cuts'?CUT_REVIEW_POINTS.has(r.id):filter==='rally'?rallyPending(r.label,r.rallyPrediction):filter==='suggested'?pendingSuggestionKeys(r.label,r.suggestion).length>0:(filter==='labeled')===savedLabel(r.label)));
  const suggestedPoints=rows.filter(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0).length;
  const pending=point?pendingSuggestionKeys(point.label,point.suggestion):[];
  const shown=point?displayLabel(point.label,point.suggestion):undefined;
@@ -150,8 +154,9 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
  useEffect(()=>{const v=video.current;return()=>{v?.pause();};},[url]);
  function play(){const v=video.current;if(!v||!point)return;if(!v.paused){v.pause();return;}if(v.currentTime>=point.source.end-0.05||v.currentTime<startReviewWindow(point.source,startCases.find(item=>item.pointId===point.id)).start)seekInitial();v.playbackRate=rate;void v.play().catch(()=>setMediaError('Video could not play. Reload the video to try again.'));}
  function confirm(keys?:string[],dismiss=false){const p=pointRef.current;if(p?.suggestion)change(confirmSuggestions(p.label,p.suggestion,keys,dismiss));}
- function next(){if(filter==='starts'){const next=nextStartReview(matchRows,startCases,selected);if(next)setSelected(next.id);return;}if(filter==='cuts'){const index=navigationRows.findIndex(r=>r.id===selected);const next=[...navigationRows.slice(index+1),...navigationRows.slice(0,index)].find(r=>!cutReviewComplete(r.label.cutReview));if(next)setSelected(next.id);return;}const index=matchRows.findIndex(r=>r.id===selected);const ordered=[...matchRows.slice(index+1),...matchRows.slice(0,index)];const p=ordered.find(r=>rallyPending(r.label,r.rallyPrediction))??ordered.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
- function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>(id==='all'||r.match_id===id)&&(filter!=='cuts'||CUT_REVIEW_POINTS.has(r.id))&&(filter!=='starts'||startCases.some(item=>item.pointId===r.id)));setSelected((filter==='starts'?(nextStartReview(list,startCases)??list[0]):filter==='cuts'?(list.find(r=>!cutReviewComplete(r.label.cutReview))??list[0]):(list.find(r=>rallyPending(r.label,r.rallyPrediction))??list.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(list)??list[0]))?.id??'');}
+ function next(){if(filter==='wrong'||filter==='nocall'){const index=navigationRows.findIndex(r=>r.id===selected);const ordered=[...navigationRows.slice(index+1),...navigationRows.slice(0,Math.max(index,0))];const p=ordered.find(r=>!savedLabel(r.label))??ordered[0];if(p)setSelected(p.id);return;}if(filter==='starts'){const next=nextStartReview(matchRows,startCases,selected);if(next)setSelected(next.id);return;}if(filter==='cuts'){const index=navigationRows.findIndex(r=>r.id===selected);const next=[...navigationRows.slice(index+1),...navigationRows.slice(0,index)].find(r=>!cutReviewComplete(r.label.cutReview));if(next)setSelected(next.id);return;}const index=matchRows.findIndex(r=>r.id===selected);const ordered=[...matchRows.slice(index+1),...matchRows.slice(0,index)];const p=ordered.find(r=>rallyPending(r.label,r.rallyPrediction))??ordered.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
+ function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>(id==='all'||r.match_id===id)&&(filter!=='cuts'||CUT_REVIEW_POINTS.has(r.id))&&(filter!=='starts'||startCases.some(item=>item.pointId===r.id)));const checked=filter==='wrong'||filter==='nocall'?list.filter(r=>filter==='wrong'?checkState(r.check)==='disagrees':checkState(r.check)==='no_call'):[];
+  setSelected((filter==='wrong'||filter==='nocall'?(checked.find(r=>!savedLabel(r.label))??checked[0]):filter==='starts'?(nextStartReview(list,startCases)??list[0]):filter==='cuts'?(list.find(r=>!cutReviewComplete(r.label.cutReview))??list[0]):(list.find(r=>rallyPending(r.label,r.rallyPrediction))??list.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(list)??list[0]))?.id??'');}
  function retryVideo(){if(point)cache.current.delete(point.match_id);setMediaRetry(n=>n+1);}
 
  if(!point)return <main className="mx-auto w-full min-w-0 max-w-6xl px-4 py-8"><h1 className="text-2xl font-semibold">Point-ending labels</h1><p className="mt-3 text-zinc-400">The study points have not been loaded yet.</p></main>;
@@ -167,13 +172,19 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
      {suggestedPoints>0&&<span className="text-amber-200">{suggestedPoints} with suggestions to review</span>}
      <span className={unfinishedSaves?'text-amber-200':'text-zinc-500'}>{unfinishedSaves?`${unfinishedSaves} answer${unfinishedSaves===1?'':'s'} not yet saved`:'All answers saved'}</span>
    </div>
-   <OvernightResults/>
+   <CheckResults rows={rows}/>
    {exitBlocked&&unfinishedSaves>0&&<p role="alert" className="mt-3 text-sm text-amber-200">Wait for your answers to save, or retry an unsaved answer before leaving.</p>}
-   <div className="mt-4 flex flex-wrap gap-2" aria-label="Matches">
-     {[['all','All matches'],...matches].map(([id,name])=><button key={id} onClick={()=>selectMatch(id)} aria-pressed={matchId===id} className={`rounded-full border px-3 py-1.5 text-sm ${matchId===id?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400 hover:border-zinc-500'}`}>{name}{id!=='all'&&<span className="ml-2 text-xs text-zinc-500">{rows.filter(r=>r.match_id===id&&savedLabel(r.label)).length}/{rows.filter(r=>r.match_id===id).length}</span>}</button>)}
+   <div className="mt-4 space-y-3" aria-label="Matches">
+     <div className="flex flex-wrap gap-2"><button onClick={()=>selectMatch('all')} aria-pressed={matchId==='all'} className={`rounded-full border px-3 py-1.5 text-sm ${matchId==='all'?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400 hover:border-zinc-500'}`}>All matches</button></div>
+     {CHECK_GROUPS.filter(([g])=>matches.some(([,m])=>m.group===g)).map(([g,title])=><div key={g}>
+       <p className="text-xs text-zinc-500">{title}</p>
+       <div className="mt-1.5 flex flex-wrap gap-2">
+         {matches.filter(([,m])=>m.group===g).map(([id,m])=><button key={id} onClick={()=>selectMatch(id)} aria-pressed={matchId===id} className={`rounded-full border px-3 py-1.5 text-sm ${matchId===id?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400 hover:border-zinc-500'}`}>{m.name}<span className="ml-2 text-xs text-zinc-500">{rows.filter(r=>r.match_id===id&&savedLabel(r.label)).length}/{rows.filter(r=>r.match_id===id).length}</span></button>)}
+       </div>
+     </div>)}
    </div>
    <div className="mt-3 flex flex-wrap gap-2">
-     {(['all','starts','cuts','rally','suggested','unlabeled','labeled'] as const).map(f=><button key={f} onClick={()=>{setFilter(f);if(f==='starts'){setMatchId('all');const first=nextStartReview(rows,startCases)??startReviewRows(rows,startCases)[0];if(first)setSelected(first.id);}if(f==='cuts'){setMatchId('all');const first=rows.find(r=>CUT_REVIEW_POINTS.has(r.id)&&!cutReviewComplete(r.label.cutReview))??rows.find(r=>CUT_REVIEW_POINTS.has(r.id));if(first)setSelected(first.id);}}} aria-pressed={filter===f} className={`rounded-full border px-3 py-1 text-sm ${filter===f?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400'}`}>{f==='all'?'All points':f==='starts'?`Start-time disagreements · ${startRemaining}`:f==='cuts'?`Cuts to review · ${cutRemaining}`:f==='rally'?'Last bounce to review':f==='suggested'?'Suggestions to review':f==='unlabeled'?'Unlabeled':'Labeled'}</button>)}
+     {(['all','wrong','nocall','starts','cuts','rally','suggested','unlabeled','labeled'] as const).map(f=><button key={f} onClick={()=>{setFilter(f);if(f==='wrong'||f==='nocall'){const list=matchRows.filter(r=>f==='wrong'?checkState(r.check)==='disagrees':checkState(r.check)==='no_call');const first=list.find(r=>!savedLabel(r.label))??list[0];if(first)setSelected(first.id);}if(f==='starts'){setMatchId('all');const first=nextStartReview(rows,startCases)??startReviewRows(rows,startCases)[0];if(first)setSelected(first.id);}if(f==='cuts'){setMatchId('all');const first=rows.find(r=>CUT_REVIEW_POINTS.has(r.id)&&!cutReviewComplete(r.label.cutReview))??rows.find(r=>CUT_REVIEW_POINTS.has(r.id));if(first)setSelected(first.id);}}} aria-pressed={filter===f} className={`rounded-full border px-3 py-1 text-sm ${filter===f?'border-cyan-glow/60 bg-cyan-500/15 text-cyan-100':'border-edge text-zinc-400'}`}>{f==='all'?'All points':f==='wrong'?`Model got the winner wrong · ${wrongCount}`:f==='nocall'?`No call from the model · ${noCallCount}`:f==='starts'?`Start-time disagreements · ${startRemaining}`:f==='cuts'?`Cuts to review · ${cutRemaining}`:f==='rally'?'Last bounce to review':f==='suggested'?'Suggestions to review':f==='unlabeled'?'Unlabeled':'Labeled'}</button>)}
    </div>
    <div ref={review} className="mt-4 scroll-mt-4 flex flex-col gap-6 lg:flex-row">
      <div className="min-w-0 flex-1">
@@ -215,7 +226,8 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
        <div className="space-y-4 rounded-xl border border-edge bg-surface-1 p-4">
          <div><h2 className="text-sm font-medium text-white">{point.source.matchName} · Point {point.source.number}</h2><p className="mt-1 text-xs text-zinc-500">Game {point.source.game} · Score before {point.source.scoreBefore.join('–')}</p></div>
          <div className="text-xs text-zinc-400"><p>Saved winner: {point.source.winner}</p>{point.source.server&&<p className="mt-1">Server: {point.source.server}</p>}<p className="mt-1">{point.source.tap===null?'No saved end tap':`Saved end tap: ${clock(point.source.tap-point.source.rawOffset)}`}</p></div>
-         {point.rallyPrediction&&<RallyPredictionReview players={researchPlayers(point.match_id,point.source.game,point.source.number)} prediction={point.rallyPrediction} label={point.label} start={start} ready={ready} onSeek={()=>{const b=point.rallyPrediction?.lastBounce;if(b){seek(b.rawTime);if(b.origin==='detected')setBounceSelection({pointId:point.id,id:b.id});}}} onConfirm={()=>{const p=pointRef.current;if(p?.rallyPrediction)change(confirmRallyBounce(p.label,p.rallyPrediction));}} onKeep={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'kept'))} onNoBounce={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'no_live_bounce'))} onUncertain={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'uncertain'))} onCorrect={()=>{const b=point.rallyPrediction?.lastBounce;setBounceSelection({pointId:point.id,id:b?.origin==='detected'?b.id:evidence?.bounces.length?'detected:0':''});setBounceOpenRequest(n=>n+1);document.getElementById('bounce-details-toggle')?.scrollIntoView({block:'center',behavior:'smooth'});}}/>}
+         {point.check&&<WinnerCheckPanel check={point.check}/>}
+         {point.rallyPrediction&&<RallyPredictionReview prediction={point.rallyPrediction} label={point.label} start={start} ready={ready} onSeek={()=>{const b=point.rallyPrediction?.lastBounce;if(b){seek(b.rawTime);if(b.origin==='detected')setBounceSelection({pointId:point.id,id:b.id});}}} onConfirm={()=>{const p=pointRef.current;if(p?.rallyPrediction)change(confirmRallyBounce(p.label,p.rallyPrediction));}} onKeep={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'kept'))} onNoBounce={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'no_live_bounce'))} onUncertain={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'uncertain'))} onCorrect={()=>{const b=point.rallyPrediction?.lastBounce;setBounceSelection({pointId:point.id,id:b?.origin==='detected'?b.id:evidence?.bounces.length?'detected:0':''});setBounceOpenRequest(n=>n+1);document.getElementById('bounce-details-toggle')?.scrollIntoView({block:'center',behavior:'smooth'});}}/>}
          <label className="block text-sm text-zinc-300" htmlFor="ending-reason">How did the point end?</label>
          <select id="ending-reason" className={`${field} ${pending.includes('reason')?'border-amber-400/50 text-amber-100':''}`} value={customSelected?`custom:${point.label.custom}`:shown?.reason??''} onChange={e=>{const value=e.target.value;if(!value&&point.suggestion&&suggestionState(point.label,point.suggestion,'reason')==='pending'){confirm(['reason'],true);return;}if(value.startsWith('custom:'))change({reason:'custom',custom:value.slice(7)});else change({reason:(value||null) as EndingLabel['reason'],custom:''});}}>
            <option value="">Choose a reason</option>
@@ -241,7 +253,7 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
            <p>Net endings include a ball that stays on the table or rolls off. A winner that bounces legally is “Legal bounce, then missed return or winner.”</p>
            <p>Last paddle contact includes attempted returns and mishits, but not collecting the ball after play ends.</p>
            <p>“Confirm this point’s suggestions” confirms ending, contact and bounce types. Confirm the last bounce separately.</p>
-           <p>Winner confidence is the earlier winner model’s score, not a measured chance of being right. Net/out rules take priority; no score is shown if the model does not support that winner. The last-bounce model does not yet have a calibrated confidence score.</p>
+           <p>The model’s winner comes from the frozen winner model. Net and out rules take priority over its score, and the score is not a measured chance of being right.</p>
            <LastBounceGuide/>
           </div>
          </details>
@@ -249,7 +261,7 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
          <div role="status" className={`text-xs ${selectedStatus?.state==='error'?'text-rose-300':selectedStatus?.state==='draft'?'text-amber-200':'text-zinc-400'}`}>{selectedStatus?.state==='saving'?'Saving…':selectedStatus?.state==='error'?selectedStatus.message:selectedStatus?.state==='draft'?selectedStatus.message:selectedStatus?.state==='saved'?'Saved':point.source.imported?'Carried over from your earlier review':savedLabel(point.label)?'Saved':'Not labeled yet'}</div>
          {selectedStatus?.state==='error'&&<button className={secondary} onClick={()=>writers.current.get(point.id)?.retry()}>Retry save</button>}
          {pending.length>0&&<div><button type="button" className="min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-medium text-black" onClick={()=>confirm()}>Confirm this point’s suggestions</button></div>}
-         <button className={pending.length?secondary:"min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40"} disabled={filter==='starts'?!nextStartReview(matchRows,startCases,selected):filter==='cuts'?!navigationRows.some(r=>r.id!==selected&&!cutReviewComplete(r.label.cutReview)):!matchRows.some(r=>r.id!==selected&&(rallyPending(r.label,r.rallyPrediction)||pendingSuggestionKeys(r.label,r.suggestion).length>0))&&!nextUnlabeled(matchRows,selected)} onClick={next}>{filter==='starts'?'Next start to review':filter==='cuts'?'Next cut to review':suggestedPoints||point.rallyPrediction?'Next point to review':'Next unlabeled point'}</button>
+         <button className={pending.length?secondary:"min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40"} disabled={filter==='wrong'||filter==='nocall'?!navigationRows.some(r=>r.id!==selected):filter==='starts'?!nextStartReview(matchRows,startCases,selected):filter==='cuts'?!navigationRows.some(r=>r.id!==selected&&!cutReviewComplete(r.label.cutReview)):!matchRows.some(r=>r.id!==selected&&(rallyPending(r.label,r.rallyPrediction)||pendingSuggestionKeys(r.label,r.suggestion).length>0))&&!nextUnlabeled(matchRows,selected)} onClick={next}>{filter==='wrong'||filter==='nocall'?'Next point to review':filter==='starts'?'Next start to review':filter==='cuts'?'Next cut to review':suggestedPoints||point.rallyPrediction?'Next point to review':'Next unlabeled point'}</button>
          <button className={secondary} disabled={navigationRows.findIndex(r=>r.id===selected)<=0} onClick={()=>{const i=navigationRows.findIndex(r=>r.id===selected);if(i>0)setSelected(navigationRows[i-1].id);}}>Previous point</button>
        </div>
      </div>
