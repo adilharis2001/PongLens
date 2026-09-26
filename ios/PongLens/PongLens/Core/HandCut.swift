@@ -145,6 +145,16 @@ enum HandCutOpenAs: String {
     case choice
 }
 
+/// What pressing the way in does (HandCut.gateStart).
+enum HandCutGateStart: Equatable {
+    /// Play on from where the picture stands.
+    case play
+    /// Show this point as its clip will be cut, and stop at its padded end.
+    case playMark(id: String)
+    /// Back to where the marking had got to, and play.
+    case resumeMarking
+}
+
 struct HandCutSummary: Equatable {
     var total = 0
     var unscored = 0
@@ -941,6 +951,63 @@ enum HandCut {
             gameEnd: gameEnd,
             gameWinner: gameWinner
         ))
+    }
+
+    // MARK: - The gate, and playback that runs on
+
+    /// What a gate button does, in both orientations. `reviewPoints` is the
+    /// choice gate's second button, Review the points.
+    ///
+    ///  - fresh: Begin Cutting plays on from where the picture stands.
+    ///  - scoring: Keep marking shows the first point still without a
+    ///    winner as its clip will be cut, and stops at its padded end
+    ///    (post-rollout audit A, 2026-09-26). It used to only press play,
+    ///    so the picture ran on past the point it was meant to show.
+    ///  - review: Begin review shows the first point, then walks on.
+    ///  - choice: Keep marking goes back to where the marking had got to;
+    ///    Review the points shows the first point.
+    static func gateStart(
+        _ opened: HandCutOpenAs, marks: [HandCutMark], reviewPoints: Bool = false
+    ) -> HandCutGateStart {
+        let first = marks.first { $0.t1 != nil }
+        switch opened {
+        case .fresh:
+            return .play
+        case .scoring:
+            if let point = firstUnscored(marks) { return .playMark(id: point.id) }
+            return .resumeMarking
+        case .review:
+            return first.map { .playMark(id: $0.id) } ?? .play
+        case .choice:
+            guard reviewPoints else { return .resumeMarking }
+            return first.map { .playMark(id: $0.id) } ?? .play
+        }
+    }
+
+    /// Playback that runs on past a selected point into the next one: that
+    /// point is selected and the picture stops at its padded end, so the
+    /// strip, the chip and the answers stay on the point being shown
+    /// (post-rollout audit A). Only while a point is selected and nothing
+    /// is being adjusted, answered or marked; nil otherwise, and nil while
+    /// the picture has not yet left the selected rally.
+    ///
+    /// "The next point" is the first closed point after the selected one
+    /// whose window (padded as its clip will be) holds `t`, so a jump over
+    /// a short point still lands on the one the picture is in.
+    static func follow(
+        _ state: HandCutState, at t: Double, adjusting: Bool, pre: Double, post: Double
+    ) -> (id: String, stopAt: Double)? {
+        guard !adjusting, state.awaitingId == nil, openMark(state.marks) == nil,
+              let sel = state.selectedId,
+              let i = state.marks.firstIndex(where: { $0.id == sel }),
+              let selT1 = state.marks[i].t1, t > selT1
+        else { return nil }
+        for m in state.marks[(i + 1)...] {
+            guard let t1 = m.t1 else { continue }
+            if t < m.t0 - pre { return nil }
+            if t <= t1 + post { return (m.id, t1 + post) }
+        }
+        return nil
     }
 
     // MARK: - Score, through the product's own rules

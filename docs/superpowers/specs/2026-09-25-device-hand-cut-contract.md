@@ -451,6 +451,14 @@ Nothing on the web or in the app offers to move a phone cut. The web raw
 page shows the stage and progress in the words of section 7 until the job
 finishes.
 
+**Upload on Wi-Fi only (2026-09-26, post-rollout audit H).** The phone's
+uploads honour the recorder's "Upload on Wi-Fi only" setting
+(`allowsCellularAccess` on every transfer, as the ordinary upload does).
+With it on and no Wi-Fi at the moment the cut is ready to send, the phone
+does not wait: it releases the job to the Mac at once (`DeviceCutStop`
+`wifiOnly`), silently, like every other stop. A network the phone has not
+yet read is not "no Wi-Fi"; the transfer itself waits for one.
+
 Superseded: `20260925061009` released a phone job after 72 hours with the
 "Cut failed" bell and handed the marks back, and the web raw page offered
 "Cut on the Mac instead" after 24 hours. Both are gone.

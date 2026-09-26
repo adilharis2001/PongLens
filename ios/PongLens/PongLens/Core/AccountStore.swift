@@ -221,24 +221,12 @@ struct NotificationRow: Codable, Identifiable, Hashable {
     let readAt: String?
     let createdAt: String
 
-    /// A feedback update opens its private state, not the ordinary match
-    /// page. This does not depend on the library having fetched that match.
-    var matchFeedbackId: UUID? {
-        guard ["match_issue_reported", "match_issue_updated"].contains(kind) else { return nil }
-        return matchId
-    }
-
-    /// Admin issue events are web-only review work. Their server href must
-    /// win over matchId, which otherwise opens the ordinary native match.
-    var opensHrefDirectly: Bool { href.hasPrefix("/admin/") }
-
-    /// The point a note was left on, read off the href the trigger wrote
-    /// (`/match/<id>?p=<point id>`, migration 031). The web's bell follows
-    /// that link and opens that point, so a tap that stops at the top of
-    /// the match is the two platforms disagreeing about one notification.
-    /// Nil for every other kind, and for a note left on the match rather
-    /// than on a point.
-    var pointId: UUID? { MatchPointLink(href: href)?.pointId }
+    /// What a tap opens (BellDestination): a feedback update its private
+    /// report; admin review its web page; the match its id or its
+    /// `/match/<id>` link names, at the point a note was left on
+    /// (`?p=<point id>`, migration 031, as the web's bell opens it); the
+    /// upload screen for `/upload`; else a page the root maps itself.
+    var destination: BellDestination { BellDestination(kind: kind, matchId: matchId, href: href) }
 
     enum CodingKeys: String, CodingKey {
         case id, kind, title, body, href

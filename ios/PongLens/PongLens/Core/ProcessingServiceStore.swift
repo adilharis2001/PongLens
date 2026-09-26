@@ -28,7 +28,7 @@ final class ProcessingServiceStore {
     }
     var clipLane: ProcessingServiceLane { status.clipLane }
 
-    func matchNotice(matchStatus: String, jobKind: String?, jobStatus: String?, lane: String? = nil, videoSaved: Bool = true, onDevice: Bool = false) -> ProcessingAvailabilityNotice? {
+    func matchNotice(matchStatus: String, jobKind: String?, jobStatus: String?, lane: String? = nil, videoSaved: Bool = true, onDevice: Bool = false, manualCut: Bool = false) -> ProcessingAvailabilityNotice? {
         guard matchStatus != "ready", matchStatus != "failed" else { return nil }
         let active = jobStatus == "queued" || jobStatus == "processing"
         // A hand cut the owner's iPhone is cutting: no Mac lane is involved
@@ -37,7 +37,7 @@ final class ProcessingServiceStore {
         // Terminal feedback cannot turn an idle or finished video into a queue.
         let context = active ? processingContext(kind: jobKind, videoSaved: videoSaved)
             : matchStatus == "processing" && jobStatus == nil ? .queuedWork : .savedIdle
-        let routedLane = active ? (lane.flatMap(ProcessingServiceLane.init(rawValue:)) ?? processingServiceLane(kind: jobKind, clipLane: clipLane)) : .main
+        let routedLane = active ? processingNoticeLane(kind: jobKind, reported: lane.flatMap(ProcessingServiceLane.init(rawValue:)), clipLane: clipLane, manualCut: manualCut) : .main
         return notice(lane: routedLane, context: context)
     }
 

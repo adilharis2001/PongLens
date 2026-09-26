@@ -34,10 +34,35 @@ struct ProcessingServiceStatus: Decodable {
     }
 }
 
-func processingServiceLane(kind: String?, clipLane: ProcessingServiceLane = .main, scope: String = "") -> ProcessingServiceLane {
+/// The lane a job waits on, as the database routes it (`job_queue_name`,
+/// 20260925145751): clip work and content checks go where
+/// `reclip_lane` sends clips (`clipLane`); a hand cut goes to the hand lane,
+/// and so do its follow-ups (placement and the highlights reel) on a match
+/// cut by hand (`manualCut`, `matches.cut_source = 'manual'`); everything
+/// else is the main lane. Post-rollout audit S1: content checks and
+/// hand-cut follow-ups used to read the main lane here, so a notice could
+/// name the wrong outage.
+func processingServiceLane(
+    kind: String?, clipLane: ProcessingServiceLane = .main, scope: String = "", manualCut: Bool = false
+) -> ProcessingServiceLane {
+    if kind == "reclip" || kind == "content_check" || (kind == "reel" && scope.hasPrefix("v:")) { return clipLane }
     if kind == "hand_cut" { return .hand }
-    if kind == "reclip" || (kind == "reel" && scope.hasPrefix("v:")) { return clipLane }
+    if manualCut, kind == "placement_generate" || kind == "placement_retry" || (kind == "reel" && scope == "highlights") {
+        return .hand
+    }
     return .main
+}
+
+/// The lane a notice reads for a job. Its kind decides, by the database's
+/// routing above; the lane a feedback row reports is used only when the
+/// kind is unknown, because that column says hand or main and nothing
+/// finer (it reads main for a content check on the fast lane).
+func processingNoticeLane(
+    kind: String?, reported: ProcessingServiceLane?, clipLane: ProcessingServiceLane,
+    scope: String = "", manualCut: Bool = false
+) -> ProcessingServiceLane {
+    guard kind != nil else { return reported ?? .main }
+    return processingServiceLane(kind: kind, clipLane: clipLane, scope: scope, manualCut: manualCut)
 }
 
 func processingContext(kind: String?, videoSaved: Bool = true) -> AvailabilityContext {
@@ -62,6 +87,8 @@ struct ProcessingWork {
     /// A hand cut the owner's iPhone is cutting. No Mac lane is involved
     /// until the phone hands it over, so no lane's outage blocks it.
     var onDevice: Bool = false
+    /// The match was cut by hand: its follow-ups run on the hand lane.
+    var manualCut: Bool = false
 }
 
 struct ProcessingWorkSummary {
@@ -77,7 +104,7 @@ func summarizeProcessingWork(_ services: ProcessingServiceStatus, work: [Process
     var blocked: [ProcessingWork] = []
     var continuing: [ProcessingWork] = []
     for job in work where job.status == "queued" || job.status == "processing" {
-        let state = services.state(for: job.lane ?? processingServiceLane(kind: job.kind, clipLane: services.clipLane), now: now)
+        let state = services.state(for: processingNoticeLane(kind: job.kind, reported: job.lane, clipLane: services.clipLane, manualCut: job.manualCut), now: now)
         if !job.onDevice && (state == .unavailable || state == .maintenance) { blocked.append(job) }
         else { continuing.append(job) }
     }
@@ -94,7 +121,7 @@ func summarizeProcessingWork(_ services: ProcessingServiceStatus, work: [Process
         ($0.kind == "deadspace_cut" || $0.kind == "hand_cut") && $0.videoSaved
     }
     let notice = blocked.first.flatMap { job in
-        availabilityNotice(services.state(for: job.lane ?? processingServiceLane(kind: job.kind, clipLane: services.clipLane), now: now),
+        availabilityNotice(services.state(for: processingNoticeLane(kind: job.kind, reported: job.lane, clipLane: services.clipLane, manualCut: job.manualCut), now: now),
                            context: blocked.count == 1 ? processingContext(kind: job.kind, videoSaved: job.videoSaved) : .queuedWork)
     }
     return ProcessingWorkSummary(blockedCount: blocked.count, continuingCount: continuing.count, continuingLabel: label, queued: queued, notice: notice,

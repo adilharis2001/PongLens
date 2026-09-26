@@ -120,13 +120,19 @@ struct MoreOptionsPlan: Equatable {
     /// - options: the server's answer, nil while unread or unreadable.
     /// - handCutEnabled: `hand_cut_enabled` for this account, with the
     ///   draft table readable (the raw page's own gate).
+    /// - commerceEnabled: `app_config.commerce_enabled`. Processing
+    ///   automatically spends minutes, so it is offered only while
+    ///   commerce is on, as on the web (post-rollout audit S3). An unread
+    ///   answer is off: the sheet offers less, never more.
     /// - jobRunning: this match's processing feedback says a job is queued
     ///   or running, which the sheet can know before recut_options answers.
-    static func make(options: RecutOptions?, handCutEnabled: Bool, jobRunning: Bool) -> MoreOptionsPlan {
+    static func make(
+        options: RecutOptions?, handCutEnabled: Bool, commerceEnabled: Bool, jobRunning: Bool
+    ) -> MoreOptionsPlan {
         if jobRunning { return MoreOptionsPlan(running: true) }
         guard let options else { return MoreOptionsPlan() }
         if options.available {
-            return MoreOptionsPlan(automatic: true, marking: handCutEnabled)
+            return MoreOptionsPlan(automatic: commerceEnabled, marking: handCutEnabled)
         }
         switch options.reason {
         case "processing":
@@ -293,7 +299,7 @@ enum CutAgainErrors {
         return .message(handCut(raw))
     }
 
-    /// `claim_auto_recut` (Replace, processed automatically): the
+    /// `claim_auto_recut` (processed automatically, Replace or Keep): the
     /// contract's codes as for the hand claim, then the charge's refusals
     /// in the raw page's words, since it is the same charge as its Process
     /// button. Never a hand cut's sentence: there are no marks here. The
@@ -308,16 +314,6 @@ enum CutAgainErrors {
         if raw.contains("insufficient_minutes") { return .message(CutAgainCopy.notEnoughMinutes) }
         if raw.contains("queue_full") { return .message(CutAgainCopy.queueFull) }
         return .message(CutAgainCopy.somethingWrong)
-    }
-
-    /// `copy_match_for_recut`, before any minutes are spent.
-    static func copy(_ raw: String) -> String {
-        if raw.contains("support_request") || raw.contains("already_processing")
-            || code(raw) == "processing" {
-            return CutAgainCopy.busy
-        }
-        if raw.contains("no_source") { return CutAgainCopy.noSource }
-        return CutAgainCopy.somethingWrong
     }
 
     /// A bare `processing` must match the whole code: it is a word inside
@@ -363,9 +359,20 @@ enum ProcessCharge {
     static func usesLine(minutes: Int?, balance: Int?) -> String? {
         guard let minutes else { return nil }
         guard let balance else {
-            return "Uses \(minutes) \(minutes == 1 ? "minute" : "minutes")."
+            return "Uses \(count(minutes))."
         }
-        return "Uses \(minutes) of your \(balance) \(balance == 1 ? "minute" : "minutes")."
+        return "Uses \(minutes) of your \(count(balance))."
+    }
+
+    /// The line in place of that one when the balance is short, the web's
+    /// words: "Not enough minutes. You have 20 minutes."
+    static func notEnoughLine(balance: Int) -> String {
+        "Not enough minutes. You have \(count(balance))."
+    }
+
+    /// "1 minute", "20 minutes".
+    static func count(_ minutes: Int) -> String {
+        "\(minutes) \(minutes == 1 ? "minute" : "minutes")"
     }
 
     static func enough(minutes: Int?, balance: Int?, needsMore: Bool) -> Bool {
@@ -410,7 +417,12 @@ struct ProcessRequestBody: Encodable, Equatable {
     }
 }
 
-/// `claim_auto_recut`'s parameters: Replace, processed automatically.
+/// `claim_auto_recut`'s parameters: processing a processed match again,
+/// automatically. Replace builds the new cut beside this one; Keep
+/// (`p_replace` false) copies the match and claims the copy's processing
+/// in one transaction, so a refusal leaves no copy behind (post-rollout
+/// audit K: Keep used to be the copy and then /api/process, and a refused
+/// charge left an unprocessed duplicate).
 struct AutoRecutParams: Encodable, Equatable {
     let p_match_id: String
     let p_replace: Bool
@@ -418,12 +430,46 @@ struct AutoRecutParams: Encodable, Equatable {
     let p_trim_end_s: Double?
     let p_strictness: String
 
-    init(matchId: UUID, settings: ProcessSettings) {
+    init(matchId: UUID, settings: ProcessSettings, replace: Bool) {
         p_match_id = matchId.uuidString.lowercased()
-        p_replace = true
+        p_replace = replace
         p_trim_start_s = settings.trimStart
         p_trim_end_s = settings.trimEnd
         p_strictness = ProcessSettings.strictness
+    }
+}
+
+/// `claim_auto_recut`'s answer: the job, and the match it runs on (this one
+/// for Replace, the new match for Keep).
+struct AutoRecutClaim: Decodable, Equatable {
+    let jobId: UUID?
+    let matchId: UUID?
+
+    enum CodingKeys: String, CodingKey {
+        case jobId = "job_id"
+        case matchId = "match_id"
+    }
+}
+
+/// What pressing Process again did, for the sheet.
+enum ProcessAgainOutcome: Equatable {
+    /// Replace was claimed: the sheet closes, the match keeps playing and
+    /// More options shows the ordinary progress.
+    case replacing
+    /// Keep made a new match, already processing: the sheet closes and
+    /// opens it.
+    case opened(UUID)
+    /// Refused (the sentence is in `error`), or Replace went grey over a
+    /// coach review and the choice is back on Keep: the sheet stays.
+    case stayed
+
+    /// A claim that landed. Keep opens the match the claim names; an
+    /// answer without one (never sent by the live function) stays, with
+    /// the generic sentence, rather than opening this match again.
+    static func after(replace: Bool, claim: AutoRecutClaim, matchId: UUID) -> ProcessAgainOutcome {
+        if replace { return .replacing }
+        guard let id = claim.matchId, id != matchId else { return .stayed }
+        return .opened(id)
     }
 }
 

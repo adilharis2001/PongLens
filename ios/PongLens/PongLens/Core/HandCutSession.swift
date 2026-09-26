@@ -86,8 +86,9 @@ final class HandCutDraftStore {
 
     /// The web's words for a conflict found mid-session.
     static let newerDraft = "Marked on another device. Reopen to see the latest."
-    /// On opening, when the server's newer copy replaced unsent taps.
-    static let replacedNotice = "Unsaved marks on this phone were replaced."
+    /// On opening, when the server's newer copy replaced unsent taps
+    /// (post-rollout audit O1, 2026-09-26: it said "on this phone").
+    static let replacedNotice = "Newer marks from another device replaced the unsaved ones here."
 
     @ObservationIgnored private var matchId: UUID?
     @ObservationIgnored private var userId: UUID?
@@ -433,6 +434,16 @@ enum HandCutMirror {
     static func remove(matchId: UUID) {
         guard let url = file(matchId) else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// How many marks the phone's own copy holds for this account: 0 when
+    /// there is no copy, nil when there is a file that cannot be read for
+    /// it. The kept-video sweep counts nil as marked, so a copy it cannot
+    /// read never lets a video go (post-rollout audit P).
+    static func markCount(matchId: UUID, userId: UUID) -> Int? {
+        guard let url = file(matchId) else { return nil }
+        guard FileManager.default.fileExists(atPath: url.path) else { return 0 }
+        return read(matchId: matchId, userId: userId)?.marks.count
     }
 }
 

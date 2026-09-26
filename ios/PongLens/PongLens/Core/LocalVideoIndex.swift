@@ -122,24 +122,63 @@ nonisolated struct LocalVideoIndex: Codable, Equatable, Sendable {
     }
 }
 
-/// What the owner's own query said about the kept matches.
+/// What the owner's own reads said about the kept matches.
 nonisolated enum LocalVideoReconcile {
-    /// The kept copies to delete now. `rows` is every row the server
-    /// returned when asked for exactly these ids, as id -> status.
+    /// A kept copy nobody has started marking goes this long after it was
+    /// kept (Adil, 2026-09-26, post-rollout audit P). The original is on
+    /// the server; this is only the phone's working copy.
+    static let keepDays = 14.0
+
+    /// The kept copies to delete now.
     ///
+    /// - `rows`: every row the owner's match query returned when asked for
+    ///   exactly these ids, as id -> status.
+    /// - `marked`: for copies past `keepDays`, whether marking has started:
+    ///   true when the server's draft or the phone's own draft copy has a
+    ///   mark, or a hand-cut job exists for the match; false only when
+    ///   every one of those reads answered and found nothing. A match
+    ///   missing from the map was not read, or a read failed, and counts
+    ///   as marked.
+    /// - `inUse`: matches whose copy a phone cut is reading or the marker
+    ///   has open. Never deleted, whatever else is true.
+    ///
+    /// The rules, in order:
+    /// - Another account's copy is never touched.
+    /// - A copy in use stays.
     /// - A match the owner's query did not return is deleted (RLS hides
     ///   only other people's rows, and every entry here is the owner's).
     /// - A match whose status is `ready` has been cut or processed; the
     ///   video it was kept for is on the server as points.
+    /// - Past `keepDays` since it was kept, with marking known not to have
+    ///   started, it goes.
     /// - Everything else (uploaded, processing, failed) keeps its copy.
     ///
     /// Only call this with rows from a query that SUCCEEDED. A failed read
     /// is not an empty one, and treating it as one would delete every copy.
-    static func doomed(entries: [LocalVideoEntry], owner: UUID, rows: [UUID: String]) -> [UUID] {
+    static func doomed(
+        entries: [LocalVideoEntry], owner: UUID, rows: [UUID: String],
+        now: Date, marked: [UUID: Bool], inUse: Set<UUID>
+    ) -> [UUID] {
         entries.compactMap { entry in
-            guard entry.ownerId == owner else { return nil }
+            guard entry.ownerId == owner, !inUse.contains(entry.matchId) else { return nil }
             guard let status = rows[entry.matchId] else { return entry.matchId }
-            return status == "ready" ? entry.matchId : nil
+            if status == "ready" { return entry.matchId }
+            if expired(entry, now: now), marked[entry.matchId] == false { return entry.matchId }
+            return nil
         }
+    }
+
+    /// Kept `keepDays` or more ago: the copies whose marking the caller
+    /// has to read before `doomed` can let them go.
+    static func expired(_ entry: LocalVideoEntry, now: Date) -> Bool {
+        now.timeIntervalSince(entry.createdAt) >= keepDays * 86_400
+    }
+
+    /// One match's reads, folded: any mark or job is marked; nothing found
+    /// by reads that all answered is not; any read that failed (nil) with
+    /// nothing found counts as marked, so a failed read never deletes.
+    static func marked(serverMarks: Int?, phoneMarks: Int?, handCutJob: Bool?) -> Bool {
+        if (serverMarks ?? 0) > 0 || (phoneMarks ?? 0) > 0 || handCutJob == true { return true }
+        return serverMarks == nil || phoneMarks == nil || handCutJob == nil
     }
 }

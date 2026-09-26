@@ -8,7 +8,7 @@ import SwiftUI
 /// to be squeezed into a question about one match's cut.
 ///
 /// One panel, two homes. From the match page it is a sheet raised from the
-/// Processing row, like Your side and Match details, because it is a
+/// Report a problem row, like Your side and Match details, because it is a
 /// short question and not a destination. It used to be a page that
 /// re-drew the match's own video card under the choices, so the cut, the
 /// Original button and the download appeared twice, one tap apart; the
@@ -176,14 +176,14 @@ struct MatchIssuePanel: View {
     }
 }
 
-/// The sheet the Processing row raises, dressed like every other sheet
-/// off the Tools list.
+/// The sheet the Report a problem row raises, dressed like every other
+/// sheet off the Tools list.
 struct MatchProcessingSheet: View {
     let model: MatchIssueModel
     let hasOriginal: Bool
 
     var body: some View {
-        PLSheetScaffold(title: "Processing") {
+        PLSheetScaffold(title: CutAgainCopy.reportProblem) {
             Form {
                 MatchIssuePanel(model: model, hasOriginal: hasOriginal)
             }
@@ -231,7 +231,7 @@ struct MatchProcessingFeedbackScreen: View {
                         }
                         .buttonStyle(PLSecondaryButtonStyle())
 
-                        Text("Processing")
+                        Text(CutAgainCopy.reportProblem)
                             .font(.plPageTitle)
                             .tracking(-0.6)
                             .foregroundStyle(PL.textBody)
@@ -284,11 +284,13 @@ struct MatchProcessingFeedbackScreen: View {
     }
 }
 
-/// The Processing row: in Tools for the owner, under the hero for a coach.
-/// Its trailing text is the live state of any request, refreshed even when
-/// the match is ready and ordinary processing polling has stopped. The tap
-/// raises the sheet; the row's own model goes with it, so the sheet opens
-/// on state that is already loaded.
+/// The Report a problem row (it read "Processing" until post-rollout audit
+/// N): in Tools for the owner of an unprocessed match, under the hero for a
+/// coach. Its trailing text is the live state of a request when there is
+/// one, refreshed even when the match is ready and ordinary processing
+/// polling has stopped, and nothing otherwise. The tap raises the sheet;
+/// the row's own model goes with it, so the sheet opens on state that is
+/// already loaded.
 struct ProcessingToolRow: View {
     let match: MatchRow
     @Environment(\.scenePhase) private var scenePhase
@@ -303,14 +305,16 @@ struct ProcessingToolRow: View {
     var body: some View {
         Button { open = true } label: {
             HStack(spacing: 8) {
-                Text("Processing")
+                Text(CutAgainCopy.reportProblem)
                     .font(.system(size: 16))
                     .foregroundStyle(PL.textBody)
                 Spacer()
-                Text(model.state?.rowTrailing ?? "Report a problem")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text500)
-                    .lineLimit(1)
+                if let trailing = model.state?.rowTrailing {
+                    Text(trailing)
+                        .font(.plBody)
+                        .foregroundStyle(PL.text500)
+                        .lineLimit(1)
+                }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(PL.text600)

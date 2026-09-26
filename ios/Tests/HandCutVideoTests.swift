@@ -141,10 +141,60 @@ func runHandCutChecks() {
                 entry(m3, owner, "c.mov", 2), entry(m4, other, "d.mov", 3)]
     let doomed = LocalVideoReconcile.doomed(
         entries: mine, owner: owner,
-        rows: [m1: "uploaded", m2: "ready", m4: "ready"])
+        rows: [m1: "uploaded", m2: "ready", m4: "ready"], now: t0, marked: [:], inUse: [])
     eq(Set(doomed), Set([m2, m3]),
        "ready goes, a match the owner cannot find goes, uploaded stays, another account's is never touched")
     eq(LocalVideoReconcile.doomed(entries: mine, owner: owner,
-                                  rows: [m1: "processing", m2: "failed", m3: "uploaded"]),
+                                  rows: [m1: "processing", m2: "failed", m3: "uploaded"],
+                                  now: t0, marked: [:], inUse: []),
        [], "processing and failed keep their copy")
+
+    // MARK: Fourteen days (post-rollout audit P)
+
+    let day = 86_400.0
+    let fortnight = t0.addingTimeInterval(14 * day)
+    let waiting: [UUID: String] = [m1: "uploaded", m2: "uploaded", m3: "failed"]
+    let kept = [entry(m1, owner, "a.mov", 0), entry(m2, owner, "b.mov", 0), entry(m3, owner, "c.mov", 0)]
+    eq(LocalVideoReconcile.doomed(entries: kept, owner: owner, rows: waiting,
+                                  now: t0.addingTimeInterval(14 * day - 1),
+                                  marked: [m1: false, m2: false, m3: false], inUse: []),
+       [], "a second short of 14 days, nothing goes")
+    eq(Set(LocalVideoReconcile.doomed(entries: kept, owner: owner, rows: waiting, now: fortnight,
+                                      marked: [m1: false, m2: false, m3: false], inUse: [])),
+       Set([m1, m2, m3]), "14 days after keeping, nobody marking: the copies go")
+    eq(LocalVideoReconcile.doomed(entries: kept, owner: owner, rows: waiting, now: fortnight,
+                                  marked: [m1: true, m2: false, m3: true], inUse: []),
+       [m2], "marking started keeps a copy however old")
+    eq(LocalVideoReconcile.doomed(entries: kept, owner: owner, rows: waiting, now: fortnight,
+                                  marked: [m2: false], inUse: []),
+       [m2], "a copy whose marking was not read counts as marked and stays")
+    eq(LocalVideoReconcile.doomed(entries: kept, owner: owner, rows: waiting, now: fortnight,
+                                  marked: [m1: false, m2: false, m3: false], inUse: [m1, m3]),
+       [m2], "never while a phone cut reads it or the marker has it open")
+    eq(LocalVideoReconcile.doomed(entries: kept, owner: owner, rows: [m1: "ready"], now: t0,
+                                  marked: [:], inUse: [m1, m2]),
+       [m3], "in use outranks a ready or missing match too")
+    eq(LocalVideoReconcile.doomed(entries: [entry(m4, other, "d.mov", 0)], owner: owner,
+                                  rows: [m4: "uploaded"], now: fortnight, marked: [m4: false], inUse: []),
+       [], "another account's old copy is still never touched")
+    check(LocalVideoReconcile.expired(entry(m1, owner, "a.mov", 0), now: fortnight),
+          "14 days to the second is expired")
+    check(!LocalVideoReconcile.expired(entry(m1, owner, "a.mov", 0), now: t0.addingTimeInterval(13 * day)),
+          "13 days is not")
+
+    // The reads folded into one answer. Any mark or job is marked; nothing
+    // found only when every read answered; a failed read is marked.
+    check(!LocalVideoReconcile.marked(serverMarks: 0, phoneMarks: 0, handCutJob: false),
+          "no draft marks, no phone marks, no job: not marked")
+    check(LocalVideoReconcile.marked(serverMarks: 1, phoneMarks: 0, handCutJob: false), "a server mark")
+    check(LocalVideoReconcile.marked(serverMarks: 0, phoneMarks: 3, handCutJob: false), "a mark in the phone's copy")
+    check(LocalVideoReconcile.marked(serverMarks: 0, phoneMarks: 0, handCutJob: true), "a hand-cut job")
+    check(LocalVideoReconcile.marked(serverMarks: nil, phoneMarks: 0, handCutJob: false),
+          "the draft read failed: marked")
+    check(LocalVideoReconcile.marked(serverMarks: 0, phoneMarks: nil, handCutJob: false),
+          "the phone's copy could not be read: marked")
+    check(LocalVideoReconcile.marked(serverMarks: 0, phoneMarks: 0, handCutJob: nil),
+          "the job read failed: marked")
+    check(LocalVideoReconcile.marked(serverMarks: nil, phoneMarks: 2, handCutJob: nil),
+          "a mark found beside a failed read: marked")
 }

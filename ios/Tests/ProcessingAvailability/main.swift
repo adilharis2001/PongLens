@@ -66,7 +66,40 @@ private func check(_ value: @autoclosure () -> Bool, _ label: String) {
     check(processingServiceLane(kind: "reclip", clipLane: .main) == .main, "reclip follows returned main")
     check(processingServiceLane(kind: "reel", clipLane: .fast, scope: "v:point:1") == .fast, "vertical reel follows clip lane")
     check(processingServiceLane(kind: "reel", clipLane: .fast, scope: "full") == .main, "ordinary export uses main")
-    check(processingServiceLane(kind: "content_check", clipLane: .fast) == .main, "content checks use main")
+    // The database's routing (job_queue_name), post-rollout audit S1.
+    check(processingServiceLane(kind: "content_check", clipLane: .fast) == .fast, "content checks follow the clip lane")
+    check(processingServiceLane(kind: "content_check", clipLane: .main) == .main, "content checks on main when clips are")
+    for kind in ["placement_generate", "placement_retry"] {
+        check(processingServiceLane(kind: kind, clipLane: .fast, manualCut: true) == .hand, "\(kind) on a hand cut uses the hand lane")
+        check(processingServiceLane(kind: kind, clipLane: .fast) == .main, "\(kind) on an automatic cut uses main")
+    }
+    check(processingServiceLane(kind: "reel", clipLane: .fast, scope: "highlights", manualCut: true) == .hand, "a hand cut's highlights reel uses the hand lane")
+    check(processingServiceLane(kind: "reel", clipLane: .fast, scope: "highlights") == .main, "an automatic cut's highlights reel uses main")
+    check(processingServiceLane(kind: "reel", clipLane: .fast, scope: "v:point:1", manualCut: true) == .fast, "a vertical reel follows the clip lane on any match")
+    check(processingServiceLane(kind: "reel", clipLane: .fast, scope: "starred", manualCut: true) == .main, "other reels use main on any match")
+    check(processingServiceLane(kind: "deadspace_cut", clipLane: .fast, manualCut: true) == .main, "a cut itself uses main")
+    // The feedback row's lane says only hand or main: the kind wins.
+    check(processingNoticeLane(kind: "content_check", reported: .main, clipLane: .fast) == .fast, "a content check reported as main is on the fast lane")
+    check(processingNoticeLane(kind: "placement_retry", reported: .main, clipLane: .fast, manualCut: true) == .hand, "a hand cut's placement reported as main is on the hand lane")
+    check(processingNoticeLane(kind: nil, reported: .hand, clipLane: .fast) == .hand, "no kind: the reported lane")
+    check(processingNoticeLane(kind: nil, reported: nil, clipLane: .fast) == .main, "nothing known: main")
+    var fastDown = availableStatus
+    fastDown.fast = .unavailable
+    let checkStore = ProcessingServiceStore(fetch: { fastDown }, now: { now }, waitForExpiry: { try await Task.sleep(for: .seconds(30)) })
+    await checkStore.refresh()
+    check(checkStore.matchNotice(matchStatus: "uploaded", jobKind: "content_check", jobStatus: "queued", lane: "main") != nil,
+          "a content check waiting on a fast lane that is down says so")
+    check(checkStore.matchNotice(matchStatus: "uploaded", jobKind: "deadspace_cut", jobStatus: "queued", lane: "main") == nil,
+          "the main lane's work is not blamed on the fast lane")
+    checkStore.stop()
+    let manualWork = summarizeProcessingWork(handDown, work: [
+        ProcessingWork(kind: "placement_retry", status: "queued", videoSaved: true, lane: .main, manualCut: true)
+    ], now: now)
+    check(manualWork.blockedCount == 1, "a hand cut's placement waits on the hand lane that is down")
+    let autoWork = summarizeProcessingWork(handDown, work: [
+        ProcessingWork(kind: "placement_retry", status: "queued", videoSaved: true, lane: .main)
+    ], now: now)
+    check(autoWork.blockedCount == 0, "an automatic cut's placement does not")
     check(availabilityNotice(.unknown, context: .savedMatch) == nil, "unknown is not an outage")
     check(availabilityNotice(.available, context: .savedMatch) == nil, "recovery removes notice")
     check(availabilityNotice(.unavailable, context: .savedMatch)?.body == "Your video is saved and queued. Processing will resume automatically when service is restored. You can leave this page. We’ll email you when your match is ready.", "primary job retains approved email promise")

@@ -193,15 +193,10 @@ struct CoachTabView: View {
                 store: notifications,
                 onOpenMatch: { matchId, pointId in
                     bellOpen = false
-                    guard let match = library.matches.first(where: { $0.id == matchId })
-                    else { return }
                     // Same as the playing root: a note names a point, and
-                    // that point is what the tap is asking for.
-                    if let pointId {
-                        path.append(MatchPointRoute(match: match, pointId: pointId))
-                    } else {
-                        path.append(match)
-                    }
+                    // that point is what the tap is asking for; a match
+                    // not in the library yet is fetched.
+                    Task { await openBellMatch(matchId, pointId: pointId, library: library, path: $path) }
                 },
                 onOpenMatchFeedback: { matchId in
                     bellOpen = false
@@ -230,6 +225,13 @@ struct CoachTabView: View {
                         bellOpen = false
                         router.tab = .students
                     }
+                },
+                onOpenUpload: {
+                    // Uploading is the playing side's: switch to it with
+                    // the upload screen raised, as its own bell does.
+                    bellOpen = false
+                    appRouter.uploadOpen = true
+                    app.setWorkspace(.player)
                 }
             )
             .presentationDetents([.medium, .large])

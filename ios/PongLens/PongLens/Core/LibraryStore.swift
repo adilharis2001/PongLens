@@ -30,7 +30,8 @@ final class LibraryStore {
             jobStatus: feedback?.jobStatus ?? live?.status,
             lane: feedback?.lane,
             videoSaved: match.rawPath != nil,
-            onDevice: feedback?.onDevice ?? false
+            onDevice: feedback?.onDevice ?? false,
+            manualCut: match.cutSource == "manual"
         )
     }
 

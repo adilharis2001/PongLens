@@ -1750,7 +1750,7 @@ struct MatchDetailScreen: View {
                 sendsReadyEmail: ["deadspace_cut", "hand_cut"].contains(model.processingFeedback?.jobKind ?? model.job?.kind ?? ""),
                 estimate: model.processingFeedback?.estimate,
                 jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
-                serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: model.processingFeedback?.jobKind ?? model.job?.kind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue
+                serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: model.processingFeedback?.jobKind ?? model.job?.kind, clipLane: ProcessingServiceStore.shared.clipLane, manualCut: current.cutSource == "manual")).rawValue
             )
         } else if sourceGone {
             VStack(alignment: .leading, spacing: 10) {
@@ -1796,7 +1796,8 @@ struct MatchDetailScreen: View {
             jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
             lane: model.processingFeedback?.lane,
             videoSaved: current.rawPath != nil,
-            onDevice: model.processingFeedback?.onDevice ?? false
+            onDevice: model.processingFeedback?.onDevice ?? false,
+            manualCut: current.cutSource == "manual"
         )
     }
 

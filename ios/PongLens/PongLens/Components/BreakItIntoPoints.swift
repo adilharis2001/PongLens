@@ -243,7 +243,7 @@ struct AutoProcessControls<Choice: View>: View {
                 .disabled(busy || !enough)
                 if !enough {
                     if let balance {
-                        Text("Not enough minutes. You have \(balance).")
+                        Text(ProcessCharge.notEnoughLine(balance: balance))
                             .font(.plCaption)
                             .foregroundStyle(PL.warningText)
                     }
