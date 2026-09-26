@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
@@ -18,7 +16,7 @@ const state = { role: "owner", matchStatus: "ready", activeIssue: null, events: 
 
 /** Same local production-React harness as admin comparisonInteraction.test.
  * Only Next navigation and remote transport are replaced. The actual form,
- * effects, media signing, reconciliation and HTMLVideoElement are exercised. */
+ * its effects and the row's refresh are exercised. */
 function browserBundle() {
   const factories: Record<string, string> = {};
   const packageFile = (name: string, file: string) => path.join(path.dirname(require.resolve(name)), "cjs", file);
@@ -33,6 +31,9 @@ function browserBundle() {
     "next/link": "module.exports={__esModule:true,default:'a'};",
     "next/navigation": "exports.useRouter=()=>window.fixtureRouter;",
     "@/lib/supabase/client": "exports.createClient=()=>{throw new Error('Unexpected database call in feedback fixture');};",
+    // Dictation needs the consent provider the app wraps pages in; the
+    // form's own behaviour is what is under test here.
+    "@/components/DictateButton": "exports.DictateButton=()=>null;",
   };
   const add = (id: string): string => {
     if (id in factories) return id;
@@ -64,48 +65,31 @@ function browserBundle() {
     const link=createRoot(document.getElementById('link'));
     window.renderLink=()=>link.render(React.createElement(components.MatchFeedbackLink,{matchId:'match',isOwner:true,matchStatus:'ready',activeVersionId:window.fixtureState.activeProcessingVersionId}));
     window.fixtureRouter={refresh:()=>{window.refreshes++;window.renderLink();}};window.renderLink();
-    createRoot(document.getElementById('root')).render(React.createElement(components.MatchFeedback,{matchId:'match',initialState:window.fixtureState,isOwner:true,matchStatus:'ready',title:'Demo match',detail:'Training',hasCut:true,hasOriginal:false,thumbnail:null}));})();`;
+    createRoot(document.getElementById('root')).render(React.createElement(components.MatchFeedback,{matchId:'match',initialState:window.fixtureState,isOwner:true,matchStatus:'ready',title:'Demo match',detail:'Training',titleFacts:{opponentName:'Demo',venue:null,playedAt:null,matchType:'match'},hasOriginal:false,thumbnail:null}));})();`;
 }
 
-async function harness(run: (page: Page, signs: string[], expected: string[]) => Promise<void>, publishBeforeSigning = false) {
-  const directory = mkdtempSync(path.join(tmpdir(), "ponglens-feedback-refresh-"));
-  let video: Buffer;
-  try {
-    const file = path.join(directory, "fixture.mp4");
-    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x90:r=10", "-t", "5", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", file]);
-    video = readFileSync(file);
-  } finally { rmSync(directory, { recursive: true }); }
+/*
+ * The page used to carry its own video player, and these tests waited for
+ * it and signed its media. The player went (the video it asks about is on
+ * the match page), so the harness now waits for the form, and the two
+ * media tests became one about the draft (post-rollout audit R3,
+ * 2026-09-26: they had been timing out since, unnoticed, because no npm
+ * script ran them).
+ */
+async function harness(run: (page: Page) => Promise<void>) {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 393, height: 660 } });
-  const signs: string[] = [];
-  const expected: string[] = [];
-  let published = false;
   try {
     await page.route("**/*", async route => {
       const url = route.request().url();
       if (!url.startsWith("https://ponglens.test/")) return route.abort();
       if (url.includes("/api/match-issues/")) return route.fulfill({ json: { state: await page.evaluate("window.fixtureState") } });
-      if (url.includes("/api/media-url")) {
-        const input = route.request().postDataJSON();
-        expected.push(input.expectedVersionId);
-        if (publishBeforeSigning && !published) {
-          published = true;
-          await page.evaluate(`window.fixtureState.activeProcessingVersionId=${JSON.stringify(newVersion)}`);
-        }
-        const version = await page.evaluate<string>("window.fixtureState.activeProcessingVersionId");
-        if (input.expectedVersionId !== version) {
-          return route.fulfill({ status: 409, json: { error: "Match version changed", code: "active_version_changed" } });
-        }
-        signs.push(version);
-        return route.fulfill({ json: { url: `https://ponglens.test/media/${version}.mp4` } });
-      }
-      if (url.includes("/media/")) return route.fulfill({ contentType: "video/mp4", body: video });
       return route.fulfill({ contentType: "text/html", body: '<div id="link"></div><div id="root"></div>' });
     });
     await page.goto("https://ponglens.test/");
     await page.addScriptTag({ content: browserBundle() });
-    await page.waitForFunction("document.querySelector('video')?.readyState >= 1");
-    await run(page, signs, expected);
+    await page.waitForFunction("document.querySelector('form textarea') !== null");
+    await run(page);
   } finally { await browser.close(); }
 }
 
@@ -116,29 +100,18 @@ async function focusRefresh(page: Page) {
   await page.waitForTimeout(100);
 }
 
-test("feedback polling preserves its real player and draft; publish and restore replace media", { skip: !enabled }, async () => {
-  await harness(async (page, signs) => {
-    await page.getByRole("radio", { name: /Try processing again/ }).check();
+test("feedback polling preserves the chosen request and the draft", { skip: !enabled }, async () => {
+  await harness(async page => {
+    assert.equal(await page.getByRole("heading", { level: 1 }).textContent(), "Report a problem");
+    await page.getByRole("radio", { name: /Request reprocessing/ }).check();
     await page.getByRole("textbox").fill("Keep my unfinished explanation.");
-    await page.evaluate("window.previousVideo=document.querySelector('video');window.previousVideo.muted=true;window.previousVideo.currentTime=1;window.previousVideo.play()");
-    await page.waitForFunction("window.previousVideo.currentTime>=1 && !window.previousVideo.paused");
-    const before = await page.evaluate<number>("window.previousVideo.currentTime");
     await focusRefresh(page);
-    const after = await page.evaluate<{same: boolean; time: number; paused: boolean}>("({same:document.querySelector('video')===window.previousVideo,time:window.previousVideo.currentTime,paused:window.previousVideo.paused})");
-    assert.equal(after.same, true);
-    assert.ok(after.time >= before, JSON.stringify({before, after}));
-    assert.equal(after.paused, false);
+    assert.equal(await page.getByRole("radio", { name: /Request reprocessing/ }).isChecked(), true);
     assert.equal(await page.getByRole("textbox").inputValue(), "Keep my unfinished explanation.");
-    assert.deepEqual(signs, [oldVersion]);
+    // A new cut going live does not throw the draft away either.
     await page.evaluate(`window.fixtureState.activeProcessingVersionId=${JSON.stringify(newVersion)}`);
     await focusRefresh(page);
-    await page.waitForFunction("document.querySelector('video')?.src.includes('bbbbbbbb')");
-    assert.equal(await page.evaluate("document.querySelector('video')===window.previousVideo"), false);
     assert.equal(await page.getByRole("textbox").inputValue(), "Keep my unfinished explanation.");
-    await page.evaluate(`window.fixtureState.activeProcessingVersionId=${JSON.stringify(oldVersion)}`);
-    await focusRefresh(page);
-    await page.waitForFunction("document.querySelector('video')?.src.includes('aaaaaaaa')");
-    assert.deepEqual(signs, [oldVersion, newVersion, oldVersion]);
   });
 });
 
@@ -146,6 +119,9 @@ test("ready match Tools requests a server refresh only for published or restored
   await harness(async page => {
     await focusRefresh(page);
     assert.equal(await page.evaluate("window.refreshes"), 0);
+    // The row reads Report a problem, with nothing on its right while no
+    // request is open (post-rollout audit N).
+    assert.equal((await page.locator("#link").textContent())?.trim(), "Report a problem");
     for (const [version, count] of [[newVersion, 1], [oldVersion, 2]] as const) {
       await page.evaluate(`window.fixtureState.activeProcessingVersionId=${JSON.stringify(version)}`);
       await focusRefresh(page);
@@ -154,12 +130,4 @@ test("ready match Tools requests a server refresh only for published or restored
       assert.equal(await page.evaluate("window.refreshes"), count);
     }
   });
-});
-
-test("a publish before signing refreshes canonical feedback state and retries with the new expected ID", { skip: !enabled }, async () => {
-  await harness(async (page, signs, expected) => {
-    assert.deepEqual(expected, [oldVersion, newVersion]);
-    assert.deepEqual(signs, [newVersion], "no mismatched cut is ever signed or shown");
-    assert.equal(await page.evaluate("document.querySelector('video').src.includes('bbbbbbbb')"), true);
-  }, true);
 });

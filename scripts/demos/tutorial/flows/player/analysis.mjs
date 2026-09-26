@@ -30,8 +30,11 @@ export const guard = playerGuard;
 
 export const stage = stagePlayerMatch;
 
+// The serve maps are cards in the Match analysis deck since 2026-09-15;
+// there is no "Serve placement" section and no "Placement maps" row any
+// more (post-rollout audit R4, 2026-09-26). The deck is the one heading.
 const MAP = {
-  heading: { text: "Serve placement", tag: "h2" },
+  heading: { text: "Match analysis", tag: "h2" },
   games: { aria: "Which games" },
   whose: { aria: "Whose shots" },
   landings: { aria: "Placement map, Me at the bottom" },
@@ -39,20 +42,21 @@ const MAP = {
   wrong: { aria: "placement maps are wrong" },
 };
 
-/** Scroll the map deck one card along, the way a thumb would. */
-const swipeDeck = (page, to) =>
-  page.evaluate((target) => {
-    const h = [...document.querySelectorAll("h2")].find((x) =>
-      x.textContent.trim().startsWith("Serve placement")
+/**
+ * Swipe the deck to the card holding the element with this aria label,
+ * the way a thumb would: the maps sit wherever the deck puts them, after
+ * the serve cards, so they are found by what they hold, not by position.
+ */
+const showCard = (page, aria) =>
+  page.evaluate((label) => {
+    const el = [...document.querySelectorAll("[aria-label]")].find((x) =>
+      x.getAttribute("aria-label").includes(label)
     );
-    const sec = h?.closest("section") ?? h?.parentElement;
-    const s = [...(sec?.querySelectorAll("*") ?? [])].find(
-      (d) => d.scrollWidth > d.clientWidth + 40
-    );
-    if (!s) return false;
-    s.scrollTo({ left: target * (s.clientWidth + 12), behavior: "smooth" });
+    const card = el?.closest(".snap-center") ?? el;
+    if (!card) return false;
+    card.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
     return true;
-  }, to);
+  }, aria);
 
 const ANALYSIS = "Match analysis";
 
@@ -158,10 +162,11 @@ export async function flow(page, clock, { beat, voice, union, serviceKey }) {
   const b5 = beat("maps");
   await page.evaluate(() => {
     [...document.querySelectorAll("h2")]
-      .find((h) => h.textContent.trim().startsWith("Serve placement"))
+      .find((h) => h.textContent.trim().startsWith("Match analysis"))
       ?.scrollIntoView({ block: "start" });
     window.scrollBy(0, -70);
   });
+  if (!(await showCard(page, MAP.landings.aria))) throw new Error("serve map card not found");
   await clock.sleep(1000);
   await clock.until(b5.start + 0.1);
   const mapHead = await clock.rect(MAP.heading);
@@ -186,14 +191,14 @@ export async function flow(page, clock, { beat, voice, union, serviceKey }) {
   });
   await clock.until(b6.start + b6.dur * 0.35);
   clock.close(c6);
-  // The heat map is the second card in the deck.
-  if (!(await swipeDeck(page, 1))) throw new Error("placement deck not found");
+  // The heat map is the card after the serve map.
+  if (!(await showCard(page, MAP.heatmap.aria))) throw new Error("heat map card not found");
   await clock.sleep(1000);
   const heat = await clock.rect(MAP.heatmap);
   const c6b = clock.mark({ kind: "box", label: "Heat map", rect: heat });
   await clock.until(b6.start + b6.dur * 0.72);
   clock.close(c6b);
-  await swipeDeck(page, 0);
+  await showCard(page, MAP.landings.aria);
   await clock.sleep(600);
   const c6c = clock.mark({ kind: "box", label: "One game at a time", rect: games });
   await page.evaluate(() => window.__pick({ aria: "Game 2" })?.click());
@@ -214,14 +219,16 @@ export async function flow(page, clock, { beat, voice, union, serviceKey }) {
   });
   await page.goto(`${new URL(page.url()).origin}/match/${MAPPED}`);
   await page.waitForSelector("text=Try again", { timeout: 30000 });
+  // Tools has one "Match analysis" row now; with the analysis to retry it
+  // reads "Try again" on its right. Never pressed: it would start one.
   await page.evaluate(() => {
     [...document.querySelectorAll("button")]
-      .find((button) => button.textContent.trim().startsWith("Placement maps"))
+      .find((button) => button.textContent.trim().startsWith("Match analysis"))
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
   });
   await clock.sleep(700);
   await clock.until(request.start + 0.1);
-  const placementTool = await clock.rect({ text: "Placement maps", tag: "button" });
+  const placementTool = await clock.rect({ text: "Match analysis", tag: "button" });
   const requestMark = clock.mark({
     kind: "box",
     label: "Request from Tools",
@@ -241,10 +248,10 @@ export async function flow(page, clock, { beat, voice, union, serviceKey }) {
     }),
   });
   await page.goto(`${new URL(page.url()).origin}/match/${MAPPED}`);
-  await page.waitForSelector("text=Serve placement", { timeout: 30000 });
+  await page.waitForSelector("text=Match analysis", { timeout: 30000 });
   await page.evaluate(() => {
     [...document.querySelectorAll("h2")]
-      .find((heading) => heading.textContent.trim().startsWith("Serve placement"))
+      .find((heading) => heading.textContent.trim().startsWith("Match analysis"))
       ?.scrollIntoView({ block: "start" });
     window.scrollBy(0, -70);
   });

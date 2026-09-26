@@ -141,16 +141,18 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
 
   const processing = beat("processing-options");
   await page.goto(`${new URL(page.url()).origin}/upload`);
-  await page.waitForSelector('[aria-label="Process when the upload finishes"]', { timeout: 60000 });
+  // "Break it into points" (Later, Automatically, Mark the points
+  // yourself) replaced the "Process when the upload finishes" and
+  // "Placement maps" switches on 2026-09-25 (post-rollout audit R4).
+  await page.waitForSelector('[aria-label="Break it into points"]', { timeout: 60000 });
   await page.evaluate(() => window.scrollTo(0, 0));
   await clock.sleep(600);
   await clock.until(processing.start + 0.1);
-  const breakIntoPoints = await clock.rect({ aria: "Process when the upload finishes" });
-  const placements = await clock.rect({ aria: "Placement maps" });
+  const breakIntoPoints = await clock.rect({ aria: "Break it into points" });
   const processingMark = clock.mark({
     kind: "box",
-    label: "Points and placement maps",
-    rect: union(breakIntoPoints, placements),
+    label: "Break it into points",
+    rect: breakIntoPoints,
   });
   await clock.until(processing.end);
   clock.close(processingMark);
@@ -160,7 +162,7 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   const processingMark2 = clock.mark({
     kind: "box",
     label: "Process after upload",
-    rect: union(breakIntoPoints, placements),
+    rect: breakIntoPoints,
   });
   await clock.until(outro.end);
   clock.close(processingMark2);
