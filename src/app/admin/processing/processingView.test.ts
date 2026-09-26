@@ -3,12 +3,15 @@ import test from "node:test";
 import {
   BEAT_STALE_S,
   DEVICE_QUIET_S,
+  HAND_WAIT_ATTENTION_S,
   WAIT_ATTENTION_S,
   buildWorkerRows,
+  deviceRows,
   durationLabel,
   kindLabel,
   isKnownKind,
   isKnownStage,
+  jobLabel,
   loadNote,
   processingHubDetail,
   shareRenderNote,
@@ -876,8 +879,12 @@ test("a released phone job is not evidence that a worker is running", () => {
           on_device: true,
           created_at: ago(300000),
           updated_at: ago(30),
-          error: "device hand cut: no report from the iPhone for 72 hours",
-          user_message: "The cut on your iPhone didn't finish. Your marks are saved.",
+          // A phone job that finished off the Mac, whatever its status: a
+          // quiet phone's job moves to the hand lane after 15 minutes (60
+          // while uploading) and finishes there, so what stays on the
+          // phone is the owner handing it back.
+          error: "device hand cut handed back by the owner",
+          user_message: null,
           original_name: null,
           match_id: null,
           player: null,
@@ -900,4 +907,107 @@ test("the phone's stages and the Mac's check are taught to the page", () => {
 test("a hand cut replacing a processed match names its wait for the swap", () => {
   assert.ok(isKnownStage("recut_activate"));
   assert.equal(stageLabel("recut_activate"), "Making the new cut live");
+});
+
+/* ------------------------------------- post-rollout audit (2026-09-26) */
+
+function queued(over: Partial<ProcessingOverview["waiting"][number]>): ProcessingOverview["waiting"][number] {
+  return {
+    id: "q",
+    kind: "deadspace_cut",
+    created_at: ago(60),
+    original_name: null,
+    match_id: null,
+    player: "Tim",
+    estimated_work_seconds: null,
+    eta_latest_at: null,
+    ...over,
+  };
+}
+
+test("a player's Replace reads as one, automatic or by hand (S2)", () => {
+  assert.equal(jobLabel("match_reprocess", { player_replace: true }), "Player's Replace, automatic");
+  assert.equal(jobLabel("hand_cut", { player_replace: true }), "Player's Replace, by hand");
+  // Support reprocessing a match, a first hand cut, and a database from
+  // before the field keep their kinds' names.
+  assert.equal(jobLabel("match_reprocess", { player_replace: false }), "Reprocessing a match");
+  assert.equal(jobLabel("match_reprocess"), "Reprocessing a match");
+  assert.equal(jobLabel("hand_cut", { player_replace: null }), "Hand cut");
+  // An unknown kind still reads as itself.
+  assert.equal(jobLabel("spin_report", { player_replace: true }), "spin_report");
+
+  // The worker's row says it too.
+  const rows = buildWorkerRows(
+    overview({
+      workers: [
+        pulse({
+          worker_id: "mac:hand",
+          lane: "hand",
+          job_id: "j",
+          job_kind: "hand_cut",
+          stage: "recut_activate",
+          job_player_replace: true,
+          player: "Julian",
+          job_created_at: ago(600),
+        }),
+      ],
+      queue: [{ queue_name: "jobs_hand", queue_length: 0, oldest_msg_age_sec: null }],
+    }),
+    NOW,
+  );
+  const hand = rows.find((r) => r.key === "mac:hand");
+  assert.equal(hand?.detail, "Making the new cut live · Player's Replace, by hand · Julian · 10m");
+});
+
+test("the hand lane waits two hours before a queued job is amber (S2)", () => {
+  assert.equal(HAND_WAIT_ATTENTION_S, 7200);
+  const rows = waitingRows(
+    overview({
+      waiting: [
+        queued({ id: "hand", kind: "hand_cut", created_at: ago(WAIT_ATTENTION_S + 60) }),
+        queued({ id: "hand-late", kind: "hand_cut", created_at: ago(HAND_WAIT_ATTENTION_S + 60) }),
+        queued({ id: "main", kind: "deadspace_cut", created_at: ago(WAIT_ATTENTION_S + 60) }),
+        // Where the overview names the queue, the queue decides: a hand
+        // cut's analysis waits on the hand lane too.
+        queued({ id: "analysis", kind: "placement_generate", queue_name: "jobs_hand", created_at: ago(WAIT_ATTENTION_S + 60) }),
+      ],
+    }),
+    NOW,
+  );
+  const amber = Object.fromEntries(rows.map((r) => [r.id, r.attention]));
+  assert.deepEqual(amber, { "hand-late": true, hand: false, main: true, analysis: false });
+});
+
+test("the second pass on the crop is taught to the page (R5)", () => {
+  assert.ok(isKnownStage("ball_recrop"));
+  assert.equal(stageLabel("ball_recrop"), "Finding the ball again, closer in");
+});
+
+test("a phone Replace and a moving Replace read as the player's (S2)", () => {
+  const rows = deviceRows(
+    overview({
+      devices: [
+        {
+          id: "phone",
+          created_at: ago(120),
+          updated_at: ago(10),
+          progress: 40,
+          original_name: null,
+          match_id: "m",
+          player: "Julian",
+          stage: "device_clips",
+          reported_at: ago(10),
+          player_replace: true,
+        },
+      ],
+    }),
+    NOW,
+  );
+  assert.equal(rows[0].detail, "Cutting the clips on the iPhone · Hand cut on iPhone, player's Replace · Julian · 2m");
+  // A job moving with no pulse behind it names itself from its own row.
+  const main = buildWorkerRows(
+    overview({ running: [job({ kind: "match_reprocess", player_replace: true, created_at: ago(300), updated_at: ago(5) })] }),
+    NOW,
+  ).find((r) => r.key === "mac:main");
+  assert.match(main?.detail ?? "", /^Player's Replace, automatic · Anton Berman/);
 });
