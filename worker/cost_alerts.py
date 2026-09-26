@@ -78,7 +78,7 @@ class PostgresCostAlertStore:
         That is what sent the $300 alert once a day from 09-19 to 09-26.
         The first attempt's body, stored here, is what every retry sends.
 
-        None when migration 20260926170000 has not added the column yet:
+        None when migration 20260926163411 has not added the column yet:
         the worker then sends what it rendered, as it did before.
         """
         if not self._can_freeze:

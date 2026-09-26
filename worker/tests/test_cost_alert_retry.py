@@ -229,7 +229,7 @@ class MigrationTests(unittest.TestCase):
             return text[start:text.index("$$;", start) + 3]
 
         migration = (ROOT / "supabase/migrations/"
-                     "20260926170000_cost_alert_frozen_payload.sql").read_text()
+                     "20260926163411_cost_alert_frozen_payload.sql").read_text()
         original = (ROOT / "supabase/migrations/055_platform_cost_alerts.sql").read_text()
         self.assertIn("add column if not exists send_payload text", migration)
         changed = """      -- Once an attempt has stored its email, the amounts it showed stay:
@@ -247,9 +247,9 @@ class MigrationTests(unittest.TestCase):
                          claim_function(original))
 
     def test_the_store_names_the_migration_that_adds_its_column(self):
-        self.assertIn("20260926170000", PostgresCostAlertStore.freeze.__doc__)
+        self.assertIn("20260926163411", PostgresCostAlertStore.freeze.__doc__)
         self.assertTrue((ROOT / "supabase/migrations/"
-                         "20260926170000_cost_alert_frozen_payload.sql").exists())
+                         "20260926163411_cost_alert_frozen_payload.sql").exists())
 
 
 class ErrorCodeTests(unittest.TestCase):
