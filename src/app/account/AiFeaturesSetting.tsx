@@ -44,8 +44,8 @@ export function AiFeaturesSetting({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-zinc-200">AI features</p>
         <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-          Used by match checks, voice notes, Ask, summaries and photo
-          reading. Recording and uploading matches need this.
+          Used to check your matches, read your notes and photos, and turn
+          voice notes into text. Recording and uploading matches need this.
         </p>
         {error && (
           <p className="mt-1 text-xs text-red-400">

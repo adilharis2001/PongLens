@@ -6,13 +6,13 @@ import SwiftUI
 /// the grabber showing. Twin of src/components/AiConsentSheet.tsx; the
 /// copy is identical on both platforms.
 struct AiConsentSheet: View {
-    static let detentHeight: CGFloat = 380
+    static let detentHeight: CGFloat = 430
 
     /// The two paragraphs. Identical to AI_CONSENT_COPY in
     /// src/lib/aiConsentCopy.ts; aiConsentCopy.test.ts checks it.
     static let copy = [
-        "OpenAI checks still frames from each match you record or upload, to confirm it is table tennis and to find the table. It also reads notes, photos and lesson recordings for summaries, Ask and Improve with AI. Deepgram turns voice notes into text. Neither may use your content to train its models.",
-        "Recording and uploading matches need this. Switch it off any time in Account.",
+        "PongLens shares some of your data with two companies that help run the app. OpenAI looks at still frames from each match you record or upload, to confirm it is table tennis and to find the table. It also reads your notes, photos and lesson recordings to write summaries, answer your questions and tidy up what you write. Deepgram turns your voice notes into text.",
+        "Neither company may train its models on your data. Recording and uploading matches need this. You can switch it off any time in Account.",
     ]
 
     @State private var saving = false

@@ -24,5 +24,5 @@ test("the iPhone sheet carries the web sheet's words", () => {
 
 test("the sheet says recording and uploading need it", () => {
   assert.match(AI_CONSENT_COPY.join(" "), /Recording and uploading matches need this\./);
-  assert.match(AI_CONSENT_COPY[0], /OpenAI checks still frames from each match/);
+  assert.match(AI_CONSENT_COPY[0], /OpenAI looks at still frames from each match/);
 });

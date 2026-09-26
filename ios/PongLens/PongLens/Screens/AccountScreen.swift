@@ -330,7 +330,7 @@ struct AccountScreen: View {
                 Text("AI features")
                     .font(.system(size: 16))
                     .foregroundStyle(PL.textBody)
-                Text("Used by match checks, voice notes, Ask, summaries and photo reading. Recording and uploading matches need this.")
+                Text("Used to check your matches, read your notes and photos, and turn voice notes into text. Recording and uploading matches need this.")
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
                 if aiError {
