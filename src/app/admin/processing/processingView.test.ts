@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   BEAT_STALE_S,
@@ -20,6 +21,7 @@ import {
   stageLabel,
   throughputSummary,
   stalledRunning,
+  waitAttentionS,
   waitingRows,
   workerState,
   type DeviceJob,
@@ -976,6 +978,87 @@ test("the hand lane waits two hours before a queued job is amber (S2)", () => {
   );
   const amber = Object.fromEntries(rows.map((r) => [r.id, r.attention]));
   assert.deepEqual(amber, { "hand-late": true, hand: false, main: true, analysis: false });
+});
+
+// The overview names every waiting job's queue now, so whatever job_queue_name
+// routes to the hand lane (a hand-cut match's highlights and detailed
+// analysis) waits two hours before amber, and nothing else does.
+test("the queue the overview names decides a waiting job's threshold", () => {
+  assert.equal(waitAttentionS("jobs_hand"), HAND_WAIT_ATTENTION_S);
+  assert.equal(waitAttentionS("jobs"), WAIT_ATTENTION_S);
+  assert.equal(waitAttentionS("jobs_fast"), WAIT_ATTENTION_S);
+  assert.equal(waitAttentionS(null), WAIT_ATTENTION_S);
+  const rows = waitingRows(
+    overview({
+      waiting: [
+        queued({ id: "reel-hand", kind: "reel", queue_name: "jobs_hand", created_at: ago(WAIT_ATTENTION_S + 60) }),
+        queued({ id: "retry-hand", kind: "placement_retry", queue_name: "jobs_hand", created_at: ago(HAND_WAIT_ATTENTION_S + 60) }),
+        queued({ id: "reel-main", kind: "reel", queue_name: "jobs", created_at: ago(WAIT_ATTENTION_S + 60) }),
+        queued({ id: "check-fast", kind: "content_check", queue_name: "jobs_fast", created_at: ago(WAIT_ATTENTION_S + 60) }),
+        queued({ id: "cut-hand", kind: "hand_cut", queue_name: "jobs_hand", created_at: ago(WAIT_ATTENTION_S + 60) }),
+      ],
+    }),
+    NOW,
+  );
+  const amber = Object.fromEntries(rows.map((r) => [r.id, r.attention]));
+  assert.deepEqual(amber, {
+    "retry-hand": true,
+    "reel-hand": false,
+    "reel-main": true,
+    "check-fast": true,
+    "cut-hand": false,
+  });
+});
+
+test("the hub card holds each queue to its own threshold", () => {
+  // An hour on the hand lane is the lane doing its job.
+  assert.deepEqual(
+    processingHubDetail(counts({
+      queued: 2, running: 1, oldest_wait_s: 3600,
+      oldest_wait_by_queue: { jobs_hand: 3600, jobs: 60 },
+    })),
+    { text: "Working · 2 waiting", attention: false },
+  );
+  // Past two hours it is a backlog.
+  assert.deepEqual(
+    processingHubDetail(counts({
+      queued: 1, running: 1, oldest_wait_s: HAND_WAIT_ATTENTION_S + 60,
+      oldest_wait_by_queue: { jobs_hand: HAND_WAIT_ATTENTION_S + 60 },
+    })),
+    { text: "Working · 1 waiting, oldest 2h 1m", attention: true },
+  );
+  // Half an hour on the main queue is amber even with an older hand-lane
+  // job in the queue that is fine, and "oldest" stays the oldest anywhere.
+  assert.deepEqual(
+    processingHubDetail(counts({
+      queued: 2, running: 1, oldest_wait_s: 3600,
+      oldest_wait_by_queue: { jobs_hand: 3600, jobs: WAIT_ATTENTION_S + 60 },
+    })),
+    { text: "Working · 2 waiting, oldest 1h", attention: true },
+  );
+  // A database from before the per-queue field: one half hour, as before.
+  assert.deepEqual(
+    processingHubDetail(counts({ queued: 1, running: 1, oldest_wait_s: 3600 })),
+    { text: "Working · 1 waiting, oldest 1h", attention: true },
+  );
+});
+
+test("the overview and the hub counts say which queue a job is in (20260926161304)", () => {
+  const sql = readFileSync(
+    "supabase/migrations/20260926161304_processing_wait_per_queue.sql",
+    "utf8",
+  );
+  // Routed by the one statement of where a job goes, never re-derived.
+  assert.match(sql, /select public\.job_queue_name\(j\.kind, j\.options\) into v_queue/);
+  // On waiting, running and recent rows.
+  for (const into of ["v_running", "v_recent", "v_waiting"]) {
+    const block = sql.split(`into ${into}`)[0].split("select coalesce(jsonb_agg(").pop() ?? "";
+    assert.match(block, /'queue_name', public\._queue_name_of_job\(r\.value->>'id'\)/, into);
+  }
+  assert.match(sql, /'oldest_wait_by_queue'/);
+  assert.match(sql, /select public\.job_queue_name\(j3\.kind, j3\.options\) as queue_name/);
+  // Private helper: only the definer functions call it.
+  assert.match(sql, /revoke all on function public\._queue_name_of_job\(text\) from public, anon, authenticated;/);
 });
 
 test("the second pass on the crop is taught to the page (R5)", () => {

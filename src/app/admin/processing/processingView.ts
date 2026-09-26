@@ -134,7 +134,8 @@ export interface QueuedJob extends RecutFlag {
   player: string | null;
   estimated_work_seconds: number | null;
   eta_latest_at: string | null;
-  /** The queue it waits in, where the overview says (jobs_hand, ...). */
+  /** The queue it waits in, from job_queue_name (20260926161304). Absent
+   *  on a database from before that, and the kind decides instead. */
   queue_name?: string | null;
 }
 
@@ -147,6 +148,8 @@ export interface RunningJob extends RecutFlag {
   original_name: string | null;
   match_id: string | null;
   player: string | null;
+  /** The queue it was routed to (20260926161304). */
+  queue_name?: string | null;
 }
 
 export interface FinishedJob extends RecutFlag {
@@ -165,6 +168,8 @@ export interface FinishedJob extends RecutFlag {
   original_name: string | null;
   match_id: string | null;
   player: string | null;
+  /** The queue it was routed to (20260926161304). */
+  queue_name?: string | null;
 }
 
 /**
@@ -1116,11 +1121,18 @@ export interface WaitingRow extends QueuedJob {
   attention: boolean;
 }
 
-/** Whether a queued job waits for the hand lane: a hand cut, or whatever
- *  the overview says is queued there. */
+/** Whether a queued job waits for the hand lane: whatever the overview
+ *  says is queued there, or, on a database that does not say, a hand cut. */
 export function waitsForHandLane(job: Pick<QueuedJob, "kind" | "queue_name">): boolean {
   if (job.queue_name) return job.queue_name === "jobs_hand";
   return job.kind === "hand_cut";
+}
+
+/** How long work in a queue may wait before it is amber: two hours on the
+ *  hand lane, the cloud trigger's half hour everywhere else. The one rule
+ *  behind both the queue on this page and the card on /admin. */
+export function waitAttentionS(queueName: string | null | undefined): number {
+  return queueName === "jobs_hand" ? HAND_WAIT_ATTENTION_S : WAIT_ATTENTION_S;
 }
 
 export function waitingRows(
@@ -1130,7 +1142,7 @@ export function waitingRows(
   return doc.waiting
     .map((job) => {
       const waited = secondsBetween(job.created_at, now) ?? 0;
-      const limit = waitsForHandLane(job) ? HAND_WAIT_ATTENTION_S : WAIT_ATTENTION_S;
+      const limit = waitAttentionS(waitsForHandLane(job) ? "jobs_hand" : job.queue_name);
       return { ...job, waited, attention: waited >= limit };
     })
     .sort((a, b) => b.waited - a.waited);
@@ -1199,6 +1211,10 @@ export interface ProcessingCounts {
   queued: number;
   running: number;
   oldest_wait_s: number;
+  /** The oldest queued job's wait in each queue (20260926161304), so the
+   *  hand lane is held to its own threshold. Absent on a database from
+   *  before that; oldest_wait_s and the half hour decide instead. */
+  oldest_wait_by_queue?: Record<string, number> | null;
   /** Any Mac worker beating within the last 90 seconds. */
   reporting: boolean;
   /** Any job a worker touched recently: one in flight advancing, or one
@@ -1223,7 +1239,13 @@ export function processingHubDetail(
   counts: ProcessingCounts | null,
 ): { text: string; attention: boolean } | null {
   if (!counts) return null;
-  const backedUp = counts.oldest_wait_s >= WAIT_ATTENTION_S;
+  // The same per-queue rule as the queue on /admin/processing: backed up
+  // when any queue's oldest job has waited past that queue's threshold.
+  // The "oldest" printed is still the oldest job anywhere, which is true.
+  const byQueue = counts.oldest_wait_by_queue;
+  const backedUp = byQueue
+    ? Object.entries(byQueue).some(([queue, waited]) => waited >= waitAttentionS(queue))
+    : counts.oldest_wait_s >= WAIT_ATTENTION_S;
   const queued = counts.queued > 0 ? ` · ${counts.queued} waiting` : "";
   const oldest = backedUp
     ? `, oldest ${durationLabel(counts.oldest_wait_s)}`
