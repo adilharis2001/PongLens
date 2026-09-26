@@ -14,10 +14,12 @@ test("failed matches show only a real automatic refund receipt, never a zero-bal
   const automaticRefund = { minutes: 11, receiptIds: ["9007199254740993"] };
   assert.equal(matchFeedbackPresentation({ ...failed, automaticRefund }).automaticRefundMessage,
     "11 processing minutes were returned automatically after processing failed.");
-  assert.equal(matchFeedbackPresentation({ ...failed, automaticRefund }).trailing, "11 minutes returned");
-  assert.equal(matchFeedbackPresentation(failed).trailing, "Report a problem");
+  // The row shows a request's status and nothing else: an automatic
+  // refund is not a request, and says so on the page itself.
+  assert.equal(matchFeedbackPresentation({ ...failed, automaticRefund }).trailing, null);
+  assert.equal(matchFeedbackPresentation(failed).trailing, null);
   assert.equal(matchFeedbackPresentation({ ...failed, role: "coach", automaticRefund }).automaticRefundMessage, null);
-  assert.equal(matchFeedbackPresentation({ ...failed, role: "coach", automaticRefund }).trailing, "Report a problem");
+  assert.equal(matchFeedbackPresentation({ ...failed, role: "coach", automaticRefund }).trailing, null);
 });
 function withIssue(status: MatchIssueStatus): MatchIssueState {
   return { ...ready, refundableMinutes: 0, activeIssue: {
@@ -29,7 +31,8 @@ function withIssue(status: MatchIssueStatus): MatchIssueState {
 
 test("ready owners get server-eligible choices and the exact spend amount", () => {
   const view = matchFeedbackPresentation(ready);
-  assert.equal(view.trailing, "Report a problem");
+  // No request open: the row's right side is empty (audit N).
+  assert.equal(view.trailing, null);
   assert.deepEqual(view.choices.map(c => [c.kind, c.label]), [
     ["reprocess", "Request reprocessing"],
     ["refund", "Request 11 minutes back"],
@@ -52,7 +55,7 @@ for (const matchStatus of ["uploaded", "processing", "failed"] as const) {
 
 test("coach never gets owner choices or financial copy even if eligibility flags are stale", () => {
   const view = matchFeedbackPresentation({ ...ready, role: "coach" });
-  assert.equal(view.trailing, "Report a problem");
+  assert.equal(view.trailing, null);
   assert.deepEqual(view.choices.map(c => c.kind), ["problem"]);
   assert.equal(view.messageRequired, true);
   const refunded = matchFeedbackPresentation({ ...withIssue("resolved_refunded"), role: "coach" });
@@ -127,4 +130,24 @@ test("retry preserves its idempotency key, but changed content starts a new atte
   assert.equal(submissionAttempt(first, "refund", "missed serve", () => "second"), first);
   assert.equal(submissionAttempt(first, "reprocess", "missed serve", () => "second").idempotencyKey, "second");
   assert.equal(submissionAttempt(first, "refund", "another issue", () => "third").idempotencyKey, "third");
+});
+
+test("the page, its tab title and every row that opens it read Report a problem", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+  const page = read("./page.tsx");
+  const feedback = read("./MatchFeedback.tsx");
+  assert.match(page, /title: "Report a problem"/);
+  assert.match(feedback, /<h1[^>]*>Report a problem<\/h1>/);
+  // The row: its label, and a status only when one exists.
+  const row = feedback.slice(feedback.indexOf("export function MatchFeedbackLink"));
+  assert.match(row.slice(0, 700), />Report a problem</);
+  assert.match(row.slice(0, 700), /\{view\.requestStatus && /);
+  // The rows that open it, owner and coach, raw and processed.
+  for (const path of ["../RawMatchView.tsx", "../MatchView.tsx"]) {
+    assert.match(read(path), /<MatchFeedbackLink /, path);
+  }
+  for (const source of [page, feedback]) assert.doesNotMatch(source, />Processing<|"Processing"/);
+  // The unprocessed page keeps its job-status pill.
+  assert.match(read("../RawMatchView.tsx"), /\? "Processing"\s*: match\.status === "failed"\s*\? "Processing failed"/);
 });

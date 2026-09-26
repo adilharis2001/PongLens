@@ -29,8 +29,12 @@
  * is live. Keep makes a new match and opens it.
  *
  * The database calls are the contract's (2026-09-25-cut-again-contract.md):
- * recut_options, start_recut, claim_hand_recut, copy_match_for_recut, and
- * claim_auto_recut for Replace under Automatically (phase 2).
+ * recut_options, start_recut, claim_hand_recut, and claim_auto_recut for
+ * both choices under Automatically. Keep is one call too (post-rollout
+ * audit K, 2026-09-26): claim_auto_recut(p_replace := false) copies the
+ * match and claims its processing in one transaction, so a refusal leaves
+ * nothing behind. It used to copy first and then call /api/process, and a
+ * refused charge left an unprocessed duplicate in the library.
  * Until they exist, recut_options fails, and the sheet offers only Report
  * a problem: nothing here can start a cut the database cannot take.
  *
@@ -55,7 +59,6 @@ import {
   MarkYourselfPanel,
   ProcessingProgress,
   WayChoice,
-  postProcess,
   useProcessQuote,
 } from "../BreakIntoPoints";
 import { MarkPoints } from "../MarkPoints";
@@ -69,8 +72,6 @@ import { RecutChoice } from "./RecutChoice";
 import {
   autoRecutClaimError,
   moreOptionsView,
-  processErrorMessage,
-  readCopiedMatchId,
   readRecutClaim,
   readRecutOptions,
   recutChoiceView,
@@ -198,7 +199,10 @@ export function MoreOptions({
   const services = useProcessingService();
   const running = job != null;
   const stageLabel = running ? processingStageLabel(feedback) : null;
-  const serviceState = services[feedback?.lane ?? serviceLane(feedback?.job_kind ?? job?.kind)];
+  const serviceState = services[
+    feedback?.lane ??
+      serviceLane(feedback?.job_kind ?? job?.kind, services.clip_lane, "", match.cut_source === "manual")
+  ];
   // A re-cut running here is the player's own Replace (support's never
   // reaches this feed), and it ends in the ordinary ready email, as a
   // processed upload does.
@@ -256,9 +260,6 @@ export function MoreOptions({
   const autoChoice = recutChoiceView("automatic", options, autoPick);
   const [busy, setBusy] = useState(false);
   const [autoError, setAutoError] = useState<string | null>(null);
-  /** A copy made for "Keep" whose processing was refused (a full queue,
-   *  say): the retry processes the same copy rather than making another. */
-  const copyId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!open || !live) return;
@@ -279,61 +280,46 @@ export function MoreOptions({
     setBusy(true);
     setAutoError(null);
     try {
-      if (autoChoice.selected === "replace") {
-        // claim_auto_recut (phase 2): the candidate is built beside this cut
-        // and charged as /api/process charges (the same window and minutes,
-        // strictness always "normal"; it always asks for the detailed
-        // analysis, as request() does). Greyed until recut_options says
-        // replace_automatic.
-        const req = quote.request();
-        const { data, error } = await createClient().rpc("claim_auto_recut", {
-          p_match_id: match.id,
-          p_replace: true,
-          p_trim_start_s: req.trimStartS,
-          p_trim_end_s: req.trimEndS,
-          p_strictness: req.strictness,
-        });
-        if (error) {
-          const refused = autoRecutClaimError(error.message);
-          if (refused.code === "coach_review") {
-            setAutoPick("keep");
+      // claim_auto_recut, for both choices: charged as /api/process charges
+      // (the same window and minutes, strictness always "normal"; it always
+      // asks for the detailed analysis, as request() does). Replace builds
+      // the candidate beside this cut, greyed until recut_options says
+      // replace_automatic. Keep copies the match and claims the copy's
+      // processing in one transaction, then opens the copy.
+      const replace = autoChoice.selected === "replace";
+      const req = quote.request();
+      const { data, error } = await createClient().rpc("claim_auto_recut", {
+        p_match_id: match.id,
+        p_replace: replace,
+        p_trim_start_s: req.trimStartS,
+        p_trim_end_s: req.trimEndS,
+        p_strictness: req.strictness,
+      });
+      if (error) {
+        const refused = autoRecutClaimError(error.message);
+        if (refused.code === "coach_review") {
+          setAutoPick("keep");
+          await loadOptions();
+        } else {
+          if (refused.code === "insufficient_minutes") quote.setMinutesShort(true);
+          setAutoError(refused.text);
+          if (refused.code !== "insufficient_minutes" && refused.code !== "queue_full") {
             await loadOptions();
-          } else {
-            if (refused.code === "insufficient_minutes") quote.setMinutesShort(true);
-            setAutoError(refused.text);
-            if (refused.code !== "insufficient_minutes" && refused.code !== "queue_full") {
-              await loadOptions();
-            }
           }
-          return;
         }
-        const claim = readRecutClaim(data);
+        return;
+      }
+      const claim = readRecutClaim(data);
+      if (replace) {
         setJob({ id: claim?.jobId ?? "pending", status: "queued", progress: 0, kind: "match_reprocess" });
         setOpen(false);
         return;
       }
-      let target = copyId.current;
-      if (!target) {
-        const { data, error } = await createClient().rpc("copy_match_for_recut", { p_match_id: match.id });
-        if (error) {
-          setAutoError(recutClaimError(error.message).text);
-          await loadOptions();
-          return;
-        }
-        target = readCopiedMatchId(data);
-        if (!target) {
-          setAutoError("Something went wrong. Try again.");
-          return;
-        }
-        copyId.current = target;
-      }
-      const res = await postProcess(target, quote.request());
-      if (!res.ok) {
-        if (res.code === "insufficient_minutes") quote.setMinutesShort(true);
-        setAutoError(processErrorMessage(res.code));
+      if (!claim || claim.matchId === match.id) {
+        setAutoError("Something went wrong. Try again.");
         return;
       }
-      router.push(`/match/${target}`);
+      router.push(`/match/${claim.matchId}`);
     } finally {
       setBusy(false);
     }

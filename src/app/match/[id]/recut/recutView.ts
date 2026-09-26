@@ -265,24 +265,12 @@ export function recutStartMode(s: {
   return s.anyCalled ? "score" : "cut";
 }
 
-/** What `claim_hand_recut` hands back, or null if it is not that shape. */
+/** What `claim_hand_recut` and `claim_auto_recut` hand back, or null if
+ *  it is not that shape. On Keep, `match_id` is the new match. */
 export function readRecutClaim(raw: unknown): { jobId: string | null; matchId: string } | null {
   const row = Array.isArray(raw) ? raw[0] : raw;
   if (typeof row !== "object" || row === null) return null;
   const r = row as Record<string, unknown>;
   if (typeof r.match_id !== "string" || !r.match_id) return null;
   return { jobId: typeof r.job_id === "string" ? r.job_id : null, matchId: r.match_id };
-}
-
-/** What `copy_match_for_recut` hands back: the new match's id. */
-export function readCopiedMatchId(raw: unknown): string | null {
-  if (typeof raw === "string" && raw) return raw;
-  const row = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof row === "object" && row !== null) {
-    const r = row as Record<string, unknown>;
-    for (const key of ["copy_match_for_recut", "match_id", "id"]) {
-      if (typeof r[key] === "string" && r[key]) return r[key] as string;
-    }
-  }
-  return null;
 }

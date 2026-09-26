@@ -12,7 +12,6 @@ import {
   autoRecutClaimError,
   moreOptionsView,
   processErrorMessage,
-  readCopiedMatchId,
   readRecutClaim,
   readRecutOptions,
   recutChoiceView,
@@ -188,20 +187,28 @@ test("an automatic Replace's refusals: the contract's, then the charge's", () =>
   }
 });
 
-test("More options: Replace under Automatically calls claim_auto_recut as the contract names it", () => {
+test("More options: Automatically is one claim_auto_recut call, Replace or Keep", () => {
   const src = readMatch("recut/MoreOptions.tsx");
-  const call = src.slice(src.indexOf('rpc("claim_auto_recut"'), src.indexOf('rpc("claim_auto_recut"') + 400);
-  for (const arg of ["p_match_id: match.id", "p_replace: true", "p_trim_start_s: req.trimStartS",
+  const at = src.indexOf('rpc("claim_auto_recut"');
+  assert.ok(at > 0);
+  // One call site, for both choices.
+  assert.equal(src.indexOf('rpc("claim_auto_recut"', at + 1), -1);
+  const call = src.slice(at, at + 400);
+  for (const arg of ["p_match_id: match.id", "p_replace: replace", "p_trim_start_s: req.trimStartS",
                      "p_trim_end_s: req.trimEndS", "p_strictness: req.strictness"]) {
     assert.ok(call.includes(arg), arg);
   }
+  assert.match(src, /const replace = autoChoice\.selected === "replace";/);
   assert.match(src, /const refused = autoRecutClaimError\(error\.message\);/);
   // After Replace the sheet closes and the row shows the running re-cut.
-  const after = src.slice(src.indexOf("readRecutClaim(data);", src.indexOf('rpc("claim_auto_recut"')));
-  assert.match(after.slice(0, 300), /kind: "match_reprocess"[\s\S]*setOpen\(false\)/);
-  // Keep keeps its path: the copy, then /api/process.
-  assert.match(src, /rpc\("copy_match_for_recut"/);
-  assert.match(src, /postProcess\(target, quote\.request\(\)\)/);
+  const after = src.slice(src.indexOf("readRecutClaim(data);", at));
+  assert.match(after.slice(0, 300), /if \(replace\)[\s\S]*kind: "match_reprocess"[\s\S]*setOpen\(false\)/);
+  // Keep opens the copy the same call made (post-rollout audit K). The
+  // copy-then-process path is gone: a refused charge used to leave an
+  // unprocessed duplicate behind.
+  assert.match(after.slice(0, 700), /router\.push\(`\/match\/\$\{claim\.matchId\}`\)/);
+  assert.doesNotMatch(src, /copy_match_for_recut"/);
+  assert.doesNotMatch(src, /postProcess\(/);
 });
 
 test("the Score switch names the pass (Adil, 2026-09-25)", () => {
@@ -265,11 +272,6 @@ test("what the claims hand back", () => {
   assert.deepEqual(readRecutClaim([{ job_id: null, match_id: "m1" }]), { jobId: null, matchId: "m1" });
   assert.equal(readRecutClaim({ job_id: "j1" }), null);
   assert.equal(readRecutClaim(null), null);
-  assert.equal(readCopiedMatchId("m2"), "m2");
-  assert.equal(readCopiedMatchId({ copy_match_for_recut: "m3" }), "m3");
-  assert.equal(readCopiedMatchId([{ id: "m4" }]), "m4");
-  assert.equal(readCopiedMatchId(""), null);
-  assert.equal(readCopiedMatchId(null), null);
 });
 
 test("start_recut's marks read as marks (tap and rate null, source seconds)", () => {

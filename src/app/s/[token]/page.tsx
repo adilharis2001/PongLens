@@ -858,6 +858,7 @@ export default async function SharePage({
               servesOnly={servesOnly}
               pads={await resolveSharePads(token)}
               placementTrusted={placementTrusted}
+              handCut={handCut}
             />
           )}
 
