@@ -7,6 +7,7 @@ import {
   formatGb,
   formatMinutes,
   minutesUseLine,
+  processAllowed,
   processWindow,
 } from "./minutes.ts";
 
@@ -121,4 +122,20 @@ test("the line under Process says what the run uses, out of the balance (Adil, 2
   for (const line of [minutesUseLine(12, 250), minutesUseLine(12, null)]) {
     assert.doesNotMatch(line!.text, /—|\bAI\b|free/i);
   }
+});
+
+test("Process stays on when the balance is not known (audit S4)", () => {
+  // Known and enough, known and short, refused by the server.
+  assert.equal(processAllowed(12, 250), true);
+  assert.equal(processAllowed(12, 12), true);
+  assert.equal(processAllowed(30, 20), false);
+  assert.equal(processAllowed(12, 250, true), false);
+  // Not known: the press goes through and the server decides.
+  assert.equal(processAllowed(12, null), true);
+  assert.deepEqual(minutesUseLine(12, null), { text: "Uses 12 minutes.", short: false });
+  // Refused while still not known: off until the balance is checked again.
+  assert.equal(processAllowed(12, null, true), false);
+  // Nothing to charge yet.
+  assert.equal(processAllowed(null, 250), false);
+  assert.equal(processAllowed(null, null), false);
 });

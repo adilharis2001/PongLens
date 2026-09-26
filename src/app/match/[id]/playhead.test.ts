@@ -6,6 +6,8 @@ import {
   handCutTape,
   markEnd,
   markStart,
+  markedSpans,
+  nextMarkStart,
   nextCutStart,
   paddedEnd,
   pauseEnd,
@@ -452,22 +454,43 @@ test("lets and deleted cards play nothing on the tape", () => {
   assert.deepEqual(tapeMove(tape, 7.3), { kind: "jump", to: 30 });
 });
 
-test("an inserted card that plays its own clip keeps its whole card", () => {
+test("a point added after a hand cut plays exactly its marks (audit S5)", () => {
   const a = marked("a", 30, 36, 0);
   const inserted = marked("ins", 40, 44, 6.5);
-  const tape = handCutTape([a, inserted], PAD, new Set(["ins"]));
-  // Its span runs from its clip start to its padded end, where the
-  // player's detour plays its clip; the mark before it is untouched.
-  // a's mark is 1.2..7.2; the card is 6.5..13 (6.5 + 1.2 + 4 + 1.3). They
-  // overlap, so they merge: the tape never jumps into the middle of it.
+  const b = marked("b", 50, 58, 13);
+  // The card that plays its own clip is on the tape by its marks, like
+  // every other point: 6.5 + 1.2 to that plus 4, never its padded card
+  // (6.5 .. 13). The iPhone's HandCutPlayback.spans does the same.
+  const tape = handCutTape([a, inserted, b], PAD);
   assert.deepEqual(
     tape.map((s) => [Number(s.start.toFixed(3)), Number(s.end.toFixed(3))]),
-    [[1.2, 13]]
+    [[1.2, 7.2], [7.7, 11.7], [14.2, 22.2]]
   );
-  assert.deepEqual(tapeMove(tape, 7.5), { kind: "stay" });
-  // Standing alone, the card is its whole padded clip.
-  const alone = handCutTape([marked("ins", 40, 44, 30)], PAD, new Set(["ins"]));
-  assert.deepEqual(alone, [{ start: 30, end: 36.5 }]);
+  assert.deepEqual(tapeMove(tape, 7.2), { kind: "jump", to: 7.7 });
+  assert.deepEqual(tapeMove(tape, 11.7), { kind: "jump", to: 14.2 });
+  // Standing alone, the card is its mark, not its padded clip.
+  assert.deepEqual(handCutTape([marked("ins", 40, 44, 30)], PAD), [{ start: 31.2, end: 35.2 }]);
+  // The unmerged tape names each point.
+  assert.deepEqual(
+    markedSpans([a, inserted, b], PAD).map((s) => s.id),
+    ["a", "ins", "b"]
+  );
+});
+
+test("after a point, a hand-cut watch-through goes to the next point's Begin mark", () => {
+  const a = marked("a", 30, 36, 0);
+  const inserted = marked("ins", 40, 44, 6.5);
+  const skipped = marked("let", 46, 48, 11, { is_let: true });
+  const b = marked("b", 50, 58, 13);
+  const points = [a, inserted, skipped, b];
+  // The detour hands back here, not to the next card's padded start.
+  assert.equal(nextMarkStart(points, PAD, "ins"), 14.2);
+  assert.equal(nextMarkStart(points, PAD, "a"), 7.7);
+  // The last kept point has nowhere to go; a let is not on the tape.
+  assert.equal(nextMarkStart(points, PAD, "b"), null);
+  assert.equal(nextMarkStart(points, PAD, "let"), null);
+  // The detour stops at the card's End mark.
+  assert.equal(markEnd(inserted, PAD), 6.5 + 1.2 + 4);
 });
 
 test("the gaps for a jump-only player end exactly on the next mark", () => {

@@ -355,7 +355,7 @@ export function HomeOverview({
       const feedback = processingFeedback[match.id];
       return { kind: live?.kind ?? feedback?.job_kind, status: live?.status ?? feedback?.job_status ?? (match.status === "processing" ? "processing" : "unknown"),
         lane: feedback?.lane, videoSaved: true, stageLabel: processingStageLabel(feedback ?? null),
-        onDevice: onDevice(feedback) };
+        onDevice: onDevice(feedback), handCutMatch: match.cut_source === "manual" };
     }),
   ]);
   const activeWork = processingSummary.blockedCount + processingSummary.continuingCount;

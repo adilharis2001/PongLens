@@ -57,6 +57,36 @@ test("job routing matches the existing queue routing", () => {
   assert.equal(serviceLane("content_check"), "main");
   assert.equal(serviceLane("deadspace_cut"), "main");
 });
+
+test("notices read the lane job_queue_name puts the work on (audit S1)", () => {
+  // A video's content check follows the re-cut switch (20260925145751).
+  assert.equal(serviceLane("content_check", "fast"), "fast");
+  assert.equal(serviceLane("content_check", "main"), "main");
+  // A hand cut's analysis and highlights reel run on the hand lane; an
+  // automatic match's stay on main.
+  for (const [kind, scope] of [["placement_generate", ""], ["placement_retry", ""], ["reel", "highlights"]] as const) {
+    assert.equal(serviceLane(kind, "fast", scope, true), "hand", `${kind} on a hand cut`);
+    assert.equal(serviceLane(kind, "fast", scope, false), "main", `${kind} on an automatic cut`);
+  }
+  // Nothing else moves for being on a hand-cut match.
+  assert.equal(serviceLane("match_reprocess", "fast", "", true), "main");
+  assert.equal(serviceLane("reel", "fast", "starred", true), "main");
+  assert.equal(serviceLane("reel", "fast", "v:abc", true), "fast");
+  assert.equal(serviceLane("reclip", "fast", "", true), "fast");
+
+  // The notice follows: a stopped main lane is no reason to warn about a
+  // content check on the fast lane, and a stopped hand lane is.
+  const status = { main: "unavailable", fast: "available", hand: "unavailable", clip_lane: "fast", observed_at: "2026-09-26T06:00:00Z" } as const;
+  assert.equal(availabilityNotice(status[serviceLane("content_check", status.clip_lane)], "saved_video"), null);
+  const home = summarizeProcessingWork(status, [
+    { kind: "placement_generate", status: "queued", videoSaved: true, handCutMatch: true },
+  ]);
+  assert.equal(home.blockedCount, 1);
+  const auto = summarizeProcessingWork({ ...status, main: "available" }, [
+    { kind: "placement_generate", status: "queued", videoSaved: true },
+  ]);
+  assert.equal(auto.blockedCount, 0);
+});
 test("missing, malformed and stale responses become unknown instead of maintenance", () => {
   const now = Date.parse("2026-09-13T06:00:00Z");
   for (const input of [null, {}, { main: "maintenance" }, { main: "unavailable", observed_at: "2026-09-13T05:50:00Z" }]) {

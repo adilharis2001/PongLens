@@ -49,6 +49,8 @@ import {
 import {
   armedPointId,
   handCutTape,
+  markEnd,
+  nextMarkStart,
   paddedEnd,
   effectiveEnd,
   tapeMove,
@@ -1959,8 +1961,8 @@ export const Player = forwardRef<
    * as before.
    */
   const markTape = useMemo(
-    () => (handCut ? handCutTape(points, pad, ownClipSet) : null),
-    [handCut, points, pad, ownClipSet]
+    () => (handCut ? handCutTape(points, pad) : null),
+    [handCut, points, pad]
   );
   const markTapeRef = useRef(markTape);
   markTapeRef.current = markTape;
@@ -2173,6 +2175,29 @@ export const Player = forwardRef<
     void v.play().catch(() => undefined);
   }, [speedIdx, activeVideo]);
 
+  /**
+   * A hand-cut tape's join, played through. A point that plays its own
+   * clip is on the tape by its marks (playhead.handCutTape), so a join
+   * that lands on one goes straight into its detour, as every other
+   * navigation does (seekTo), rather than showing the cut's footage at
+   * that second for a tick first. Everywhere else it is a plain seek.
+   */
+  const tapeJump = useCallback(
+    (v: HTMLVideoElement, to: number) => {
+      const dp = scrubbing.current ? null : detourPointOf(to);
+      if (dp) {
+        enterDetour(dp, to, true);
+        playNow();
+        return;
+      }
+      v.currentTime = to;
+      setPlayheadT(to);
+    },
+    [detourPointOf, enterDetour, playNow]
+  );
+  const tapeJumpRef = useRef(tapeJump);
+  tapeJumpRef.current = tapeJump;
+
   /** Halt playback wherever it lives. Every "stop the video" intent —
    *  sheets, exits, holds — must land on both surfaces: pausing only the
    *  main element under an active detour leaves sound running behind
@@ -2302,8 +2327,7 @@ export const Player = forwardRef<
         if (!scrubbing.current && !v.paused) {
           const move = tapeMove(markTapeRef.current, v.currentTime);
           if (move.kind === "jump") {
-            v.currentTime = move.to;
-            setPlayheadT(move.to);
+            tapeJumpRef.current(v, move.to);
             return;
           }
           if (move.kind === "end") endTape(v);
@@ -2556,8 +2580,7 @@ export const Player = forwardRef<
       ) {
         const move = tapeMove(marks, meta.mediaTime);
         if (move.kind === "jump") {
-          v.currentTime = move.to;
-          setPlayheadT(move.to);
+          tapeJumpRef.current(v, move.to);
         } else if (move.kind === "end") {
           endTape(v);
         }
@@ -2618,7 +2641,13 @@ export const Player = forwardRef<
         stop = Math.min(stop, detourBaseRef.current + fd - 0.15);
       }
       if (modeRef.current !== "score" || phase !== "play") {
-        const end = effectiveEnd(p, cpad, endsRef.current);
+        // A hand-cut match watched through stops at the End mark, like
+        // every other point on its tape (playhead.markEnd, the iPhone's
+        // markedTape end), not at the padded end of the clip.
+        const end =
+          modeRef.current === "watch" && markTapeRef.current
+            ? markEnd(p, cpad)
+            : effectiveEnd(p, cpad, endsRef.current);
         if (prev !== null && end !== null && end > prev && end <= t) {
           onDetourDoneRef.current();
         }
@@ -2675,6 +2704,12 @@ export const Player = forwardRef<
     const id = detourRef.current;
     if (id === null) return;
     const p = pointsRef.current.find((x) => x.id === id);
+    // On a hand-cut match's tape, straight to the next kept point's Begin
+    // mark (the iPhone's detourDone does the same).
+    const tapeNext =
+      modeRef.current === "watch" && markTapeRef.current
+        ? nextMarkStart(pointsRef.current, padRef.current, id)
+        : null;
     exitDetour();
     const t0 = p?.cut_t0 == null ? null : Number(p.cut_t0);
     const next =
@@ -2684,7 +2719,8 @@ export const Player = forwardRef<
             (pt) =>
               pt.id !== id && pt.cut_t0 !== null && Number(pt.cut_t0) > t0
           );
-    if (next?.cut_t0 != null) {
+    const handBack = tapeNext ?? (next?.cut_t0 != null ? Number(next.cut_t0) : null);
+    if (handBack !== null) {
       // The card's boundary stays CONSUMED across the hand-back —
       // uniquely for a detour card it overhangs FORWARD past the next
       // card's start (the virtual overlap), so re-arming it here made
@@ -2692,7 +2728,7 @@ export const Player = forwardRef<
       // two seconds into its neighbour. The next card's own boundary
       // re-arms itself: crossing a different rally's stop retires this.
       endPauseFiredRef.current = id;
-      seekTo(Number(next.cut_t0));
+      seekTo(handBack);
       playNow();
     } else if (modeRef.current === "score" && phase === "play") {
       setPhase("summary");

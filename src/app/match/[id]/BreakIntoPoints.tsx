@@ -33,7 +33,7 @@ import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilit
 import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 import { Switch } from "@/components/Switch";
 import { TrimPreview } from "@/components/TrimPreview";
-import { minutesUseLine, processWindow } from "@/lib/commerce/minutes";
+import { minutesUseLine, processAllowed, processWindow } from "@/lib/commerce/minutes";
 import { processingExitMessage, type AvailabilityContext } from "@/lib/processingAvailability";
 import { createClient } from "@/lib/supabase/client";
 import { scoreSwitchCopy, type CutMode } from "./handCut";
@@ -232,8 +232,9 @@ export function useProcessQuote({
   };
 
   const { charge, trimmed } = win;
-  const enough =
-    charge != null && availableMinutes != null && availableMinutes >= charge && !minutesShort;
+  // A balance not yet read (or not readable) leaves the button on: the
+  // claim checks it and refuses when it is short (processAllowed).
+  const enough = processAllowed(charge, availableMinutes, minutesShort);
 
   /** The body /api/process takes, bar the match. */
   const request = () => ({
@@ -391,7 +392,7 @@ export function AutoProcessPanel({
                 {line.text}
               </p>
             )}
-            {q.charge != null && q.availableMinutes != null && !q.enough && (
+            {q.charge != null && (q.availableMinutes != null || q.minutesShort) && !q.enough && (
               <AllowanceRecovery resource="minutes" retryLabel="Check minutes" onRetry={async () => {
                 const { data, error } = await createClient().rpc("my_processing_state").single();
                 const state = data as { minutes_balance?: number } | null;
