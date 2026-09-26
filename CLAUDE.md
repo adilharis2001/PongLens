@@ -131,8 +131,9 @@ cleanup into the next normal iOS release rather than making a dedicated build.
 
 ## The processing page has to keep up with the worker
 
-**Worker release/health rollout, updated 2026-09-16:** main, fast and hand now
-run the same sealed release, with independent health monitoring. Read
+**Worker release/health rollout, updated 2026-09-16:** main, fast and hand
+run one sealed release (again since 2026-09-26; see "Current pairing"), with
+independent health monitoring. Read
 `docs/worker-release-health.md` before changing worker
 launchers, runtime dependencies or body fallback reporting. The sealed runtime
 source remains on `codex/worker-release-health`; do not merge its captured
@@ -207,36 +208,30 @@ and if a shadow disagrees with what the Mac published, stop — do not reason it
 away as platform variance. On this footage the two platforms agreed to half a
 pixel, so a real disagreement is a real defect.
 
-**Current pairing (2026-09-23, after the Homebrew rebuild):** Mac main/fast
-and the health monitor run
-`a8b089021d264ef68c90d42735b1f128dd3a254aee8e0f5e65d257137cf516c9`, the hand
-lane runs
-`18c66c589723c4c55ac00bf52f9cebab5d473a6278d833cca790e8202ff95471`. They are
-the same code as `112a1e25` (source `f78a93f7`: starred-selection video,
-source-frame-rate `render_story`) and `07c5823c` (source `762ea2c0`),
-rebuilt because a `brew upgrade node` at 20:07 EDT on 2026-09-22 upgraded
-~30 Homebrew libraries and cleaned out the old kegs, so every older package
-refuses to start ("Missing dependency: …/xz/5.8.3/…"). Payload, models and
-settings are byte-identical; only runtime anchors moved. The runnable rollback
-is `a30742f612ffb7db8e51422b5a42c0ef484d540493b0cc1a2b17e0de5b711aee`, the
-same rebuild of `e2eb55a7`'s source `f28fa91a`, staged with launchers in
-`~/Library/Caches/PongLens/brew-rebuild-20260922/plists-rollback-a30742f6/`.
-Do NOT activate `112a1e25`, `e2eb55a7` or anything older: they cannot run.
-The same upgrade broke ffmpeg 8.1.2_1, which links `libx265.216` through a
-hand-made shim into `Cellar/x265/4.2`; that dylib was restored from the
-official x265 4.2 bottle. `openssl@3`, `sqlite`, `xz`, `x265` and `ffmpeg`
-are pinned. **Never run `brew upgrade`, `brew install` or `brew cleanup` on
-the Mac Studio** without first checking `brew deps` against the live
-manifest's `runtime` anchors: it stops every lane. Ops record, checks and
-launcher backups: `~/Library/Caches/PongLens/brew-rebuild-20260922/`.
-The cloud twin is `bb39d41fce2d…` (pipeline `53910535…`), built from
-`a8b08902`, deployed and registered 2026-09-23 10:19 UTC; the dispatcher
-reports `release_match = true`. Shadow replay of a 90 s upload
-(`fcb21bbc`): 7 of 8 Mac points matched, 7/7 same winner and reason, within
-the accepted T4 tolerance. **The Linux image cannot decode AV1**: a 47 s AV1
-upload (`fa6c7e96`) logged "Get current frame error" on every frame and failed
-in points, so the cloud cannot yet back up YouTube-style AV1 imports.
-`cloud_mode` is `disabled` (Off).
+**Current pairing (2026-09-26, after the post-rollout audit):** every Mac
+lane (main, fast, hand) and the health monitor run ONE sealed release again,
+`93a881aafe06dfa06604dda262d52773fa0dd48b5d1d09e20cb3341423b06298` (opened
+2026-09-26 15:02 UTC): Cut again phase 2 (automatic Replace, retired-cut
+sweep), the worker email fix (every worker email used to raise NameError after
+Resend accepted it, so the cost alert re-sent daily), silence for cancelled
+jobs and deleted matches, and a hand Replace reusing the table its upload
+already found. Rollback is `ab887b32…` (email fix only), then `69915d26…`
+main/fast with `1af85388…` hand. Records: `docs/research/2026-09-25-cut-again/RELEASE.md`
+and `~/Library/Caches/PongLens/audit-worker-20260926/README.txt`.
+**The cloud twin is NOT paired.** Modal disabled the workspace on 2026-09-26
+when the $30 free monthly credit ran out (the real limit; the always-on
+dispatcher alone costs about $0.33 a day). Until Adil re-enables billing,
+nothing on Modal runs and the dispatcher reports `release_mismatch`; then a
+twin must be built from `93a881aa`, replayed, deployed and registered. The two
+Mac switches without a twin were an owner-approved exception, not the rule.
+Runtime anchors are unchanged since the 2026-09-22 Homebrew rebuild:
+`openssl@3`, `sqlite`, `xz`, `x265` and `ffmpeg` are pinned, and ffmpeg links
+`libx265.216` through a restored x265 4.2 dylib. **Never run `brew upgrade`,
+`brew install` or `brew cleanup` on the Mac Studio** without first checking
+`brew deps` against the live manifest's `runtime` anchors: it stops every
+lane (`~/Library/Caches/PongLens/brew-rebuild-20260922/`). **The Linux image
+cannot decode AV1** (upload `fa6c7e96`), so the cloud cannot back up
+YouTube-style AV1 imports. `cloud_mode` is `disabled` (Off).
 
 **The code is built so a missed update is visible rather than silent.** An
 unrecognised kind or stage renders as its own raw name with a marker
