@@ -160,6 +160,12 @@ time. It can also be unticked, because nothing is written until then.
 Covered: iOS record, iOS match import, iOS lesson import, web match
 upload, web lesson import (coach and player share one component).
 
+On the iOS camera (2026-09-26) the sentence is no longer a checkbox over
+the picture. It is a small sheet when the camera opens, "Before you
+record", with Agree and Cancel; Cancel or a swipe down closes the camera.
+Agree writes nothing either: the save is still at the shutter, so an
+account that agrees and leaves without recording is asked again.
+
 ### Terms at first run — guideline 5.1.1
 
 "Agree and continue" on the first onboarding screen writes

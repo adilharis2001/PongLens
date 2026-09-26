@@ -59,6 +59,19 @@ struct RootView: View {
             // The "Where to place the camera" sheet, without an account,
             // for the same reason.
             CameraPlacementSheet()
+        } else if ProcessInfo.processInfo.arguments.contains("--dev-record-consent") {
+            // The camera with its upload rights prompt, without an
+            // account: the prompt only shows to an account that has never
+            // uploaded, which makes checking it a whole sign-up. The
+            // answer is marked missing for this launch only and Agree
+            // writes nothing. The shutter's save is real, though: on a
+            // simulator that still holds a session it would confirm that
+            // account, so look, do not press record.
+            RecordScreen()
+                .environment(app)
+                .environment(router)
+                .environment(library)
+                .task { UploadConsent.shared.seed(confirmedAt: nil, loaded: true) }
         } else {
             appBody
         }

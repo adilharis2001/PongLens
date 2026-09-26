@@ -711,6 +711,20 @@ struct RecordScreen: View {
             // harmless, leaking once strands the upload short of register.
             queue.releaseCompletion(sessionId: sessionId)
         }
+        // The upload rights question, for an account that has never
+        // answered it: asked once the picture is showing, in a sheet, not
+        // drawn over the viewfinder. Agree stays, anything else leaves.
+        .onChange(of: revealed) { _, _ in askForUploadRightsIfDue() }
+        .onChange(of: recorder.state) { _, _ in askForUploadRightsIfDue() }
+        .onChange(of: UploadConsent.shared.needed) { _, _ in askForUploadRightsIfDue() }
+        .sheet(isPresented: $rightsPromptOpen, onDismiss: uploadRightsPromptClosed) {
+            UploadRightsPrompt(failed: uploadSaveFailed) {
+                uploadTicked = true
+                rightsPromptOpen = false
+            } onCancel: {
+                rightsPromptOpen = false
+            }
+        }
         .sheet(isPresented: $settingsOpen) {
             RecordSettingsSheet(
                 availableFrameRates:
@@ -807,9 +821,6 @@ struct RecordScreen: View {
                 uploadsShelf.padding(.horizontal, 16)
             }
 
-            uploadConfirmation
-                .padding(.horizontal, 16)
-
             shutterRow(recordingAllowed: sideways)
                 .padding(.bottom, 26)
         }
@@ -831,9 +842,6 @@ struct RecordScreen: View {
                         .frame(maxWidth: 420)
                         .padding(.bottom, 16)
                 }
-                uploadConfirmation
-                    .frame(maxWidth: 420)
-                    .padding(.bottom, 16)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 16)
@@ -867,22 +875,46 @@ struct RecordScreen: View {
     /// stay in the middle of the screen regardless.
     private static let slotWidth: CGFloat = 132
 
-    /// The first-upload checkbox (new accounts only), above the shutter.
-    /// The shutter waits for it: a segment enqueued without it would be
-    /// refused by the upload route. Ticked stays ticked for this visit.
+    /// Agree was tapped on the upload rights prompt this visit (new
+    /// accounts only). Local, like the checkbox it replaced: the answer is
+    /// written at the shutter, never here. See `RecordConsentPrompt`.
     @State private var uploadTicked = false
-    /// The save at the shutter did not land. Shown under the box.
+    /// The save at the shutter did not land. The prompt comes back with
+    /// the line in it, rather than a panel over the viewfinder.
     @State private var uploadSaveFailed = false
-    private var uploadAllowed: Bool { !UploadConsent.shared.needed || uploadTicked }
+    /// The upload rights prompt is up.
+    @State private var rightsPromptOpen = false
+    private var uploadAllowed: Bool {
+        RecordConsentPrompt.mayRecord(needed: UploadConsent.shared.needed,
+                                      agreedThisVisit: uploadTicked)
+    }
 
-    @ViewBuilder
-    private var uploadConfirmation: some View {
-        if recorder.state != .recording, UploadConsent.shared.needed || uploadTicked {
-            UploadConfirmationRow(ticked: $uploadTicked, failed: uploadSaveFailed)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(PL.ink.opacity(0.75), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    /// Put the upload rights prompt up if this account still owes the
+    /// answer. Asked from every change that could make it due: the cover
+    /// lifting, the camera becoming ready, and the account's answer being
+    /// read (or a route saying it is missing) while the camera is open.
+    /// Never over another sheet or the discard question; the shutter asks
+    /// too, so a prompt that could not go up here is not a dead end.
+    private func askForUploadRightsIfDue() {
+        #if DEBUG
+        guard !tutorialCaptureActive else { return }
+        #endif
+        guard !rightsPromptOpen, !settingsOpen, !metadataOpen, !cancelAsk else { return }
+        if RecordConsentPrompt.shouldAsk(
+            needed: UploadConsent.shared.needed,
+            agreedThisVisit: uploadTicked,
+            cameraReady: revealed && recorder.state == .ready
+        ) {
+            rightsPromptOpen = true
         }
+    }
+
+    /// The prompt has gone. Agree stays on the camera; Cancel and a swipe
+    /// down both leave it, the same way the X does.
+    private func uploadRightsPromptClosed() {
+        guard RecordConsentPrompt.closesCamera(agreedThisVisit: uploadTicked) else { return }
+        recorder.teardown()
+        dismiss()
     }
 
     private var hasVisibleUploads: Bool {
@@ -1282,19 +1314,29 @@ struct RecordScreen: View {
 
     private func shutter(recordingAllowed: Bool) -> some View {
         let enabled = recorder.state == .recording
-            || (recorder.state == .ready && recorder.preflightBlock == nil && recordingAllowed && uploadAllowed)
+            || (recorder.state == .ready && recorder.preflightBlock == nil && recordingAllowed)
         return Button {
             if recorder.state == .recording {
                 recorder.stop()
+            } else if !uploadAllowed {
+                // Not answered yet (the prompt could not go up, or the
+                // answer went missing mid-visit): ask now rather than
+                // leave a shutter that does nothing.
+                rightsPromptOpen = true
             } else {
                 // Segments upload as they are recorded, so the shutter is
-                // where this recording's upload begins and where the tick
-                // is saved. A box that was ticked and then abandoned
+                // where this recording's upload begins and where the
+                // answer is saved. An Agree that never reached the shutter
                 // confirms nothing.
                 Task {
                     uploadSaveFailed = false
                     guard await UploadConsent.shared.confirmIfNeeded() else {
+                        // Ask again, with the line saying why. Agree is
+                        // taken back so that closing this one leaves the
+                        // camera, as it would the first time.
                         uploadSaveFailed = true
+                        uploadTicked = false
+                        rightsPromptOpen = true
                         return
                     }
                     sessionId = UUID()
