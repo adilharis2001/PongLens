@@ -367,6 +367,7 @@ def build(blob, include_all=False, observation_confidence=None,
     serves = v3 or motifs
     source = "v3" if v3 else ("motif" if motifs else None)
     cards = []
+    shadow_skips = []
     for card in blob["cards"]:
         t0, t1 = float(card[0]), float(card[1])
         # Recomputed against today's constants, not the value frozen into
@@ -480,10 +481,19 @@ def build(blob, include_all=False, observation_confidence=None,
                 )
             # This field is diagnostic-only.  An unforeseen shadow bug must
             # omit its envelope, never abort the Admin artifact or upload.
+            # One line per match, not one per card: a fault that hits every
+            # card printed a warning per card, dozens a match, each saying
+            # only "'bounces'". The detail per card is at debug.
             except Exception as e:
-                log.warning("inferred-bounce shadow skipped card %.2f-%.2f: %s",
-                            t0, t1, e)
+                shadow_skips.append((t0, t1, e))
+                log.debug("inferred-bounce shadow skipped card %.2f-%.2f: %s: %s",
+                          t0, t1, type(e).__name__, e)
         cards.append(output_card)
+    if shadow_skips:
+        t0, t1, first = shadow_skips[0]
+        log.info("inferred-bounce shadow skipped %d of %d cards "
+                 "(first %.2f-%.2f: %s: %s)", len(shadow_skips), len(cards),
+                 t0, t1, type(first).__name__, first)
     return {
         "key": blob["match_id"],
         "w": w, "h": h,

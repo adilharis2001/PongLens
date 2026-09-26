@@ -157,6 +157,32 @@ class BuilderIntegrationTests(unittest.TestCase):
             page["cards"][1]["inferred_bounce_evidence"]["candidates"], []
         )
 
+    def test_a_fault_on_every_card_logs_one_line_per_match(self):
+        # V3 serves carry no bounce pair, so the shadow input raises
+        # KeyError('bounces') on every card a V3 serve anchors. That printed
+        # one warning per card. The envelope is still omitted, as before;
+        # only the logging changed.
+        blob = blob_fixture()
+        blob["cards"] = [[0.0, 0.4], [0.4, 0.8], [0.8, 1.2]]
+        blob["serves_v3"] = [[0.1, 0.3, "near"], [0.5, 0.7, "far"],
+                             [0.9, 1.0, "near"]]
+
+        with self.assertLogs(research_serve_misses.log, level="DEBUG") as logs:
+            page = research_serve_misses.build(
+                blob,
+                include_all=True,
+                observation_confidence=measured_confidence(blob),
+                confidence_provenance="measured",
+            )
+
+        for card in page["cards"]:
+            self.assertNotIn("inferred_bounce_evidence", card)
+        loud = [r for r in logs.records if r.levelno >= 20]
+        self.assertEqual(len(loud), 1)
+        self.assertLess(loud[0].levelno, 30)
+        self.assertIn("skipped 3 of 3 cards", loud[0].getMessage())
+        self.assertIn("KeyError: 'bounces'", loud[0].getMessage())
+
     def test_removing_the_additive_field_is_byte_equivalent(self):
         blob = blob_fixture()
         research = research_serve_misses.build(blob, include_all=False)

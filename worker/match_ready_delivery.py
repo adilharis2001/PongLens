@@ -3,8 +3,15 @@
 The full provider payload is frozen before the first POST. Resend's 24-hour
 deduplication window is bounded here to 23 hours, measured by the database.
 The independent health monitor retries without waiting for media processing.
+
+A retry exists for the send whose answer never arrived, and most of those
+were accepted: Resend's idempotency key is what stops the retry becoming a
+second email. That only works if the retry is the same request, byte for
+byte (the transport's job, see worker.resend_request_body), and if a
+"this key is already used" answer is read as delivered rather than failed.
 """
 import logging
+import re
 from uuid import uuid4
 
 from psycopg2 import errors
@@ -72,6 +79,28 @@ def _claim(connection, build_payload, job_id):
             return item
 
 
+# Anything shaped like a Resend key or a bearer token, masked before a reason
+# is stored. The reasons kept here are the provider's own error text and
+# ordinary exception messages, neither of which should carry one; this is
+# the belt to that brace.
+_CREDENTIAL = re.compile(r'\bre_[A-Za-z0-9_]{6,}|Bearer\s+\S+', re.IGNORECASE)
+
+
+def describe_failure(exc):
+    """What went wrong, in words, for last_error.
+
+    Only the exception type used to be stored, so a delivery that Resend
+    refused 24 times in a row said "RuntimeError" 24 times and nothing about
+    why. A Resend refusal carries its status, error name and message
+    (worker.ResendError.summary); anything else keeps its type and message.
+    """
+    text = getattr(exc, 'summary', None)
+    if not isinstance(text, str) or not text:
+        detail = ' '.join(str(exc).split())
+        text = type(exc).__name__ + (': ' + detail if detail else '')
+    return _CREDENTIAL.sub('[redacted]', text)[:300]
+
+
 def _finish(connection, item, state, provider_id=None, error=None):
     with connection:
         with connection.cursor() as cur:
@@ -125,7 +154,19 @@ def deliver_one(connection, build_payload, send_payload, suppressed=lambda _addr
             if not provider_id:
                 raise RuntimeError('Provider did not confirm a message ID')
         except Exception as exc:
-            _finish(connection, item, 'pending', error=type(exc).__name__[:80])
+            reason = describe_failure(exc)
+            if getattr(exc, 'already_accepted', False):
+                # An earlier attempt under this key reached the provider, so
+                # the email went out and only the reply was lost. Recorded
+                # as sent, with the reason where the provider id would be;
+                # never sent again, never left to expire as a failure.
+                _finish(connection, item, 'sent', error=reason)
+                log.info('Match-ready email for job %s was already accepted; not sending it again',
+                         item['job_id'])
+                return True
+            _finish(connection, item, 'pending', error=reason)
+            log.warning('Match-ready email for job %s not confirmed (attempt %s): %s',
+                        item['job_id'], item['attempts'], reason)
             return False
         _finish(connection, item, 'sent', provider_id=str(provider_id))
         return True

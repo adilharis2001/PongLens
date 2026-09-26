@@ -1,4 +1,5 @@
 """Exercise the real notification entry point with only external I/O replaced."""
+import json
 from unittest import mock
 import worker.worker as worker
 from worker import match_ready_delivery
@@ -51,6 +52,6 @@ def test_transport_preserves_full_frozen_payload_and_idempotency():
     with mock.patch.object(worker.requests, 'post', return_value=response) as post:
         result = worker.send_email_payload(value, idempotency_key='match-ready/job', cost_meter=mock.Mock())
     assert result == 'provider-1'
-    assert post.call_args.kwargs['json'] == value
+    assert json.loads(post.call_args.kwargs['data']) == value
     assert post.call_args.kwargs['headers']['Idempotency-Key'] == 'match-ready/job'
     assert post.call_args.kwargs['timeout'] == 30
