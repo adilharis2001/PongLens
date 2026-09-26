@@ -59,10 +59,11 @@ test("claim_auto_recut is the contract's call, the owner's only", () => {
 test("web and iOS send exactly the claim's parameters", () => {
   const params = ["p_match_id", "p_replace", "p_trim_start_s", "p_trim_end_s", "p_strictness"];
   const webCall = web.slice(web.indexOf('rpc("claim_auto_recut"'), web.indexOf('rpc("claim_auto_recut"') + 300);
-  const iosCall = ios.slice(ios.indexOf("claimAutoRecut: { id, settings in"), ios.indexOf("claimAutoRecut: { id, settings in") + 900);
+  const iosCall = ios.slice(ios.indexOf("claimAutoRecut: { id, settings, replace in"), ios.indexOf("claimAutoRecut: { id, settings, replace in") + 900);
   // The iPhone's parameters are a struct of their own (AutoRecutParams,
-  // Core/CutAgain.swift) since strictness became a constant there.
-  assert.match(iosCall, /"claim_auto_recut", params: AutoRecutParams\(matchId: id, settings: settings\)/);
+  // Core/CutAgain.swift) since strictness became a constant there; Keep
+  // and Replace both go through it since 2026-09-26 (one step for Keep).
+  assert.match(iosCall, /"claim_auto_recut",\s*params: AutoRecutParams\(matchId: id, settings: settings, replace: replace\)/);
   const iosParams = iosCore.slice(iosCore.indexOf("struct AutoRecutParams"), iosCore.indexOf("// MARK: - start_recut"));
   for (const name of params) {
     assert.ok(webCall.includes(`${name}:`), `web sends ${name}`);
