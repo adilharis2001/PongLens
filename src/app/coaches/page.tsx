@@ -4,9 +4,12 @@ import Link from "next/link";
 
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { NeonBallHero } from "@/components/anim/NeonBallHero";
+import { CoachScene } from "@/components/marketing/CoachScene";
+import { LandingMotion } from "@/components/marketing/LandingMotion";
+import "../landing-cinematic.css";
+import "./coach-cinematic.css";
 import { BrowserFrame } from "@/components/marketing/BrowserFrame";
-import { CTA_CLASS, Feature, Phone } from "@/components/marketing/Feature";
+import { CTA_CLASS, Feature as SharedFeature, Phone } from "@/components/marketing/Feature";
 import { IosBetaSignup } from "@/components/marketing/IosBetaSignup";
 import { LandingVideo } from "@/components/marketing/LandingVideo";
 import { TrackedLink } from "@/components/marketing/TrackedLink";
@@ -169,40 +172,13 @@ export default function CoachesPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <SiteHeader audience="coaches" />
-      <main className="flex-1">
-        {/* HERO: the same full-bleed arena as the player page, with the
-            copy floating over it. Real screens belong in the sections
-            below, on flat ink; over the arena they read as pasted on. */}
-        <section className="relative flex min-h-[calc(100vh-4rem)] items-center overflow-hidden">
-          <div className="absolute inset-0 opacity-50 lg:opacity-100">
-            <NeonBallHero background />
-          </div>
-          <div
-            className="pointer-events-none absolute inset-0 hidden lg:block"
-            aria-hidden
-            style={{
-              background:
-                "linear-gradient(to right, rgba(10,10,18,.92) 0%, rgba(10,10,18,.55) 45%, rgba(10,10,18,.15) 75%, rgba(10,10,18,0) 100%)",
-            }}
-          />
-          <div
-            className="pointer-events-none absolute inset-0 hidden lg:block"
-            aria-hidden
-            style={{
-              background:
-                "linear-gradient(to top, rgba(10,10,18,.85) 0%, rgba(10,10,18,.25) 35%, rgba(10,10,18,0) 60%)",
-            }}
-          />
-          <div
-            className="pointer-events-none absolute inset-0 lg:hidden"
-            aria-hidden
-            style={{
-              background:
-                "linear-gradient(to top, rgba(10,10,18,.5) 0%, rgba(10,10,18,.1) 30%, rgba(10,10,18,0) 55%)",
-            }}
-          />
-          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-44 pt-16 text-center sm:pb-24 sm:pt-24 lg:text-left">
-            <div className="mx-auto max-w-3xl lg:mx-0">
+      <main className="flex-1 cinematic-landing coach-landing">
+        <LandingMotion />
+        {/* Coaching uses the same landing rhythm with the real student context. */}
+        <section className="cinematic-hero">
+          <CoachScene />
+          <div className="hero-copy">
+            <div className="hero-copy-inner">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
                 PongLens for{" "}
                 <span className="text-cyan-glow text-glow">table tennis coaches.</span>
@@ -212,7 +188,7 @@ export default function CoachesPage() {
                 place. Watch their points, leave feedback and share notes they
                 can read before the next lesson.
               </p>
-              <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 lg:justify-start">
+              <div className="hero-actions">
                 <TrackedLink
                   href="/coaching/start"
                   event="cta_coaching"
@@ -228,7 +204,7 @@ export default function CoachesPage() {
                   See it in action ↓
                 </Link>
               </div>
-              <p className="mt-5 text-sm text-zinc-400">
+              <p className="hero-allowance">
                 Students, notes and match feedback are free during beta.
               </p>
             </div>
@@ -426,7 +402,7 @@ export default function CoachesPage() {
         </section>
 
         {/* CLOSE */}
-        <section className="border-t border-edge bg-band">
+        <section className="landing-close border-t border-edge bg-band">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-16 text-center">
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
               Try it with your{" "}
@@ -487,4 +463,8 @@ export default function CoachesPage() {
       <SiteFooter audience="coaches" />
     </>
   );
+}
+
+function Feature(props: React.ComponentProps<typeof SharedFeature>) {
+  return <SharedFeature {...props} media={<div className="feature-media">{props.media}</div>} />;
 }

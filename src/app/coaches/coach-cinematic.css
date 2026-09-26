@@ -1,0 +1,67 @@
+/* The approved player landing language, with a deliberate focus-and-replay study. */
+.coach-landing .hero-copy>div { max-width:570px; }
+.coach-landing .hero-copy h1 { max-width:570px; }
+.coach-landing .hero-copy p:not(.hero-allowance) { max-width:510px; }
+.coach-landing .hero-actions>a[href="#walkthrough"] { background:#0a161d88; border-color:#48747c; color:#78e7ec; box-shadow:none; }
+.coach-scene { position:absolute; inset:0; pointer-events:none; }
+.coach-art { position:absolute; left:calc(50% - 30px); top:50%; width:min(850px,60vw); transform:translate3d(var(--look-x,0px),calc(-50% + var(--look-y,0px)),0); transition:transform .7s cubic-bezier(.2,.65,.2,1); }
+.coach-world { display:block; width:100%; height:auto; overflow:visible; }
+.coach-ball { transform:translate(480px,300px); animation:coach-flight 10s infinite; }
+.coach-focus { transform-origin:480px 300px; animation:coach-focus 10s infinite; }
+.coach-exposures { animation:coach-exposures 10s infinite; }
+.coach-trail-sweep { stroke-dasharray:16 100; stroke-dashoffset:-42; animation:coach-sweep 10s infinite; }
+.coach-playhead { transform:translateX(185px); animation:coach-playhead 10s infinite; }
+.coach-scene[data-running="false"] * { animation-play-state:paused; }
+.coach-pause { position:absolute; right:32px; bottom:24px; width:44px; height:44px; display:grid; place-items:center; border:1px solid #42758280; border-radius:50%; color:#9ebdc3; background:#0a161d88; pointer-events:auto; cursor:pointer; }
+.coach-pause:hover { border-color:#78e7ec; color:#78e7ec; }
+.coach-pause:focus-visible { outline:2px solid #78e7ec; outline-offset:4px; }
+.coach-scene[data-ready="false"] .coach-pause { visibility:hidden; }
+/* Hold the focal position for half the loop. All movement uses transforms/opacity. */
+@keyframes coach-flight {
+  0%,12% { transform:translate(480px,300px) scale(1); opacity:1; }
+  25% { transform:translate(645px,213px) scale(.66); opacity:0; animation-timing-function:step-end; }
+  27% { transform:translate(207px,448px) scale(.3); opacity:0; animation-timing-function:cubic-bezier(.12,.5,.2,1); }
+  54%,100% { transform:translate(480px,300px) scale(1); opacity:1; }
+}
+@keyframes coach-focus { 0%,10%,64%,100% { opacity:.9; transform:scale(1); } 23%,40% { opacity:.08; transform:scale(1.12); } 54% { opacity:.4; transform:scale(1.04); } }
+@keyframes coach-exposures { 0%,12%,65%,100% { opacity:.55; } 25% { opacity:0; } 36%,48% { opacity:1; } }
+@keyframes coach-sweep { 0%,12%,58%,100% { stroke-dashoffset:-42; opacity:.75; } 25% { stroke-dashoffset:-85; opacity:0; } 27% { stroke-dashoffset:16; opacity:0; } 40% { opacity:1; } }
+@keyframes coach-playhead { 0%,12%,58%,100% { transform:translateX(185px); opacity:1; } 25% { transform:translateX(370px); opacity:0; } 27% { transform:translateX(0); opacity:0; } 36% { opacity:1; } }
+.coach-landing #students { border-top:1px solid var(--landing-line); background:linear-gradient(180deg,#10232955,transparent); }
+.coach-landing #students>div:first-child { grid-template-columns:.8fr 1.2fr; }
+.coach-landing #students .feature-media { transform:perspective(1400px) rotateY(-7deg) rotateX(2deg); }
+.coach-landing #feedback .feature-media::before { inset:35px -8px; border-radius:50%; background:radial-gradient(ellipse,#205a6344,transparent 70%); transform:rotate(-20deg); }
+.coach-landing #feedback .feature-media>div { transform:rotate(-4deg); }
+.coach-landing #record { border-block:1px solid var(--landing-line); background:linear-gradient(120deg,#132c3155,transparent 75%); }
+.coach-landing #journal .feature-media>div { width:280px; }
+.coach-landing #journal .feature-media::before { inset:36px 0; transform:rotate(5deg); }
+.coach-landing #recaps .feature-media::before { inset:65px -6px; background:linear-gradient(145deg,#172c38,#10343944); transform:rotate(-6deg); }
+.coach-landing #reviews { border-block:1px solid var(--landing-line); background:radial-gradient(ellipse at 20% 60%,#15383e66,transparent 65%); }
+.coach-landing #reviews .feature-media { transform:perspective(1400px) rotateY(6deg); }
+@media(hover:hover) and (prefers-reduced-motion:no-preference) {
+ .coach-landing #feedback .feature-media:hover>div { transform:rotate(0); }
+}
+@media(min-width:768px) and (max-width:1100px) {
+ .coach-landing .hero-copy>div { max-width:43vw; }
+ .coach-landing .hero-copy h1 {font-size:clamp(48px,5.6vw,60px);}
+ .coach-art {left:44%;width:61vw;}
+}
+@media(max-width:767px) {
+ .coach-landing .cinematic-hero {padding:12px 24px 20px;gap:8px;justify-content:center;}
+ .coach-landing .hero-copy {flex:none;padding:0;display:block;}
+ .coach-landing .hero-copy>div {max-width:480px;margin-inline:auto;}
+ .coach-scene {position:relative;inset:auto;width:100%;max-width:480px;height:clamp(172px,calc(100svh - 470px),320px);margin:0 auto;flex-shrink:0;}
+ .coach-art {left:50%;top:50%;width:clamp(440px,calc(100svh - 220px),580px);transform:translate(-57%,-46%);}
+ .coach-moment-line {display:none;}
+ .coach-pause {right:0;bottom:4px;width:44px;height:44px;}
+ .coach-landing #students>div:first-child {grid-template-columns:minmax(0,1fr);}
+ .coach-landing #students .feature-media,.coach-landing #reviews .feature-media {transform:none;}
+ .coach-landing #feedback .feature-media>div {transform:none;}
+ .coach-landing #journal .feature-media>div {width:260px;}
+ .coach-landing #record .mt-6>button {width:100%;max-width:none;min-height:48px;}
+}
+@media(prefers-reduced-motion:reduce) {
+ .coach-art {transition:none;}
+ .coach-scene * {animation:none;}
+ .coach-pause {display:none;}
+}
