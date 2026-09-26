@@ -5,7 +5,8 @@
  * in, the id of the account that made it. The two exceptions are reels,
  * which are keyed by the match (or tag) they were cut from, and the
  * platform's own files (research corpora, tutorial chapters, feedback and
- * QA screenshots), which belong to nobody's allowance.
+ * QA screenshots, the cloud twin's parity replays), which belong to
+ * nobody's allowance.
  *
  * This is the rule the nightly measurement runs on, so an object under a
  * prefix nobody has taught it about is reported, never silently dropped:
@@ -65,7 +66,13 @@ const OWNED_PREFIXES: Record<string, StorageCategory> = {
   offer: "coach_media",
 };
 
-const PLATFORM_PREFIXES = new Set(["research", "tutorial", "qa", "feedback"]);
+/**
+ * parity/<job id>/<label>/ is the cloud twin's shadow and parity replays
+ * (worker/cloud_release shadow.py, modal_app.py): our own test output from
+ * re-running a player's upload to compare the Mac with Modal, never the
+ * player's own files, so it counts against no allowance.
+ */
+const PLATFORM_PREFIXES = new Set(["research", "tutorial", "qa", "feedback", "parity"]);
 
 function owned(
   id: string | undefined,

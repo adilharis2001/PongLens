@@ -74,6 +74,10 @@ test("the platform's own files belong to nobody, and a strange prefix is not gue
   assert.equal(classifyKey("ponglens-media", "tutorial/ch1.mp4").kind, "platform");
   assert.equal(classifyKey("ponglens-media", `qa/${A}/shot.png`).kind, "platform");
   assert.equal(classifyKey("ponglens-media", `feedback/${A}/shot.png`).kind, "platform");
+  // The cloud twin's shadow replays of a player's upload: our test output,
+  // not the player's files, even though the job id is a uuid.
+  assert.equal(classifyKey("ponglens-media", `parity/${M}/mac/match.json`).kind, "platform");
+  assert.equal(classifyKey("ponglens-media", `parity/${M}/cloud-t4/blurball.jsonl`).kind, "platform");
   assert.equal(classifyKey("ponglens-media", "healthcheck.txt").kind, "platform");
   assert.equal(classifyKey("ponglens-media", `newthing/${A}/x.bin`).kind, "unknown");
   assert.equal(classifyKey("ponglens-media", "results/not-a-uuid/x.mp4").kind, "unknown");
