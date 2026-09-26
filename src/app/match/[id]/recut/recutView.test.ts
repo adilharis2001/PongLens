@@ -7,6 +7,7 @@ import { handCutClaimError, normalizeMarks, scoreSwitchCopy, type Mark } from ".
 import {
   COACH_REVIEW_NOTE,
   MATCH_NOTES_LINE,
+  HAND_REPLACE_LINE,
   REPLACE_LINE,
   autoRecutClaimError,
   moreOptionsView,
@@ -107,11 +108,11 @@ test("the choice: Keep by default, Replace says what it deletes", () => {
   const hand = recutChoiceView("hand", opts(), null);
   assert.deepEqual(hand, { replaceEnabled: true, replaceNote: null, selected: "keep", replaceLines: [] });
   assert.deepEqual(recutChoiceView("hand", opts(), "replace"), {
-    replaceEnabled: true, replaceNote: null, selected: "replace", replaceLines: [REPLACE_LINE],
+    replaceEnabled: true, replaceNote: null, selected: "replace", replaceLines: [HAND_REPLACE_LINE],
   });
   // The second line only when the match has match notes.
   assert.deepEqual(recutChoiceView("hand", opts({ has_match_notes: true }), "replace").replaceLines, [
-    REPLACE_LINE,
+    HAND_REPLACE_LINE,
     MATCH_NOTES_LINE,
   ]);
   assert.equal(REPLACE_LINE, "Points, scores and point notes will be deleted.");
