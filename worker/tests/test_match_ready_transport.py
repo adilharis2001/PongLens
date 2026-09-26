@@ -1,4 +1,5 @@
 """Real outbox and cost writes with a fake Resend HTTP boundary."""
+import json
 import os
 import sys
 from unittest import mock
@@ -32,7 +33,7 @@ def test_ambiguous_success_stays_pending_and_retries_frozen_payload(db, body):
         pending = row(db)
         assert pending['state'] == 'pending'
         assert pending['provider_id'] is None and pending['sent_at'] is None
-        assert pending['last_error'] == 'RuntimeError'
+        assert pending['last_error'] == 'RuntimeError: Provider did not confirm a message ID'
         costs.assert_not_called()
         release_lease(db)
         assert worker.retry_match_ready(db, job) is True
@@ -41,8 +42,12 @@ def test_ambiguous_success_stays_pending_and_retries_frozen_payload(db, body):
         assert render.call_count == 1
         assert post.call_count == 2
         for call in post.call_args_list:
-            assert call.kwargs['json'] == pending['payload']
+            assert json.loads(call.kwargs['data']) == pending['payload']
             assert call.kwargs['headers']['Idempotency-Key'] == 'match-ready/' + job
+        # The retry reads the payload back out of jsonb, which reorders its
+        # keys; Resend refuses a reused key whose body bytes differ.
+        first, retry = post.call_args_list
+        assert first.kwargs['data'] == retry.kwargs['data']
 
 
 def test_monitor_retry_persists_cost_without_rebinding_active_job_meter(db, monkeypatch):
@@ -128,7 +133,7 @@ def test_legacy_youtube_completion_still_sends_when_capture_enabled(db):
     ):
         worker.notify_job_done(db, job, 'user')
     assert post.call_count == 1
-    sent = post.call_args.kwargs['json']
+    sent = json.loads(post.call_args.kwargs['data'])
     assert sent['to'] == ['player@example.test']
     assert sent['subject'] == 'Your PongLens match is ready'
     assert '/match/sample-match' in sent['text']

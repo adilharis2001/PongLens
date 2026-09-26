@@ -859,6 +859,96 @@ def send_email(
     )
 
 
+# The order every Resend request body is written in. It is the order
+# send_email and match_ready_payload have always built their dicts in, so a
+# body written this way is byte-for-byte what `requests.post(json=...)` sent
+# before this existed.
+RESEND_FIELD_ORDER = (
+    "from", "to", "reply_to", "subject", "html", "text", "headers", "bcc",
+)
+
+
+def resend_request_body(payload: dict) -> bytes:
+    """The exact bytes Resend receives for this payload, the same every time.
+
+    Resend remembers an Idempotency-Key for 24 hours and compares the request
+    BODY, key order included: a retry whose bytes differ from the accepted
+    request is refused with 409 invalid_idempotent_request instead of being
+    answered with the original message id. The match-ready outbox freezes
+    its payload in a jsonb column, and jsonb gives keys back in its own
+    order (to, from, html, text, headers, subject, reply_to). Every retry of
+    an email Resend had already accepted was therefore refused, all 24 of
+    them, while the email itself had arrived on the first try (2026-09-26,
+    29 deliveries). Writing the fields in one fixed order, whatever order
+    the dict arrived in, makes a retry identical to the first send, so
+    Resend answers it with the id it already gave.
+    """
+    def canonical(value):
+        if isinstance(value, dict):
+            return {key: canonical(value[key]) for key in sorted(value)}
+        if isinstance(value, list):
+            return [canonical(item) for item in value]
+        return value
+
+    ordered = {key: canonical(payload[key])
+               for key in RESEND_FIELD_ORDER if key in payload}
+    for key in sorted(k for k in payload if k not in ordered):
+        ordered[key] = canonical(payload[key])
+    # The same encoder settings requests used for json=, so nothing else
+    # about the bytes moves.
+    return json.dumps(ordered, allow_nan=False).encode("utf-8")
+
+
+class ResendError(RuntimeError):
+    """Resend refused a request. Keeps its status, error name and message,
+    and never the API key or the email body, so a stored failure says why.
+
+    It used to be a bare RuntimeError that the outbox stored as just its
+    type name, which is how 29 refusals in a row read as "RuntimeError"
+    with nothing to say what Resend had objected to.
+    """
+
+    def __init__(self, status: int, name: str, message: str):
+        self.status = status
+        self.name = name
+        self.provider_message = message
+        self.summary = f"Resend {status} {name}: {message}"[:300]
+        super().__init__(self.summary)
+
+    @classmethod
+    def from_response(cls, response) -> "ResendError":
+        name, message = "", ""
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            name = str(body.get("name") or "")
+            message = str(body.get("message") or body.get("error") or "")
+        if not message:
+            message = str(getattr(response, "text", "") or "")
+        return cls(
+            int(response.status_code),
+            " ".join(name.split())[:80] or "error",
+            " ".join(message.split())[:240],
+        )
+
+    @property
+    def already_accepted(self) -> bool:
+        """Resend already holds a request under this idempotency key.
+
+        409 invalid_idempotent_request means the key was used, inside the
+        last 24 hours, on a request whose body differed. A key names one
+        email and every attempt carries that email's frozen payload, so the
+        earlier request was this same email: sending again is exactly the
+        duplicate the key exists to prevent, and retrying the same key can
+        never get a different answer. The other 409,
+        concurrent_idempotent_requests, means one is still in flight and
+        is worth retrying.
+        """
+        return self.status == 409 and self.name == "invalid_idempotent_request"
+
+
 def send_email_payload(
     payload: dict,
     *,
@@ -866,7 +956,10 @@ def send_email_payload(
     cost_meter: CostMeter | None = None,
     require_provider_id: bool = False,
 ):
-    """Send one already-rendered payload unchanged across durable retries."""
+    """Send one already-rendered payload unchanged across durable retries.
+
+    "Unchanged" means the bytes, not just the fields: see
+    resend_request_body."""
     if not RESEND_API_KEY:
         raise RuntimeError("Email delivery unavailable")
     if idempotency_key is not None and not (1 <= len(idempotency_key) <= 256):
@@ -882,11 +975,11 @@ def send_email_payload(
                 else {}
             ),
         },
-        json=payload,
+        data=resend_request_body(payload),
         timeout=30,
     )
     if r.status_code >= 400:
-        raise RuntimeError(f"Resend {r.status_code}: {r.text[:300]}")
+        raise ResendError.from_response(r)
     try:
         message_id = r.json().get("id")
     except (ValueError, AttributeError):
