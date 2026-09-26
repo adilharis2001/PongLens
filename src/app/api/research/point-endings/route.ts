@@ -6,6 +6,7 @@ import {validRallyPrediction} from '@/lib/research/rallyPredictions';
 import {START_REVIEW_CASES} from '@/lib/research/startReviewCases';
 import {startReviewAllowed,startReviewWindow} from '@/lib/research/startReview';
 import {cutReviewInPoint} from '@/lib/research/cutReview';
+import {RESEARCH_BATCHES} from '@/lib/research/winnerCheck';
 export const runtime='nodejs';
 export async function POST(request:Request) {
   const db=await createClient();
@@ -15,7 +16,7 @@ export async function POST(request:Request) {
   try {body=await request.json();} catch {return NextResponse.json({error:'Invalid request'},{status:400});}
   if(!body || !/^[0-9a-f-]{36}$/i.test(body.id??'') || !Number.isSafeInteger(body.revision) || body.revision<0 || !validEndingLabel(body.label))
     return NextResponse.json({error:'Choose a reason or enter a custom reason.'},{status:400});
-  const {data:current,error:readError}=await db.from('point_ending_research').select('id,label,revision,source').eq('id',body.id).eq('batch','out-ball-479-v1').maybeSingle();
+  const {data:current,error:readError}=await db.from('point_ending_research').select('id,label,revision,source').eq('id',body.id).in('batch',[...RESEARCH_BATCHES]).maybeSingle();
   if(readError)return NextResponse.json({error:'Could not load the saved answer. Try again.'},{status:500});
   if(!current)return NextResponse.json({error:'Point not found.'},{status:404});
   // Preserve optional review answers omitted by older open tabs.
@@ -41,10 +42,10 @@ export async function POST(request:Request) {
     if(predictionError||evidenceError)return NextResponse.json({error:'Could not load the experiment. Try again.'},{status:503});
     if(!prediction||!evidence||!validRallyPrediction(prediction.payload,evidence.payload.bounces.length,current.source))return NextResponse.json({error:'This experiment is unavailable. Reload before reviewing it.'},{status:400});
   }
-  const {data,error}=await db.from('point_ending_research').update({label,revision:body.revision+1}).eq('id',body.id).eq('batch','out-ball-479-v1').eq('revision',body.revision).select('id,label,revision').maybeSingle();
+  const {data,error}=await db.from('point_ending_research').update({label,revision:body.revision+1}).eq('id',body.id).in('batch',[...RESEARCH_BATCHES]).eq('revision',body.revision).select('id,label,revision').maybeSingle();
   if(error) return NextResponse.json({error:'Could not save. Your answer is still on this page.'},{status:500});
   if(!data) {
-    const {data:existing}=await db.from('point_ending_research').select('id,label,revision').eq('id',body.id).eq('batch','out-ball-479-v1').maybeSingle();
+    const {data:existing}=await db.from('point_ending_research').select('id,label,revision').eq('id',body.id).in('batch',[...RESEARCH_BATCHES]).maybeSingle();
     if(existing && existing.revision===body.revision+1 && sameEndingLabel(existing.label,label))
       return NextResponse.json({saved:existing},{headers:{'Cache-Control':'private, no-store'}});
   }
