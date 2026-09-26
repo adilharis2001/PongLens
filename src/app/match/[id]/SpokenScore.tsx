@@ -83,7 +83,7 @@ export function SpokenGamesToggle({
       onClick={onToggle}
       className={`inline-flex shrink-0 items-baseline gap-1.5 ${className ?? ""}`}
       aria-expanded={open}
-      aria-label={`Spoken score, ${tally.you} games to ${tally.them}`}
+      aria-label={`Noted score, ${tally.you} games to ${tally.them}`}
     >
       <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
         Spoken

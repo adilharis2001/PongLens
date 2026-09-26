@@ -1923,7 +1923,7 @@ struct MatchDetailsSheet: View {
     private var spokenScoreSection: some View {
         if let spoken = draft.spokenScores {
             Section {} header: {
-                Text("Spoken score")
+                Text("Noted score")
             } footer: {
                 PLCaptionedBlock {
                     VStack(alignment: .leading, spacing: 2) {

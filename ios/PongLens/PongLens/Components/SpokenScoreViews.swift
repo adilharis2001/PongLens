@@ -61,7 +61,7 @@ struct SpokenGamesToggle: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            "Spoken score, \(tally.you) games to \(tally.them). Tap for the games.")
+            "Noted score, \(tally.you) games to \(tally.them). Tap for the games.")
     }
 }
 
@@ -82,7 +82,7 @@ struct SpokenScoreSheet: View {
     }
 
     var body: some View {
-        PLSheetScaffold(title: "Spoken score") {
+        PLSheetScaffold(title: "Noted score") {
             Form {
                 // The board on the sheet itself, not a clear row: a row is
                 // clipped to its section's corners, and it left Add a game
