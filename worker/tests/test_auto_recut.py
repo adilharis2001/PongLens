@@ -451,6 +451,32 @@ class RunTests(unittest.TestCase):
         self.assertTrue(out["conn"].sql("fail_auto_recut"))
         out["player"].assert_called_once()
 
+    def test_a_replace_whose_match_was_deleted_ends_silently(self):
+        """Audit C: the version went with the match, so there is no
+        candidate to fail; the job ends cancelled, the minutes come back
+        (idempotent with the delete trigger's refund) and nobody is told
+        about a match they deleted."""
+        conn = Conn({
+            "select status, kind, options from public.jobs": (
+                "processing", "match_reprocess",
+                {"match_id": MATCH, "recut": "replace"}),
+            "select 1 from public.matches where id": None,
+            "fail_auto_recut": (True,),
+        })
+        with mock.patch.object(worker, "load_auto_recut_destination",
+                               side_effect=RuntimeError(
+                                   "automatic re-cut job no longer has its candidate")), \
+                mock.patch.object(worker, "archive_message") as archive, \
+                mock.patch.object(worker, "send_email") as send, \
+                mock.patch.object(worker, "refund_processing_spend_direct") as refund:
+            worker.run_auto_recut_job(conn, self.msg(), JOB, "a", "candidate")
+        archive.assert_called_once()
+        send.assert_not_called()
+        self.assertFalse(conn.sql("fail_auto_recut"))
+        (sql, params), = conn.sql("set status = 'cancelled'")
+        self.assertEqual(params[1], JOB)
+        refund.assert_called_once_with(conn, JOB)
+
     def test_a_published_candidate_only_needs_the_swap(self):
         out = self.job("ready", process=AssertionError("must not rebuild"))
         out["swap"].assert_called_once()

@@ -288,6 +288,111 @@ def load_frame_clock(frames: Mapping[str, Any], fps: float) -> FrameClock:
     return FrameClock(frames["frame_times"], fps)
 
 
+# ---------------------------------------------------------------------------
+# A table an earlier cut of the same upload already found (audit D, 2026-09-26)
+# ---------------------------------------------------------------------------
+# A hand cut that replaces an automatic one (or a Keep copy of a processed
+# match) is the same video, filmed by the same fixed camera. The automatic
+# cut already found its table, often through the paid vision rung, and drew
+# serve maps with it. Detecting again on the hand cut asks a question that
+# was already answered, and the free keypoint rung declines on exactly the
+# cameras that needed vision the first time: 636f3f37 went from 50 mapped
+# serves to 0 with `keypoint_calibration_declined`.
+#
+# These are the rules for trusting that earlier answer. Each one refuses
+# rather than guesses, because a wrong table is worse than no table and a
+# refusal here only means detecting as before.
+REUSABLE_TABLE_SOURCES = ("keypoints", "vision")
+TABLE_CORNER_NAMES = ("A_near_1", "B_near_2", "C_far_2", "D_far_1")
+# How the two trusted producers open their note, for documents written
+# before the `source` field existed (points_pipeline.keypoint_calibrate and
+# vision_calibrate). Anything else without a source is refused: the pipeline
+# itself defaults a missing source to the pink rim.
+_LEGACY_NOTE_SOURCES = (("keypoint detector", "keypoints"),
+                        ("vision-proposed", "vision"))
+
+
+def table_source(calibration: Mapping[str, Any]) -> str | None:
+    """Which detector found a stored table: its `source`, or for an older
+    document the detector its note names. None when neither says."""
+    source = calibration.get("source")
+    if isinstance(source, str) and source:
+        return source
+    note = str(calibration.get("note") or "").lower()
+    if "pink" in note:
+        return "pink_rim"
+    for opening, name in _LEGACY_NOTE_SOURCES:
+        if note.startswith(opening):
+            return name
+    return None
+
+
+def reusable_table(document: Mapping[str, Any] | None, *,
+                   document_raw_path: str | None, raw_path: str | None,
+                   width: Any, height: Any) -> tuple[dict | None, str]:
+    """(calibration, why): the table `document` (an earlier cut's match.json)
+    holds, when it may be reused for a cut of `raw_path` whose frames are
+    `width` x `height`. None with the reason otherwise.
+
+    Reused only when all of these hold:
+    - the earlier cut was made from this same original upload (its raw
+      path, as the database recorded it, is this one's);
+    - it holds a found table: calibration.ok, and four finite corners;
+    - the keypoint detector or a vision model found it, never the retired
+      pink-rim calibrator, and never a detector nobody named;
+    - its frames were this size, and every corner lies inside them.
+
+    The copy returned is the stored block untouched: canonicalising it is
+    the pipeline interpreter's job (placement_retry_calibration reuse)."""
+    if not raw_path or not document_raw_path or str(document_raw_path) != str(raw_path):
+        return None, "made from another upload"
+    if not isinstance(document, Mapping):
+        return None, "no match.json"
+    calibration = document.get("calibration")
+    if not isinstance(calibration, Mapping) or calibration.get("ok") is not True:
+        return None, "no table"
+    corners = calibration.get("table_corners_px")
+    if not isinstance(corners, Mapping) or not all(
+            _corner(corners.get(name)) for name in TABLE_CORNER_NAMES):
+        return None, "no table"
+    source = table_source(calibration)
+    if source not in REUSABLE_TABLE_SOURCES:
+        return None, f"found by {source or 'an unnamed detector'}"
+    if not (_whole(width) and _whole(height)):
+        return None, "this video's frame size is unknown"
+    frame = document.get("source") if isinstance(document.get("source"), Mapping) else {}
+    if not (_whole(frame.get("width")) and _whole(frame.get("height"))):
+        return None, "its frame size is unknown"
+    if (int(frame["width"]), int(frame["height"])) != (int(width), int(height)):
+        return None, (f"its frames were {int(frame['width'])}x{int(frame['height'])}, "
+                      f"these are {int(width)}x{int(height)}")
+    for name in TABLE_CORNER_NAMES:
+        x, y = (float(value) for value in corners[name])
+        if not (0 <= x < int(width) and 0 <= y < int(height)):
+            return None, "a corner lies outside the frame"
+    table = {key: value for key, value in calibration.items()}
+    table["source"] = source
+    table["table_corners_px"] = {name: [float(v) for v in corners[name]]
+                                 for name in TABLE_CORNER_NAMES}
+    return table, "ok"
+
+
+def _corner(value: Any) -> bool:
+    return (isinstance(value, (list, tuple)) and len(value) == 2
+            and all(_finite(v) for v in value))
+
+
+def _whole(value: Any) -> bool:
+    """A frame dimension: a positive whole number of pixels."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return value > 0
+    if isinstance(value, (float, Decimal)) and _finite(value) and value == int(value):
+        return int(value) > 0
+    return False
+
+
 def _finite(value: Any) -> bool:
     """A usable time. Point times read from the database are numeric
     columns, which psycopg2 returns as Decimal, so Decimal counts too."""
