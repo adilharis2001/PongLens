@@ -5,6 +5,7 @@ export type EndingEvidence = {
  track:[number,number,number][];
  bounces:{t:number;x:number;y:number}[];
  lineage:string;
+ tableCorners?:[number,number][];
 };
 export function containedFrame(w:number,h:number,sourceW:number,sourceH:number) {
  const scale=Math.min(w/sourceW,h/sourceH),width=sourceW*scale,height=sourceH*scale;
