@@ -46,12 +46,6 @@ struct LessonVideoScreen: View {
         playerImport ? .videoPlayer : .videoCoach
     }
 
-    /// The first-upload checkbox (new accounts only). Both import buttons
-    /// wait for it; ticked stays ticked for this visit.
-    @State private var uploadTicked = false
-    /// The save at upload time did not land. Shown under the box.
-    @State private var uploadSaveFailed = false
-    private var uploadAllowed: Bool { !UploadConsent.shared.needed || uploadTicked }
 
     private var uploads: [QueuedLessonVideo] {
         queue.items.filter {
@@ -243,22 +237,19 @@ struct LessonVideoScreen: View {
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
                     .lineSpacing(4)
-                if UploadConsent.shared.needed || uploadTicked {
-                    UploadConfirmationRow(ticked: $uploadTicked, failed: uploadSaveFailed)
-                }
                 HStack(spacing: 12) {
                     Button { beginImport(); photosOpen = true } label: {
                         Label("Photos", systemImage: "photo.on.rectangle")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PLPrimaryButtonStyle())
-                    .disabled(importing || !answered || !uploadAllowed)
+                    .disabled(importing || !answered)
                     Button { beginImport(); filesOpen = true } label: {
                         Label("Files", systemImage: "folder")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PLSecondaryButtonStyle())
-                    .disabled(importing || !answered || !uploadAllowed)
+                    .disabled(importing || !answered)
                 }
                 if importing {
                     HStack(spacing: 10) {
@@ -376,15 +367,6 @@ struct LessonVideoScreen: View {
                     // lands: permission before the first byte moves.
                     guard await AiConsent.shared.ensure() else {
                         try? FileManager.default.removeItem(at: file.url)
-                        return
-                    }
-                    // The upload starts here, so this is where the tick is
-                    // saved. A box that was ticked and then abandoned
-                    // confirms nothing.
-                    uploadSaveFailed = false
-                    guard await UploadConsent.shared.confirmIfNeeded() else {
-                        try? FileManager.default.removeItem(at: file.url)
-                        uploadSaveFailed = true
                         return
                     }
                     try await queue.enqueue(

@@ -33,12 +33,6 @@ struct UploadScreen: View {
     /// upload while the Record tab honoured it — so turning placement on
     /// did nothing here and nobody could see why.
     @State private var placementOn = false
-    /// The first-upload checkbox (new accounts only). Ticked here stays
-    /// ticked for this visit even once the row is no longer needed.
-    @State private var uploadTicked = false
-    /// The save at upload time did not land. Shown under the box.
-    @State private var uploadSaveFailed = false
-    private var uploadAllowed: Bool { !UploadConsent.shared.needed || uploadTicked }
 
     enum ImportStage: Equatable {
         case idle
@@ -211,13 +205,16 @@ struct UploadScreen: View {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 26, weight: .medium))
                         .foregroundStyle(PL.text500)
-                    if UploadConsent.shared.needed || uploadTicked {
-                        UploadConfirmationRow(ticked: $uploadTicked, failed: uploadSaveFailed)
-                            .padding(.horizontal, 4)
-                    }
                     Button {
                         loadError = nil
-                        pickerOpen = true
+                        // Uploading a match needs the AI features
+                        // permission. Usually asked at the New match door
+                        // already; this covers the other ways here. The
+                        // sheet has gone before the picker opens.
+                        Task {
+                            guard await AiConsent.shared.ensure() else { return }
+                            pickerOpen = true
+                        }
                     } label: {
                         Text("Choose a video")
                             .font(.plButton)
@@ -225,11 +222,9 @@ struct UploadScreen: View {
                             .padding(.horizontal, 22)
                             .padding(.vertical, 12)
                             .background(PL.cyan, in: Capsule())
-                            .shadow(color: PL.cyan.opacity(uploadAllowed ? 0.5 : 0), radius: 14)
-                            .opacity(uploadAllowed ? 1 : 0.5)
+                            .shadow(color: PL.cyan.opacity(0.5), radius: 14)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!uploadAllowed)
                 case .exporting:
                     VStack(spacing: 10) {
                         HStack(spacing: 10) {
@@ -345,12 +340,10 @@ struct UploadScreen: View {
             return
         }
 
-        // The upload starts here, so this is where the tick is saved. A
-        // box that was ticked and then abandoned confirms nothing.
-        uploadSaveFailed = false
-        guard await UploadConsent.shared.confirmIfNeeded() else {
+        // The upload starts here. The permission was asked before the
+        // picker; asked again only if it was switched off meanwhile.
+        guard await AiConsent.shared.ensure() else {
             try? FileManager.default.removeItem(at: url)
-            uploadSaveFailed = true
             return
         }
 

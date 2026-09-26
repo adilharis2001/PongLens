@@ -330,7 +330,7 @@ struct AccountScreen: View {
                 Text("AI features")
                     .font(.system(size: 16))
                     .foregroundStyle(PL.textBody)
-                Text("Voice notes, Ask, summaries and photo reading send content to Deepgram and OpenAI.")
+                Text("Match checks, voice notes, Ask, summaries and photo reading send content to OpenAI and Deepgram. Recording and uploading matches need this.")
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
                 if aiError {

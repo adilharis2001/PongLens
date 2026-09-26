@@ -59,19 +59,6 @@ struct RootView: View {
             // The "Where to place the camera" sheet, without an account,
             // for the same reason.
             CameraPlacementSheet()
-        } else if ProcessInfo.processInfo.arguments.contains("--dev-record-consent") {
-            // The camera with its upload rights prompt, without an
-            // account: the prompt only shows to an account that has never
-            // uploaded, which makes checking it a whole sign-up. The
-            // answer is marked missing for this launch only and Agree
-            // writes nothing. The shutter's save is real, though: on a
-            // simulator that still holds a session it would confirm that
-            // account, so look, do not press record.
-            RecordScreen()
-                .environment(app)
-                .environment(router)
-                .environment(library)
-                .task { UploadConsent.shared.seed(confirmedAt: nil, loaded: true) }
         } else {
             appBody
         }
@@ -350,11 +337,10 @@ struct RootView: View {
             let setup_done_at: String?
             let terms_accepted_at: String?
             let ai_features_enabled: Bool?
-            let upload_confirmed_at: String?
         }
         async let profileQuery: [ProfileRow]? = try? await supa
             .from("player_profiles")
-            .select("setup_done_at,terms_accepted_at,ai_features_enabled,upload_confirmed_at")
+            .select("setup_done_at,terms_accepted_at,ai_features_enabled")
             .eq("user_id", value: uid)
             .execute().value
         // A coach answers the name and nothing else — same rule as the web
@@ -374,11 +360,10 @@ struct RootView: View {
         // row yet, or a row without the stamp. Existing rows were
         // backfilled by the migration, so they never see it.
         let needsTerms = row?.terms_accepted_at == nil
-        // The two permissions the rest of the app asks about, cached from
-        // the same read. Unknown (the read failed) means "not asked" for
-        // the sheet and "do not show" for the upload row.
+        // The permission the rest of the app asks about, cached from the
+        // same read. Unknown (the read failed) means "not asked": the sheet
+        // shows, and an Allow simply writes the answer again.
         AiConsent.shared.seed(enabled: row?.ai_features_enabled)
-        UploadConsent.shared.seed(confirmedAt: row?.upload_confirmed_at, loaded: profile != nil)
         if name.isEmpty || !hasProfile || needsTerms {
             // isNew: no profile row yet, whatever the name says. Google and
             // Apple hand us a name, so "needs a name" is NOT "brand new" —

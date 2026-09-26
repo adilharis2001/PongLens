@@ -112,7 +112,6 @@ final class AccountStore {
 
     private struct ConsentRow: Decodable {
         let ai_features_enabled: Bool?
-        let upload_confirmed_at: String?
     }
 
     /// The account's own profile row. Filtered by user_id on purpose:
@@ -121,7 +120,7 @@ final class AccountStore {
         guard let userId else { return nil }
         return try? await supa
             .from("player_profiles")
-            .select("ai_features_enabled,upload_confirmed_at")
+            .select("ai_features_enabled")
             .eq("user_id", value: userId.uuidString.lowercased())
             .execute().value
     }
@@ -165,10 +164,9 @@ final class AccountStore {
         shareLinks = links ?? []
         recollectEnabled = recollect?.first?.enabled ?? true
         if let consent {
-            // The same two facts RootView seeds at sign-in, refreshed
-            // whenever Account opens, so the switch shows what the row says.
+            // The fact RootView seeds at sign-in, refreshed whenever
+            // Account opens, so the switch shows what the row says.
             AiConsent.shared.seed(enabled: consent.first?.ai_features_enabled)
-            UploadConsent.shared.seed(confirmedAt: consent.first?.upload_confirmed_at, loaded: true)
         }
         loaded = true
     }

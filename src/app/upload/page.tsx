@@ -49,10 +49,10 @@ export default async function UploadPage({
   // straight past both showings. RLS scopes the count to the owner, so no
   // user filter is needed here.
   //
-  // The first-upload confirmation (new accounts only; existing rows were
-  // backfilled) is read here for the same reason: the checkbox and the
-  // disabled button have to be there in the first frame, not appear
-  // after the page has painted an enabled one.
+  // Whether the account has allowed AI features is read here too: when
+  // it has, the Choose button opens the picker from the tap itself,
+  // which a browser insists on. When it has not, the permission sheet
+  // comes first (uploads need it since 2026-09-26).
   //
   // Marking the points by hand is rolled out per account, and the upload
   // card offers "Mark the points yourself" only where the match page would
@@ -62,7 +62,7 @@ export default async function UploadPage({
     supabase.from("matches").select("id", { head: true, count: "exact" }),
     supabase
       .from("player_profiles")
-      .select("upload_confirmed_at")
+      .select("ai_features_enabled")
       .eq("user_id", user.id)
       .maybeSingle(),
     supabase.rpc("hand_cut_enabled", { p_user: user.id }),
@@ -111,7 +111,7 @@ export default async function UploadPage({
         <UploadCard
           userId={user.id}
           commerceEnabled={commerceEnabled}
-          uploadConfirmed={!!profile?.upload_confirmed_at}
+          aiConsented={profile?.ai_features_enabled === true}
           handCutEnabled={handCut === true}
           orderId={
             commerceEnabled && order && /^[0-9a-f-]{36}$/i.test(order)

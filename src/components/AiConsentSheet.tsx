@@ -7,6 +7,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import { AI_CONSENT_COPY } from "@/lib/aiConsentCopy";
 import { createClient } from "@/lib/supabase/client";
 
 /**
@@ -28,6 +29,12 @@ import { createClient } from "@/lib/supabase/client";
  *
  * The word "AI" is allowed here and on the Account switch by owner
  * decision (spec 2026-09-14); nowhere else gets it from this.
+ *
+ * Since 2026-09-26 the same permission covers the frame checks on every
+ * match (the content check, the broadcast check and the table finder),
+ * and recording or uploading a match needs it: Not now there leaves the
+ * upload unstarted. It replaced the one-time "I have the right to upload
+ * this video" checkbox, whose promise lives in the Terms.
  */
 
 export type EnsureOptions = {
@@ -207,12 +214,10 @@ export function AiConsentSheet({
           AI features
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-          Some features send your content to two companies so they can do
-          their job: Deepgram turns voice notes into text, and OpenAI reads
-          notes, photos and lesson transcripts to write summaries, answer
-          questions in Ask, and tidy rough entries. They are not allowed to
-          use your content to train their models. You can switch this off
-          any time in Account.
+          {AI_CONSENT_COPY[0]}
+        </p>
+        <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+          {AI_CONSENT_COPY[1]}
         </p>
         {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
         <div className="mt-5 flex flex-col gap-2">

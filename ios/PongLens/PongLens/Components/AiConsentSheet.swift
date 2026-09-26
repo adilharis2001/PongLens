@@ -6,13 +6,35 @@ import SwiftUI
 /// the grabber showing. Twin of src/components/AiConsentSheet.tsx; the
 /// copy is identical on both platforms.
 struct AiConsentSheet: View {
-    static let detentHeight: CGFloat = 440
+    static let detentHeight: CGFloat = 430
+
+    /// The two paragraphs. Identical to AI_CONSENT_COPY in
+    /// src/lib/aiConsentCopy.ts; aiConsentCopy.test.ts checks it.
+    static let copy = [
+        "PongLens sends some of your content to two companies so they can do their job. OpenAI checks still frames from each match you record or upload, to confirm it is table tennis and to find the table. It also reads notes, photos and lesson transcripts to write summaries, answer questions in Ask and tidy rough entries. Deepgram turns voice notes into text. Neither company may use your content to train its models.",
+        "Recording and uploading matches need this. You can switch it off any time in Account.",
+    ]
 
     @State private var saving = false
     @State private var failed = false
     @State private var answered = false
 
     var body: some View {
+        // Scrolls only when the words outgrow the sheet: the largest text
+        // sizes, or a sideways phone, where the camera's shutter can raise
+        // it and a sheet is as tall as the screen allows.
+        ScrollView {
+            content
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(PL.surface)
+        .onDisappear {
+            // Swiped away: the same answer as Not now.
+            if !answered { AiConsent.shared.resolve(false) }
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("AI features")
                 .font(.plPageTitle)
@@ -20,10 +42,12 @@ struct AiConsentSheet: View {
                 .foregroundStyle(PL.textBody)
                 .padding(.bottom, 4)
 
-            Text("Some features send your content to two companies so they can do their job: Deepgram turns voice notes into text, and OpenAI reads notes, photos and lesson transcripts to write summaries, answer questions in Ask, and tidy rough entries. They are not allowed to use your content to train their models. You can switch this off any time in Account.")
-                .font(.plBody)
-                .foregroundStyle(PL.text300)
-                .fixedSize(horizontal: false, vertical: true)
+            ForEach(Self.copy, id: \.self) { paragraph in
+                Text(paragraph)
+                    .font(.plBody)
+                    .foregroundStyle(PL.text300)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if failed {
                 Text("Couldn't save that. Try again.")
@@ -52,15 +76,10 @@ struct AiConsentSheet: View {
             }
             .padding(.top, 8)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.horizontal, 20)
         .padding(.top, 36)
         .padding(.bottom, 20)
-        .background(PL.surface)
-        .onDisappear {
-            // Swiped away: the same answer as Not now.
-            if !answered { AiConsent.shared.resolve(false) }
-        }
     }
 
     private func allow() async {
@@ -75,9 +94,12 @@ struct AiConsentSheet: View {
         }
     }
 
+    /// The answer goes out once the sheet has gone, so whatever the caller
+    /// presents next is not refused for arriving mid-dismissal.
     private func answer(_ allowed: Bool) {
         answered = true
-        AiConsent.shared.resolve(allowed)
-        AiConsent.shared.dismissSheet()
+        AiConsent.shared.dismissSheet {
+            AiConsent.shared.resolve(allowed)
+        }
     }
 }

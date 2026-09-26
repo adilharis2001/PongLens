@@ -2,7 +2,11 @@ import SwiftUI
 import Supabase
 
 /// The one gate in front of every feature that sends the account's content
-/// to OpenAI or Deepgram (App Review 5.1.2(i)).
+/// to OpenAI or Deepgram (App Review 5.1.2(i)). Since 2026-09-26 that
+/// includes recording and uploading a match: every match has still frames
+/// checked by OpenAI, so the New match doors, the shutter and the upload
+/// screen all ask here first. It replaced the one-time "I have the right
+/// to upload this video" question, whose promise lives in the Terms.
 ///
 /// Caches player_profiles.ai_features_enabled from sign-in. When it is not
 /// true, `ensure()` raises the consent sheet over whatever is on screen and
@@ -33,7 +37,7 @@ final class AiConsent {
         var errorDescription: String? { "Not available until you allow it in Account." }
     }
 
-    static let fallbackVersion = "2026-09-14"
+    static let fallbackVersion = "2026-09-26"
 
     func seed(enabled: Bool?) { self.enabled = enabled }
     func reset() { enabled = nil }
@@ -79,9 +83,17 @@ final class AiConsent {
         for waiter in pending { waiter.resume(returning: allowed) }
     }
 
-    func dismissSheet() {
-        host?.dismiss(animated: true)
+    /// Takes the sheet down, then runs `completion`. The answer is handed
+    /// out from there rather than before, so a caller that presents
+    /// something next (the camera, the Photos picker) is not refused by
+    /// UIKit for presenting while the sheet is still leaving.
+    func dismissSheet(completion: @escaping () -> Void = {}) {
+        guard let sheet = host else {
+            completion()
+            return
+        }
         host = nil
+        sheet.dismiss(animated: true, completion: completion)
     }
 
     /// Writes the switch. On: true with the timestamp and the config

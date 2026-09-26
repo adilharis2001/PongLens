@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="September 17, 2026">
+    <LegalPage title="Privacy Policy" updated="September 26, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -32,8 +32,8 @@ export default async function PrivacyPage() {
           beta-access email, the videos you upload, and the notes you add.
           Google sign-in can also provide your name and profile picture.
           Videos are processed on hardware we operate and stored privately.
-          During processing, a small number of still frames from each match
-          are checked by OpenAI.
+          A small number of still frames from each match you record or upload
+          are checked by OpenAI, with your permission.
           Your videos stay in your library, within your storage allowance,
           until you delete them.
           Voice note audio is deleted after 90 days. Your point clips and
@@ -142,21 +142,21 @@ export default async function PrivacyPage() {
           lists the categories of provider we use.
         </p>
         <p>
-          <strong>Every processed match.</strong> Processing a match sends a
-          small number of still frames from the video to OpenAI, to confirm
-          it is table tennis we can work with and to find the table. This is
-          part of how processing works, so it happens for every match you
-          process.
+          <strong>Every match you record or upload.</strong> A small number
+          of still frames from the video are sent to OpenAI, to confirm it is
+          table tennis we can work with and to find the table. We ask for
+          your permission in the app before your first recording or upload.
+          You can withdraw it in Account at any time; while it is off, you
+          cannot record or upload matches.
         </p>
         <p>
           <strong>Optional features.</strong> Deepgram turns voice note audio
           into text. OpenAI powers the AI-assisted features you choose to use:
           lesson summaries, Journal photo reading, Ask, Improve with AI,
           Recollect, feedback assistance, and page drafting for coaches.
-          Before the first time an optional feature sends your content to
-          either provider, we ask you in the app, and you can switch these
-          features off in Account. That setting does not change the frame
-          checks during processing.
+          Before the first time any of this sends your content to either
+          provider, we ask you in the app. It is the same permission as the
+          frame checks above, and you can switch it off in Account.
         </p>
       </section>
 

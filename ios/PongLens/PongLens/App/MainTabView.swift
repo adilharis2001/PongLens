@@ -91,6 +91,17 @@ struct MainTabView: View {
     /// Everything the chooser used to do inline, now also reachable from
     /// the far side of the recording brief.
     private func beginNewMatch(_ choice: NewMatchChoice) {
+        // Recording and uploading a match need the AI features permission:
+        // OpenAI checks still frames of every match. Asked here, in
+        // portrait, before the recorder turns the phone sideways; Not now
+        // leaves the player where they were. Allowed already: no sheet.
+        guard AiConsent.shared.enabled == true else {
+            Task {
+                guard await AiConsent.shared.ensure() else { return }
+                beginNewMatch(choice)
+            }
+            return
+        }
         switch choice {
         case .record(let kind):
             // Which door was used has to be set before the recorder is

@@ -42,7 +42,6 @@ Task { @MainActor in
         runHandCutPlaybackChecks()
         runUploadCutChoiceChecks()
         runTrimWindowChecks()
-        runRecordConsentPromptChecks()
     }
 
     print("\n\(checks - failures)/\(checks) checks passed")

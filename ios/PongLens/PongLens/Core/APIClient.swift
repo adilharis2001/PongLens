@@ -170,10 +170,6 @@ enum API {
                             consentAsked = true
                             if await AiConsent.shared.serverRequired() { continue }
                         }
-                    case "upload_confirmation_required":
-                        // The screens show the checkbox row instead of a
-                        // generic error once this is set.
-                        UploadConsent.shared.noteConfirmationRequired()
                     case "terms_required":
                         // RootView sends the account back through onboarding.
                         UploadConsent.shared.termsRequired = true

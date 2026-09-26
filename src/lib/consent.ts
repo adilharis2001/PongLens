@@ -12,10 +12,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *
  *   terms_accepted_at    the "Agree and continue" tap on the first onboarding
  *                        screen. Existing rows were backfilled ('legacy').
- *   ai_features_enabled  the AI features sheet. null = never asked, false =
- *                        switched off in Account. Never backfilled.
- *   upload_confirmed_at  the first-upload checkbox. Backfilled for existing
- *                        rows, so only new accounts see it.
+ *   ai_features_enabled  the AI features sheet. null = never asked (or not
+ *                        asked since its wording last changed), false =
+ *                        switched off in Account. Since 2026-09-26 it also
+ *                        covers the frame checks on every match, so
+ *                        recording and uploading need it.
+ *   upload_confirmed_at  the old first-upload checkbox. No longer asked or
+ *                        checked (2026-09-26): its promise is in the Terms.
+ *                        Kept as the record of who ticked it.
  *   birth_year/month     owner-only table; used once, for the age check.
  *
  * Routes call the require* helpers at the top and return the response they
@@ -83,7 +87,7 @@ export async function readConsent(
   };
 }
 
-export type ConsentRequirement = "terms" | "ai_consent" | "upload_confirmation";
+export type ConsentRequirement = "terms" | "ai_consent";
 
 function denied(reason: ConsentRequirement) {
   return NextResponse.json({ error: `${reason}_required` }, { status: 403 });
@@ -96,20 +100,25 @@ export async function requireTerms(supabase: SupabaseClient, userId: string) {
   return state.termsAcceptedAt ? null : denied("terms");
 }
 
-/** Anything that sends the user's content to OpenAI or Deepgram. A null
- *  (never asked) and a false (switched off) both stop here. */
+/** Anything that sends the user's content to OpenAI or Deepgram, which
+ *  includes starting an upload: every uploaded match has frames checked
+ *  by OpenAI. A null (never asked) and a false (switched off) both stop
+ *  here. */
 export async function requireAiConsent(supabase: SupabaseClient, userId: string) {
   const state = await readConsent(supabase, userId);
   return state.aiFeaturesEnabled === true ? null : denied("ai_consent");
 }
 
-/** The two upload routes. Also closes the gap where an account that never
- *  finished onboarding could upload through the API. */
-export async function requireUploadConfirmed(
+/** Starting an upload (the two upload routes' create step): the terms,
+ *  which carry the promise that the uploader has the right to upload the
+ *  video, and the AI features permission. The later steps of an upload
+ *  already under way check only the terms, so switching the permission
+ *  off does not strand a video half sent. */
+export async function requireUploadConsent(
   supabase: SupabaseClient,
   userId: string,
 ) {
   const state = await readConsent(supabase, userId);
   if (!state.termsAcceptedAt) return denied("terms");
-  return state.uploadConfirmedAt ? null : denied("upload_confirmation");
+  return state.aiFeaturesEnabled === true ? null : denied("ai_consent");
 }

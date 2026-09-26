@@ -20,6 +20,7 @@ import {
   minutesUseLine,
 } from "@/lib/commerce/minutes";
 import { TrimPreview } from "@/components/TrimPreview";
+import { useAiConsent } from "@/components/AiConsentSheet";
 import { createClient } from "@/lib/supabase/client";
 import { installBackGuard, setUploading } from "@/lib/uploadGuard";
 import { QUOTA_ERRORS } from "@/lib/quota";
@@ -375,7 +376,7 @@ function Toggle({
 export function UploadCard({
   userId,
   commerceEnabled = false,
-  uploadConfirmed = true,
+  aiConsented = false,
   orderId = null,
   handCutEnabled = false,
 }: {
@@ -385,22 +386,25 @@ export function UploadCard({
   // hand_cut_enabled for this account, the check the match page makes:
   // "Mark the points yourself" is offered only where it is true.
   handCutEnabled?: boolean;
-  // player_profiles.upload_confirmed_at is set. False shows the one-time
-  // checkbox above the button and keeps the button off until it is
-  // ticked (new accounts only; existing rows were backfilled).
-  uploadConfirmed?: boolean;
+  // player_profiles.ai_features_enabled is true, read by the page so the
+  // picker can open straight from the tap. Uploading needs the AI
+  // features permission since 2026-09-26: every upload's frames are
+  // checked by OpenAI. False only means "ask first", never "refuse".
+  aiConsented?: boolean;
   // An active review order (096): the upload is held outside the
   // player's storage allowance until the order completes.
   orderId?: string | null;
 }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
-  const [confirmed, setConfirmed] = useState(uploadConfirmed);
-  // The row stays on screen once ticked for the rest of the visit, so the
-  // button does not jump; the next visit reads the column and skips it.
-  const [showConfirmation, setShowConfirmation] = useState(!uploadConfirmed);
-  const [confirming, setConfirming] = useState(false);
-  const [confirmError, setConfirmError] = useState<string | null>(null);
+  // The AI features permission (src/components/AiConsentSheet.tsx). It
+  // replaced the one-time "I have the right to upload this video" box,
+  // whose promise is in the Terms: the sheet comes up before the picker
+  // for an account that has not allowed it, and Not now leaves the page
+  // exactly as it was.
+  const { ensure: ensureConsent, enabled: consentEnabled } = useAiConsent();
+  const [consented, setConsented] = useState(aiConsented);
+  const mayUpload = consented || consentEnabled === true;
   // Commerce mode: the library row created at completion, and the file's
   // duration read from its metadata (the charging basis for processing).
   const [libraryMatchId, setLibraryMatchId] = useState<string | null>(null);
@@ -501,6 +505,22 @@ export function UploadCard({
   const [dragOver, setDragOver] = useState(false);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const inputRef = useRef<HTMLInputElement>(null);
+  /** The picker, behind the permission. An account that has allowed it
+   *  gets the picker from the tap itself, which is what lets a browser
+   *  open it. One that has not sees the sheet first; after Allow the
+   *  picker opens too, and if the browser has let the tap go by then,
+   *  the next tap opens it straight away. */
+  const choose = useCallback(() => {
+    if (mayUpload) {
+      inputRef.current?.click();
+      return;
+    }
+    void ensureConsent().then((ok) => {
+      if (!ok) return;
+      setConsented(true);
+      inputRef.current?.click();
+    });
+  }, [mayUpload, ensureConsent]);
   // Local object URL of the picked file, so the side picker can show a real
   // frame before/while the file uploads. Kept in a ref too, to revoke it on
   // reset/cancel/unmount (leaked blob URLs pin the whole video in memory).
@@ -636,39 +656,6 @@ export function UploadCard({
     setErrorAction(action);
     setPhase("error");
   }, []);
-
-  /** The first-upload confirmation, written when an upload actually
-   *  starts rather than when the box is ticked.
-   *
-   *  Ticking used to write upload_confirmed_at immediately, so somebody
-   *  who ticked it and then left without uploading was confirmed for
-   *  good and their first real upload had nothing in front of it. The box
-   *  says "this video", so the answer belongs to the upload. The tick is
-   *  local until then, which also means it can be unticked.
-   *
-   *  True when there was nothing to save. False only when the write
-   *  failed; /api/upload-url checks the same column and would refuse. */
-  const savedConfirmation = useRef(uploadConfirmed);
-  const saveConfirmation = useCallback(async () => {
-    if (savedConfirmation.current) return true;
-    setConfirming(true);
-    setConfirmError(null);
-    const supabase = createClient();
-    const now = new Date().toISOString();
-    const { error: confirmWriteError } = await supabase
-      .from("player_profiles")
-      .upsert(
-        { user_id: userId, upload_confirmed_at: now, updated_at: now },
-        { onConflict: "user_id" }
-      );
-    setConfirming(false);
-    if (confirmWriteError) {
-      setConfirmError("We couldn't save that. Try again.");
-      return false;
-    }
-    savedConfirmation.current = true;
-    return true;
-  }, [userId]);
 
   useEffect(() => {
     if (!active) return;
@@ -1131,18 +1118,22 @@ export function UploadCard({
         const apiMessage = (err as UploadError | undefined)?.apiMessage;
         // The consent gates in src/lib/consent.ts answer with a code, not
         // a sentence. No terms means onboarding never finished: go there.
-        // No confirmation means the checkbox above the button, which
-        // shows (again) instead of a failure panel.
+        // No AI features permission means it was switched off after this
+        // page read it (in another tab, say): back to the picker, with
+        // the sheet up. Nothing was uploaded, so picking the video again
+        // after Allow starts clean.
         if (apiMessage === "terms_required") {
           releaseWakeLock();
           router.push("/onboarding");
           return;
         }
-        if (apiMessage === "upload_confirmation_required") {
+        if (apiMessage === "ai_consent_required") {
           releaseWakeLock();
-          setConfirmed(false);
-          setShowConfirmation(true);
+          setConsented(false);
           setPhase("idle");
+          void ensureConsent({ reask: true }).then((ok) => {
+            if (ok) setConsented(true);
+          });
           return;
         }
         // Quota/limit rejections from /api/upload-url carry an exact,
@@ -1185,7 +1176,7 @@ export function UploadCard({
       uppyRef.current = uppy;
       return uppy;
     },
-    [queueJob, commerceEnabled, orderId, releaseWakeLock, persistMatchDetails, fail, router]
+    [queueJob, commerceEnabled, orderId, releaseWakeLock, persistMatchDetails, fail, router, ensureConsent]
   );
 
   // --- Start (or resume) the moment a file is picked ----------------------
@@ -1209,12 +1200,12 @@ export function UploadCard({
         return;
       }
 
-      // The upload starts here, so this is where the tick is saved. A box
-      // that was ticked and then abandoned confirms nothing.
-      if (!(await saveConfirmation())) {
-        fail("pick");
-        return;
-      }
+      // The permission, for a video that arrived without the button: a
+      // drag and drop, or a picker opened before the answer was cached.
+      // Answers at once when it is already allowed. Not now leaves the
+      // page as it was; nothing has been uploaded.
+      if (!(await ensureConsent())) return;
+      setConsented(true);
 
       // Only ever a record this tab may pick up — readPending leaves
       // another tab's live upload alone. A different file simply starts
@@ -1294,7 +1285,7 @@ export function UploadCard({
         // Errors surface through the upload-error handler.
       });
     },
-    [acquireWakeLock, buildUppy, revokeLocalVideo, fail, saveConfirmation]
+    [acquireWakeLock, buildUppy, revokeLocalVideo, fail, ensureConsent]
   );
 
   const onFiles = useCallback(
@@ -1661,40 +1652,6 @@ export function UploadCard({
       actually exists. Tearing it down at "done" was the other half of the
       trim race: the runway after the upload was the exact moment someone
       needed these controls, and it was the moment they disappeared. */
-  /* The first-upload confirmation, above whichever button starts the
-     upload. A real checkbox in a 44px row, ticked once. */
-  const confirmation = showConfirmation ? (
-    <div className="mx-auto mt-4 max-w-md text-left">
-      <label
-        className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors ${
-          confirmed
-            ? "border-cyan-glow/60 bg-cyan-glow/10"
-            : "border-edge bg-surface-2/40 hover:border-cyan-glow/40"
-        }`}
-      >
-        <input
-          type="checkbox"
-          checked={confirmed}
-          disabled={confirming}
-          onChange={() => {
-            setConfirmError(null);
-            setConfirmed((on) => !on);
-          }}
-          className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-edge bg-surface-2 accent-cyan-glow disabled:cursor-default"
-        />
-        <span className="text-sm leading-snug text-zinc-200">
-          I have the right to upload this video, including a parent&apos;s
-          permission for anyone under 18 in it.
-        </span>
-      </label>
-      {confirmError && (
-        <p role="alert" className="mt-2 text-xs text-red-400">
-          {confirmError}
-        </p>
-      )}
-    </div>
-  ) : null;
-
   const processOptions =
     commerceEnabled && !orderId && autoState !== "started" ? (
       /* "Break it into points": Later, Automatically, and Mark the points
@@ -2178,11 +2135,9 @@ export function UploadCard({
               : "Upload interrupted. Pick the same video to continue."}
           </p>
           <p className="mt-1 truncate text-xs text-zinc-500">{fileName}</p>
-          {confirmation}
           <button
             type="button"
-            disabled={!confirmed}
-            onClick={() => inputRef.current?.click()}
+            onClick={choose}
             className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
           >
             Pick video
@@ -2217,7 +2172,7 @@ export function UploadCard({
                   ? () => {
                       setError(null);
                       setPhase("idle");
-                      inputRef.current?.click();
+                      choose();
                     }
                   : retry
               }
@@ -2251,7 +2206,6 @@ export function UploadCard({
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);
-            if (!confirmed) return;
             onFiles(e.dataTransfer.files);
           }}
           className={`mt-6 rounded-2xl border-2 border-dashed p-8 text-center transition-colors ${
@@ -2274,15 +2228,13 @@ export function UploadCard({
               d="M12 16V4m0 0-4 4m4-4 4 4M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"
             />
           </svg>
-          {confirmation}
           {/* The primary action of the whole product. It was a 20px
               underlined phrase inside a sentence, which is not a tap
-              target on a phone. Off until the confirmation above is
-              ticked, the first time only. */}
+              target on a phone. */}
           <button
             type="button"
-            disabled={preparing || !confirmed}
-            onClick={() => inputRef.current?.click()}
+            disabled={preparing}
+            onClick={choose}
             className="glow-cta mt-4 rounded-full bg-cyan-glow px-6 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
           >
             {preparing ? "Reading the video…" : "Choose a video"}

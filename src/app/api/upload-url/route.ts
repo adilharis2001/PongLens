@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCommerceEnabled } from "@/lib/config";
-import { requireUploadConfirmed } from "@/lib/consent";
+import { requireTerms, requireUploadConsent } from "@/lib/consent";
 import { createClient } from "@/lib/supabase/server";
 import { checkUploadAllowed } from "@/lib/quota";
 import {
@@ -46,11 +46,13 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
-  // The consent gates (src/lib/consent.ts): terms accepted and the
-  // first-upload confirmation. A 403 carries a code the card answers by
-  // showing the checkbox or sending the account back to onboarding.
-  const denied = await requireUploadConfirmed(supabase, user.id);
-  if (denied) return denied;
+  // The consent gates (src/lib/consent.ts): terms accepted on every step,
+  // and the AI features permission to start one (below, at create). A
+  // 403 carries a code: the apps raise the permission sheet for
+  // ai_consent_required, and send the account back to onboarding for
+  // terms_required.
+  const deniedTerms = await requireTerms(supabase, user.id);
+  if (deniedTerms) return deniedTerms;
 
   let body: Record<string, unknown>;
   try {
@@ -62,6 +64,8 @@ export async function POST(req: Request) {
 
   try {
     if (action === "create") {
+      const denied = await requireUploadConsent(supabase, user.id);
+      if (denied) return denied;
       const fileSize = Number(body.fileSize);
       if (!Number.isFinite(fileSize) || fileSize <= 0 || fileSize > MAX_BYTES) {
         return NextResponse.json({ error: "Invalid file size" }, { status: 400 });

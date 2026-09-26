@@ -18,7 +18,7 @@ Severity: **Reject** = Apple will almost certainly send it back.
 | # | Decision | Recommendation | Why |
 | --- | --- | --- | --- |
 | D1 | Feedback board on iPhone for 1.0 | **Hide it on iPhone for 1.0, keep it on the web.** Bring it back in 1.1 with Report, Block and a text filter. | Hiding is a small change. Building report, block, admin hide and a filter first is a medium one and delays the submission. It also removes the only place where 13 to 17 year olds' names and photos are shown to strangers. |
-| D2 | Match frames sent to OpenAI | **Say it in the upload confirmation**, one line naming OpenAI. Do not change the worker. | Every upload sends about 12 still frames to OpenAI for the "is this table tennis" check, and sometimes more to find the table. The privacy policy says so; nothing in the app does. Apple's 2025 rule wants permission in the app. Gating the worker instead would need a new sealed release on the Mac and the cloud twin. |
+| D2 | Match frames sent to OpenAI | **Superseded 2026-09-26: the AI features permission covers match frames, and recording or uploading needs it** (see Done). No worker change. | Every upload sends about 12 still frames to OpenAI for the "is this table tennis" check, and sometimes more to find the table. The privacy policy says so; nothing in the app does. Apple's 2025 rule wants permission in the app. Gating the worker instead would need a new sealed release on the Mac and the cloud twin. |
 | D3 | Content rights answer in App Store Connect | **"Yes, and I have the necessary rights."** | Every video is uploaded by a user who promises in the Terms that they hold the rights. |
 | D4 | The small "BETA" chips on analysis cards and placement | **Rename to "Estimated".** | Apple accepts feature labels, but a reviewer scanning for the word "beta" finds five. "Estimated" also tells players something true. |
 | D5 | Submit before or after the Apple account becomes AH Labs LLC | **Wait, if the conversion lands while section 2 is being built.** Do not hold the submission for it otherwise. | Until it converts, the App Store shows "Adil Haris" as the seller. Conversion was requested on 2026-09-25. |
@@ -39,7 +39,7 @@ with a normal deploy and need no build.
 | A4 | **Remove the "More match analysis cards coming soon." card** at the end of the analysis deck | Risk, 2.1 | iPhone and web | S | open |
 | A5 | Apply D4 to the BETA chips; drop "Placement is still in beta" and both Recollect mentions from the Learn guides | Risk, 2.2 / 2.3.1 | iPhone, web, Learn catalog | S | open |
 | A6 | **AI sheet wording**: land the shorter sheet (already written, applies cleanly). It also fixes the old wording, which says lesson "transcripts" when lesson audio and video go to OpenAI. | Risk, 5.1.2(i) | iPhone and web | S | open |
-| A7 | **Upload confirmation names OpenAI for match frames** (per D2) | Likely, 5.1.2(i) | iPhone and web upload checkbox | S | open |
+| A7 | **Upload confirmation names OpenAI for match frames** (per D2) | Likely, 5.1.2(i) | iPhone and web upload checkbox | S | done 2026-09-26, differently: see "Recording and uploading ask for the AI permission" |
 | A8 | **Invite links open Safari, not the app, for App Store users.** The only associated-domain entry is developer mode, which distribution builds ignore. Add the plain `applinks:www.ponglens.com` entry. | Functional | Entitlements | S | open |
 | A9 | **Contact details visible**: show support@ponglens.com as text on the Account screen and the sign-in screen, and fall back to it when Mail is not set up | Risk, 1.2 / 2.1 | iPhone | S | open |
 | A10 | **Under-age answer is forgotten.** Signing in again brings a fresh date picker. Remember the refusal on the device. | Risk, minors | iPhone onboarding | S | open |
@@ -140,7 +140,39 @@ No need to touch these. Recorded so nobody re-checks them.
 
 ## Done
 
-### Upload rights confirmation is saved at the upload — 2026-09-18
+### Recording and uploading ask for the AI permission — 2026-09-26
+
+Guideline 5.1.2(i). Every match has still frames checked by OpenAI (is it
+table tennis, is it a broadcast, where is the table), and the app never
+asked about it. Adil's decision: one permission, not two, and a player
+who says no cannot record or upload, because the frame check is part of
+what makes an upload safe to accept (no manual review of strangers'
+videos). The rest of the app works without it.
+
+- The AI features sheet names match frames and says "Recording and
+  uploading matches need this." One wording, `src/lib/aiConsentCopy.ts`,
+  checked against the iPhone copy by `aiConsentCopy.test.ts`.
+- iPhone: asked at the New match door (Record, practice, Upload), in
+  portrait before the camera turns; the shutter and the upload screen's
+  Choose button ask again as backstops. Not now leaves the player where
+  they were.
+- Web: asked when "Choose a video" is tapped, and again for a drag and
+  drop. Lesson imports already asked before creating the lesson.
+- Server: `/api/upload-url` and `/api/lesson-video` refuse to START an
+  upload without it (403 ai_consent_required, which older iPhone builds
+  already turn into the sheet). Later steps of an upload under way check
+  only the terms, so switching it off never strands a half-sent video.
+- Migration `20260926200000` bumps `ai_consent_version` to 2026-09-26 and
+  asks the 14 accounts that allowed the older wording once more.
+- The "I have the right to upload this video" checkbox and the camera's
+  "Before you record" sheet are gone. The promise is in the Terms.
+  `upload_confirmed_at` stays as the record of who ticked it and is no
+  longer read.
+- Not covered by design: switching the permission off does not stop Cut
+  again or detailed analysis on matches already uploaded, which send
+  frames again. Adil to decide whether those should need it too.
+
+### Upload rights confirmation is saved at the upload — 2026-09-18 (retired 2026-09-26)
 
 Not an Apple rule. It is our own promise, and it was not being kept.
 
@@ -183,7 +215,8 @@ deactivates.
 
 ### One consent column covers coaches and players
 
-`upload_confirmed_at` is one account-level answer. A coach who ticks it
+(Historical: `upload_confirmed_at` is no longer asked or read since
+2026-09-26.) `upload_confirmed_at` is one account-level answer. A coach who ticks it
 while importing a lesson is also confirmed for match uploads, and the
 other way round. That is deliberate, and it is fine while the wording
 covers both. If the two sides ever need different words, they need

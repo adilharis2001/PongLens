@@ -370,9 +370,6 @@ struct OnboardingScreen: View {
                     terms_version: version
                 ))
                 .execute()
-            // The row exists now and has no upload confirmation yet: the
-            // checkbox shows at the first upload.
-            UploadConsent.shared.seed(confirmedAt: nil, loaded: true)
             termsDone = true
         } catch {
             errorMessage = "We couldn't save that. Try again."

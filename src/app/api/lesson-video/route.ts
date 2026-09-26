@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAiConsent,requireUploadConfirmed } from '@/lib/consent';
+import { requireAiConsent,requireTerms } from '@/lib/consent';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { MEDIA_BUCKET,createMultipartUpload,presignUploadPart,listParts,completeMultipartUpload,headObject,presignGet,abortMultipartUpload,deleteObjects,listObjects } from '@/lib/r2';
@@ -116,8 +116,8 @@ export async function GET(req:Request){
 }
 export async function POST(req:Request){
  const {user,client,db}=await context();if(!user||!db)return failure('Not signed in',401);
- // Same consent gate as /api/upload-url (src/lib/consent.ts): terms accepted and the first-upload confirmation.
- const denied=await requireUploadConfirmed(db,user.id);if(denied)return denied;
+ // Same consent gates as /api/upload-url (src/lib/consent.ts): terms accepted on every step, the AI features permission to start one.
+ const denied=await requireTerms(db,user.id);if(denied)return denied;
  let body:Record<string,unknown>;try{body=await req.json();}catch{return failure('Invalid request');}
  const action=String(body.action??'');
  // A new lesson video is transcribed and summarised, so it needs the AI features permission.

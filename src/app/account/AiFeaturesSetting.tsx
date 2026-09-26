@@ -44,8 +44,9 @@ export function AiFeaturesSetting({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-zinc-200">AI features</p>
         <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-          Voice notes, Ask, summaries and photo reading send content to
-          Deepgram and OpenAI.
+          Match checks, voice notes, Ask, summaries and photo reading send
+          content to OpenAI and Deepgram. Recording and uploading matches
+          need this.
         </p>
         {error && (
           <p className="mt-1 text-xs text-red-400">
