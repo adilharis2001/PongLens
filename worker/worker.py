@@ -900,7 +900,11 @@ def send_email_payload(
     meter.record([
         meter.email_event(
             message_id,
-            recipients=1 + len(bcc_list),
+            # The payload's own list: bcc_list belongs to send_email, and
+            # naming it here raised NameError AFTER Resend had accepted the
+            # message, so every worker email read as failed and the cost
+            # alert was re-sent daily (fixed 2026-09-26).
+            recipients=1 + len(payload.get("bcc") or []),
         )
     ])
     log.info(
