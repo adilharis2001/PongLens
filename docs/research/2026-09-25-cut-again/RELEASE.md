@@ -414,3 +414,82 @@ reports `93a881aa`, so `release_match` is false (reason `disabled` while Off,
 `modal run modal_app.py` (build and probe), `modal run modal_app.py --command shadow --job-id fcb21bbc-e6e3-4395-86d8-cf9d1825ff98`, compare with
 `compare_parity.py --label modal-<new twin id prefix>`, then `modal deploy modal_app.py` and `modal run modal_app.py --command register`.
 `cloud_mode` stays Off throughout.
+
+## Email retry release (2026-09-26): a retried email is the same email
+
+Main, fast, the health monitor and the hand lane now run sealed release
+`a0a942fa…` from `150805f2`, and migration `20260926163411` is applied. A
+retried ready email is now sent as the exact bytes of the first attempt, and
+Resend's "key already used" answer is read as delivered. A cost alert's
+first request body is now stored with its row and resent unchanged, so a
+retry can no longer turn into a second email a day later. The cloud twin
+stays unpaired until Modal is re-enabled, under the same recorded exception.
+
+### What moved
+
+| Piece | Before | After |
+| --- | --- | --- |
+| Main, fast, health monitor, hand | `93a881aa…` (source `7d0279fa`) | `a0a942fa289eb0d02bf2a6e94d398db8f8746d87f07d1fe3774fcba7e201b61d` (source `150805f2`), opened 2026-09-26 16:50:01 UTC |
+| Worker source | | `917f12f6` (fixed field order for every Resend body; 409 `invalid_idempotent_request` on a ready-email retry = delivered; Resend's error text kept) and `95ac5a33` (cost alerts freeze the first request body in `send_payload`, retries send it; works without the column). `150805f2` only renames the migration to its applied version, with the docstring and test that name it |
+| Database | `20260926161304` | `20260926163411_cost_alert_frozen_payload.sql` (the file formerly `20260926170000`), applied 16:34 UTC |
+| Cloud twin, `cloud_mode` | `44611008…` registered for `69915d26`; Off | Unchanged |
+
+### The migration
+
+| Check | Result |
+| --- | --- |
+| Before | Live `claim_platform_cost_alert` (md5 `967a3053…`) equals the file's body with its two amount assignments reverted; the table had no `send_payload`; nothing pending or sending |
+| Applied | Through the Supabase MCP as `20260926163411`; recorded text equals the file without its two trailing newlines |
+| After | `send_payload text` present, null on every row; the claim keeps a row's amounts once a body is stored; execute grants unchanged (`ponglens_worker`, `postgres`, `service_role`). The Mac worker connects as the table owner, so it can write the column |
+
+### Checks on the Mac release
+
+Ops folder: `~/Library/Caches/PongLens/email-retry-20260926/`.
+
+| Check | Result |
+| --- | --- |
+| Build tree | Clean detached worktree `.worktrees/email-retry-release` at `150805f2` |
+| Runtime inputs | `inspect-local.json` byte-identical to the audit release's |
+| Manifest vs live `93a881aa` | adapters, behavior_env, body_model, database, runtime, schema identical; files: `worker.py`, `cost_alerts.py`, `match_ready_delivery.py`, `research_serve_misses.py` and three test files changed, `test_cost_alert_retry.py` and `test_match_ready_retry.py` added; models and `bin/` identical |
+| `test_match_release` | 30 OK |
+| The changed test files (cost alert retry, ready-email retry, transport, worker, inferred bounce, email payload, failure emails) | 62 OK |
+| Worker suite from the tree root | 1,379 tests, exactly the 18 known errors |
+| Sealed smoke, `prabhas-diag/clip24.mp4` | All eight modes exit 0; every output identical to `93a881aa`'s once timings are masked |
+| Staged and re-verified; check-only main, fast and hand | Pass; no bytecode inside the staged release |
+| Launchers | Four new plists, each differing from the live one only in the release id |
+
+The pipeline does not change, so there is no placement or cloud shadow; the
+proof is the unit tests above plus the first real email after the switch.
+
+### Activation (`activate.sh`, log `activation.log`)
+
+| Step | UTC |
+| --- | --- |
+| Idle check: nothing queued or running on `jobs`, `jobs_fast`, `jobs_hand` | 16:48:01 |
+| All four drained on `93a881aa` (its drain files stay for rollback) | 16:48:18 |
+| Launchers backed up, bootout, plists copied, bootstrap (first try each) | 16:48:21 |
+| New lanes pulse `a0a942fa…` drained, then opened | 16:50:01 |
+| Verified | `mac:main`, `mac:fast`, `mac:hand` pulse the full new id, idle; monitor ran on the new release at 16:49:35; main-lane housekeeping ran; no warnings or errors in any lane log |
+
+### Emails at the switch and after
+
+| Path | State |
+| --- | --- |
+| Cost alerts, September | $100 to $400 all `sent`; nothing pending, so nothing is retried. The next one is $500 |
+| Ready emails | All 55 rows `sent` (the old retry loops were corrected by another session before the switch: each was delivered on its first try) |
+| First email after the switch | Watched read-only for an hour (16:50 to 17:50 UTC). One worker email: at 17:00:30 the fast lane's content check turned down an upload on Adil's account (match `4846fb40`, "doesn't look like a table tennis video") and sent "We couldn't process your video" once, delivered (Resend `01a0dea9…`, one metered send, no retry). No upload finished and no cost threshold was crossed, so the ready-email and cost-alert retry paths have not run live yet; the unit tests cover them. `watch_next_email.py` in the ops folder repeats the check |
+
+### Rollback
+
+| Situation | Do this |
+| --- | --- |
+| The worker misbehaves | `~/Library/Caches/PongLens/email-retry-20260926/rollback-mac.sh`: drains `a0a942fa…`, boots out all four, restores the backed-up plists, bootstraps, lifts `93a881aa…`'s drain files. All four return to `93a881aa…` (the audit worker release) |
+| The migration | Leave it: `93a881aa` never reads or writes `send_payload`, and the claim only keeps a row's amounts once a body has been stored, which only the new worker does |
+
+### Still to do: pair a twin once Modal is re-enabled
+
+As in the audit worker release, now against `a0a942fa`: build and probe
+from `/Users/adil/Library/Application Support/PongLens/match-releases/a0a942fa289eb0d02bf2a6e94d398db8f8746d87f07d1fe3774fcba7e201b61d`,
+shadow `fcb21bbc`, compare, deploy, register. The cloud's housekeeping (and
+so its cost alerts) is off, so this change never runs there. `cloud_mode`
+stays Off throughout.
