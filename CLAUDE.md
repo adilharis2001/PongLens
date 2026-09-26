@@ -210,19 +210,21 @@ pixel, so a real disagreement is a real defect.
 
 **Current pairing (2026-09-26, after the post-rollout audit):** every Mac
 lane (main, fast, hand) and the health monitor run ONE sealed release again,
-`93a881aafe06dfa06604dda262d52773fa0dd48b5d1d09e20cb3341423b06298` (opened
-2026-09-26 15:02 UTC): Cut again phase 2 (automatic Replace, retired-cut
+`a0a942fa289eb0d02bf2a6e94d398db8f8746d87f07d1fe3774fcba7e201b61d` (opened
+2026-09-26 16:50 UTC): Cut again phase 2 (automatic Replace, retired-cut
 sweep), the worker email fix (every worker email used to raise NameError after
 Resend accepted it, so the cost alert re-sent daily), silence for cancelled
-jobs and deleted matches, and a hand Replace reusing the table its upload
-already found. Rollback is `ab887b32…` (email fix only), then `69915d26…`
-main/fast with `1af85388…` hand. Records: `docs/research/2026-09-25-cut-again/RELEASE.md`
+jobs and deleted matches, a hand Replace reusing the table its upload already
+found, and email retries sent as the same bytes (jsonb reorders keys, which
+Resend refuses as a reused idempotency key; cost alerts freeze their payload
+in `send_payload`). Rollback is `93a881aa…`, then `ab887b32…`, then
+`69915d26…` main/fast with `1af85388…` hand. Records: `docs/research/2026-09-25-cut-again/RELEASE.md`
 and `~/Library/Caches/PongLens/audit-worker-20260926/README.txt`.
 **The cloud twin is NOT paired.** Modal disabled the workspace on 2026-09-26
 when the $30 free monthly credit ran out (the real limit; the always-on
 dispatcher alone costs about $0.33 a day). Until Adil re-enables billing,
 nothing on Modal runs and the dispatcher reports `release_mismatch`; then a
-twin must be built from `93a881aa`, replayed, deployed and registered. The two
+twin must be built from `a0a942fa`, replayed, deployed and registered. The two
 Mac switches without a twin were an owner-approved exception, not the rule.
 Runtime anchors are unchanged since the 2026-09-22 Homebrew rebuild:
 `openssl@3`, `sqlite`, `xz`, `x265` and `ffmpeg` are pinned, and ffmpeg links
