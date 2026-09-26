@@ -309,6 +309,8 @@ Read from Resend's own log (`resend-recent.txt`) and the database (`email-state-
 
 ### Still to do: pair the twin once Modal is re-enabled
 
+Superseded the same day by the audit worker release below: the Mac moved on to `93a881aa…`, so the twin to pair is one built from that release, not `108528fd`.
+
 In `.worktrees/cloud-twin/worker/cloud_release`, with `MODAL_PROFILE=adilharis2001` and
 `PONGLENS_CLOUD_SOURCE_RELEASE="/Users/adil/Library/Application Support/PongLens/match-releases/ab887b32c11f415248553ff825a70b02eba463147a6c57950968304f3aae97f7"`:
 
@@ -319,3 +321,96 @@ In `.worktrees/cloud-twin/worker/cloud_release`, with `MODAL_PROFILE=adilharis20
 | 3 | `modal deploy modal_app.py`, then `modal run modal_app.py --command register` | `cloud_mac_release_id` = `ab887b32…`; the dispatcher reads `release_match = true` |
 
 The build reuses the cached image unless the staged release changed, so no rebuild is expected. `cloud_mode` stays Off throughout.
+
+## Audit worker release (2026-09-26): silent on deleted matches, hand cuts keep their table
+
+Main, fast, the health monitor and the hand lane now run sealed release
+`93a881aa…` from `7d0279fa`, which adds the audit's worker fixes C and D
+(`dc3ccd4a`) to the email fix release. A hand Replace or Keep copy now
+reuses the table an earlier cut of the same upload already found: re-run for
+real on 636f3f37, it went from 0 mapped serves to 44 of 50 with the replaced
+cut's own table and no new detection. The cloud twin stays unpaired until
+Modal is re-enabled, under the same recorded exception as the email fix.
+
+### What moved
+
+| Piece | Before | After |
+| --- | --- | --- |
+| Main, fast, health monitor, hand | `ab887b32…` (source `93857d5e`) | `93a881aafe06dfa06604dda262d52773fa0dd48b5d1d09e20cb3341423b06298` (source `7d0279fa`), opened 2026-09-26 15:02:34 UTC |
+| Worker source | | `git diff 93857d5e 7d0279fa -- worker` is exactly `dc3ccd4a` (FIX-PLAN C, worker half, and D) |
+| Cloud twin, `cloud_mode` | `44611008…` registered, paired with `69915d26`; Off | Unchanged. `108528fd` (built for `ab887b32`) is now out of date as well |
+| 636f3f37 serve map | `retry_available`, 0 mapped, `keypoint_calibration_declined` | `ready`, 44 of 50 points mapped (owner's Try again, 15:03:16 UTC) |
+
+### Checks on the Mac release
+
+Ops folder: `~/Library/Caches/PongLens/audit-worker-20260926/`.
+
+| Check | Result |
+| --- | --- |
+| Build tree | Clean detached worktree `.worktrees/audit-worker-release` at `7d0279fa` |
+| Runtime inputs | `inspect-local.json` byte-identical to the email fix release's |
+| Manifest vs live `ab887b32` | adapters, behavior_env, body_model, database, runtime, schema identical; files: `worker.py`, `hand_cut_analysis.py`, `placement_retry_calibration.py` and five test files changed, `tests/fixtures/prior-table-636f3f37.json` added; models and `bin/` identical |
+| `test_match_release` | 30 OK |
+| The changed test files (hand-cut analysis, retry calibration, failure emails, hand recut, auto recut, email payload) | 179 OK |
+| Worker suite from the tree root | 1,354 tests, exactly the 18 known errors (Docker was back, so the six database tests passed) |
+| Sealed smoke, `prabhas-diag/clip24.mp4` | All eight modes exit 0; every output identical to `ab887b32`'s once timings are masked |
+| Staged and re-verified; check-only main, fast and hand | Pass; no bytecode inside the staged release |
+| Launchers | Four new plists, each differing from the live one only in the release id |
+
+### Shadow proof on the Mac (the twin could not replay)
+
+`shadow_placement.py` runs the staged release's own `placement_for_match`
+inside the sealed environment (launched like the hand plist), with a
+read-only database connection, every R2 upload captured locally, metering
+captured, and the lifecycle, points and `match.json` writes captured instead
+of made. The match row is presented as the app's request would leave it;
+only the authorisation fields change.
+
+| Run | Release | What happened | Result |
+| --- | --- | --- | --- |
+| 636f3f37, hand version `19bf2994`, the Try again attempt, table detection forbidden | `93a881aa` | Log: "reusing the saved hand-cut tracking (50 windows)", then "reusing the vision table of replaced 8bdf5aad (same upload, 1920x1080)". No table detection, no ball detection | `ready`, 44 of 50 mapped; corners and length axis identical to `8bdf5aad`'s; 62 s |
+| 4923bbef, a hand cut with no earlier cut and never analysed, the Generate attempt | `93a881aa` | No reuse; ball tracked and the keypoint table detected as before | `ready`, 9 of 9 mapped |
+| The same, on the live release | `ab887b32` | The same | Output `match.json` byte-identical to the new release's; the tracking bundle differs only in its header timestamp |
+
+The first 636f3f37 run stopped at the commit step on a harness fault (its
+read-only connection was not in autocommit, as the worker's is); fixed and
+re-run, log kept as `shadow-new-636f-stronger-attempt1-harness-autocommit.log`.
+
+### Activation (`activate.sh`, log `activation.log`)
+
+| Step | UTC |
+| --- | --- |
+| Idle check: nothing queued or running on `jobs`, `jobs_fast`, `jobs_hand` | 14:59:57 |
+| All four drained on `ab887b32` (its drain files stay for rollback) | 15:00:18 |
+| Launchers backed up, bootout, plists copied, bootstrap (first try each) | 15:00:22 |
+| New lanes pulse `93a881aa…` drained, then opened | 15:02:34 |
+| Verified | `mac:main`, `mac:fast`, `mac:hand` pulse the full new id, idle; monitor ran on the new release at 15:02:10; main-lane housekeeping ran; no warnings or errors in any lane log |
+
+### The real re-run on 636f3f37
+
+| Step | Result |
+| --- | --- |
+| Owner | `e84a6675`, `aber97@gmail.com`, one of the two admin addresses in `is_admin()` |
+| Request | `public.request_placement_retry` as the owner, exactly what `/api/placement-retry` calls (`request_retry_636f.py`); job `b93169c8…`, `placement_retry` on `jobs_hand`, 15:03:16 |
+| Hand lane log | "reusing the saved hand-cut tracking (50 windows)", "reusing the vision table of replaced 8bdf5aad (same upload, 1920x1080)", "placement retry done: … succeeded=True mapped=44", 15:04:47 |
+| After | `placement_status` `ready`, 44 mapped, retry used; all 50 points carry placement; published corners and every point's placement identical to the shadow's; no OpenAI call |
+
+### Rollback
+
+| Situation | Do this |
+| --- | --- |
+| The worker misbehaves | `~/Library/Caches/PongLens/audit-worker-20260926/rollback-mac.sh`: drains `93a881aa…`, boots out all four, restores the backed-up plists, bootstraps, lifts `ab887b32…`'s drain files. All four return to `ab887b32…` (the email fix stays) |
+| 636f3f37's new map | Nothing to undo: the map is the replaced cut's own table and a normal placement run |
+
+### Still to do: pair a twin once Modal is re-enabled
+
+Same order exception as the email fix release, approved by Adil for this
+release too (relayed by the coordinating session). The dispatcher cannot
+start the cloud: the registered twin is paired with `69915d26` and the Mac
+reports `93a881aa`, so `release_match` is false (reason `disabled` while Off,
+`release_mismatch` on Standby). When Modal is back, in
+`.worktrees/cloud-twin/worker/cloud_release` with `MODAL_PROFILE=adilharis2001` and
+`PONGLENS_CLOUD_SOURCE_RELEASE="/Users/adil/Library/Application Support/PongLens/match-releases/93a881aafe06dfa06604dda262d52773fa0dd48b5d1d09e20cb3341423b06298"`:
+`modal run modal_app.py` (build and probe), `modal run modal_app.py --command shadow --job-id fcb21bbc-e6e3-4395-86d8-cf9d1825ff98`, compare with
+`compare_parity.py --label modal-<new twin id prefix>`, then `modal deploy modal_app.py` and `modal run modal_app.py --command register`.
+`cloud_mode` stays Off throughout.
