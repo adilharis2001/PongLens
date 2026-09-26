@@ -13,6 +13,8 @@ struct NotificationsPanel: View {
     /// Rows without a match (a coach's shared entry, a student joining)
     /// hand their href here; each tab view maps it to its own tab.
     var onOpenHref: (String) -> Void = { _ in }
+    /// A failed upload or import: the upload screen.
+    var onOpenUpload: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -75,14 +77,11 @@ struct NotificationsPanel: View {
 
     private func rowView(_ row: NotificationRow) -> some View {
         Button {
-            if row.opensHrefDirectly {
-                onOpenHref(row.href)
-            } else if let matchId = row.matchFeedbackId {
-                onOpenMatchFeedback(matchId)
-            } else if let matchId = row.matchId {
-                onOpenMatch(matchId, row.pointId)
-            } else {
-                onOpenHref(row.href)
+            switch row.destination {
+            case .href(let href): onOpenHref(href)
+            case .matchFeedback(let matchId): onOpenMatchFeedback(matchId)
+            case .match(let matchId, let pointId): onOpenMatch(matchId, pointId)
+            case .upload: onOpenUpload()
             }
         } label: {
             HStack(alignment: .top, spacing: 12) {

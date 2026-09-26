@@ -162,17 +162,17 @@ struct MatchIssueState: Decodable {
         }
     }
 
-    /// The Processing row's trailing text: what any request is doing, or
-    /// the door when there is none. The row's own label never changes, so
-    /// a status appearing there reads as one.
-    var rowTrailing: String {
+    /// The Report a problem row's trailing text: what a request is doing,
+    /// or nothing when there is none. The row's label already says Report
+    /// a problem, so it is never said twice (post-rollout audit N).
+    var rowTrailing: String? {
         if automaticRefundMessage != nil, let receipt = automaticRefund {
             return "\(receipt.minutes) \(receipt.minutes == 1 ? "minute" : "minutes") returned"
         }
         if isOwner, activeIssue?.status == "resolved_refunded", let minutes = activeIssue?.refundableMinutes {
             return "\(minutes) \(minutes == 1 ? "minute" : "minutes") returned"
         }
-        return statusLabel ?? "Report a problem"
+        return statusLabel
     }
 }
 

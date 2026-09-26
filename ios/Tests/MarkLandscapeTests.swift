@@ -153,4 +153,54 @@ func runMarkLandscapeChecks() {
     closeTo(MarkLandscape.pairTileHeight(pair[0], count: 2, boxH: boxH), (boxH - 8) / 2, "half")
     let gate = MarkLandscape.railPair(started: false, opened: .fresh, reviewing: false, adjusting: false, open: false)
     eq(MarkLandscape.pairTileHeight(gate[0], count: 1, boxH: boxH), boxH, "gate fills the rail")
+
+    runMarkerGateCaptionChecks()
+}
+
+/// What Keep marking and Start again say under them when the marker opens
+/// on points already there (post-rollout audit B, approved 2026-09-26),
+/// portrait and landscape from one statement.
+private func runMarkerGateCaptionChecks() {
+    eq(MarkerCopy.keepMarkingUncalled, "Start from the points already here and fix or score each one.",
+       "Keep marking, some points without a winner")
+    eq(MarkerCopy.keepMarkingCalled, "Carry on from the last point to the end of the match.",
+       "Keep marking, every point called")
+    eq(MarkerCopy.startAgainDetail, "Clear every point and mark the whole match yourself.", "Start again")
+    eq(MarkerCopy.keepMarkingDetail(.scoring), MarkerCopy.keepMarkingUncalled, "the scoring gate's line")
+    eq(MarkerCopy.keepMarkingDetail(.choice), MarkerCopy.keepMarkingCalled, "the choice gate's line")
+    eq(MarkerCopy.keepMarkingDetail(.fresh), nil, "Begin Cutting has no line")
+    eq(MarkerCopy.keepMarkingDetail(.review), nil, "Begin review has no line")
+    for words in [MarkerCopy.keepMarkingUncalled, MarkerCopy.keepMarkingCalled, MarkerCopy.startAgainDetail] {
+        let lower = " " + words.lowercased() + " "
+        check(!lower.contains("free") && !lower.contains(" mac") && !lower.contains("iphone")
+              && !lower.contains("phone") && !lower.contains(" ai ") && !words.contains("\u{2014}"),
+              "no free, Mac, iPhone, phone, AI or em dash: \(words)")
+    }
+
+    // The landscape tiles carry the same lines as a smaller second line.
+    func details(_ opened: HandCutOpenAs, again: Bool) -> [String] {
+        MarkLandscape.railPair(started: false, opened: opened, reviewing: false,
+                               adjusting: false, open: false, startAgain: again)
+            .map { "\($0.label):\($0.detail ?? "-")" }
+    }
+    eq(details(.scoring, again: true),
+       ["Keep marking:\(MarkerCopy.keepMarkingUncalled)", "Start again:\(MarkerCopy.startAgainDetail)"],
+       "scoring gate: both lines")
+    eq(details(.choice, again: true),
+       ["Keep marking:\(MarkerCopy.keepMarkingCalled)", "Review the points:-",
+        "Start again:\(MarkerCopy.startAgainDetail)"],
+       "choice gate with Start again: Keep marking and Start again say what they do")
+    eq(details(.choice, again: false),
+       ["Keep marking:\(MarkerCopy.keepMarkingCalled)", "Review the points:-"],
+       "choice gate on an unprocessed match: Keep marking's line")
+    eq(details(.review, again: true), ["Begin review:-", "Start again:\(MarkerCopy.startAgainDetail)"],
+       "review gate: only Start again has a line")
+    eq(details(.fresh, again: false), ["Begin Cutting:-"], "a fresh pass has no lines")
+    // Once the pass has started no tile has a second line.
+    for (reviewing, adjusting, open) in [(false, false, false), (false, false, true), (true, false, false), (true, true, false)] {
+        check(MarkLandscape.railPair(started: true, opened: .scoring, reviewing: reviewing,
+                                     adjusting: adjusting, open: open, startAgain: true)
+                .allSatisfy { $0.detail == nil },
+              "no second line during the pass (\(reviewing), \(adjusting), \(open))")
+    }
 }

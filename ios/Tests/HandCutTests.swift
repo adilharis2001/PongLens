@@ -78,6 +78,77 @@ func runHandCutParityChecks() {
           "the whole fixture was replayed (35 cases, 401 steps, 46 checks)")
 
     runHandCutPortChecks()
+    runHandCutGateChecks()
+}
+
+// MARK: - The gate and playback that runs on (post-rollout audit A)
+
+/// Every gate's way in, and the follow rule that keeps the selection on the
+/// point the picture is showing.
+private func runHandCutGateChecks() {
+    func mark(_ id: String, _ t0: Double, _ t1: Double?, _ winner: Winner? = nil, isLet: Bool = false) -> HandCutMark {
+        HandCutMark(id: id, t0: t0, t1: t1, winner: winner, isLet: isLet, starred: false, tap: t0, rate: 1)
+    }
+    // a called, b and c still to call, d called.
+    let marks = [mark("a", 10, 20, .user), mark("b", 40, 50), mark("c", 60, 70), mark("d", 90, 100, .opponent)]
+    let called = [mark("a", 10, 20, .user), mark("b", 40, 50, isLet: true), mark("c", 60, 70, .opponent)]
+
+    // The four gates.
+    eq(HandCut.gateStart(.fresh, marks: []), .play, "fresh: Begin Cutting plays on")
+    eq(HandCut.gateStart(.scoring, marks: marks), .playMark(id: "b"),
+       "scoring: Keep marking shows the first point without a winner")
+    eq(HandCut.gateStart(.scoring, marks: marks, reviewPoints: true), .playMark(id: "b"),
+       "scoring has one way in, whichever button")
+    eq(HandCut.gateStart(.scoring, marks: called), .resumeMarking,
+       "scoring with nothing left to call carries on marking")
+    eq(HandCut.gateStart(.review, marks: called), .playMark(id: "a"), "review: Begin review shows the first point")
+    eq(HandCut.gateStart(.review, marks: []), .play, "review with nothing closed plays on")
+    eq(HandCut.gateStart(.choice, marks: called), .resumeMarking,
+       "choice: Keep marking goes back to where the marking got to")
+    eq(HandCut.gateStart(.choice, marks: called, reviewPoints: true), .playMark(id: "a"),
+       "choice: Review the points shows the first point")
+    // The gate each draft opens as, end to end.
+    eq(HandCut.gateStart(HandCut.openAs(marks, durationS: 600), marks: marks), .playMark(id: "b"),
+       "a draft with points still to call opens on the first of them")
+    eq(HandCut.gateStart(HandCut.openAs(called, durationS: 600), marks: called), .resumeMarking,
+       "a called draft with match left carries on from the last point")
+    eq(HandCut.gateStart(HandCut.openAs(called, durationS: 100), marks: called), .playMark(id: "a"),
+       "a called draft that reaches the end is reviewed")
+
+    // Following playback: b selected, its clip padded 1.2 before and 1.3 after.
+    let pre = 1.2, post = 1.3
+    var s = HandCutState(marks: marks, selectedId: "b")
+    check(HandCut.follow(s, at: 45, adjusting: false, pre: pre, post: post) == nil,
+          "inside the selected point nothing moves")
+    check(HandCut.follow(s, at: 51, adjusting: false, pre: pre, post: post) == nil,
+          "in the gap before the next point's window nothing moves")
+    let intoC = HandCut.follow(s, at: 58.9, adjusting: false, pre: pre, post: post)
+    eq(intoC?.id, "c", "crossing into the next point's padded window selects it")
+    near(intoC?.stopAt, 71.3, "and stops at its padded end")
+    eq(HandCut.follow(s, at: 95, adjusting: false, pre: pre, post: post)?.id, "d",
+       "a jump past a whole point lands on the one the picture is in")
+    check(HandCut.follow(s, at: 101.4, adjusting: false, pre: pre, post: post) == nil,
+          "past the last point's window there is nothing to follow")
+    check(HandCut.follow(s, at: 58.9, adjusting: true, pre: pre, post: post) == nil,
+          "never while an edge is being adjusted")
+    s.awaitingId = "b"
+    check(HandCut.follow(s, at: 58.9, adjusting: false, pre: pre, post: post) == nil,
+          "never while a point waits for its answer")
+    s.awaitingId = nil
+    check(HandCut.follow(HandCutState(marks: marks), at: 58.9, adjusting: false, pre: pre, post: post) == nil,
+          "never with nothing selected")
+    let open = marks + [mark("e", 120, nil)]
+    check(HandCut.follow(HandCutState(marks: open, selectedId: "b"), at: 58.9, adjusting: false,
+                         pre: pre, post: post) == nil,
+          "never while a rally is being marked")
+    // Windows that overlap: the next point's pad starts inside the selected
+    // point's tail. The picture must leave the rally first.
+    let close = [mark("x", 10, 20), mark("y", 21, 30)]
+    let tight = HandCutState(marks: close, selectedId: "x")
+    check(HandCut.follow(tight, at: 19.9, adjusting: false, pre: pre, post: post) == nil,
+          "an overlapping pad does not take the selection mid-rally")
+    eq(HandCut.follow(tight, at: 20.2, adjusting: false, pre: pre, post: post)?.id, "y",
+       "past the rally's end, the next point's pad takes it")
 }
 
 // MARK: - Replaying a case

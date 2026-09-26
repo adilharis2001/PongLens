@@ -115,9 +115,8 @@ enum CutAgainFixture {
             minutes: { 240 },
             startRecut: { _, _ in StartRecutReply(marks: nil, mode: "score", updatedAt: nil) },
             claimHandRecut: { _, _, _ in throw CutAgainServerError(message: "fixture_no_writes") },
-            copyForRecut: { _ in throw CutAgainServerError(message: "fixture_no_writes") },
-            process: { _, _ in .refused(nil) },
-            claimAutoRecut: { _, _ in throw CutAgainServerError(message: "fixture_no_writes") }
+            claimAutoRecut: { _, _, _ in throw CutAgainServerError(message: "fixture_no_writes") },
+            commerce: { true }
         )
     }
 

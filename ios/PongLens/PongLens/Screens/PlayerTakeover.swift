@@ -686,7 +686,10 @@ struct PlayerTakeover: View {
             scorePlaybackRun.invalidate()
             player.pause()
             releaseForcedLandscape()
-            if let marker { Task { await marker.store.flush() } }
+            if let marker {
+                LocalMatchVideos.shared.markerClosed(marker.matchId)
+                Task { await marker.store.flush() }
+            }
         }
         .sheet(item: $winnerAsk) { ask in
             winnerAskSheet(ask)
@@ -3630,6 +3633,9 @@ struct PlayerTakeover: View {
         )
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
+        // The marker may be reading the phone's own copy: the kept-video
+        // sweep leaves it alone until the marker closes.
+        if mode == .mark, let marker { LocalMatchVideos.shared.markerOpened(marker.matchId) }
 
         attachCutItem(AVPlayerItem(url: videoURL))
         // Which cards the cut cannot show, and their clips — fetched now
@@ -4289,6 +4295,12 @@ struct PlayerTakeover: View {
         cutItem = item
         itemStatus = item.observe(\.status, options: [.new]) { item, _ in
             Task { @MainActor in
+                // The marker cues its opening point on the first ready
+                // event, however long a streamed original takes.
+                if item.status == .readyToPlay {
+                    if mode == .mark { markWhenReady() }
+                    return
+                }
                 guard item.status == .failed else { return }
                 scorePlaybackRun.invalidate()
                 // The original is never swapped for the cut: reminting

@@ -1,7 +1,7 @@
 #!/bin/bash
-# Keep-score logic checks. No simulator, no Xcode scheme, no network — the
+# The app's headless checks. No simulator, no Xcode scheme, no network: the
 # files under test import Foundation and nothing else, so this is a plain
-# swiftc build of five sources plus the cases.
+# swiftc build of the Core sources plus the cases, then the sub-suites.
 #
 #   ios/Tests/run.sh
 set -euo pipefail
@@ -52,3 +52,13 @@ swiftc -O -o "$OUT" \
   HighlightsTests.swift PlayerTakeoverTests.swift CameraGuideGateTests.swift \
   RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift ScorerStateTests.swift CanonicalScoreCommandsTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift UserFacingErrorTests.swift MatchToolsTests.swift LessonPreviewTests.swift CoachActionsTests.swift MatchPointLinkTests.swift SignupSourceTests.swift ProcessingFeedbackTests.swift ScoredCardsTests.swift HandCutVideoTests.swift HandCutTests.swift CutPlanTests.swift DeviceCutTests.swift MarkLandscapeTests.swift CutAgainTests.swift HandCutPlaybackTests.swift UploadCutChoiceTests.swift TrimWindowTests.swift main.swift
 "$OUT"
+
+# Suites with an entry point of their own (@main, or a main.swift beside
+# their own run.sh) cannot share the binary above, so each builds and runs
+# alone. A failure in any of them fails this script.
+RECOVERY_OUT=$(mktemp -d)/recovery
+swiftc -o "$RECOVERY_OUT" "$CORE/UploadProcessingRequest.swift" UploadProcessingRecoveryTests.swift
+"$RECOVERY_OUT"
+for suite in ProcessingAvailability ProcessingEstimate ImportedProcessingObservation LessonVideo; do
+  bash "$suite/run.sh"
+done

@@ -58,18 +58,6 @@ enum ProcessAPI {
     }
 }
 
-/// What pressing Process again did, for the sheet.
-enum ProcessAgainOutcome: Equatable {
-    /// Replace was claimed: the sheet closes, the match keeps playing and
-    /// More options shows the ordinary progress.
-    case replacing
-    /// Keep made a new match: the sheet closes and opens it.
-    case opened(UUID)
-    /// Refused (the sentence is in `error`), or Replace went grey over a
-    /// coach review and the choice is back on Keep: the sheet stays.
-    case stayed
-}
-
 struct CutAgainClient {
     var options: (UUID) async throws -> RecutOptions
     /// This match's processing feedback: the job working it, if any.
@@ -79,15 +67,17 @@ struct CutAgainClient {
     var minutes: () async throws -> Int
     var startRecut: (UUID, Bool) async throws -> StartRecutReply
     var claimHandRecut: (UUID, [HandCutSubmission], Bool) async throws -> HandRecutClaim
-    var copyForRecut: (UUID) async throws -> UUID
-    var process: (UUID, ProcessSettings) async -> ProcessStart
-    /// Replace under Automatically, in More options (phase 2):
+    /// Automatically, in More options, Replace or Keep:
     /// `claim_auto_recut(p_match_id, p_replace, p_trim_start_s,
     /// p_trim_end_s, p_strictness)` returning `{job_id, match_id}`
     /// (20260925170532_cut_again_auto_replace.sql). Charged as /api/process
     /// charges; the detailed analysis rides along, as on every processed
-    /// upload. Keep does not come here: it is the copy plus /api/process.
-    var claimAutoRecut: (UUID, ProcessSettings) async throws -> UUID?
+    /// upload. Keep copies the match and claims the copy's processing in
+    /// the same transaction, so a refusal leaves no copy behind.
+    var claimAutoRecut: (UUID, ProcessSettings, Bool) async throws -> AutoRecutClaim
+    /// `app_config.commerce_enabled`: Automatically spends minutes, so it
+    /// is offered only while commerce is on, as on the web.
+    var commerce: () async throws -> Bool
 
     static let live = CutAgainClient(
         options: { id in
@@ -138,23 +128,21 @@ struct CutAgainClient {
                 ).execute().value
             } catch { throw CutAgainServerError.from(error) }
         },
-        copyForRecut: { id in
-            struct P: Encodable { let p_match_id: String }
+        claimAutoRecut: { id, settings, replace in
             do {
                 return try await supa.rpc(
-                    "copy_match_for_recut", params: P(p_match_id: id.uuidString.lowercased())
+                    "claim_auto_recut",
+                    params: AutoRecutParams(matchId: id, settings: settings, replace: replace)
                 ).execute().value
             } catch { throw CutAgainServerError.from(error) }
         },
-        process: { id, settings in await ProcessAPI.start(matchId: id, settings: settings) },
-        claimAutoRecut: { id, settings in
-            struct R: Decodable { let job_id: UUID? }
-            do {
-                let r: R = try await supa.rpc(
-                    "claim_auto_recut", params: AutoRecutParams(matchId: id, settings: settings)
-                ).execute().value
-                return r.job_id
-            } catch { throw CutAgainServerError.from(error) }
+        commerce: {
+            struct Row: Decodable { let value: String? }
+            let rows: [Row] = try await supa.from("app_config")
+                .select("value")
+                .eq("key", value: "commerce_enabled")
+                .execute().value
+            return rows.first?.value == "true"
         }
     )
 }
@@ -172,6 +160,9 @@ final class CutAgainModel {
     private(set) var job: MatchJob?
     private(set) var minutesBalance: Int?
     private(set) var needsMoreMinutes = false
+    /// Commerce is on (Automatically is offered). Nil until read, which
+    /// offers it not.
+    private(set) var commerceEnabled: Bool?
 
     // The sheet's settings. They outlive a closed sheet, the way the raw
     // page keeps its trim while the card is folded.
@@ -220,9 +211,9 @@ final class CutAgainModel {
 
     /// The lane the running cut waits on.
     private var lane: ProcessingServiceLane {
-        feedback?.lane.flatMap(ProcessingServiceLane.init(rawValue:))
-            ?? processingServiceLane(kind: feedback?.jobKind ?? job?.kind,
-                                     clipLane: ProcessingServiceStore.shared.clipLane)
+        processingNoticeLane(kind: feedback?.jobKind ?? job?.kind,
+                             reported: feedback?.lane.flatMap(ProcessingServiceLane.init(rawValue:)),
+                             clipLane: ProcessingServiceStore.shared.clipLane)
     }
 
     /// That lane is paused or down: said in place of the stage, as on the
@@ -243,14 +234,19 @@ final class CutAgainModel {
     }
 
     func plan(handCutEnabled: Bool) -> MoreOptionsPlan {
-        MoreOptionsPlan.make(options: options, handCutEnabled: handCutEnabled, jobRunning: jobRunning)
+        MoreOptionsPlan.make(options: options, handCutEnabled: handCutEnabled,
+                             commerceEnabled: commerceEnabled == true, jobRunning: jobRunning)
     }
 
-    /// Everything the sheet reads. Cheap: two RPCs and the balance.
+    /// Everything the sheet reads. Cheap: two RPCs, the balance and the
+    /// commerce switch.
     func load() async {
         async let o = try? client.options(matchId)
         async let m = try? client.minutes()
+        async let c = try? client.commerce()
         await refreshRunning()
+        // A failed read keeps what an earlier one said.
+        if let commerce = await c { commerceEnabled = commerce }
         let fresh = await o
         optionsFailed = fresh == nil
         if let fresh {
@@ -337,14 +333,11 @@ final class CutAgainModel {
 
     // MARK: - Process again, automatically
 
-    /// Replace: `claim_auto_recut` builds the new cut beside this one; the
-    /// match keeps playing and this model polls the ordinary progress.
-    /// Keep: a copy of this match, then the ordinary process call on the
-    /// copy, which is then opened.
-    ///
-    /// Once the copy exists it is a real match: if processing it is then
-    /// refused, the copy is still opened, where its own page offers the
-    /// process again, rather than making a second copy from here.
+    /// `claim_auto_recut`, either way. Replace builds the new cut beside
+    /// this one; the match keeps playing and this model polls the ordinary
+    /// progress. Keep copies the match and claims the copy's processing in
+    /// one step, then the copy is opened. A refusal changes nothing: there
+    /// is no half-made copy to open.
     func processAutomatically(durationS: Double?) async -> ProcessAgainOutcome {
         guard !busy else { return .stayed }
         busy = true
@@ -355,46 +348,42 @@ final class CutAgainModel {
             trimStart: trimmed ? trimStart : nil,
             trimEnd: trimmed ? trimEnd : nil
         )
-        if autoChoice?.replace == true {
-            do {
-                _ = try await client.claimAutoRecut(matchId, settings)
-            } catch {
-                let raw = CutAgainServerError.from(error).message
-                let charge = raw.contains("insufficient_minutes") || raw.contains("queue_full")
-                if raw.contains("insufficient_minutes") { needsMoreMinutes = true }
-                switch CutAgainErrors.autoRecut(raw) {
-                case .coachReview:
-                    // Not an error to show: Replace greys with its reason
-                    // and the choice is back on Keep, for the player to
-                    // press again (the web's setAutoPick("keep")).
-                    break
-                case .message(let sentence):
-                    self.error = sentence
-                }
-                if !charge, let fresh = try? await client.options(matchId) {
-                    options = fresh
-                    var next = RecutChoiceState.automatic(fresh)
-                    if let old = autoChoice { next.select(old.selected) }
-                    autoChoice = next
-                }
-                return .stayed
-            }
-            await refreshRunning()
-            updatePolling()
-            return .replacing
-        }
-        let copy: UUID
+        let replace = autoChoice?.replace == true
+        let claim: AutoRecutClaim
         do {
-            copy = try await client.copyForRecut(matchId)
+            claim = try await client.claimAutoRecut(matchId, settings, replace)
         } catch {
-            self.error = CutAgainErrors.copy(CutAgainServerError.from(error).message)
+            let raw = CutAgainServerError.from(error).message
+            let charge = raw.contains("insufficient_minutes") || raw.contains("queue_full")
+            if raw.contains("insufficient_minutes") { needsMoreMinutes = true }
+            switch CutAgainErrors.autoRecut(raw) {
+            case .coachReview:
+                // Not an error to show: Replace greys with its reason
+                // and the choice is back on Keep, for the player to
+                // press again (the web's setAutoPick("keep")).
+                break
+            case .message(let sentence):
+                self.error = sentence
+            }
+            if !charge, let fresh = try? await client.options(matchId) {
+                options = fresh
+                var next = RecutChoiceState.automatic(fresh)
+                if let old = autoChoice { next.select(old.selected) }
+                autoChoice = next
+            }
             return .stayed
         }
-        if case .refused(let code) = await client.process(copy, settings) {
-            if code == "insufficient_minutes" { needsMoreMinutes = true }
-            // The copy is opened anyway; its page says what to do next.
+        let outcome = ProcessAgainOutcome.after(replace: replace, claim: claim, matchId: matchId)
+        switch outcome {
+        case .replacing:
+            await refreshRunning()
+            updatePolling()
+        case .stayed:
+            error = CutAgainCopy.somethingWrong
+        case .opened:
+            break
         }
-        return .opened(copy)
+        return outcome
     }
 
     // MARK: - Mark the points yourself

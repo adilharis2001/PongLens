@@ -349,13 +349,13 @@ struct MatchRow: Codable, Identifiable, Hashable {
     }
 
     static let librarySelect =
-        "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,player_near_name,player_far_name,first_server,clip_pads,placement_status,active_processing_version_id,spoken_scores,is_sample,created_at,points(count)"
+        "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,player_near_name,player_far_name,first_server,clip_pads,placement_status,active_processing_version_id,spoken_scores,is_sample,cut_source,created_at,points(count)"
 
     /// One match, opened. Adds the game-end detector's evidence, which the
     /// library list has no use for — it is a JSONB blob per row and the
     /// list fetches every match the player owns.
     static let detailSelect = librarySelect
-        + ",first_server_source,match_structure,cut_source,score_revision"
+        + ",first_server_source,match_structure,score_revision"
 }
 
 

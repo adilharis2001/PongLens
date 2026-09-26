@@ -380,6 +380,22 @@ func runDeviceCutChecks() {
     var held = fresh
     held.stop = DeviceCutStop(.lowPower)
     eq(DeviceCutFlow.next(held), .stopped(.lowPower), "a job that stopped never goes back to cutting")
+    // Upload on Wi-Fi only (post-rollout audit H): with the cut ready and
+    // no Wi-Fi, the server cuts it at once.
+    check(DeviceCutGuard.handOverForWiFi(wifiOnly: true, onWiFi: false), "Wi-Fi only with no Wi-Fi hands over")
+    check(!DeviceCutGuard.handOverForWiFi(wifiOnly: true, onWiFi: true), "Wi-Fi only on Wi-Fi uploads")
+    check(!DeviceCutGuard.handOverForWiFi(wifiOnly: false, onWiFi: false), "cellular allowed uploads on cellular")
+    check(!DeviceCutGuard.handOverForWiFi(wifiOnly: true, onWiFi: nil),
+          "a network not yet known is not no Wi-Fi: the upload waits for one itself")
+    var noWiFi = fresh
+    noWiFi.stop = .wifiOnly
+    eq(DeviceCutFlow.next(noWiFi), .stopped(.wifiOnly), "a job handed over for Wi-Fi stays handed over")
+    if let data = try? JSONEncoder().encode(noWiFi),
+       let back = try? JSONDecoder().decode(DeviceCutJob.self, from: data) {
+        eq(back.stop, .wifiOnly, "the Wi-Fi stop survives a relaunch")
+    } else {
+        check(false, "a Wi-Fi stop encodes")
+    }
     // A job written by build 236, with its old hold key and no new ones,
     // still reads.
     if let data = try? JSONEncoder().encode(fresh),

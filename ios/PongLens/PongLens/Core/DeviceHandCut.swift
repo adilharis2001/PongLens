@@ -1,6 +1,7 @@
 import AVFoundation
 import BackgroundTasks
 import Foundation
+import Network
 import Supabase
 import UIKit
 
@@ -33,10 +34,13 @@ import UIKit
 //  - **Heat, power, space.** Between files: serious heat waits; critical
 //    heat, Low Power Mode or too little space hand the job over. So does an
 //    encode that fails twice.
+//  - **Upload on Wi-Fi only.** The uploads honour the recorder's setting.
+//    With it on and no Wi-Fi when the cut is ready to send, the job goes to
+//    the server at once rather than waiting unreported for Wi-Fi.
 //  - **The server has the last word.** Every report can answer that the job
 //    is no longer the phone's (released, submitted, or taken over after 15
-//    minutes without a report); the phone then stops and throws its files
-//    away, quietly.
+//    minutes without a report, 60 while uploading); the phone then stops
+//    and throws its files away, quietly.
 
 extension Notification.Name {
     /// A phone cut started, finished, stopped or went to the Mac. The object
@@ -157,6 +161,9 @@ final class DeviceCutSession: NSObject, DeviceCutUploader {
     func send(file: URL, to url: URL, contentType: String?, name: String) {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
+        // "Upload on Wi-Fi only", as the ordinary upload honours it
+        // (RecordingQueue): with it on, a transfer waits for Wi-Fi.
+        request.allowsCellularAccess = !RecordSettings.load().wifiOnlyUploads
         if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         let task = session.uploadTask(with: request, fromFile: file)
         task.taskDescription = name
@@ -248,6 +255,12 @@ final class DeviceHandCutQueue {
     @ObservationIgnored var sourceFile: (UUID) -> URL? = { LocalMatchVideos.url(for: $0) }
     @ObservationIgnored var currentUser: () async -> UUID? = { try? await supa.auth.session.user.id }
     @ObservationIgnored var backgroundTasksAllowed = true
+    /// "Upload on Wi-Fi only", read when the cut is ready to send.
+    @ObservationIgnored var wifiOnlyUploads: () -> Bool = { RecordSettings.load().wifiOnlyUploads }
+    /// Is the phone on Wi-Fi (or a cable) right now? Nil until the first
+    /// reading, which counts as not knowing, never as no Wi-Fi.
+    @ObservationIgnored private(set) var onWiFi: Bool?
+    @ObservationIgnored private let pathMonitor = NWPathMonitor()
     /// QA only: stop the process after this many clips, to prove the resume.
     @ObservationIgnored var crashAfterClips: Int?
 
@@ -292,6 +305,12 @@ final class DeviceHandCutQueue {
         _ = session.session
         for job in jobs { live[job.jobId] = Live(step: DeviceCutFlow.next(job), progress: DeviceCutFlow.progress(job, step: DeviceCutFlow.next(job))) }
         observe()
+        pathMonitor.pathUpdateHandler = { path in
+            let wifi = path.status == .satisfied
+                && (path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet))
+            Task { @MainActor in DeviceHandCutQueue.shared.onWiFi = wifi }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "com.ponglens.handcut.network"))
     }
 
     // MARK: Files
@@ -747,6 +766,13 @@ final class DeviceHandCutQueue {
 
     private func prepareUpload(_ jobId: UUID) async -> Outcome {
         guard let job = job(jobId), let cut = job.cut else { return .next }
+        // The cut is ready and nothing has gone up. Wi-Fi only with no
+        // Wi-Fi: the server cuts it now, from the same marks.
+        if job.uploadId == nil,
+           DeviceCutGuard.handOverForWiFi(wifiOnly: wifiOnlyUploads(), onWiFi: onWiFi) {
+            await handOver(jobId, because: .wifiOnly)
+            return .pause
+        }
         updateTask(jobId, step: .prepareUpload)
         guard await report(jobId, step: .prepareUpload, paused: false) else { return .pause }
         if job.uploadId == nil {
@@ -1125,7 +1151,8 @@ final class DeviceHandCutQueue {
     /// written first, so the phone never goes back to cutting this job, and
     /// a release that does not get through is tried again (and, failing
     /// that, the server takes the job itself once the phone has been quiet
-    /// for 15 minutes, and the phone lets it go when told).
+    /// for 15 minutes, 60 while uploading, and the phone lets it go when
+    /// told).
     @discardableResult
     private func handOver(_ jobId: UUID, because stop: DeviceCutStop) async -> Bool {
         guard beginHandOver(jobId, because: stop) else { return false }

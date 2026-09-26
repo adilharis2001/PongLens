@@ -44,31 +44,41 @@ private func runRecutOptionsDecodeChecks() {
 
 private func runMoreOptionsPlanChecks() {
     let ready = RecutOptions(available: true)
-    eq(MoreOptionsPlan.make(options: ready, handCutEnabled: true, jobRunning: false),
+    eq(MoreOptionsPlan.make(options: ready, handCutEnabled: true, commerceEnabled: true, jobRunning: false),
        MoreOptionsPlan(automatic: true, marking: true), "both rows when available and hand cutting is on")
-    eq(MoreOptionsPlan.make(options: ready, handCutEnabled: false, jobRunning: false),
+    eq(MoreOptionsPlan.make(options: ready, handCutEnabled: false, commerceEnabled: true, jobRunning: false),
        MoreOptionsPlan(automatic: true, marking: false), "no marking row without hand_cut_enabled")
-    eq(MoreOptionsPlan.make(options: ready, handCutEnabled: true, jobRunning: true),
+    eq(MoreOptionsPlan.make(options: ready, handCutEnabled: true, commerceEnabled: true, jobRunning: true),
        MoreOptionsPlan(running: true), "a running cut takes the rows' place")
-    eq(MoreOptionsPlan.make(options: nil, handCutEnabled: true, jobRunning: false),
+    eq(MoreOptionsPlan.make(options: nil, handCutEnabled: true, commerceEnabled: true, jobRunning: false),
        MoreOptionsPlan(), "nothing offered before the options are read")
-    eq(MoreOptionsPlan.make(options: nil, handCutEnabled: true, jobRunning: true),
+    eq(MoreOptionsPlan.make(options: nil, handCutEnabled: true, commerceEnabled: true, jobRunning: true),
        MoreOptionsPlan(running: true), "the running cut shows even before the options answer")
     eq(MoreOptionsPlan.make(options: RecutOptions(available: false, reason: "processing"),
-                            handCutEnabled: true, jobRunning: false),
+                            handCutEnabled: true, commerceEnabled: true, jobRunning: false),
        MoreOptionsPlan(running: true, blocked: CutAgainCopy.busy),
        "processing: shown as running, with the busy line until the job is seen")
     eq(MoreOptionsPlan.make(options: RecutOptions(available: false, reason: "support_request"),
-                            handCutEnabled: true, jobRunning: false),
+                            handCutEnabled: true, commerceEnabled: true, jobRunning: false),
        MoreOptionsPlan(blocked: "Something is already running on this match."),
        "a support request blocks both ways")
     eq(MoreOptionsPlan.make(options: RecutOptions(available: false, reason: "no_source"),
-                            handCutEnabled: true, jobRunning: false),
+                            handCutEnabled: true, commerceEnabled: true, jobRunning: false),
        MoreOptionsPlan(blocked: "The original video is no longer stored."),
        "no original: said plainly, never expired")
     eq(MoreOptionsPlan.make(options: RecutOptions(available: false, reason: "not_ready"),
-                            handCutEnabled: true, jobRunning: false),
+                            handCutEnabled: true, commerceEnabled: true, jobRunning: false),
        MoreOptionsPlan(), "not ready: no rows and no line")
+    // Automatically spends minutes: only while commerce is on, as on the
+    // web (post-rollout audit S3).
+    eq(MoreOptionsPlan.make(options: ready, handCutEnabled: true, commerceEnabled: false, jobRunning: false),
+       MoreOptionsPlan(automatic: false, marking: true), "commerce off: marking by hand only")
+    eq(MoreOptionsPlan.make(options: ready, handCutEnabled: false, commerceEnabled: false, jobRunning: false),
+       MoreOptionsPlan(), "commerce off and no hand cutting: neither way, and no line")
+    eq(MoreOptionsPlan.make(options: RecutOptions(available: false, reason: "no_source"),
+                            handCutEnabled: true, commerceEnabled: false, jobRunning: false),
+       MoreOptionsPlan(blocked: "The original video is no longer stored."),
+       "commerce off still says why nothing can be offered")
 
     func trailing(_ n: Int, submitted: Bool = false, prefilled: Bool = false) -> String? {
         MoreOptionsPlan.markingTrailing(draftCount: MoreOptionsPlan.draftCount(
@@ -223,12 +233,6 @@ private func runRecutRefusalChecks() {
        .message("That didn't send. Check your connection and try again."),
        "a bare 'processing' matches the whole code, not a word inside another")
 
-    eq(CutAgainErrors.copy("processing"), "Something is already running on this match.", "copy: busy")
-    eq(CutAgainErrors.copy("support_request"), "Something is already running on this match.",
-       "copy: a support request")
-    eq(CutAgainErrors.copy("no_source"), "The original video is no longer stored.", "copy: no original")
-    eq(CutAgainErrors.copy("bad_state"), "Something went wrong. Try again.", "copy: anything else")
-
     // Replace, processed automatically (claim_auto_recut, phase 2): the
     // contract's codes, then the charge's in the raw page's words; never a
     // hand cut's sentence. The web's autoRecutClaimError.
@@ -243,7 +247,10 @@ private func runRecutRefusalChecks() {
        "auto: the charge's sentence for the balance")
     eq(CutAgainErrors.autoRecut("queue_full"), .message("Your queue is full. Wait for a video to finish."),
        "auto: the charge's sentence for the queue")
-    for other in ["", "not_enabled", "trim_too_short", "bad_state", "not_processing_yet"] {
+    // Keep goes through the same claim now (post-rollout audit K), with
+    // claim_processing's refusals for the copy.
+    for other in ["", "not_enabled", "trim_too_short", "bad_state", "not_processing_yet",
+                  "commerce_disabled", "duration_unknown", "invalid_input"] {
         eq(CutAgainErrors.autoRecut(other), .message("Something went wrong. Try again."),
            "auto: '\(other)' reads as the raw page's generic sentence")
     }
@@ -277,6 +284,13 @@ private func runProcessChargeChecks() {
     eq(ProcessCharge.usesLine(minutes: 1, balance: 1), "Uses 1 of your 1 minute.",
        "a balance of one, singular")
     eq(ProcessCharge.usesLine(minutes: nil, balance: 300), nil, "no length, no line")
+    // Short of minutes, the web's words (post-rollout audit O2).
+    eq(ProcessCharge.notEnoughLine(balance: 20), "Not enough minutes. You have 20 minutes.",
+       "not enough: the balance, with its unit")
+    eq(ProcessCharge.notEnoughLine(balance: 1), "Not enough minutes. You have 1 minute.",
+       "not enough: one minute, singular")
+    eq(ProcessCharge.notEnoughLine(balance: 0), "Not enough minutes. You have 0 minutes.",
+       "not enough: none left")
     eq(ProcessCharge.usesLine(minutes: UploadCutWay.minutes([(durationS: 600, trimStartS: 60, trimEndS: 300),
                                                              (durationS: 130, trimStartS: nil, trimEndS: nil)]),
                               balance: 40),
@@ -320,11 +334,41 @@ private func runStrictnessChecks() {
     eq(window["trimEndS"] as? Double, 100, "the window's end")
     eq(window["placement"] as? Bool, false, "placement as the caller says")
 
-    let replace = json(AutoRecutParams(matchId: id, settings: ProcessSettings(trimStart: 5, trimEnd: nil)))
+    let replace = json(AutoRecutParams(matchId: id, settings: ProcessSettings(trimStart: 5, trimEnd: nil),
+                                       replace: true))
     eq(replace["p_strictness"] as? String, "normal", "claim_auto_recut always sends normal")
     eq(replace["p_replace"] as? Bool, true, "Replace")
     eq(replace["p_trim_start_s"] as? Double, 5, "Replace's window start")
     eq(ProcessSettings.strictness, "normal", "the one strictness a new request carries")
+
+    // Keep, automatically (post-rollout audit K): the same claim with
+    // p_replace false, which copies and claims in one transaction, never
+    // the copy and then /api/process.
+    let keep = json(AutoRecutParams(matchId: id, settings: ProcessSettings(trimStart: 12, trimEnd: 100),
+                                    replace: false))
+    eq(keep["p_replace"] as? Bool, false, "Keep asks for a new match")
+    eq(keep["p_match_id"] as? String, id.uuidString.lowercased(), "Keep names the match it copies")
+    eq(keep["p_trim_start_s"] as? Double, 12, "Keep's window start")
+    eq(keep["p_trim_end_s"] as? Double, 100, "Keep's window end")
+    eq(keep["p_strictness"] as? String, "normal", "Keep sends normal too")
+    check(keep.keys.sorted() == ["p_match_id", "p_replace", "p_strictness", "p_trim_end_s", "p_trim_start_s"],
+          "the claim's five parameters, nothing else")
+
+    let copy = UUID(uuidString: "6D0CEA7A-0000-4000-8000-000000000002")!
+    let answer = try? JSONDecoder().decode(AutoRecutClaim.self, from: Data("""
+    {"job_id": "6D0CEA7A-0000-4000-8000-000000000003", "match_id": "\(copy.uuidString.lowercased())"}
+    """.utf8))
+    eq(answer?.matchId, copy, "the claim names the match it runs on")
+    if let answer {
+        eq(ProcessAgainOutcome.after(replace: false, claim: answer, matchId: id), .opened(copy),
+           "Keep opens the new match the claim made")
+        eq(ProcessAgainOutcome.after(replace: true, claim: AutoRecutClaim(jobId: nil, matchId: id), matchId: id),
+           .replacing, "Replace stays on this match and shows the progress")
+    }
+    eq(ProcessAgainOutcome.after(replace: false, claim: AutoRecutClaim(jobId: nil, matchId: nil), matchId: id),
+       .stayed, "a Keep answer without a match opens nothing")
+    eq(ProcessAgainOutcome.after(replace: false, claim: AutoRecutClaim(jobId: nil, matchId: id), matchId: id),
+       .stayed, "and never this match again")
 }
 
 private func job(_ id: UUID, _ kind: String, _ status: String, match: UUID?) -> JobRow {

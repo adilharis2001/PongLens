@@ -71,7 +71,8 @@ struct HomeScreen: View {
                                   videoSaved: true,
                                   lane: feedback?.lane.flatMap(ProcessingServiceLane.init(rawValue:)),
                                   stageLabel: feedback?.stageLabel,
-                                  onDevice: feedback?.onDevice ?? false)
+                                  onDevice: feedback?.onDevice ?? false,
+                                  manualCut: match.cutSource == "manual")
         } + orphanJobs.map { ProcessingWork(kind: $0.kind, status: $0.status, videoSaved: $0.kind != "youtube_import") }
     }
 

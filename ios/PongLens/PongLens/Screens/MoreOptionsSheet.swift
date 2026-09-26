@@ -86,9 +86,7 @@ struct MoreOptionsToolRow: View {
         if let cutAgain = hooks?.cutAgain, cutAgain.jobRunning {
             return cutAgain.serviceNotice?.title ?? cutAgain.runningLabel ?? "Processing"
         }
-        guard let state = issue.state else { return nil }
-        let words = state.rowTrailing
-        return words == CutAgainCopy.reportProblem ? nil : words
+        return issue.state?.rowTrailing
     }
 
     var body: some View {
@@ -215,7 +213,7 @@ struct MoreOptionsSheet: View {
                     .font(.system(size: 16))
                     .foregroundStyle(PL.textBody)
                 Spacer()
-                if let words = issue.state?.rowTrailing, words != CutAgainCopy.reportProblem {
+                if let words = issue.state?.rowTrailing {
                     Text(words)
                         .font(.plBody)
                         .foregroundStyle(PL.text500)

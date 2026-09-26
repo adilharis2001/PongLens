@@ -94,8 +94,9 @@ private nonisolated struct ConfigRow: Decodable { let value: String? }
 private nonisolated struct HandCutParams: Encodable { let p_user: UUID }
 
 /// The app's own copy of a match video, kept for accounts that can hand
-/// cut until the match is cut or processed, deleted with the match, or
-/// deleted by the player from "My app recordings" (Account > Storage).
+/// cut until the match is cut or processed, deleted with the match, 14 days
+/// after it was kept if nobody has started marking it, or deleted by the
+/// player from "My app recordings" (Account > Storage).
 ///
 /// Lives in Application Support (never tmp, which the system empties, and
 /// never Documents, which is the upload queue's scratch space), excluded
@@ -108,6 +109,12 @@ final class LocalMatchVideos {
 
     private(set) var index: LocalVideoIndex
     @ObservationIgnored private var reconciling = false
+    /// Matches the marker has open. Their copy stays while it is.
+    @ObservationIgnored private var markerOpen: Set<UUID> = []
+    /// When marking was last read for the copies past their 14 days. The
+    /// library polls every few seconds; a fortnight's rule needs no more
+    /// than a read every ten minutes.
+    @ObservationIgnored private var markingReadAt: Date?
 
     /// The kept file for a match, if this phone has one. What phase 2's
     /// on-phone cutter reads.
@@ -186,6 +193,11 @@ final class LocalMatchVideos {
         persist()
     }
 
+    /// The marker opened on this match's video, and closed. While it is
+    /// open the copy is never deleted by the sweep.
+    func markerOpened(_ matchId: UUID) { markerOpen.insert(matchId) }
+    func markerClosed(_ matchId: UUID) { markerOpen.remove(matchId) }
+
     /// Delete this phone's copy. Never touches Photos or the server.
     func remove(matchId: UUID) {
         guard let entry = index.remove(matchId: matchId) else { return }
@@ -194,9 +206,11 @@ final class LocalMatchVideos {
     }
 
     /// Square the kept copies with the server: a match that is gone or
-    /// now `ready` loses its copy, and the titles catch up. Only the
-    /// signed-in owner's copies are considered, and only a query that
-    /// succeeded is read: a failed read deletes nothing.
+    /// now `ready` loses its copy, so does one kept 14 days ago that nobody
+    /// has started marking, and the titles catch up. Only the signed-in
+    /// owner's copies are considered, never one a phone cut is reading or
+    /// the marker has open, and only reads that succeeded count: a failed
+    /// one deletes nothing (LocalVideoReconcile).
     func reconcile() async {
         guard !reconciling else { return }
         reconciling = true
@@ -223,9 +237,27 @@ final class LocalMatchVideos {
             return
         }
         guard supa.auth.currentUser?.id == owner else { return }
+        let statuses = Dictionary(rows.map { ($0.id, $0.status) }, uniquingKeysWith: { a, _ in a })
+        let now = Date()
+        // Marking is read only for copies past their 14 days whose match
+        // is still waiting, and at most every ten minutes. Unread counts
+        // as marked, so a skipped read keeps them.
+        let aged = mine.filter { entry in
+            LocalVideoReconcile.expired(entry, now: now)
+                && statuses[entry.matchId].map { $0 != "ready" } == true
+        }.map(\.matchId)
+        var marked: [UUID: Bool] = [:]
+        if !aged.isEmpty, markingReadAt.map({ now.timeIntervalSince($0) > 600 }) ?? true {
+            markingReadAt = now
+            marked = await markingStarted(aged, owner: owner)
+            guard supa.auth.currentUser?.id == owner else { return }
+        }
+        // Read after every await: a marker opened or a phone cut started
+        // while the reads were out keeps its copy.
+        var inUse = markerOpen
+        for job in DeviceHandCutQueue.shared.jobs { inUse.insert(job.matchId) }
         let doomed = LocalVideoReconcile.doomed(
-            entries: mine, owner: owner,
-            rows: Dictionary(rows.map { ($0.id, $0.status) }, uniquingKeysWith: { a, _ in a }))
+            entries: mine, owner: owner, rows: statuses, now: now, marked: marked, inUse: inUse)
         for id in doomed { remove(matchId: id) }
         var titled = false
         for row in rows where index.entry(for: row.id) != nil {
@@ -239,5 +271,44 @@ final class LocalMatchVideos {
             }
         }
         if titled { persist() }
+    }
+
+    /// Has marking started on these matches: a mark in the server's draft
+    /// or in the phone's own copy, or a hand-cut job? Each read that fails
+    /// leaves its answer unknown, which counts as marked.
+    private func markingStarted(_ ids: [UUID], owner: UUID) async -> [UUID: Bool] {
+        struct Draft: Decodable {
+            let match_id: UUID
+            let marks: HandCutJSON?
+        }
+        struct Job: Decodable {
+            struct Options: Decodable { let match_id: String? }
+            let options: Options?
+        }
+        let wanted = ids.map { $0.uuidString.lowercased() }
+        var serverMarks: [UUID: Int]?
+        if let drafts: [Draft] = try? await supa.from("hand_cut_drafts")
+            .select("match_id,marks")
+            .in("match_id", values: wanted)
+            .execute().value {
+            serverMarks = Dictionary(
+                drafts.map { ($0.match_id, HandCut.normalizeMarks($0.marks).count) },
+                uniquingKeysWith: { a, b in max(a, b) })
+        }
+        var jobMatches: Set<String>?
+        if let jobs: [Job] = try? await supa.from("jobs")
+            .select("options")
+            .eq("kind", value: "hand_cut")
+            .execute().value {
+            jobMatches = Set(jobs.compactMap { $0.options?.match_id?.lowercased() })
+        }
+        var answers: [UUID: Bool] = [:]
+        for id in ids {
+            answers[id] = LocalVideoReconcile.marked(
+                serverMarks: serverMarks.map { $0[id] ?? 0 },
+                phoneMarks: HandCutMirror.markCount(matchId: id, userId: owner),
+                handCutJob: jobMatches.map { $0.contains(id.uuidString.lowercased()) })
+        }
+        return answers
     }
 }

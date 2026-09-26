@@ -101,6 +101,9 @@ struct MarkLandscape: Equatable {
         let tone: Tone
         /// Share of the rail's height: 1 is the whole rail.
         let share: Double
+        /// A smaller second line under the label: what a gate button does
+        /// when the marker opens on points already there (MarkerCopy).
+        var detail: String? = nil
     }
 
     /// The right rail's tiles, top to bottom: the pair, in the same two
@@ -113,16 +116,20 @@ struct MarkLandscape: Equatable {
     ) -> [PairTile] {
         if !started {
             let again = PairTile(
-                label: MarkerCopy.startAgain, action: .startAgain, tone: .unlit, share: 0.26)
+                label: MarkerCopy.startAgain, action: .startAgain, tone: .unlit, share: 0.26,
+                detail: MarkerCopy.startAgainDetail)
+            let keepDetail = MarkerCopy.keepMarkingDetail(opened)
             if opened == .choice {
                 return startAgain
                     ? [
-                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.44),
+                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.44,
+                                 detail: keepDetail),
                         PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.3),
                         again,
                     ]
                     : [
-                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.58),
+                        PairTile(label: "Keep marking", action: .keepMarking, tone: .lit, share: 0.58,
+                                 detail: keepDetail),
                         PairTile(label: "Review the points", action: .reviewPoints, tone: .unlit, share: 0.42),
                     ]
             }
@@ -132,10 +139,12 @@ struct MarkLandscape: Equatable {
             let first = opened == .review
                 ? PairTile(label: "Begin review", action: .beginReview, tone: .lit, share: 1)
                 : opened == .scoring
-                    ? PairTile(label: "Keep marking", action: .beginCutting, tone: .lit, share: 1)
+                    ? PairTile(label: "Keep marking", action: .beginCutting, tone: .lit, share: 1,
+                               detail: keepDetail)
                     : PairTile(label: "Begin Cutting", action: .beginCutting, tone: .lit, share: 1)
             guard startAgain else { return [first] }
-            return [PairTile(label: first.label, action: first.action, tone: .lit, share: 0.74), again]
+            return [PairTile(label: first.label, action: first.action, tone: .lit, share: 0.74,
+                             detail: first.detail), again]
         }
         if reviewing {
             return adjusting
@@ -176,6 +185,25 @@ enum MarkerCopy {
     static let backToLastPoint = "Back to last point"
     /// Marking a processed match again, at the gate (cut again contract).
     static let startAgain = "Start again"
+
+    /// The line under each gate button when the marker opens on points
+    /// already there (post-rollout audit B, approved by Adil 2026-09-26),
+    /// word for word the web's. Under Keep marking it depends on whether
+    /// every point is called: some without a winner is the scoring gate,
+    /// all called is the choice gate.
+    static let keepMarkingUncalled = "Start from the points already here and fix or score each one."
+    static let keepMarkingCalled = "Carry on from the last point to the end of the match."
+    static let startAgainDetail = "Clear every point and mark the whole match yourself."
+
+    /// Keep marking's line for the gate the marker opened as. Nil for the
+    /// gates without a Keep marking button.
+    static func keepMarkingDetail(_ opened: HandCutOpenAs) -> String? {
+        switch opened {
+        case .scoring: keepMarkingUncalled
+        case .choice: keepMarkingCalled
+        case .fresh, .review: nil
+        }
+    }
 
     /// The Score switch's label: what the pass is, on or off (Adil,
     /// 2026-09-25). Practice and drills can only be cut.

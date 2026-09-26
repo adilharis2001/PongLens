@@ -152,6 +152,10 @@ nonisolated enum DeviceCutStop: String, Codable, Equatable, Sendable {
     case refused
     /// Handed over on request (the simulator QA run).
     case requested
+    /// "Upload on Wi-Fi only" is on and there was no Wi-Fi when the cut was
+    /// ready to send: the server cuts it now rather than the job waiting,
+    /// unreported, for a network the upload is not allowed to use.
+    case wifiOnly
 
     init(_ hold: DeviceCutHold) {
         switch hold {
@@ -471,6 +475,14 @@ nonisolated enum DeviceCutGuard {
                                                  audioBitrate: DeviceCutSettings.clipAudioBitrate)
         }
         return cut + clips + DeviceCutSettings.partSize + spareBytes
+    }
+
+    /// The cut is ready to send and nothing has gone up yet. With "Upload
+    /// on Wi-Fi only" on and no Wi-Fi, the job goes to the server at once
+    /// (DeviceCutStop.wifiOnly). An unknown network is not "no Wi-Fi": the
+    /// upload honours the setting itself and waits.
+    static func handOverForWiFi(wifiOnly: Bool, onWiFi: Bool?) -> Bool {
+        wifiOnly && onWiFi == false
     }
 
     /// The cut alone, against what the route accepts.

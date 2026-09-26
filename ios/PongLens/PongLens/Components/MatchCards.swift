@@ -67,7 +67,7 @@ struct MatchListRow: View {
                 }
                 ProcessingEstimateNote(estimate: processingFeedback?.estimate,
                     jobStatus: processingFeedback?.jobStatus,
-                    serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: processingFeedback?.jobKind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue,
+                    serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: processingFeedback?.jobKind, clipLane: ProcessingServiceStore.shared.clipLane, manualCut: match.cutSource == "manual")).rawValue,
                     compact: true)
             }
             Spacer()
@@ -136,7 +136,7 @@ struct MatchCard: View {
                     .lineLimit(1)
                 ProcessingEstimateNote(estimate: processingFeedback?.estimate,
                     jobStatus: processingFeedback?.jobStatus,
-                    serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: processingFeedback?.jobKind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue,
+                    serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: processingFeedback?.jobKind, clipLane: ProcessingServiceStore.shared.clipLane, manualCut: match.cutSource == "manual")).rawValue,
                     compact: true)
 
                 // Bottom meta row: score on the left, share and delete on

@@ -39,6 +39,10 @@ struct MainTabView: View {
 
     @State private var path = NavigationPath()
     @State private var bellOpen = false
+    /// A bell row asked for the upload screen: raised once the bell's
+    /// sheet has gone, since a cover presented under a closing sheet is
+    /// dropped.
+    @State private var uploadAfterBell = false
     @State private var newMatchChoice: NewMatchChoice?
     /// The chosen door, held while the recording brief is up in front of
     /// it, and consumed when the brief closes.
@@ -313,23 +317,22 @@ struct MainTabView: View {
                 journal.recollectPreference = enabled
             }
         }
-        .sheet(isPresented: $bellOpen) {
+        .sheet(isPresented: $bellOpen, onDismiss: {
+            if uploadAfterBell {
+                uploadAfterBell = false
+                router.uploadOpen = true
+            }
+        }) {
             NotificationsPanel(
                 store: notifications,
                 onOpenMatch: { matchId, pointId in
                     bellOpen = false
-                    guard let match = library.matches.first(where: { $0.id == matchId })
-                    else { return }
                     // "Anton left a note" is about one rally, and the
                     // rally is what the tap is asking to see. The web's
                     // bell opens it; landing on the top of the match
                     // leaves the note several taps away in a list that
                     // does not say which row it is on.
-                    if let pointId {
-                        path.append(MatchPointRoute(match: match, pointId: pointId))
-                    } else {
-                        path.append(match)
-                    }
+                    Task { await openBellMatch(matchId, pointId: pointId, library: library, path: $path) }
                 },
                 onOpenMatchFeedback: { matchId in
                     bellOpen = false
@@ -380,6 +383,11 @@ struct MainTabView: View {
                         bellOpen = false
                         openURL(url)
                     }
+                },
+                onOpenUpload: {
+                    // "Upload failed": the upload screen, to try again.
+                    uploadAfterBell = true
+                    bellOpen = false
                 }
             )
             .presentationDetents([.medium, .large])
@@ -710,6 +718,22 @@ func pushMatchForMarking(_ id: UUID, library: LibraryStore, path: Binding<Naviga
     if row == nil { row = try? await MatchDetailClient.live.match(id) }
     guard let row else { return }
     path.wrappedValue.append(MarkMatchRoute(match: row))
+}
+
+/// A bell row's match: from the library when it is there, fetched when it
+/// is not (a match made since the library loaded, or a library still
+/// loading), so a tap never does nothing while the match exists. A match
+/// that is gone opens nothing.
+@MainActor
+func openBellMatch(_ id: UUID, pointId: UUID?, library: LibraryStore, path: Binding<NavigationPath>) async {
+    var row = library.matches.first { $0.id == id }
+    if row == nil { row = try? await MatchDetailClient.live.match(id) }
+    guard let row else { return }
+    if let pointId {
+        path.wrappedValue.append(MatchPointRoute(match: row, pointId: pointId))
+    } else {
+        path.wrappedValue.append(row)
+    }
 }
 
 /// Swap the match page on top of a stack for another match's page: the

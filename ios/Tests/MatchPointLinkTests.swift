@@ -49,4 +49,45 @@ func runMatchPointLinkChecks() {
     let broken = MatchPointLink(href: "/match/\(m)?p=12")
     eq(broken?.matchId, UUID(uuidString: m), "a broken point keeps the match")
     eq(broken?.pointId, nil, "a broken point is no point")
+
+    runBellDestinationChecks(m: UUID(uuidString: m)!, p: UUID(uuidString: p)!)
+}
+
+/// Where a bell row goes (post-rollout audit G). A failed cut's row carried
+/// only a link, and the iPhone's bell only followed match ids, so the tap
+/// opened nothing.
+private func runBellDestinationChecks(m: UUID, p: UUID) {
+    let other = UUID()
+    func go(_ kind: String, _ matchId: UUID?, _ href: String) -> BellDestination {
+        BellDestination(kind: kind, matchId: matchId, href: href)
+    }
+    // "Cut failed" before the database wrote the match id: the link alone.
+    eq(go("upload_failed", nil, "/match/\(m.uuidString.lowercased())"), .match(m, pointId: nil),
+       "a failed cut with only its link opens the match")
+    // And after: the id and the link agree.
+    eq(go("upload_failed", m, "/match/\(m.uuidString.lowercased())"), .match(m, pointId: nil),
+       "a failed cut with its match id opens the match")
+    eq(go("upload_failed", nil, "/upload"), .upload, "Upload failed opens the upload screen")
+    eq(go("upload_failed", nil, "/upload?from=bell"), .upload, "a query does not stop it")
+    check(go("upload_failed", nil, "/uploads") != .upload, "only the upload page is the upload page")
+    eq(go("match_failed", m, "/match/\(m.uuidString.lowercased())"), .match(m, pointId: nil),
+       "a failed match opens the match")
+    eq(go("match_ready", m, "/match/\(m.uuidString.lowercased())"), .match(m, pointId: nil), "a ready match")
+    // A coach's note names its rally, with or without the match id.
+    let noteHref = "/match/\(m.uuidString.lowercased())?p=\(p.uuidString.lowercased())"
+    eq(go("note", m, noteHref), .match(m, pointId: p), "a note opens its point")
+    eq(go("note", nil, noteHref), .match(m, pointId: p), "a note with only its link still opens its point")
+    // The match id wins over a link that names another match.
+    eq(go("match_ready", m, "/match/\(other.uuidString.lowercased())"), .match(m, pointId: nil),
+       "the row's own match id wins")
+    // The private report, and admin review on the web.
+    eq(go("match_issue_updated", m, "/match/\(m.uuidString.lowercased())/feedback"), .matchFeedback(m),
+       "a request update opens its report")
+    eq(go("match_issue_reported", m, "/admin/issues/1"), .href("/admin/issues/1"),
+       "admin review stays on the web whatever the row names")
+    eq(go("match_issue_updated", nil, "/match/\(m.uuidString.lowercased())"), .match(m, pointId: nil),
+       "a report row with no match id still opens the match its link names")
+    // Everything else is the root's to map.
+    eq(go("coach_entry", nil, "/coaching"), .href("/coaching"), "a shared entry is the root's")
+    eq(go("allowance_decided", nil, "/account"), .href("/account"), "Account is the root's")
 }

@@ -665,28 +665,58 @@ extension PlayerTakeover {
 
     /// Before the pass: the way in, as big as the pair and the answers it
     /// gives way to, and, when a processed match is marked again, Start
-    /// again where the tool row will be.
+    /// again where the tool row will be. Opened on points already there,
+    /// Keep marking and Start again each say in one line what they do
+    /// (post-rollout audit B).
     func markGate(_ hc: HandCutMarker, primary: CGFloat, secondary: CGFloat) -> some View {
-        VStack(spacing: CGFloat(MarkPortraitPad.gap)) {
+        let keepDetail = MarkerCopy.keepMarkingDetail(hc.openedAs)
+        return VStack(spacing: CGFloat(MarkPortraitPad.gap)) {
             if hc.openedPartial {
-                markBigButton("Keep marking", lit: true, height: primary) { markBeginMarking() }
+                markCaptioned(keepDetail) {
+                    markBigButton("Keep marking", lit: true, height: primary) { markBeginMarking() }
+                }
                 markBigButton("Review the points", lit: false, text: PL.text300, height: secondary) {
                     markBeginReview()
                 }
             } else {
                 // A re-cut with points still to call carries on from the
-                // first of them: the cue is already there.
-                markBigButton(
-                    hc.openedFinished ? "Begin review"
-                        : hc.openedAs == .scoring ? "Keep marking" : "Begin Cutting",
-                    lit: true, height: primary
-                ) {
-                    if hc.openedFinished { markBeginReview() } else { markBeginCutting() }
+                // first of them, shown and held at its end.
+                markCaptioned(keepDetail) {
+                    markBigButton(
+                        hc.openedFinished ? "Begin review"
+                            : hc.openedAs == .scoring ? "Keep marking" : "Begin Cutting",
+                        lit: true, height: primary
+                    ) {
+                        if hc.openedFinished { markBeginReview() } else { markBeginCutting() }
+                    }
                 }
             }
             if hc.canStartAgain {
-                markStartAgainButton(hc)
+                markCaptioned(MarkerCopy.startAgainDetail) {
+                    markStartAgainButton(hc)
+                }
             }
+        }
+    }
+
+    /// A gate button and, when it has one, its line underneath.
+    @ViewBuilder
+    func markCaptioned<Button: View>(_ caption: String?, @ViewBuilder button: () -> Button) -> some View {
+        if let caption {
+            VStack(spacing: 6) {
+                button()
+                // Two lines at most, and it gives way before a button
+                // does on the smallest pads.
+                Text(caption)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PL.text400)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity)
+            }
+        } else {
+            button()
         }
     }
 
@@ -734,17 +764,28 @@ extension PlayerTakeover {
     func markBigButton(
         _ label: String, lit: Bool, text: Color = PL.text400, enabled: Bool = true,
         height: CGFloat? = nil, radius: CGFloat = 12, font: CGFloat = 16,
-        lines: Int = 2, minScale: CGFloat = 0.8,
+        lines: Int = 2, minScale: CGFloat = 0.8, detail: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Text(label)
-                .font(.system(size: font, weight: .bold))
-                .foregroundStyle(lit ? PL.ink : text)
-                .multilineTextAlignment(.center)
-                .lineLimit(lines)
-                .minimumScaleFactor(minScale)
-                .padding(.horizontal, 8)
+            VStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: font, weight: .bold))
+                    .foregroundStyle(lit ? PL.ink : text)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(lines)
+                    .minimumScaleFactor(minScale)
+                // The landscape gate's second line: smaller, and quieter
+                // than the label on either tone.
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: max(11, (font * 0.6).rounded()), weight: .medium))
+                        .foregroundStyle(lit ? PL.ink.opacity(0.72) : PL.text400)
+                        .multilineTextAlignment(.center)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+                .padding(.horizontal, detail == nil ? 8 : 6)
                 .frame(maxWidth: .infinity, maxHeight: height == nil ? .infinity : nil)
                 .frame(height: height)
                 .frame(minHeight: 44)
@@ -1024,14 +1065,16 @@ extension PlayerTakeover {
             ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
                 // "Back to last point" may take three short lines but never
                 // shrinks below the tile beside it; Start again is a step
-                // down, like its portrait pill.
+                // down, like its portrait pill, and keeps to one line so
+                // its own second line has the room.
                 markBigButton(
                     tile.label, lit: tile.tone == .lit, text: PL.text300,
                     enabled: tile.tone != .off,
                     height: CGFloat(MarkLandscape.pairTileHeight(tile, count: tiles.count, boxH: g.boxH)),
                     radius: 16, font: tile.action == .startAgain ? min(fs, 15) : fs,
-                    lines: tile.action == .reset ? 3 : 2,
-                    minScale: tile.action == .reset ? 1 : 0.8
+                    lines: tile.action == .reset ? 3 : tile.action == .startAgain ? 1 : 2,
+                    minScale: tile.action == .reset ? 1 : tile.action == .startAgain ? 0.7 : 0.8,
+                    detail: tile.detail
                 ) { markRailAction(tile.action) }
             }
         }
@@ -1394,15 +1437,16 @@ extension PlayerTakeover {
             hc.store.notice = nil
             showToast(notice)
         }
-        Task { await markWhenReady() }
+        // The item's own ready event cues it (attachCutItem's watcher);
+        // this covers a file that was ready before the marker was.
+        markWhenReady()
     }
 
-    /// The first metadata event: the file's shape and length, then the cue.
-    func markWhenReady() async {
-        for _ in 0..<200 {
-            if player.currentItem?.status == .readyToPlay || loadFailed { break }
-            try? await Task.sleep(for: .milliseconds(100))
-        }
+    /// The first ready event: the file's shape and length, then the cue.
+    /// Called by the item's status watcher however long the file takes (it
+    /// used to poll and give up after 20 seconds, which left a slow
+    /// original uncued), and once from markDidOpen. Runs once.
+    func markWhenReady() {
         guard let hc = marker, let item = player.currentItem, item.status == .readyToPlay else { return }
         let d = item.duration.seconds
         if d.isFinite, d > 0 {
@@ -1435,12 +1479,27 @@ extension PlayerTakeover {
     }
 
     /// Every tick: a clip preview that has played out stops, and the walk
-    /// moves on.
+    /// moves on. With no preview running, playback that carries on past a
+    /// selected point into the next one selects it and stops at its end
+    /// (HandCut.follow), so the chip and the answers follow the picture.
     func markTick(_ t: Double) {
-        guard let hc = marker, let stop = hc.previewUntil, t >= stop else { return }
-        hc.previewUntil = nil
-        player.pause()
-        markChainAfterPreview()
+        guard let hc = marker else { return }
+        if let stop = hc.previewUntil {
+            guard t >= stop else { return }
+            hc.previewUntil = nil
+            player.pause()
+            markChainAfterPreview()
+            return
+        }
+        // Only playback moves the selection: a paused picture held at a
+        // point's end for its answer stays on that point.
+        guard player.rate > 0,
+              let next = HandCut.follow(
+                hc.state, at: t, adjusting: hc.adjusting != nil,
+                pre: HandCutMarker.clipPre, post: HandCutMarker.clipPost)
+        else { return }
+        hc.state = HandCut.selectMark(hc.state, id: next.id)
+        hc.previewUntil = next.stopAt
     }
 
     /// The live clock at the moment of the tap, never the last tick.
@@ -1491,9 +1550,23 @@ extension PlayerTakeover {
     // MARK: - Taps
 
     func markBeginCutting() {
+        markGateTap()
+    }
+
+    /// Every way in from the gate, portrait and landscape: what it does is
+    /// HandCut.gateStart for the gate the marker opened as.
+    func markGateTap(reviewPoints: Bool = false) {
         guard let hc = marker else { return }
+        let start = HandCut.gateStart(hc.openedAs, marks: hc.state.marks, reviewPoints: reviewPoints)
         hc.started = true
-        play()
+        // A way in taken before the file was ready is its own cue: the
+        // ready event must not move the picture from under it.
+        hc.cued = true
+        switch start {
+        case .play: play()
+        case .playMark(let id): markPlayMark(id)
+        case .resumeMarking: markResume()
+        }
     }
 
     func markCloseServeStep() {
@@ -1633,13 +1706,7 @@ extension PlayerTakeover {
     }
 
     func markBeginReview() {
-        guard let hc = marker else { return }
-        hc.started = true
-        if let first = hc.state.marks.first(where: { $0.t1 != nil }) {
-            markPlayMark(first.id)
-        } else {
-            play()
-        }
+        markGateTap(reviewPoints: true)
     }
 
     /// A rally the pass went past, put back in the middle of the hole at a
@@ -1725,9 +1792,7 @@ extension PlayerTakeover {
     }
 
     func markBeginMarking() {
-        guard let hc = marker else { return }
-        hc.started = true
-        markResume()
+        markGateTap()
     }
 
     /// Mark again: the point comes out (undoable) and the playhead lands a

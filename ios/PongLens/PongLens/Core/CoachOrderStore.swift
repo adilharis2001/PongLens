@@ -121,9 +121,10 @@ final class CoachOrderStore {
 
         if let matchId = detailRow.matchId {
             let mid = matchId.uuidString.lowercased()
-            // cut_source: a hand-cut match plays as marked (HandCutPlayback).
+            // cut_source (in librarySelect): a hand-cut match plays as
+            // marked (HandCutPlayback).
             async let matchQ: MatchRow? = try? await supa
-                .from("matches").select(MatchRow.librarySelect + ",cut_source")
+                .from("matches").select(MatchRow.librarySelect)
                 .eq("id", value: mid).single().execute().value
             async let pointsQ: [WorkspacePoint]? = try? await supa
                 .from("points").select(WorkspacePoint.workspaceSelect)
