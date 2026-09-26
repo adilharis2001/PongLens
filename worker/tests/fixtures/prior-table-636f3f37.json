@@ -1,0 +1,59 @@
+{
+ "_about": "Match 636f3f37 (audit D, 2026-09-26): the table-bearing parts of the automatic version 8bdf5aad's match.json, which drew 50 serve maps, and of the hand Replace 19bf2994 that replaced it and got keypoint_calibration_declined. Read from R2 on 2026-09-26; points, paths and names left out.",
+ "automatic": {
+  "version": 3,
+  "pipeline": "bodies",
+  "source": {
+   "duration": 964.42,
+   "fps": 59.947,
+   "height": 1080,
+   "width": 1920
+  },
+  "calibration": {
+   "agreement": null,
+   "length_axis": [
+    0.9784033894538879,
+    -0.20670495927333832
+   ],
+   "note": "vision-proposed quad (gpt-5.6-sol), colour-independent validation, 3 trials, shape-ranked",
+   "ok": true,
+   "source": "vision",
+   "table_corners_px": {
+    "A_near_1": [
+     841.2,
+     576.0
+    ],
+    "B_near_2": [
+     1017.6,
+     612.0
+    ],
+    "C_far_2": [
+     1137.6,
+     580.8
+    ],
+    "D_far_1": [
+     976.8,
+     553.2
+    ]
+   }
+  }
+ },
+ "hand": {
+  "version": 3,
+  "pipeline": "hand-v1",
+  "source": {
+   "duration": 964.42,
+   "fps": 59.947,
+   "width": 1920,
+   "height": 1080
+  },
+  "options": {
+   "clip_pads": {
+    "pre": 1.2,
+    "post": 1.3
+   }
+  },
+  "cut_mode": "plays",
+  "points": []
+ }
+}

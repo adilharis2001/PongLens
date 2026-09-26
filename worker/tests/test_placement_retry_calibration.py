@@ -339,3 +339,123 @@ class CalibrationCascadeTests(unittest.TestCase):
         self.assertFalse(outcome.ok)
         self.assertEqual(outcome.code, "vision_calibration_rejected")
         self.assertIsNone(outcome.calibration)
+
+
+# ---------------------------------------------------------------------------
+# Reusing a table an earlier cut of the same upload found (audit D)
+# ---------------------------------------------------------------------------
+FIXTURE_636F = json.loads(
+    (Path(__file__).parent / "fixtures" / "prior-table-636f3f37.json").read_text())
+RAW = "r2://ponglens-raw/owner/original.mov"
+
+
+def stored(calibration=None, *, source=None, document_raw=RAW, raw=RAW,
+           relation="replaced"):
+    automatic = FIXTURE_636F["automatic"]
+    return {
+        "document": {
+            "calibration": calibration or automatic["calibration"],
+            "source": source or automatic["source"],
+        },
+        "document_raw_path": document_raw,
+        "raw_path": raw,
+        "reused_from": {"relation": relation, "match_id": "m",
+                        "processing_version_id": "8bdf5aad",
+                        "match_json_path": "r2://ponglens-media/points/x/match.json"},
+    }
+
+
+class ReuseStoredTableTests(unittest.TestCase):
+    def test_636f3f37s_table_comes_back_as_a_fresh_table_would(self):
+        from worker.points_pipeline import _canonical_calibration_geometry
+
+        outcome = retry_calibration.reuse_stored_table(stored(), 1920, 1080)
+        self.assertTrue(outcome.ok)
+        table = outcome.calibration
+        corners = FIXTURE_636F["automatic"]["calibration"]["table_corners_px"]
+        quad = np.asarray([corners[n] for n in retry_calibration.CORNER_NAMES],
+                          dtype=np.float32)
+        expected, _h, axis, reordered = _canonical_calibration_geometry(quad)
+        self.assertEqual(table["table_corners_px"], {
+            name: [round(float(p[0]), 1), round(float(p[1]), 1)]
+            for name, p in zip(retry_calibration.CORNER_NAMES, expected)})
+        self.assertEqual(table["length_axis"], [float(axis[0]), float(axis[1])])
+        self.assertEqual(table["orientation"], "canonical-v1")
+        self.assertIs(table["legacy_reordered"], bool(reordered))
+        self.assertEqual(table["source"], "vision")
+        self.assertTrue(table["note"].startswith("vision-proposed quad"),
+                        "the admin page reads the note's front")
+        self.assertTrue(table["note"].endswith(
+            "; reused from the cut this one replaced"))
+        self.assertEqual(table["reused_from"]["processing_version_id"], "8bdf5aad")
+        self.assertEqual(set(json.loads(json.dumps(
+            retry_calibration.asdict(outcome)))), {"ok", "code", "calibration"})
+
+    def test_near_and_far_come_from_the_picture_not_the_labels(self):
+        """A stored quad whose labels name the far end line 'near' is put
+        right, exactly as _canonical_calibration_geometry puts a fresh one
+        right: the near end line is the one lower in the frame."""
+        right = FIXTURE_636F["automatic"]["calibration"]["table_corners_px"]
+        swapped = dict(FIXTURE_636F["automatic"]["calibration"])
+        swapped["table_corners_px"] = {
+            "A_near_1": right["D_far_1"], "B_near_2": right["C_far_2"],
+            "C_far_2": right["B_near_2"], "D_far_1": right["A_near_1"]}
+        outcome = retry_calibration.reuse_stored_table(
+            stored(swapped), 1920, 1080)
+        self.assertTrue(outcome.ok)
+        self.assertEqual(outcome.calibration["table_corners_px"], {
+            name: [float(v) for v in right[name]]
+            for name in retry_calibration.CORNER_NAMES})
+        self.assertTrue(outcome.calibration["legacy_reordered"])
+
+    def test_every_refusal(self):
+        automatic = FIXTURE_636F["automatic"]["calibration"]
+        pink = dict(automatic, source="pink_rim")
+        degenerate = dict(automatic, table_corners_px={
+            "A_near_1": [100, 500], "B_near_2": [200, 500],
+            "C_far_2": [300, 500], "D_far_1": [400, 500]})
+        cases = {
+            "pink rim": (stored(pink), 1920, 1080),
+            "another upload": (stored(document_raw="r2://ponglens-raw/owner/other.mov"),
+                               1920, 1080),
+            "frame size differs from the probe": (stored(), 1280, 720),
+            "stored frame size differs": (
+                stored(source={"width": 3840, "height": 2160}), 1920, 1080),
+            "absent": (stored({"ok": False}), 1920, 1080),
+            "degenerate": (stored(degenerate), 1920, 1080),
+            "not a request": (None, 1920, 1080),
+        }
+        for name, (request, width, height) in cases.items():
+            with self.subTest(name):
+                outcome = retry_calibration.reuse_stored_table(request, width, height)
+                self.assertFalse(outcome.ok)
+                self.assertIsNone(outcome.calibration)
+                self.assertEqual(outcome.code, "stored_table_refused")
+
+    def test_the_cuts_own_table_keeps_where_it_came_from(self):
+        carried = retry_calibration.reuse_stored_table(stored(), 1920, 1080).calibration
+        again = retry_calibration.reuse_stored_table(
+            stored(carried, relation="own"), 1920, 1080).calibration
+        self.assertEqual(again["table_corners_px"], carried["table_corners_px"])
+        self.assertEqual(again["note"], carried["note"], "no second suffix")
+        self.assertEqual(again["reused_from"], carried["reused_from"])
+
+    def test_the_command_probes_the_video_itself(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "stored.json").write_text(json.dumps(stored()))
+            for probed, ok in (((1920, 1080), True), ((1280, 720), False)):
+                with self.subTest(probed=probed), \
+                        patch.object(retry_calibration, "probe", return_value={
+                            "width": probed[0], "height": probed[1],
+                            "fps": 59.947, "duration": 964.42}) as probe, \
+                        patch("sys.argv", [
+                            "placement_retry_calibration.py", "reuse",
+                            "--stored", str(root / "stored.json"),
+                            "--video", str(root / "source.mp4"),
+                            "--output", str(root / "out.json")]):
+                    self.assertEqual(retry_calibration.main(), 0)
+                    probe.assert_called_once_with(str(root / "source.mp4"))
+                    result = json.loads((root / "out.json").read_text())
+                    self.assertEqual(set(result), {"ok", "code", "calibration"})
+                    self.assertIs(result["ok"], ok)

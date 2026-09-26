@@ -209,6 +209,216 @@ class ContentCheckEchoDetectionTests(unittest.TestCase):
         self.assertEqual(len(conn.calls), 2)
 
 
+# ---------------------------------------------------------------------------
+# A failure nobody is left to hear about (audit C, 2026-09-26)
+# ---------------------------------------------------------------------------
+JOB = "33333333-3333-4333-8333-333333333333"
+USER = "11111111-1111-4111-8111-111111111111"
+MATCH = "22222222-2222-4222-8222-222222222222"
+
+
+class JobDbCursor:
+    def __init__(self, db):
+        self.db = db
+        self.result = None
+        self.rowcount = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, query, params=None):
+        sql = " ".join(query.split())
+        self.db.calls.append((sql, params))
+        self.result = None
+        if self.db.broken:
+            raise RuntimeError("connection lost")
+        if sql.startswith("select status, kind, options from public.jobs"):
+            self.result = (self.db.status, self.db.kind, self.db.options)
+        elif sql.startswith("select options from public.jobs"):
+            self.result = (self.db.options,)
+        elif sql.startswith("select 1 from public.matches where id"):
+            self.result = (1,) if self.db.match_exists else None
+        elif sql.startswith("update public.jobs set status = 'cancelled'"):
+            self.rowcount = int(self.db.status != "cancelled")
+            if self.rowcount:
+                self.db.status = "cancelled"
+                self.db.error = params[0]
+
+    def fetchone(self):
+        return self.result
+
+
+class JobDb:
+    """One jobs row and whether its match still exists: the two facts the
+    silent path reads before anything is recorded or sent."""
+
+    def __init__(self, kind="hand_cut", *, status="processing",
+                 match_exists=True, options=None, broken=False):
+        self.kind = kind
+        self.status = status
+        self.match_exists = match_exists
+        self.options = {"match_id": MATCH} if options is None else options
+        self.broken = broken
+        self.error = None
+        self.calls = []
+        self.autocommit = True
+
+    def cursor(self, **kwargs):
+        return JobDbCursor(self)
+
+    def sql(self, fragment):
+        return [c for c in self.calls if fragment in c[0]]
+
+
+class SilentFailureTests(unittest.TestCase):
+    """A job whose match the player deleted, or that was cancelled, fails
+    without a word: no email to the player, no "[Action needed]" to the
+    admin, no bell (the bell rides the row turning 'failed', which it never
+    does), and no retries, because nothing can bring the match back."""
+
+    def fail(self, db, error=None, *, read_ct=1):
+        msg = {"msg_id": 5, "read_ct": read_ct, "message": {
+            "job_id": JOB, "user_id": USER, "kind": db.kind,
+            "options": dict(db.options)}}
+        error = error or RuntimeError("placement attempt match not found")
+        with mock.patch.object(worker, "archive_message") as archive, \
+             mock.patch.object(worker, "update_job") as update, \
+             mock.patch.object(worker, "send_email") as send, \
+             mock.patch.object(worker, "hand_cut_release") as release, \
+             mock.patch.object(worker, "refund_processing_spend_direct") as refund, \
+             mock.patch.object(worker, "finalize_poisoned_placement_attempt") as finalize, \
+             mock.patch.object(worker, "mark_library_match_failed") as library, \
+             mock.patch.object(worker, "get_user_email",
+                               return_value="player@example.com"), \
+             mock.patch.object(worker, "get_job_match_id", return_value=MATCH):
+            worker.record_job_failure(db, msg, error)
+        return dict(archive=archive, update=update, send=send, release=release,
+                    refund=refund, finalize=finalize, library=library)
+
+    def test_every_match_job_ends_silently_when_its_match_was_deleted(self):
+        for kind in sorted(worker.MATCH_BOUND_KINDS):
+            for read_ct, error in ((1, RuntimeError("no match_reels row")),
+                                   (worker.MAX_READ_CT, RuntimeError("gone")),
+                                   (1, worker.UserFacingError(
+                                       "The marks for this match could not be found."))):
+                with self.subTest(kind=kind, read_ct=read_ct, error=str(error)):
+                    db = JobDb(kind, match_exists=False)
+                    out = self.fail(db, error, read_ct=read_ct)
+                    out["send"].assert_not_called()
+                    out["update"].assert_not_called()   # never 'failed'
+                    out["archive"].assert_called_once_with(db, 5)
+                    out["finalize"].assert_not_called()
+                    self.assertEqual(db.status, "cancelled")
+                    self.assertIn("deleted", db.error)
+                    (sql, params), = db.sql("update public.jobs set status = 'cancelled'")
+                    self.assertIn("progress = 100", sql)
+                    self.assertIn("status <> 'cancelled'", sql)
+                    self.assertEqual(params[1], JOB)
+
+    def test_a_deleted_hand_cut_hands_its_marks_back(self):
+        out = self.fail(JobDb("hand_cut", match_exists=False))
+        out["release"].assert_called_once_with(mock.ANY, JOB, {"options": {"match_id": MATCH}})
+        out["refund"].assert_not_called()
+
+    def test_a_deleted_automatic_replace_gets_its_minutes_back(self):
+        db = JobDb("match_reprocess", match_exists=False,
+                   options={"match_id": MATCH, "recut": "replace"})
+        out = self.fail(db)
+        out["refund"].assert_called_once_with(db, JOB)
+        out["release"].assert_not_called()
+        # Support's reprocessing charges no personal minutes.
+        db = JobDb("match_reprocess", match_exists=False,
+                   options={"match_id": MATCH, "issue_id": "i"})
+        self.fail(db)["refund"].assert_not_called()
+
+    def test_a_cancelled_job_stays_cancelled_and_quiet(self):
+        for kind in ("hand_cut", "deadspace_cut", "reel", "placement_generate"):
+            with self.subTest(kind=kind):
+                db = JobDb(kind, status="cancelled", match_exists=True)
+                out = self.fail(db, worker.UserFacingError("anything"))
+                out["send"].assert_not_called()
+                out["update"].assert_not_called()
+                out["library"].assert_not_called()
+                out["archive"].assert_called_once()
+                self.assertEqual(db.status, "cancelled")
+                self.assertIsNone(db.error, "a cancelled row is left as it is")
+
+    def test_a_live_match_is_still_reported(self):
+        db = JobDb("hand_cut", match_exists=True)
+        out = self.fail(db, worker.UserFacingError(
+            "The original video could not be read."))
+        out["update"].assert_called_once()
+        self.assertEqual(out["update"].call_args.kwargs["status"], "failed")
+        out["send"].assert_called_once()     # the player's email
+        self.assertEqual(db.status, "processing")
+
+    def test_a_deleted_upload_keeps_its_own_rule(self):
+        """Processing an upload whose row was deleted is still reported
+        (check_match_row_alive): only a job ABOUT an existing match is
+        moot by its match's absence."""
+        db = JobDb("deadspace_cut", match_exists=False)
+        out = self.fail(db, worker.UserFacingError(
+            "This video was removed before processing started."))
+        out["update"].assert_called_once()
+        out["send"].assert_called()
+
+    def test_a_reel_with_no_match_is_not_moot_by_absence(self):
+        db = JobDb("reel", match_exists=False, options={"scope": "v:selection"})
+        self.assertIsNone(worker.moot_job(db, JOB))
+
+    def test_the_check_fails_open(self):
+        """A lookup that breaks must never swallow a real failure."""
+        self.assertIsNone(worker.moot_job(JobDb(broken=True), JOB))
+        self.assertIsNone(worker.moot_job(object(), JOB))
+        self.assertIsNone(worker.moot_job(JobDb(), None))
+
+    def test_moot_reasons(self):
+        self.assertEqual(worker.moot_job(JobDb(status="cancelled"), JOB)["reason"],
+                         "cancelled")
+        self.assertEqual(worker.moot_job(JobDb(match_exists=False), JOB)["reason"],
+                         "match_deleted")
+        self.assertIsNone(worker.moot_job(JobDb(), JOB))
+        self.assertIsNone(worker.moot_job(
+            JobDb(match_exists=False, options={"match_id": "not-a-uuid"}), JOB))
+
+
+class SilentNotifyTests(unittest.TestCase):
+    """The three senders ask again themselves, so no caller can reach a
+    player or the admin about a match that no longer exists."""
+
+    def send(self, fn, db, *args):
+        with mock.patch.object(worker, "send_email") as send, \
+             mock.patch.object(worker, "get_user_email",
+                               return_value="player@example.com"), \
+             mock.patch.object(worker, "get_job_match_id", return_value=MATCH):
+            fn(db, *args)
+        return send
+
+    def test_nothing_is_sent_about_a_deleted_match(self):
+        cases = (
+            (worker.notify_hand_cut_failed, "hand_cut", (USER, JOB, "x")),
+            (worker.notify_auto_recut_failed, "match_reprocess", (USER, JOB)),
+            (worker.notify_job_failed, "reel", (JOB, "no match_reels row")),
+        )
+        for fn, kind, args in cases:
+            with self.subTest(fn=fn.__name__):
+                self.send(fn, JobDb(kind, match_exists=False), *args).assert_not_called()
+                self.send(fn, JobDb(kind, status="cancelled"), *args).assert_not_called()
+                self.send(fn, JobDb(kind), *args).assert_called_once()
+
+    def test_send_failure_emails_stops_before_either_email(self):
+        with mock.patch.object(worker, "notify_hand_cut_failed") as player, \
+             mock.patch.object(worker, "notify_job_failed") as admin:
+            worker.send_failure_emails(
+                JobDb("hand_cut", match_exists=False), RuntimeError("x"), JOB,
+                "hand_cut", USER, None, terminal=True)
+        player.assert_not_called()
+        admin.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -30,6 +30,7 @@ from worker.tests.test_placement_retry_job import (
     FakeMutationConnection,
     generation_record,
     placement_fixture,
+    retry_record,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -677,6 +678,449 @@ class WindowedPlanningTests(unittest.TestCase):
         command = calls[0]
         self.assertEqual(command[1], worker.BLURBALL_WINDOWED)
         self.assertEqual(command[command.index("--wrapper") + 1], worker.BLURBALL_INFER)
+
+
+# ---------------------------------------------------------------------------
+# Reusing the table the upload already has (audit D, 2026-09-26)
+# ---------------------------------------------------------------------------
+FIXTURE_636F = json.loads(
+    (Path(__file__).parent / "fixtures" / "prior-table-636f3f37.json").read_text())
+RAW = "r2://ponglens-raw/owner/original.mov"
+HAND_VERSION = "19bf2994-0000-4000-8000-000000000000"
+AUTO_VERSION = "8bdf5aad-0000-4000-8000-000000000000"
+AUTO_MATCH_JSON = "r2://ponglens-media/points/owner/match/match.json"
+
+
+def automatic_doc(**calibration_changes):
+    doc = copy.deepcopy(FIXTURE_636F["automatic"])
+    doc["calibration"].update(calibration_changes)
+    return doc
+
+
+class ReusableTableTests(unittest.TestCase):
+    """The trust rules, one refusal each."""
+
+    def ask(self, document, *, document_raw=RAW, raw=RAW, size=(1920, 1080)):
+        return hca.reusable_table(document, document_raw_path=document_raw,
+                                  raw_path=raw, width=size[0], height=size[1])
+
+    def test_a_vision_or_keypoint_table_of_the_same_upload_is_reused(self):
+        table, why = self.ask(automatic_doc())
+        self.assertEqual(why, "ok")
+        self.assertEqual(table["source"], "vision")
+        self.assertEqual(table["table_corners_px"],
+                         FIXTURE_636F["automatic"]["calibration"]["table_corners_px"])
+        table, _ = self.ask(automatic_doc(source="keypoints"))
+        self.assertEqual(table["source"], "keypoints")
+
+    def test_an_older_document_is_trusted_only_when_its_note_names_the_detector(self):
+        for note, expected in (
+                ("keypoint detector (tt-keypoints), 14/16 frames agree", "keypoints"),
+                ("vision-proposed quad (gpt-5.6-sol), 3 trials", "vision"),
+                ("auto pink-rim median-background calibration", None),
+                ("a table from somewhere", None)):
+            with self.subTest(note=note):
+                doc = automatic_doc(note=note)
+                doc["calibration"].pop("source")
+                table, why = self.ask(doc)
+                self.assertEqual(table and table["source"], expected, why)
+
+    def test_never_the_pink_rim(self):
+        table, why = self.ask(automatic_doc(source="pink_rim"))
+        self.assertIsNone(table)
+        self.assertEqual(why, "found by pink_rim")
+
+    def test_never_another_upload(self):
+        for document_raw, raw in (("r2://ponglens-raw/owner/other.mov", RAW),
+                                  (None, RAW), (RAW, None)):
+            with self.subTest(document_raw=document_raw, raw=raw):
+                table, why = self.ask(automatic_doc(), document_raw=document_raw,
+                                      raw=raw)
+                self.assertIsNone(table)
+                self.assertEqual(why, "made from another upload")
+
+    def test_never_across_a_frame_size_change(self):
+        table, why = self.ask(automatic_doc(), size=(1280, 720))
+        self.assertIsNone(table)
+        self.assertIn("1920x1080", why)
+        for size in ((None, None), (0, 1080), (1920.5, 1080)):
+            with self.subTest(size=size):
+                self.assertIsNone(self.ask(automatic_doc(), size=size)[0])
+        unknown = automatic_doc()
+        unknown["source"] = {"duration": 964.42}
+        self.assertEqual(self.ask(unknown), (None, "its frame size is unknown"))
+        outside = automatic_doc()
+        outside["calibration"]["table_corners_px"] = dict(
+            outside["calibration"]["table_corners_px"], C_far_2=[1930.0, 580.8])
+        self.assertEqual(self.ask(outside), (None, "a corner lies outside the frame"))
+
+    def test_nothing_found_is_nothing_reused(self):
+        cases = {
+            "no document": None,
+            "no calibration": FIXTURE_636F["hand"],
+            "declined": dict(automatic_doc(), calibration={"ok": False}),
+            "missing corner": automatic_doc(table_corners_px={
+                "A_near_1": [1, 2], "B_near_2": [3, 4], "C_far_2": [5, 6]}),
+            "not a number": automatic_doc(table_corners_px={
+                "A_near_1": [1, 2], "B_near_2": [3, 4], "C_far_2": [5, 6],
+                "D_far_1": [float("nan"), 6]}),
+        }
+        for name, document in cases.items():
+            with self.subTest(name):
+                self.assertIsNone(self.ask(document)[0])
+
+
+class PriorTableConn:
+    """Answers the two lookups prior_table_candidates makes."""
+
+    def __init__(self, chain=(), siblings=()):
+        self.chain = list(chain)
+        self.siblings = list(siblings)
+        self.calls = []
+        self.autocommit = True
+
+    def cursor(self, **kwargs):
+        conn = self
+
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, query, params=None):
+                self.sql = " ".join(query.split())
+                conn.calls.append((self.sql, params))
+
+            def fetchall(self):
+                if self.sql.startswith("with recursive chain"):
+                    return conn.chain
+                if "from public.matches pm" in self.sql:
+                    return conn.siblings
+                return []
+
+        return Cursor()
+
+
+class PriorTableR2:
+    def __init__(self, objects):
+        self.objects = objects
+        self.downloads = []
+
+    def head_object(self, Bucket, Key):
+        from botocore.exceptions import ClientError
+        if (Bucket, Key) not in self.objects:
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+        return {"ContentLength": len(self.objects[(Bucket, Key)])}
+
+    def download_file(self, bucket, key, destination):
+        self.downloads.append(key)
+        Path(destination).write_bytes(self.objects[(bucket, key)])
+
+
+def r2_objects(**documents):
+    return {("ponglens-media", path.split("ponglens-media/", 1)[1]):
+            json.dumps(document).encode() for path, document in documents.items()}
+
+
+def run_reuse_command(size=(1920, 1080)):
+    """A command runner that runs placement_retry_calibration's reuse
+    command in this process, against a probe that reports `size`."""
+    from worker import placement_retry_calibration as prc
+
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(command)
+        assert command[0] == worker.VENV_PY
+        assert command[1] == worker.PLACEMENT_RETRY_CALIBRATION
+        with patch.object(prc, "probe", return_value={
+                "width": size[0], "height": size[1], "fps": 59.947,
+                "duration": 964.42}), \
+                patch("sys.argv", ["placement_retry_calibration.py", *command[2:]]):
+            assert prc.main() == 0
+
+    return runner, calls
+
+
+class PriorTableLookupTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.runner, self.commands = run_reuse_command()
+        real = worker.canonical_prior_table
+        self.canonical = patch.object(
+            worker, "canonical_prior_table",
+            side_effect=lambda stored, video, root: real(
+                stored, video, root, command_runner=self.runner))
+        self.canonical.start()
+
+    def tearDown(self):
+        self.canonical.stop()
+        self.tmp.cleanup()
+
+    def reuse(self, conn, objects, *, raw=RAW, own=None, size=(1920, 1080)):
+        fake = PriorTableR2(objects)
+        with patch.object(worker, "r2", lambda: fake):
+            table = worker.reuse_prior_table(
+                conn, match_id=MATCH_ID, processing_version_id=HAND_VERSION,
+                raw_path=raw, video_path=self.root / "source.mp4",
+                geometry={"width": size[0], "height": size[1]},
+                workdir=self.root, own_document=own)
+        return table, fake
+
+    def test_636f3f37_gets_the_table_its_replaced_version_found(self):
+        conn = PriorTableConn(chain=[(AUTO_VERSION, RAW, AUTO_MATCH_JSON)])
+        table, fake = self.reuse(conn, r2_objects(**{AUTO_MATCH_JSON: automatic_doc()}),
+                                 own=FIXTURE_636F["hand"])
+        self.assertEqual(table["source"], "vision")
+        self.assertEqual(table["reused_from"], {
+            "relation": "replaced", "match_id": MATCH_ID,
+            "processing_version_id": AUTO_VERSION,
+            "match_json_path": AUTO_MATCH_JSON})
+        self.assertEqual(table["table_corners_px"],
+                         FIXTURE_636F["automatic"]["calibration"]["table_corners_px"])
+        self.assertEqual(len(self.commands), 1)
+        # The chain starts at the version being analysed and stays on its match.
+        chain_sql, params = conn.calls[0]
+        self.assertTrue(chain_sql.startswith("with recursive chain"))
+        self.assertEqual(params[:3], (HAND_VERSION, MATCH_ID, MATCH_ID))
+
+    def test_the_cuts_own_carried_table_comes_first(self):
+        own = copy.deepcopy(FIXTURE_636F["hand"])
+        own["calibration"] = automatic_doc(source="keypoints")["calibration"]
+        conn = PriorTableConn(chain=[(AUTO_VERSION, RAW, AUTO_MATCH_JSON)])
+        table, fake = self.reuse(conn, {}, own=own)
+        self.assertEqual(table["source"], "keypoints")
+        self.assertEqual(fake.downloads, [])
+
+    def test_a_keep_copy_reuses_its_originals_table(self):
+        original = "r2://ponglens-media/points/owner/original/match.json"
+        conn = PriorTableConn(siblings=[("orig-match", "orig-version", RAW, original)])
+        table, _ = self.reuse(conn, r2_objects(**{original: automatic_doc()}))
+        self.assertEqual(table["reused_from"]["relation"], "copied")
+        self.assertTrue(table["note"].endswith(
+            "reused from the match this one was copied from"))
+        sibling_sql, params = conn.calls[1]
+        self.assertIn("pm.raw_path = %s", sibling_sql)
+        self.assertIn("owner.user_id", sibling_sql)
+        self.assertEqual(params[:3], (MATCH_ID, MATCH_ID, RAW))
+
+    def test_a_refused_candidate_falls_through_to_the_next(self):
+        pink = "r2://ponglens-media/points/owner/match/versions/pink/match.json"
+        other = "r2://ponglens-media/points/owner/match/versions/other/match.json"
+        swept = "r2://ponglens-media/points/owner/match/versions/swept/match.json"
+        conn = PriorTableConn(chain=[
+            ("swept", RAW, swept),                        # files swept: unreadable
+            ("pink", RAW, pink),                          # pink rim
+            ("other", "r2://ponglens-raw/owner/other.mov", other),  # other upload
+            (AUTO_VERSION, RAW, AUTO_MATCH_JSON)])
+        table, fake = self.reuse(conn, r2_objects(**{
+            pink: automatic_doc(source="pink_rim"),
+            other: automatic_doc(),
+            AUTO_MATCH_JSON: automatic_doc()}))
+        self.assertEqual(table["reused_from"]["processing_version_id"], AUTO_VERSION)
+        # Another upload's match.json is never even read.
+        self.assertEqual(fake.downloads, [
+            pink.split("ponglens-media/")[1],
+            AUTO_MATCH_JSON.split("ponglens-media/")[1]])
+        self.assertEqual(len(self.commands), 1)
+
+    def test_every_refusal_ends_in_detecting_as_before(self):
+        cases = {
+            "absent": (PriorTableConn(), {}, RAW, (1920, 1080)),
+            "pink rim": (PriorTableConn(chain=[(AUTO_VERSION, RAW, AUTO_MATCH_JSON)]),
+                         r2_objects(**{AUTO_MATCH_JSON: automatic_doc(source="pink_rim")}),
+                         RAW, (1920, 1080)),
+            "other upload": (PriorTableConn(chain=[
+                (AUTO_VERSION, "r2://ponglens-raw/owner/other.mov", AUTO_MATCH_JSON)]),
+                r2_objects(**{AUTO_MATCH_JSON: automatic_doc()}), RAW, (1920, 1080)),
+            "frame size": (PriorTableConn(chain=[(AUTO_VERSION, RAW, AUTO_MATCH_JSON)]),
+                           r2_objects(**{AUTO_MATCH_JSON: automatic_doc()}),
+                           RAW, (1280, 720)),
+            "no original": (PriorTableConn(chain=[(AUTO_VERSION, RAW, AUTO_MATCH_JSON)]),
+                            r2_objects(**{AUTO_MATCH_JSON: automatic_doc()}),
+                            None, (1920, 1080)),
+        }
+        for name, (conn, objects, raw, size) in cases.items():
+            with self.subTest(name):
+                table, _ = self.reuse(conn, objects, raw=raw, size=size)
+                self.assertIsNone(table)
+        self.assertEqual(self.commands, [], "nothing refused reaches the canonicaliser")
+
+    def test_the_canonicaliser_has_the_last_word(self):
+        """The worker's reading of the frame agrees but the pipeline
+        interpreter's own probe does not: refused."""
+        self.canonical.stop()
+        runner, commands = run_reuse_command(size=(1280, 720))
+        real = worker.canonical_prior_table
+        self.canonical = patch.object(
+            worker, "canonical_prior_table",
+            side_effect=lambda stored, video, root: real(
+                stored, video, root, command_runner=runner))
+        self.canonical.start()
+        conn = PriorTableConn(chain=[(AUTO_VERSION, RAW, AUTO_MATCH_JSON)])
+        table, _ = self.reuse(conn, r2_objects(**{AUTO_MATCH_JSON: automatic_doc()}))
+        self.assertIsNone(table)
+        self.assertEqual(len(commands), 1)
+
+    def test_it_never_raises(self):
+        class Broken:
+            autocommit = True
+
+            def cursor(self, **kwargs):
+                raise RuntimeError("database gone")
+
+        table, _ = self.reuse(Broken(), {})
+        self.assertIsNone(table)
+
+
+class HandCutPlacementReuseTests(unittest.TestCase):
+    """placement_for_match on 636f3f37's shape: a hand Replace of an
+    automatic version whose table the vision rung found."""
+
+    def setUp(self):
+        self.connection = FakeMutationConnection()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.source = self.root / "source.mp4"
+        self.source.write_bytes(b"video")
+        self.match = self.root / "match.json"
+        hand = copy.deepcopy(FIXTURE_636F["hand"])
+        hand["points"] = [{"idx": 1, "t0": 1.0, "t1": 2.0, "placement": None}]
+        self.match.write_text(json.dumps(hand))
+        self.frames = self.root / "blurball.jsonl.frames.json"
+        self.frames.write_text("{}")
+        self.blurball = self.root / "blurball.jsonl"
+        self.blurball.write_text("")
+        self.reconstructed = []
+
+        def reconstruct(match_path, video, blurball, points, workdir, **kwargs):
+            match = json.loads(Path(match_path).read_text())
+            self.reconstructed.append(match)
+            placement = placement_fixture(drawable=True)
+            merged = copy.deepcopy(match)
+            merged["points"][0]["placement"] = placement
+            return {"placements": {"1": placement}, "match": merged}
+
+        runner, self.commands = run_reuse_command()
+        real = worker.canonical_prior_table
+        fake_r2 = PriorTableR2(r2_objects(**{AUTO_MATCH_JSON: automatic_doc()}))
+        self.record = lambda attempt: (generation_record if attempt == "normal"
+                                       else retry_record)(
+            cut_source="manual", raw_path=RAW, processing_version_id=HAND_VERSION,
+            job_processing_version_id=HAND_VERSION)
+        self.patches = [
+            patch("worker.worker.load_placement_attempt_record",
+                  side_effect=lambda *a, **k: self.record(a[4].name)),
+            patch("worker.worker.download_backfill_inputs",
+                  return_value=(self.source, self.match)),
+            patch("worker.worker.ensure_hand_cut_tracking",
+                  return_value=(self.blurball, self.frames, {})),
+            patch("worker.worker.video_source_geometry",
+                  return_value={"fps": 59.947, "width": 1920, "height": 1080}),
+            patch("worker.worker.run_placement_calibration"),
+            patch("worker.worker.prior_table_candidates", return_value=[{
+                "relation": "replaced", "match_id": MATCH_ID,
+                "processing_version_id": AUTO_VERSION, "raw_path": RAW,
+                "match_json_path": AUTO_MATCH_JSON}]),
+            patch("worker.worker.canonical_prior_table",
+                  side_effect=lambda stored, video, root: real(
+                      stored, video, root, command_runner=runner)),
+            patch("worker.worker.r2", lambda: fake_r2),
+            patch("worker.worker.run_placement_reconstruction", side_effect=reconstruct),
+            patch("worker.worker.upload_match_json"),
+            patch("worker.worker.verify_placement_attempt"),
+            patch("worker.worker.restore_match_json"),
+            patch("worker.worker._update_placement_lifecycle"),
+            patch("worker.worker._update_backfill_rows"),
+        ]
+        self.mocks = {p.attribute: p.start() for p in self.patches}
+
+    def tearDown(self):
+        for item in reversed(self.patches):
+            item.stop()
+        self.tmp.cleanup()
+
+    def test_the_replaced_versions_table_is_used_before_detecting(self):
+        for attempt in (worker.NORMAL_PLACEMENT_ATTEMPT,
+                        worker.STRONGER_PLACEMENT_ATTEMPT):
+            with self.subTest(attempt=attempt.name):
+                self.reconstructed.clear()
+                result = worker.placement_for_match(
+                    self.connection, JOB_ID, USER_ID, MATCH_ID, attempt)
+                self.assertTrue(result.succeeded)
+                self.mocks["run_placement_calibration"].assert_not_called()
+                table = self.reconstructed[0]["calibration"]
+                self.assertEqual(table["source"], "vision")
+                self.assertEqual(table["reused_from"]["processing_version_id"],
+                                 AUTO_VERSION)
+                self.assertEqual(
+                    table["table_corners_px"],
+                    FIXTURE_636F["automatic"]["calibration"]["table_corners_px"])
+                uploaded = self.mocks["upload_match_json"].call_args.args[1]
+                self.assertEqual(uploaded["calibration"], table)
+
+    def test_without_one_it_detects_as_before(self):
+        self.mocks["prior_table_candidates"].return_value = []
+        self.mocks["run_placement_calibration"].return_value = {
+            "ok": True, "code": None, "calibration": {
+                "ok": True, "table_corners_px": {}, "length_axis": [0.0, -1.0]}}
+        result = worker.placement_for_match(
+            self.connection, JOB_ID, USER_ID, MATCH_ID,
+            worker.NORMAL_PLACEMENT_ATTEMPT)
+        self.assertTrue(result.succeeded)
+        self.mocks["run_placement_calibration"].assert_called_once()
+        self.assertEqual(self.commands, [])
+
+    def test_an_automatic_match_never_looks(self):
+        self.record = lambda attempt: generation_record(
+            cut_source="auto", raw_path=RAW, processing_version_id=HAND_VERSION,
+            job_processing_version_id=HAND_VERSION)
+        self.mocks["run_placement_calibration"].return_value = {
+            "ok": True, "code": None, "calibration": {
+                "ok": True, "table_corners_px": {}, "length_axis": [0.0, -1.0]}}
+        with patch("worker.worker.run_blurball_only", return_value=self.blurball), \
+                patch("worker.worker.reuse_prior_table") as reuse:
+            worker.placement_for_match(
+                self.connection, JOB_ID, USER_ID, MATCH_ID,
+                worker.NORMAL_PLACEMENT_ATTEMPT)
+        reuse.assert_not_called()
+        self.mocks["run_placement_calibration"].assert_called_once()
+
+
+
+class PlacementRecordRawPathTests(unittest.TestCase):
+    def test_the_record_carries_the_matchs_own_original(self):
+        queries = []
+        record = generation_record(raw_path=RAW)
+
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, query, params=None):
+                queries.append(" ".join(query.split()))
+
+            def fetchone(self):
+                return record
+
+            def fetchall(self):
+                return [{"point": record["points"][0]}]
+
+        class Connection:
+            def cursor(self, **kwargs):
+                return Cursor()
+
+        got = worker.load_placement_attempt_record(
+            Connection(), JOB_ID, USER_ID, MATCH_ID,
+            worker.NORMAL_PLACEMENT_ATTEMPT)
+        self.assertIn("m.raw_path from public.matches m", queries[0])
+        self.assertEqual(got["raw_path"], RAW)
 
 
 if __name__ == "__main__":

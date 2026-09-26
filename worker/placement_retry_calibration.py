@@ -26,6 +26,7 @@ try:
         L_M,
         W_M,
         Px,
+        _canonical_calibration_geometry,
         activity_gate,
         keypoint_calibrate,
         load_detections,
@@ -34,11 +35,13 @@ try:
     from .table_coordinates import (
         canonicalize_table_quad,
     )
+    from .hand_cut_analysis import reusable_table
 except ImportError:
     from points_pipeline import (  # type: ignore
         L_M,
         W_M,
         Px,
+        _canonical_calibration_geometry,
         activity_gate,
         keypoint_calibrate,
         load_detections,
@@ -47,6 +50,7 @@ except ImportError:
     from table_coordinates import (  # type: ignore
         canonicalize_table_quad,
     )
+    from hand_cut_analysis import reusable_table  # type: ignore
 
 
 CORNER_NAMES = ("A_near_1", "B_near_2", "C_far_2", "D_far_1")
@@ -728,6 +732,91 @@ def calibrate_for_retry(
     )
 
 
+# What a reused table's note gains, by where it came from. "own" is this
+# cut's own match.json (a table carried in when the hand cut was written, or
+# found by an earlier analysis of it): already this cut's, nothing to add.
+REUSED_TABLE_NOTES = {
+    "replaced": "reused from the cut this one replaced",
+    "copied": "reused from the match this one was copied from",
+    "own": None,
+}
+
+
+def reuse_stored_table(stored: dict, width: int, height: int) -> CalibrationOutcome:
+    """A table an earlier cut of this same upload already found, as a fresh
+    answer would be stored (audit D, 2026-09-26).
+
+    `stored` is what the worker sends: {"document": {"calibration", "source"},
+    "document_raw_path", "raw_path", "reused_from"}. Every trust rule in
+    hand_cut_analysis.reusable_table is asked again here against the frame
+    size this interpreter probed from the video itself, then the corners go
+    through _canonical_calibration_geometry, the canonicaliser every
+    detector's quad goes through (near and far from image position, A
+    near-left, B near-right), and are written with the names, rounding and
+    length axis a fresh table carries. Anything that does not survive is
+    refused, and the caller detects as it always has.
+    """
+    refused = CalibrationOutcome(ok=False, code="stored_table_refused",
+                                 calibration=None)
+    if not isinstance(stored, dict):
+        return refused
+    table, _why = reusable_table(
+        stored.get("document"),
+        document_raw_path=stored.get("document_raw_path"),
+        raw_path=stored.get("raw_path"),
+        width=width,
+        height=height,
+    )
+    if table is None:
+        return refused
+    quad = np.asarray(
+        [table["table_corners_px"][name] for name in CORNER_NAMES],
+        dtype=np.float32,
+    )
+    try:
+        corners, _homography, axis, reordered = (
+            _canonical_calibration_geometry(quad)
+        )
+    except (ValueError, cv2.error):
+        return refused
+    corners = np.asarray(corners, dtype=np.float32)
+    if (
+        corners.shape != (4, 2)
+        or not np.isfinite(corners).all()
+        or (corners[:, 0] < 0).any() or (corners[:, 0] >= width).any()
+        or (corners[:, 1] < 0).any() or (corners[:, 1] >= height).any()
+    ):
+        return refused
+    reused_from = stored.get("reused_from")
+    relation = (reused_from or {}).get("relation") if isinstance(
+        reused_from, dict) else None
+    note = str(table.get("note") or "")
+    suffix = REUSED_TABLE_NOTES.get(relation)
+    if suffix and suffix not in note:
+        # At the END: the admin uploads page reads a note's front.
+        note = f"{note}; {suffix}" if note else suffix
+    calibration = {
+        "ok": True,
+        "table_corners_px": {
+            name: [round(float(point[0]), 1), round(float(point[1]), 1)]
+            for name, point in zip(CORNER_NAMES, corners)
+        },
+        "length_axis": [float(axis[0]), float(axis[1])],
+        "orientation": "canonical-v1",
+        "legacy_reordered": bool(reordered),
+        "source": table["source"],
+        "agreement": table.get("agreement"),
+        "note": note,
+    }
+    if relation == "own":
+        # This cut's own table: whatever it records about where it came
+        # from (a table carried in from the cut it replaced) stays true.
+        reused_from = table.get("reused_from")
+    if isinstance(reused_from, dict):
+        calibration["reused_from"] = dict(reused_from)
+    return CalibrationOutcome(ok=True, code=None, calibration=calibration)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -748,7 +837,21 @@ def main() -> int:
             "gpt-5.6-sol",
         ),
     )
+    reuse_parser = subparsers.add_parser("reuse")
+    reuse_parser.add_argument("--stored", required=True)
+    reuse_parser.add_argument("--video", required=True)
+    reuse_parser.add_argument("--output", required=True)
     args = parser.parse_args()
+
+    if args.command == "reuse":
+        metadata = probe(str(args.video))
+        outcome = reuse_stored_table(
+            json.loads(Path(args.stored).read_text()),
+            int(metadata["width"]),
+            int(metadata["height"]),
+        )
+        Path(args.output).write_text(json.dumps(asdict(outcome), indent=2))
+        return 0
 
     if args.command == "calibrate":
         outcome = calibrate_for_retry(

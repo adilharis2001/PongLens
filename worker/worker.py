@@ -1170,9 +1170,14 @@ def notify_job_done(conn, job_id: str, user_id: str):
 def notify_job_failed(conn, job_id: str, error: str):
     """Email the admin, and anyone holding QA, about a failed job. The raw
     exception rides along — this is the copy for whoever fixes it, which
-    is exactly who QA is. Never raises.
+    is exactly who QA is. Never raises. Nothing is sent for a job that was
+    cancelled or whose match was deleted (moot_job): there is nothing to fix.
     """
     try:
+        if moot_job(conn, job_id) is not None:
+            log.info("  job %s: no admin failure email, it no longer "
+                     "matters", job_id)
+            return
         message = render_email(admin_job_failure_message(
             job_id,
             error,
@@ -1219,9 +1224,12 @@ def notify_hand_cut_failed(conn, user_id: str | None, job_id: str | None,
     """Tell the player their hand cut did not finish. Never raises.
 
     Same contract as notify_upload_failed: only what a person can act on,
-    and True when the mail actually went out."""
+    and True when the mail actually went out. Nothing for a cancelled job
+    or a deleted match (moot_job)."""
     try:
         if not user_id:
+            return False
+        if job_id and moot_job(conn, job_id) is not None:
             return False
         match_id = get_job_match_id(conn, job_id) if job_id else None
         url = f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL
@@ -1249,9 +1257,12 @@ def notify_auto_recut_failed(conn, user_id: str | None,
                              job_id: str | None) -> bool:
     """Tell the player their automatic Replace did not finish: the match is
     exactly as it was and the minutes are back. No reason, and never where
-    it ran. Never raises; True when the mail actually went out."""
+    it ran. Never raises; True when the mail actually went out. Nothing
+    for a cancelled job or a deleted match (moot_job)."""
     try:
         if not user_id:
+            return False
+        if job_id and moot_job(conn, job_id) is not None:
             return False
         match_id = get_job_match_id(conn, job_id) if job_id else None
         url = f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL
@@ -1264,6 +1275,109 @@ def notify_auto_recut_failed(conn, user_id: str | None,
     except Exception as e:
         log.warning("  re-cut failure email failed (non-fatal): %s", e)
         return False
+
+
+# ---------------------------------------------------------------------------
+# A failure nobody is left to hear about (post-rollout audit C, 2026-09-26)
+# ---------------------------------------------------------------------------
+# A player can delete a match while one of its jobs waits or runs: a hand
+# cut, a Replace, its detailed analysis, a reel, a clip re-cut. The database
+# cancels what is still queued (_cancel_followups_of_deleted_match); a job
+# already running fails on the missing row, and until 2026-09-26 that
+# failure rang a bell and emailed the player about a match they had just
+# deleted, and sent the admin an "[Action needed]" for each one. A job
+# cancelled while it ran is the same story.
+#
+# So before a failure is recorded or reported, the job row and its match are
+# read again. A cancelled job, or a match's job whose match is gone, ends in
+# silence: left (or marked) cancelled, the way the delete trigger leaves the
+# ones it reaches first, its message archived, no email and no bell (the
+# bell rides a job turning 'failed', which a silent job never does).
+MATCH_BOUND_KINDS = frozenset({
+    "hand_cut", "match_reprocess", "placement_generate", "placement_retry",
+    "reel", "reclip",
+})
+
+
+def moot_job(conn, job_id) -> dict | None:
+    """{"reason", "kind", "options"} when a failed job should end in
+    silence, or None to record and report it as always.
+
+    'cancelled': the row reads cancelled. 'match_deleted': a job of
+    MATCH_BOUND_KINDS whose options.match_id names a match that no longer
+    exists. A job with no match id (a selection or tag reel) is never moot
+    by absence, and processing an upload (deadspace_cut, youtube_import)
+    keeps its own rule (check_match_row_alive). Fails open: a lookup that
+    errors answers None, so a real failure is never swallowed because this
+    check broke."""
+    if not job_id:
+        return None
+    try:
+        with sql_savepoint(conn), conn.cursor() as cur:
+            cur.execute("select status, kind, options from public.jobs "
+                        "where id = %s", (str(job_id),))
+            row = cur.fetchone()
+            if not row or len(row) != 3:
+                return None
+            status, kind, options = row
+            options = options if isinstance(options, dict) else {}
+            if status == "cancelled":
+                return {"reason": "cancelled", "kind": kind,
+                        "options": options}
+            if kind not in MATCH_BOUND_KINDS:
+                return None
+            try:
+                match_id = str(uuid.UUID(str(options.get("match_id"))))
+            except (ValueError, TypeError, AttributeError):
+                return None
+            cur.execute("select 1 from public.matches where id = %s",
+                        (match_id,))
+            if cur.fetchone() is not None:
+                return None
+        return {"reason": "match_deleted", "kind": kind, "options": options}
+    except Exception as error:                              # noqa: BLE001
+        log.warning("  could not tell whether job %s still matters (%s); "
+                    "reporting its failure as usual", job_id,
+                    type(error).__name__)
+        return None
+
+
+def end_moot_job(conn, job_id: str, moot: dict, error) -> None:
+    """Finish a moot job quietly. Never raises.
+
+    The row ends 'cancelled' at 100%, as the delete trigger leaves a
+    follow-up it cancels (never 'failed', which is what rings the bell). A
+    hand cut hands its marks back and discards its candidate, as a terminal
+    failure would (a no-op once the match is gone). A player's automatic
+    Replace gets its minutes back: idempotent with the delete trigger's
+    refund, and the backstop for one that was already running."""
+    kind, options = moot.get("kind"), moot.get("options") or {}
+    note = ("the match was deleted while this job ran"
+            if moot.get("reason") == "match_deleted"
+            else "the job was cancelled while it ran")
+    try:
+        with sql_savepoint(conn), conn.cursor() as cur:
+            cur.execute(
+                "update public.jobs set status = 'cancelled', progress = 100, "
+                "error = %s where id = %s and status <> 'cancelled'",
+                (f"{note}: {error}"[:500], str(job_id)))
+    except Exception:                                       # noqa: BLE001
+        log.warning("  could not mark job %s cancelled", job_id,
+                    exc_info=True)
+    if kind == "hand_cut":
+        try:
+            hand_cut_release(conn, str(job_id), {"options": options})
+        except Exception:                                   # noqa: BLE001
+            log.warning("  hand cut %s: marks not handed back", job_id,
+                        exc_info=True)
+    if (kind == "match_reprocess" and options.get("recut") == "replace"
+            and "issue_id" not in options):
+        try:
+            refund_processing_spend_direct(conn, str(job_id))
+        except Exception:                                   # noqa: BLE001
+            log.warning("  automatic re-cut %s: refund backstop failed",
+                        job_id, exc_info=True)
+    log.info("  job %s (%s) ended without a report: %s", job_id, kind, note)
 
 
 def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
@@ -1295,6 +1409,12 @@ def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
     # wrong-sport messages still reach the uploader immediately.
     if not terminal:
         return
+    # A cancelled job, or a match's job whose match was deleted, is not
+    # news to anyone (audit C): the player deleted it, and the admin has
+    # nothing to act on.
+    if moot_job(conn, job_id) is not None:
+        log.info("  job %s: no failure email, it no longer matters", job_id)
+        return
     uploader_emailed = False
     if kind in ("deadspace_cut", "youtube_import", "content_check"):
         # The bell row is the trigger's job (066); this is the email.
@@ -1309,6 +1429,122 @@ def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
                                                   user_message)
     if job_id and not (isinstance(e, UserFacingError) and uploader_emailed):
         notify_job_failed(conn, job_id, str(e))
+
+
+def record_job_failure(conn, msg: dict, e: Exception) -> None:
+    """What the main loop does with a job that raised: record it, give up
+    on it or leave it for the queue's retry, and tell whoever should hear.
+
+    A job that no longer matters (moot_job: cancelled, or a match's job
+    whose match was deleted) is finished first and quietly: cancelled
+    rather than failed, archived at once because no retry can bring the
+    match back, and nobody emailed (audit C, 2026-09-26)."""
+    payload = msg["message"]
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    job_id = payload.get("job_id")
+    kind = payload.get("kind", "deadspace_cut")
+    moot = moot_job(conn, job_id)
+    if moot is not None:
+        end_moot_job(conn, job_id, moot, e)
+        try:
+            archive_message(conn, msg["msg_id"])
+        except Exception:
+            log.exception("could not archive message %s", msg["msg_id"])
+        return
+    # UserFacingError means the message is safe verbatim; the
+    # column is what the notify trigger and the uploader's email
+    # read, and it stays NULL for a crash so nothing internal
+    # can reach them. Written in the same statement as the
+    # status so the trigger sees both at once.
+    user_message = (
+        str(e)[:300] if isinstance(e, UserFacingError) else None
+    )
+    try:
+        if job_id:
+            update_job(conn, job_id, status="failed",
+                       error=str(e)[:500],
+                       user_message=user_message)
+        # Library job (096): a terminal failure gives the
+        # minutes back and flips the row to failed so its page
+        # offers Process again. Retryable crashes keep the
+        # spend until the message poisons out.
+        if job_id and kind == "deadspace_cut" and (
+            isinstance(e, UserFacingError)
+            or msg["read_ct"] >= MAX_READ_CT
+        ):
+            lib_options = get_job_options(conn, job_id, payload)
+            lib_match = lib_options.get("match_id")
+            if lib_match:
+                refund_processing_spend_direct(conn, job_id)
+                mark_library_match_failed(conn, str(lib_match))
+        # Hand cut: nothing was charged, so no refund. The
+        # marks go back to the player and the match returns to
+        # 'uploaded' with nothing protecting points that no
+        # longer exist. Idempotent with the handler's own
+        # rollback.
+        if job_id and kind == "hand_cut" and (
+            isinstance(e, UserFacingError)
+            or msg["read_ct"] >= MAX_READ_CT
+        ):
+            hand_cut_release(conn, job_id, payload)
+        if isinstance(e, UserFacingError):
+            # Deterministic failure (private video, too long…):
+            # retrying can't succeed, archive right away.
+            pass
+        elif msg["read_ct"] >= MAX_READ_CT:
+            log.warning("archiving poison message %s "
+                        "(read_ct=%s)", msg["msg_id"], msg["read_ct"])
+            if kind in {
+                "placement_generate",
+                "placement_retry",
+            } and job_id:
+                options = get_job_options(conn, job_id, payload)
+                match_id = require_match_id(options)
+                attempt = (
+                    NORMAL_PLACEMENT_ATTEMPT
+                    if kind == "placement_generate"
+                    else STRONGER_PLACEMENT_ATTEMPT
+                )
+                # Records the terminal status on the match so the
+                # Tools row stops spinning. The uploader is not
+                # emailed (see notify_job_done); the admin still
+                # gets notify_job_failed below, which is now the
+                # only signal that a placement job died.
+                finalize_poisoned_placement_attempt(
+                    conn,
+                    job_id,
+                    payload.get("user_id"),
+                    match_id,
+                    attempt,
+                )
+    except Exception:
+        log.exception("failed to record job failure")
+
+    # OUTSIDE the bookkeeping, deliberately. This used to be the
+    # last statement inside it, so any book-keeping that threw —
+    # and finalize_poisoned_placement_attempt threw on a match
+    # whose authorized job had moved on — skipped the archive and
+    # left the message in the queue. It then came back every 30
+    # minutes forever, with a failure email each time. Two of them
+    # ran for 14 hours at read_ct 4 and 5, well past the cap that
+    # was supposed to stop them.
+    #
+    # Giving up is not a favour the bookkeeping earns. Whether the
+    # message dies is decided by the error and the attempt count,
+    # nothing else.
+    if isinstance(e, UserFacingError) or \
+            msg["read_ct"] >= MAX_READ_CT:
+        try:
+            archive_message(conn, msg["msg_id"])
+        except Exception:
+            log.exception("could not archive poison message %s",
+                          msg["msg_id"])
+
+    send_failure_emails(conn, e, job_id, kind,
+                        payload.get("user_id"), user_message,
+                        terminal=isinstance(e, UserFacingError)
+                        or msg["read_ct"] >= MAX_READ_CT)
 
 
 def check_match_row_alive(conn, match_id):
@@ -3386,7 +3622,11 @@ def load_placement_attempt_record(
             "(m.raw_path is null and "
             " (m.placement_retry_expires_at is null or "
             "  m.placement_retry_expires_at <= now())) as source_expired, "
-            "j.input_path, j.options as job_options, m.match_json_path "
+            "j.input_path, j.options as job_options, m.match_json_path, "
+            # The match's own original: a hand cut's detailed analysis
+            # reuses an earlier cut's table only when it came from this
+            # same upload (reuse_prior_table).
+            "m.raw_path "
             "from public.matches m "
             "left join public.jobs j on j.id = m.job_id "
             "left join public.jobs a on a.id = %s "
@@ -3653,6 +3893,200 @@ def stored_calibration_for_rescue(match_path: str | Path) -> dict | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# A hand cut reuses the table its upload already has (audit D, 2026-09-26)
+# ---------------------------------------------------------------------------
+# A hand cut that replaced a processed match (a version with a
+# source_version_id), or one made on a Keep copy (a new match on the same
+# original, _copy_match_for_recut), is the same video from the same fixed
+# camera as the cut before it. That cut usually found its table already,
+# and drew maps with it. 636f3f37 is the case: the automatic version had its
+# table from the vision rung and 50 mapped serves; the hand Replace detected
+# again, the free keypoint rung declined as it had the first time, and the
+# match was left with none.
+#
+# So before detecting, a hand cut's detailed analysis looks for that table:
+# its own match.json first (a table carried in when the cut was written),
+# then the versions it replaced, newest first, then the owner's other
+# matches on the same original. hand_cut_analysis.reusable_table decides
+# what may be trusted, and the pipeline interpreter canonicalises it
+# (placement_retry_calibration reuse), exactly as a fresh table would be.
+# Every step is best-effort: anything that fails means detecting as before.
+PRIOR_TABLE_MAX_HOPS = 8
+PRIOR_TABLE_MAX_SIBLINGS = 8
+PRIOR_TABLE_MAX_BYTES = 64 * 1024 * 1024
+
+
+def prior_table_candidates(conn, *, match_id: str,
+                           processing_version_id: str | None,
+                           raw_path: str | None) -> list[dict]:
+    """Where an earlier cut of this upload may have kept its table, in the
+    order to try them: the versions this one replaced (following
+    source_version_id back), then the owner's other matches on the same
+    original (a Keep copy's original, or copies of it), live versions
+    first. Each carries the raw path the database recorded for it."""
+    candidates: list[dict] = []
+    if not raw_path:
+        return candidates
+    if processing_version_id:
+        with conn.cursor() as cur:
+            cur.execute(
+                "with recursive chain as ("
+                " select pv.id, pv.source_version_id, pv.raw_path,"
+                "  pv.match_json_path, 0 as depth"
+                " from public.match_processing_versions pv"
+                " where pv.id = %s and pv.match_id = %s"
+                " union all"
+                " select pv.id, pv.source_version_id, pv.raw_path,"
+                "  pv.match_json_path, chain.depth + 1"
+                " from chain join public.match_processing_versions pv"
+                " on pv.id = chain.source_version_id and pv.match_id = %s"
+                " where chain.depth < %s)"
+                " select id::text, raw_path, match_json_path from chain"
+                " where depth > 0 and match_json_path is not null"
+                " order by depth",
+                (str(processing_version_id), str(match_id), str(match_id),
+                 PRIOR_TABLE_MAX_HOPS),
+            )
+            for version_id, version_raw, match_json_path in (cur.fetchall() or []):
+                candidates.append({
+                    "relation": "replaced", "match_id": str(match_id),
+                    "processing_version_id": version_id,
+                    "raw_path": version_raw,
+                    "match_json_path": match_json_path,
+                })
+    with conn.cursor() as cur:
+        cur.execute(
+            "select pm.id::text, pv.id::text, pv.raw_path, pv.match_json_path"
+            " from public.matches pm"
+            " join public.match_processing_versions pv on pv.match_id = pm.id"
+            " where pm.user_id = (select owner.user_id from public.matches owner"
+            "  where owner.id = %s)"
+            " and pm.id <> %s and pm.raw_path = %s"
+            " and pv.status in ('active', 'superseded')"
+            " and pv.match_json_path is not null"
+            " order by (pv.status = 'active') desc, pv.created_at desc"
+            " limit %s",
+            (str(match_id), str(match_id), raw_path, PRIOR_TABLE_MAX_SIBLINGS),
+        )
+        for other_match, version_id, version_raw, match_json_path in (
+                cur.fetchall() or []):
+            candidates.append({
+                "relation": "copied", "match_id": other_match,
+                "processing_version_id": version_id,
+                "raw_path": version_raw,
+                "match_json_path": match_json_path,
+            })
+    return candidates
+
+
+def _read_prior_match_json(match_json_path: str, destination: Path) -> dict | None:
+    """An earlier cut's match.json, or None when it cannot be read (swept
+    with a retired version, say). Never raises."""
+    location = parse_r2_path(match_json_path or "")
+    if not location:
+        return None
+    try:
+        size = _r2_head_bytes(location[0], location[1])
+        if not size or size > PRIOR_TABLE_MAX_BYTES:
+            return None
+        r2().download_file(location[0], location[1], str(destination))
+        document = json.loads(destination.read_text())
+    except Exception as error:                              # noqa: BLE001
+        log.info("  earlier match.json unreadable (%s)", type(error).__name__)
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def canonical_prior_table(stored: dict, video_path: str | Path,
+                          workdir: str | Path,
+                          command_runner=subprocess.run) -> dict | None:
+    """The stored table, asked again and canonicalised by the pipeline
+    interpreter against the frame it probes from `video_path` itself, or
+    None when it refuses."""
+    root = Path(workdir)
+    stored_path = root / "prior-table.json"
+    output_path = root / "prior-table-canonical.json"
+    stored_path.write_text(json.dumps(stored))
+    command_runner(
+        [VENV_PY, PLACEMENT_RETRY_CALIBRATION, "reuse",
+         "--stored", str(stored_path), "--video", str(video_path),
+         "--output", str(output_path)],
+        check=True, cwd=str(workdir), timeout=10 * 60,
+    )
+    result = json.loads(output_path.read_text())
+    if (not isinstance(result, dict)
+            or set(result) != {"ok", "code", "calibration"}
+            or result["ok"] != isinstance(result["calibration"], dict)):
+        raise RuntimeError("stored table reuse output is invalid")
+    return result["calibration"] if result["ok"] else None
+
+
+def reuse_prior_table(conn, *, match_id: str, processing_version_id: str | None,
+                      raw_path: str | None, video_path: str | Path,
+                      geometry: dict | None, workdir: str | Path,
+                      own_document: dict | None = None) -> dict | None:
+    """The table an earlier cut of this same upload found, canonicalised, or
+    None: then the caller detects as it always has. Never raises.
+
+    `own_document` is the hand cut's own match.json, asked first. The rest
+    come from prior_table_candidates. The first that every rule accepts,
+    and that survives canonicalisation, is the answer."""
+    try:
+        from hand_cut_analysis import reusable_table
+        width = (geometry or {}).get("width")
+        height = (geometry or {}).get("height")
+        root = Path(workdir) / "prior-tables"
+        root.mkdir(parents=True, exist_ok=True)
+        tried: list[tuple[dict, dict]] = []
+        if own_document is not None:
+            tried.append(({"relation": "own", "match_id": str(match_id),
+                           "processing_version_id": processing_version_id,
+                           "raw_path": raw_path, "match_json_path": None},
+                          own_document))
+        if raw_path:
+            tried.extend((candidate, None) for candidate in prior_table_candidates(
+                conn, match_id=str(match_id),
+                processing_version_id=processing_version_id,
+                raw_path=raw_path))
+        for n, (candidate, document) in enumerate(tried):
+            if document is None and candidate["raw_path"] == raw_path:
+                # Only another cut of this same upload is worth reading.
+                document = _read_prior_match_json(
+                    candidate["match_json_path"], root / f"match-{n}.json")
+            table, why = reusable_table(
+                document, document_raw_path=candidate["raw_path"],
+                raw_path=raw_path, width=width, height=height)
+            label = (candidate["processing_version_id"] or candidate["match_id"]
+                     or "?")[:8]
+            if table is None:
+                if candidate["relation"] != "own":
+                    log.info("  table of %s %s not reused: %s",
+                             candidate["relation"], label, why)
+                continue
+            reused_from = {key: candidate[key] for key in (
+                "relation", "match_id", "processing_version_id",
+                "match_json_path")}
+            canonical = canonical_prior_table(
+                {"document": {"calibration": table,
+                              "source": (document or {}).get("source")},
+                 "document_raw_path": candidate["raw_path"],
+                 "raw_path": raw_path, "reused_from": reused_from},
+                video_path, root)
+            if canonical is None:
+                log.info("  table of %s %s refused when canonicalised",
+                         candidate["relation"], label)
+                continue
+            log.info("  reusing the %s table of %s %s (same upload, %sx%s)",
+                     canonical.get("source"), candidate["relation"], label,
+                     width, height)
+            return canonical
+    except Exception as error:                              # noqa: BLE001
+        log.warning("  earlier table not reused (%s: %s)",
+                    type(error).__name__, error)
+    return None
+
+
 def _update_placement_lifecycle(
     conn,
     match_id: str,
@@ -3899,12 +4333,32 @@ def placement_for_match(
             blurball_path = run_blurball_only(video_path, workdir)
         if progress:
             progress(55)
-        calibration = run_placement_calibration(
-            video_path,
-            blurball_path,
-            workdir,
-            strategy=attempt.calibration_strategy,
-        )
+        calibration = None
+        if hand_cut:
+            # The table this upload already has, before detecting again: a
+            # hand Replace or a Keep copy is the same video as the cut that
+            # found it (audit D). Absent or untrusted, detect as always.
+            reused = reuse_prior_table(
+                conn,
+                match_id=match_id,
+                processing_version_id=record.get("processing_version_id"),
+                raw_path=record.get("raw_path"),
+                video_path=video_path,
+                geometry=video_source_geometry(video_path),
+                workdir=workdir,
+                own_document=json.loads(
+                    Path(original_match_path).read_text()),
+            )
+            if reused is not None:
+                calibration = {"ok": True, "code": None,
+                               "calibration": reused}
+        if calibration is None:
+            calibration = run_placement_calibration(
+                video_path,
+                blurball_path,
+                workdir,
+                strategy=attempt.calibration_strategy,
+            )
         if progress:
             progress(70)
         if not calibration["ok"]:
@@ -4668,7 +5122,17 @@ def _fail_auto_recut_job(conn, msg: dict, job_id: str, error: Exception) -> None
     """A re-cut that did not finish: the candidate and the job fail, the
     minutes come back, the player hears the match is unchanged and the
     admin gets the crash. If the bookkeeping itself fails, the message stays
-    for another delivery (the candidate is still a candidate)."""
+    for another delivery (the candidate is still a candidate).
+
+    A re-cut whose match was deleted, or whose job was cancelled, ends
+    silently instead (audit C): its version went with the match, so
+    fail_auto_recut has nothing to fail, and a failed job would ring the
+    re-cut bell about a match that no longer exists."""
+    moot = moot_job(conn, job_id)
+    if moot is not None:
+        end_moot_job(conn, job_id, moot, error)
+        archive_message(conn, msg["msg_id"])
+        return
     try:
         failed = fail_auto_recut(conn, job_id, error)
     except Exception:
@@ -8654,6 +9118,23 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
             ledger_keys.append(f"{r2_prefix}/")
             ledger_append(conn, user_id, "clip", clip_bytes,
                           f"{r2_prefix}/", match_id)
+
+        # The table this upload already has (audit D): a hand Replace, or
+        # a hand cut of a Keep copy, carries the earlier cut's table, so
+        # the admin page and every later analysis see it, including after
+        # the replaced version's files are swept. Best-effort: without it,
+        # detailed analysis looks for the table as it always has.
+        carried = reuse_prior_table(
+            conn, match_id=str(match_id),
+            processing_version_id=(recut.processing_version_id
+                                   if recut is not None else None),
+            raw_path=raw_path, video_path=local_raw,
+            geometry=match_json.get("source"), workdir=workdir)
+        if carried is not None:
+            match_json["calibration"] = carried
+            match_json.setdefault("notes", []).append(
+                "table: reused from an earlier cut of this upload "
+                f"({carried.get('source')}, same original and frame size)")
 
         with open(mj_path, "w") as fh:
             json.dump(match_json, fh)
@@ -13274,104 +13755,7 @@ def main():
                 log.warning("ordinary reconciliation remains retryable: %s", e)
             except Exception as e:
                 log.exception("job failed: %s", e)
-                payload = msg["message"]
-                if isinstance(payload, str):
-                    payload = json.loads(payload)
-                job_id = payload.get("job_id")
-                kind = payload.get("kind", "deadspace_cut")
-                # UserFacingError means the message is safe verbatim; the
-                # column is what the notify trigger and the uploader's email
-                # read, and it stays NULL for a crash so nothing internal
-                # can reach them. Written in the same statement as the
-                # status so the trigger sees both at once.
-                user_message = (
-                    str(e)[:300] if isinstance(e, UserFacingError) else None
-                )
-                try:
-                    if job_id:
-                        update_job(conn, job_id, status="failed",
-                                   error=str(e)[:500],
-                                   user_message=user_message)
-                    # Library job (096): a terminal failure gives the
-                    # minutes back and flips the row to failed so its page
-                    # offers Process again. Retryable crashes keep the
-                    # spend until the message poisons out.
-                    if job_id and kind == "deadspace_cut" and (
-                        isinstance(e, UserFacingError)
-                        or msg["read_ct"] >= MAX_READ_CT
-                    ):
-                        lib_options = get_job_options(conn, job_id, payload)
-                        lib_match = lib_options.get("match_id")
-                        if lib_match:
-                            refund_processing_spend_direct(conn, job_id)
-                            mark_library_match_failed(conn, str(lib_match))
-                    # Hand cut: nothing was charged, so no refund. The
-                    # marks go back to the player and the match returns to
-                    # 'uploaded' with nothing protecting points that no
-                    # longer exist. Idempotent with the handler's own
-                    # rollback.
-                    if job_id and kind == "hand_cut" and (
-                        isinstance(e, UserFacingError)
-                        or msg["read_ct"] >= MAX_READ_CT
-                    ):
-                        hand_cut_release(conn, job_id, payload)
-                    if isinstance(e, UserFacingError):
-                        # Deterministic failure (private video, too long…):
-                        # retrying can't succeed, archive right away.
-                        pass
-                    elif msg["read_ct"] >= MAX_READ_CT:
-                        log.warning("archiving poison message %s "
-                                    "(read_ct=%s)", msg["msg_id"], msg["read_ct"])
-                        if kind in {
-                            "placement_generate",
-                            "placement_retry",
-                        } and job_id:
-                            options = get_job_options(conn, job_id, payload)
-                            match_id = require_match_id(options)
-                            attempt = (
-                                NORMAL_PLACEMENT_ATTEMPT
-                                if kind == "placement_generate"
-                                else STRONGER_PLACEMENT_ATTEMPT
-                            )
-                            # Records the terminal status on the match so the
-                            # Tools row stops spinning. The uploader is not
-                            # emailed (see notify_job_done); the admin still
-                            # gets notify_job_failed below, which is now the
-                            # only signal that a placement job died.
-                            finalize_poisoned_placement_attempt(
-                                conn,
-                                job_id,
-                                payload.get("user_id"),
-                                match_id,
-                                attempt,
-                            )
-                except Exception:
-                    log.exception("failed to record job failure")
-
-                # OUTSIDE the bookkeeping, deliberately. This used to be the
-                # last statement inside it, so any book-keeping that threw —
-                # and finalize_poisoned_placement_attempt threw on a match
-                # whose authorized job had moved on — skipped the archive and
-                # left the message in the queue. It then came back every 30
-                # minutes forever, with a failure email each time. Two of them
-                # ran for 14 hours at read_ct 4 and 5, well past the cap that
-                # was supposed to stop them.
-                #
-                # Giving up is not a favour the bookkeeping earns. Whether the
-                # message dies is decided by the error and the attempt count,
-                # nothing else.
-                if isinstance(e, UserFacingError) or \
-                        msg["read_ct"] >= MAX_READ_CT:
-                    try:
-                        archive_message(conn, msg["msg_id"])
-                    except Exception:
-                        log.exception("could not archive poison message %s",
-                                      msg["msg_id"])
-
-                send_failure_emails(conn, e, job_id, kind,
-                                    payload.get("user_id"), user_message,
-                                    terminal=isinstance(e, UserFacingError)
-                                    or msg["read_ct"] >= MAX_READ_CT)
+                record_job_failure(conn, msg, e)
 
         except psycopg2.Error as e:
             log.warning("database connection issue (%s) — reconnecting in 30s", e)

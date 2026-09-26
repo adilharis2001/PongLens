@@ -220,7 +220,7 @@ class RecutRunTests(unittest.TestCase):
         timeline_module.reconcile_file(segments_path, out + ".timeline.json")
         Path(out).write_bytes(b"cut")
 
-    def run_job(self, conn, *, download=None):
+    def run_job(self, conn, *, download=None, reuse=None):
         fake_r2 = FakeR2({})
         self.r2 = fake_r2
 
@@ -271,6 +271,9 @@ class RecutRunTests(unittest.TestCase):
                               side_effect=AssertionError(
                                   "a re-cut must not touch the match row")),
         ]
+        if reuse is not None:
+            patches.append(mock.patch.object(worker, "reuse_prior_table",
+                                             side_effect=reuse))
         for p in patches:
             p.start()
         try:
@@ -328,6 +331,57 @@ class RecutRunTests(unittest.TestCase):
         # The owner's calls ride along onto the candidate's points.
         winners = conn.sql("update public.points set confirmed_winner")
         self.assertEqual(len(winners), len(self.plan.points))
+
+    def uploaded_match_json(self):
+        key = f"points/{USER}/{MATCH}/versions/{VERSION}/match.json"
+        (body,) = [data for _, k, data in self.r2.uploads if k == key]
+        return json.loads(body)
+
+    def test_a_recut_carries_the_table_of_the_cut_it_replaces(self):
+        """Audit D: the hand Replace's match.json holds the table the
+        replaced version found, so the admin page shows it and detailed
+        analysis starts from it, even after the old version is swept."""
+        table = {"ok": True, "source": "vision",
+                 "table_corners_px": {"A_near_1": [841.2, 576.0],
+                                      "B_near_2": [1017.6, 612.0],
+                                      "C_far_2": [1137.6, 580.8],
+                                      "D_far_1": [976.8, 553.2]},
+                 "note": "vision-proposed quad; reused from the cut this one replaced",
+                 "reused_from": {"relation": "replaced",
+                                 "processing_version_id": SOURCE}}
+        asked = []
+
+        def reuse(conn, **kwargs):
+            asked.append(kwargs)
+            return table
+
+        conn = self.recut_conn(receipt(True, len(self.plan.points)))
+        self.assertIs(self.run_job(conn, reuse=reuse), True)
+        (kwargs,) = asked
+        self.assertEqual(kwargs["match_id"], MATCH)
+        self.assertEqual(kwargs["processing_version_id"], VERSION)
+        self.assertEqual(kwargs["raw_path"], RAW)
+        self.assertTrue(str(kwargs["video_path"]).endswith("source.mp4"))
+        self.assertEqual((kwargs["geometry"]["width"], kwargs["geometry"]["height"]),
+                         (1920, 1080))
+        written = self.uploaded_match_json()
+        self.assertEqual(written["calibration"], table)
+        self.assertIn("table: reused from an earlier cut of this upload (vision, "
+                      "same original and frame size)", written["notes"])
+        self.assertEqual(written["pipeline"], "hand-v1")
+
+    def test_a_recut_with_no_trusted_table_writes_none(self):
+        conn = self.recut_conn(receipt(True, len(self.plan.points)))
+        self.assertIs(self.run_job(conn, reuse=lambda conn, **k: None), True)
+        self.assertNotIn("calibration", self.uploaded_match_json())
+
+    def test_the_lookup_can_never_fail_a_cut(self):
+        """Unpatched: the real lookup meets this fake database, which
+        answers none of its questions, and the cut publishes regardless."""
+        conn = self.recut_conn(receipt(True, len(self.plan.points)))
+        self.assertIs(self.run_job(conn), True)
+        self.assertNotIn("calibration", self.uploaded_match_json())
+        self.assertTrue(conn.sql("with recursive chain"))
 
     def test_a_recut_waits_then_goes_live_on_the_retry(self):
         conn = self.recut_conn(receipt(False), receipt(False), receipt(True))
