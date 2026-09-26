@@ -38,7 +38,7 @@ with a normal deploy and need no build.
 | A3 | **Remove "PongLens is in beta"** from the storage and minutes request rows, and retitle the "Processing is in beta" page of the recording brief | Likely, 2.2 | iPhone and web | S | open |
 | A4 | **Remove the "More match analysis cards coming soon." card** at the end of the analysis deck | Risk, 2.1 | iPhone and web | S | open |
 | A5 | Apply D4 to the BETA chips; drop "Placement is still in beta" and both Recollect mentions from the Learn guides | Risk, 2.2 / 2.3.1 | iPhone, web, Learn catalog | S | open |
-| A6 | **AI sheet wording**: land the shorter sheet (already written, applies cleanly). It also fixes the old wording, which says lesson "transcripts" when lesson audio and video go to OpenAI. | Risk, 5.1.2(i) | iPhone and web | S | open |
+| A6 | **AI sheet wording**: land the shorter sheet (already written, applies cleanly). It also fixes the old wording, which says lesson "transcripts" when lesson audio and video go to OpenAI. | Risk, 5.1.2(i) | iPhone and web | S | done 2026-09-26: the short wording, with the match-frame sentence added (A7) |
 | A7 | **Upload confirmation names OpenAI for match frames** (per D2) | Likely, 5.1.2(i) | iPhone and web upload checkbox | S | done 2026-09-26, differently: see "Recording and uploading ask for the AI permission" |
 | A8 | **Invite links open Safari, not the app, for App Store users.** The only associated-domain entry is developer mode, which distribution builds ignore. Add the plain `applinks:www.ponglens.com` entry. | Functional | Entitlements | S | open |
 | A9 | **Contact details visible**: show support@ponglens.com as text on the Account screen and the sign-in screen, and fall back to it when Mail is not set up | Risk, 1.2 / 2.1 | iPhone | S | open |
