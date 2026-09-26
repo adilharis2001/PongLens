@@ -988,24 +988,31 @@ enum HandCut {
     /// point is selected and the picture stops at its padded end, so the
     /// strip, the chip and the answers stay on the point being shown
     /// (post-rollout audit A). Only while a point is selected and nothing
-    /// is being adjusted, answered or marked; nil otherwise, and nil while
-    /// the picture has not yet left the selected rally.
+    /// is being adjusted, answered or marked; nil otherwise. The web's
+    /// followPlayback, rule for rule.
     ///
     /// "The next point" is the first closed point after the selected one
-    /// whose window (padded as its clip will be) holds `t`, so a jump over
-    /// a short point still lands on the one the picture is in.
+    /// whose clip (padded start, padded end exclusive) holds `t`, so a jump
+    /// over a short point still lands on the one the picture is in. A clip
+    /// counts from its padded start, but never before the selected point's
+    /// own clip has ended: where two clips overlap (points under 2.5 s
+    /// apart), the selected one keeps the picture, its stop and its hold
+    /// for an answer until its padded end.
     static func follow(
         _ state: HandCutState, at t: Double, adjusting: Bool, pre: Double, post: Double
     ) -> (id: String, stopAt: Double)? {
         guard !adjusting, state.awaitingId == nil, openMark(state.marks) == nil,
               let sel = state.selectedId,
               let i = state.marks.firstIndex(where: { $0.id == sel }),
-              let selT1 = state.marks[i].t1, t > selT1
+              let selT1 = state.marks[i].t1
         else { return nil }
+        let hereStop = selT1 + post
         for m in state.marks[(i + 1)...] {
             guard let t1 = m.t1 else { continue }
-            if t < m.t0 - pre { return nil }
-            if t <= t1 + post { return (m.id, t1 + post) }
+            let from = max(0, m.t0 - pre)
+            let stop = t1 + post
+            if t < max(from, hereStop) { return nil }
+            if t < stop { return (m.id, stop) }
         }
         return nil
     }
