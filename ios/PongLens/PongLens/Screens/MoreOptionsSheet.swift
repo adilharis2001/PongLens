@@ -341,11 +341,16 @@ private struct CutAgainSections: View {
                         markingControls
                     }
                 }
-                // The raw page's "Break it into points" card: surface
-                // fill, edge border, 16pt corners, no padding of its own
-                // (the components carry theirs).
+                // Flat under its header, no box around the choice cards
+                // (Adil, 2026-09-26: the card-in-a-card read as clutter; the
+                // web sheet is flat too). The components carry the raw
+                // page's 20pt insets for its card; taking them back here
+                // lines the choice cards and controls up with the Report a
+                // problem card below.
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .plCard(padding: 0)
+                .padding(.horizontal, -20)
+                .padding(.top, -10)
+                .padding(.bottom, -20)
             }
         }
     }
