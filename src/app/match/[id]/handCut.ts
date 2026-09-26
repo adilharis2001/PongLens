@@ -515,6 +515,106 @@ export function lastClosedEnd(marks: Mark[]): number | null {
   return null;
 }
 
+/* ------------------------------------------------ the gate, and following */
+
+/**
+ * The pads the worker cuts a hand-marked clip with, mirrored here so a
+ * point plays back as the clip the player will actually get rather than
+ * the bare rally. Must match claim_hand_cut's clip_pads.
+ */
+export const CLIP_PRE_S = 1.2;
+export const CLIP_POST_S = 1.3;
+
+/** A closed point's clip on the source clock: where it starts playing and
+ *  where it stops. Null for a rally still open. */
+export function clipWindow(m: Mark): { from: number; stopAt: number } | null {
+  if (m.t1 === null) return null;
+  return { from: Math.max(0, m.t0 - CLIP_PRE_S), stopAt: m.t1 + CLIP_POST_S };
+}
+
+/**
+ * What the gate's lit button does, for each way the marker opens
+ * (post-rollout audit A, 2026-09-26). One answer for the portrait pad, the
+ * floating desktop card, the landscape rail and the keyboard, so the three
+ * layouts cannot disagree about it.
+ *
+ *   play     a fresh pass: play from where the tape is and start marking
+ *   clip     play one point's clip from its padded start and stop at its
+ *            padded end: the first point without a winner ("Keep marking"
+ *            on a draft with points still to call), or the first point of
+ *            a finished one ("Begin review")
+ *   carryOn  nothing selected, back to the end of the last point, marking
+ *            ("Keep marking" on a called draft the match runs on past)
+ *
+ * "Keep marking" on a scoring draft used to press play and nothing else,
+ * so the tape ran on past the point it had cued and the selection never
+ * moved with it.
+ */
+export type GateStart =
+  | { kind: "play" }
+  | { kind: "clip"; id: string }
+  | { kind: "carryOn" };
+
+export function gateStart(opened: OpenAs, marks: Mark[]): GateStart {
+  if (opened === "scoring") {
+    const first = firstUnscored(marks);
+    return first ? { kind: "clip", id: first.id } : { kind: "carryOn" };
+  }
+  if (opened === "review") {
+    const first = marks.find((m) => m.t1 !== null);
+    return first ? { kind: "clip", id: first.id } : { kind: "play" };
+  }
+  if (opened === "choice") return { kind: "carryOn" };
+  return { kind: "play" };
+}
+
+/**
+ * The selection follows the picture (post-rollout audit A, 2026-09-26).
+ *
+ * A point that plays back stops at the end of its clip. Pressed on from
+ * there, or let run after its stop was taken off, the tape carries on into
+ * the next point, and the chip, the answer buttons and Adjust used to stay
+ * on the old one. Now, while a closed point is selected and nothing else
+ * has the pad (no edges on the bar, no point waiting for its answer, no
+ * rally being marked), playback reaching the next point's clip selects
+ * that point and stops at the end of its clip, the same stop a tap on its
+ * chip gives.
+ *
+ * "The next point" is the first closed point after the selected one
+ * whose clip holds the playhead, so a skip over a short point still lands
+ * on the one the picture is in. A clip counts from its padded start, but
+ * never before the selected point's own clip has ended: where two clips
+ * overlap, the selected one keeps the picture (and its stop, and its hold
+ * for an answer) until its end.
+ *
+ * Returns the point to select and where to stop, or null to do nothing.
+ * The iPhone's `HandCut.follow`.
+ */
+export function followPlayback(s: {
+  marks: Mark[];
+  selectedId: string | null;
+  /** A point just ended and waiting for who won. */
+  awaitingId: string | null;
+  /** The Adjust bar is open on a point. */
+  adjusting: boolean;
+  /** The playhead, source seconds. */
+  t: number;
+}): { id: string; stopAt: number } | null {
+  if (s.selectedId === null || s.awaitingId !== null || s.adjusting) return null;
+  if (openMark(s.marks) !== null) return null;
+  const i = s.marks.findIndex((m) => m.id === s.selectedId);
+  if (i < 0) return null;
+  const here = clipWindow(s.marks[i]);
+  if (!here) return null;
+  for (let j = i + 1; j < s.marks.length; j++) {
+    const there = clipWindow(s.marks[j]);
+    if (!there) continue;
+    if (s.t < Math.max(there.from, here.stopAt)) return null;
+    if (s.t < there.stopAt) return { id: s.marks[j].id, stopAt: there.stopAt };
+  }
+  return null;
+}
+
 /**
  * Point starts.
  *

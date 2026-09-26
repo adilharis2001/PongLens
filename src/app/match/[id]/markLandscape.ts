@@ -141,6 +141,90 @@ export interface PairTile {
   /** Share of the rail's height: 1 is the whole rail. The caller turns
    *  it into pixels, taking the gap out when there are two. */
   share: number;
+  /** The smaller second line inside a gate tile (GATE_COPY), when the
+   *  marker opens on points already there. */
+  detail?: string;
+}
+
+/* ------------------------------------------------------------ the gate */
+
+/**
+ * The line under each gate button when the marker opens on points already
+ * there (post-rollout audit B, wording approved by Adil 2026-09-26). The
+ * portrait pad and the desktop card show it as a 12 px grey line under the
+ * button; the landscape rail as a smaller second line inside the tile. The
+ * iPhone carries the same words (MarkerCopy).
+ */
+export const GATE_COPY = {
+  /** Keep marking, on a pass with points still without a winner: it plays
+   *  the first of them (handCut.gateStart). */
+  keepScoring: "Start from the points already here and fix or score each one.",
+  /** Keep marking, on a pass whose points are all called: back to the end
+   *  of the last point, marking. */
+  carryOn: "Carry on from the last point to the end of the match.",
+  /** Start again, which clears the marks after "Clear all marks?". */
+  startAgain: "Clear every point and mark the whole match yourself.",
+} as const;
+
+export interface GateButton {
+  label: string;
+  action: PairAction;
+  /** The one cyan button; the rest are outlined. */
+  lit: boolean;
+  /** Its line, or null where the button needs none. */
+  detail: string | null;
+}
+
+/**
+ * The gate's buttons, top to bottom, for every layout: one lit button,
+ * "Review the points" under it on a called draft the match runs on past,
+ * and "Start again" at the foot when a processed match is marked again
+ * with marks to clear.
+ *
+ * `opened` is how the screen was opened (handCut.openAs). Only the gates
+ * that open on points already there carry lines: "Keep marking" says
+ * which of its two jobs it does (score the points here, or carry on past
+ * the last one), and "Start again" says what it clears. "Begin Cutting",
+ * "Begin review" and "Review the points" need no line.
+ */
+export function gateButtons(
+  opened: "fresh" | "scoring" | "review" | "choice",
+  startAgain = false
+): GateButton[] {
+  const buttons: GateButton[] =
+    opened === "choice"
+      ? [
+          { label: "Keep marking", action: "keepMarking", lit: true, detail: GATE_COPY.carryOn },
+          { label: "Review the points", action: "reviewPoints", lit: false, detail: null },
+        ]
+      : opened === "scoring"
+        ? // Its action stays the fresh gate's, as on the iPhone; every gate
+          // action goes through handCut.gateStart, which reads `opened`.
+          [{ label: "Keep marking", action: "beginCutting", lit: true, detail: GATE_COPY.keepScoring }]
+        : opened === "review"
+          ? [{ label: "Begin review", action: "beginReview", lit: true, detail: null }]
+          : [{ label: "Begin Cutting", action: "beginCutting", lit: true, detail: null }];
+  if (startAgain) {
+    buttons.push({ label: "Start again", action: "startAgain", lit: false, detail: GATE_COPY.startAgain });
+  }
+  return buttons;
+}
+
+/**
+ * The gate's share of the rail, tile by tile. The approved board's split
+ * (0.58 / 0.42 for Keep marking over Review the points) stands. With Start
+ * again at the foot its tile carries a line of its own, which needs about
+ * a third of a phone's rail to be read, so the tiles above give way.
+ */
+function gateShares(count: number, startAgain: boolean): number[] {
+  if (!startAgain) return count === 2 ? [0.58, 0.42] : [1];
+  return count === 3 ? [0.4, 0.24, 0.36] : [0.62, 0.38];
+}
+
+/** Type sizes for a gate tile's second line: small, and a step up only
+ *  where the rail is wide. */
+export function gateDetailFont(tileW: number): number {
+  return tileW >= 150 ? 12 : 10;
 }
 
 /**
@@ -153,7 +237,8 @@ export interface PairTile {
  * part-way draft, "review" a finished one, "scoring" a draft with points
  * still to call (which only reaches the gate when a processed match is
  * being marked again), anything else a fresh pass. `startAgain` adds an
- * unlit "Start again" at the foot of the gate for that same case.
+ * unlit "Start again" at the foot of the gate for that same case. The
+ * gate's tiles are gateButtons, with their lines as `detail`.
  *
  * With a rally open, the left slot takes the pad back to where the last
  * point ended: "Back to last point" (Adil, 2026-09-25; it was "Reset").
@@ -171,26 +256,15 @@ export function railPair(s: {
   startAgain?: boolean;
 }): PairTile[] {
   if (!s.started) {
-    const again: PairTile = { label: "Start again", action: "startAgain", tone: "unlit", share: 0.26 };
-    if (s.opened === "choice") {
-      return s.startAgain
-        ? [
-            { label: "Keep marking", action: "keepMarking", tone: "lit", share: 0.44 },
-            { label: "Review the points", action: "reviewPoints", tone: "unlit", share: 0.3 },
-            again,
-          ]
-        : [
-            { label: "Keep marking", action: "keepMarking", tone: "lit", share: 0.58 },
-            { label: "Review the points", action: "reviewPoints", tone: "unlit", share: 0.42 },
-          ];
-    }
-    const first: PairTile =
-      s.opened === "review"
-        ? { label: "Begin review", action: "beginReview", tone: "lit", share: 1 }
-        : s.opened === "scoring"
-          ? { label: "Keep marking", action: "beginCutting", tone: "lit", share: 1 }
-          : { label: "Begin Cutting", action: "beginCutting", tone: "lit", share: 1 };
-    return s.startAgain ? [{ ...first, share: 0.74 }, again] : [first];
+    const buttons = gateButtons(s.opened, !!s.startAgain);
+    const shares = gateShares(buttons.length, !!s.startAgain);
+    return buttons.map((b, i) => ({
+      label: b.label,
+      action: b.action,
+      tone: b.lit ? "lit" : "unlit",
+      share: shares[i],
+      ...(b.detail ? { detail: b.detail } : {}),
+    }));
   }
   if (s.reviewing) {
     return s.adjusting

@@ -10,6 +10,9 @@ import {
   markLandscape,
   pairTileHeight,
   railPair,
+  GATE_COPY,
+  gateButtons,
+  gateDetailFont,
 } from "./markLandscape.ts";
 
 /**
@@ -195,7 +198,7 @@ test("marking a processed match again: the gate always has a way to start again"
     "Start again:unlit:startAgain",
   ]);
   // A draft with points still to call opens at the gate only here, and
-  // carries on from the first uncalled point.
+  // plays the first uncalled point (handCut.gateStart).
   assert.deepEqual(labels({ ...gate, opened: "scoring" }), [
     "Keep marking:lit:beginCutting",
     "Start again:unlit:startAgain",
@@ -211,4 +214,72 @@ test("marking a processed match again: the gate always has a way to start again"
     const sum = tiles.reduce((h, t) => h + pairTileHeight(t, tiles.length, boxH), 0);
     close(sum + RAIL_GAP * (tiles.length - 1), boxH, `${opened} fills the rail`);
   }
+});
+
+test("the gate says what Keep marking and Start again do (audit B)", () => {
+  const gate = { started: false, reviewing: false, adjusting: false, open: false };
+  const details = (s: Parameters<typeof railPair>[0]) =>
+    railPair(s).map((t) => `${t.label}:${t.detail ?? ""}`);
+  // Points still without a winner: Keep marking scores them.
+  assert.deepEqual(details({ ...gate, opened: "scoring", startAgain: true }), [
+    `Keep marking:${GATE_COPY.keepScoring}`,
+    `Start again:${GATE_COPY.startAgain}`,
+  ]);
+  // Every point called and the match runs on: Keep marking carries on.
+  assert.deepEqual(details({ ...gate, opened: "choice", startAgain: true }), [
+    `Keep marking:${GATE_COPY.carryOn}`,
+    "Review the points:",
+    `Start again:${GATE_COPY.startAgain}`,
+  ]);
+  assert.deepEqual(details({ ...gate, opened: "choice" }), [
+    `Keep marking:${GATE_COPY.carryOn}`,
+    "Review the points:",
+  ]);
+  // Begin review and Begin Cutting need no line.
+  assert.deepEqual(details({ ...gate, opened: "review", startAgain: true }), [
+    "Begin review:",
+    `Start again:${GATE_COPY.startAgain}`,
+  ]);
+  assert.deepEqual(details({ ...gate, opened: "fresh" }), ["Begin Cutting:"]);
+  // The pass itself never carries lines.
+  assert.ok(railPair({ ...gate, started: true, opened: "scoring" }).every((t) => !t.detail));
+
+  // The portrait pad and the desktop card read the same list.
+  assert.deepEqual(
+    gateButtons("choice", true).map((b) => [b.label, b.lit, b.detail]),
+    [
+      ["Keep marking", true, GATE_COPY.carryOn],
+      ["Review the points", false, null],
+      ["Start again", false, GATE_COPY.startAgain],
+    ]
+  );
+  assert.deepEqual(
+    gateButtons("scoring").map((b) => [b.label, b.lit, b.detail]),
+    [["Keep marking", true, GATE_COPY.keepScoring]]
+  );
+
+  // The approved words, exactly.
+  assert.equal(GATE_COPY.keepScoring, "Start from the points already here and fix or score each one.");
+  assert.equal(GATE_COPY.carryOn, "Carry on from the last point to the end of the match.");
+  assert.equal(GATE_COPY.startAgain, "Clear every point and mark the whole match yourself.");
+  for (const line of Object.values(GATE_COPY)) {
+    assert.doesNotMatch(line, /\u2014|\bAI\b|free|Mac|iPhone|phone/);
+  }
+});
+
+test("a gate line fits its tile on a phone held sideways", () => {
+  // iPhone 12 in landscape: the rail is about 101 wide and 286 tall. Start
+  // again's tile has to hold its label on two lines and its line on four.
+  const g = markLandscape(844, 390, { left: 47, right: 47, bottom: 21 });
+  assert.equal(gateDetailFont(g.tileW), 10);
+  for (const opened of ["choice", "scoring", "review"] as const) {
+    const tiles = railPair({ started: false, opened, reviewing: false, adjusting: false, open: false, startAgain: true });
+    const again = tiles[tiles.length - 1];
+    assert.ok(pairTileHeight(again, tiles.length, g.boxH) >= 90, `${opened}: Start again has room for its line`);
+    const keep = tiles[0];
+    if (keep.detail) {
+      assert.ok(pairTileHeight(keep, tiles.length, g.boxH) >= 90, `${opened}: Keep marking has room for its line`);
+    }
+  }
+  assert.equal(gateDetailFont(150), 12);
 });

@@ -7,6 +7,11 @@ import {
   type Mark,
   allCalled,
   clearAwaiting,
+  clipWindow,
+  followPlayback,
+  gateStart,
+  CLIP_POST_S,
+  CLIP_PRE_S,
   draftMode,
   firstUnscored,
   gapsAround,
@@ -975,6 +980,116 @@ test("game ends survive both stored shapes, and nothing else is one", () => {
     { t0: 10, t1: null, gameEnd: "end", gameWinner: "user" },
   ]);
   assert.equal(odd.some((m) => "gameEnd" in m || "gameWinner" in m), false);
+});
+
+/* ------------------------------------ the gate, and following (audit A) */
+
+/** Closed marks at the given [t0, t1] seconds, optionally called. */
+function calledSpans(spans: [number, number, Answer?][]): Mark[] {
+  return spans.map(([t0, t1, answer], i) => ({
+    id: `m${i + 1}`,
+    t0,
+    t1,
+    winner: answer === "user" || answer === "opponent" ? answer : null,
+    isLet: answer === "let",
+    starred: false,
+    tap: t0,
+    rate: 1,
+  }));
+}
+
+test("the four gates: what the lit button plays", () => {
+  // Fresh: nothing marked, play from where the tape is.
+  assert.equal(openAs([], 600), "fresh");
+  assert.deepEqual(gateStart("fresh", []), { kind: "play" });
+
+  // Scoring: points still to call. Keep marking plays the first point
+  // without a winner as its clip, from its padded start to its padded end.
+  const scoring = calledSpans([[10, 18, "user"], [30, 41], [60, 66]]);
+  assert.equal(openAs(scoring, 600), "scoring");
+  assert.deepEqual(gateStart("scoring", scoring), { kind: "clip", id: "m2" });
+  assert.deepEqual(clipWindow(scoring[1]), { from: 30 - CLIP_PRE_S, stopAt: 41 + CLIP_POST_S });
+
+  // Choice: every point called and the match runs on. Keep marking carries
+  // on from the last point's end, with nothing selected.
+  const choice = calledSpans([[10, 18, "user"], [30, 41, "opponent"]]);
+  assert.equal(openAs(choice, 600), "choice");
+  assert.deepEqual(gateStart("choice", choice), { kind: "carryOn" });
+
+  // Review: every point called and the tape ends with them. Begin review
+  // plays the first point's clip.
+  assert.equal(openAs(choice, 60), "review");
+  assert.deepEqual(gateStart("review", choice), { kind: "clip", id: "m1" });
+
+  // A clip never starts before the top of the video.
+  assert.equal(clipWindow(calledSpans([[0.4, 5]])[0])?.from, 0);
+  assert.equal(clipWindow({ ...scoring[0], t1: null }), null);
+});
+
+test("playing on from a selected point selects the next and stops at its end", () => {
+  const marks = calledSpans([[10, 18], [30, 41], [60, 66]]);
+  const base = { marks, selectedId: "m1", awaitingId: null, adjusting: false };
+  // Inside the selected point's own clip, and in the dead time after it:
+  // nothing moves.
+  assert.equal(followPlayback({ ...base, t: 15 }), null);
+  assert.equal(followPlayback({ ...base, t: 18 + CLIP_POST_S + 2 }), null);
+  // Into the next point's clip: it is selected, and stops at its end.
+  assert.deepEqual(followPlayback({ ...base, t: 30 - CLIP_PRE_S }), {
+    id: "m2",
+    stopAt: 41 + CLIP_POST_S,
+  });
+  assert.deepEqual(followPlayback({ ...base, t: 35 }), { id: "m2", stopAt: 41 + CLIP_POST_S });
+  // A skip over a point lands on the one the picture is in.
+  assert.deepEqual(followPlayback({ ...base, t: 62 }), { id: "m3", stopAt: 66 + CLIP_POST_S });
+  // Past every clip, nothing to follow.
+  assert.equal(followPlayback({ ...base, t: 90 }), null);
+  // Walking on from the second point reaches the third.
+  assert.deepEqual(followPlayback({ ...base, selectedId: "m2", t: 60 }), {
+    id: "m3",
+    stopAt: 66 + CLIP_POST_S,
+  });
+  // The last point has nothing after it.
+  assert.equal(followPlayback({ ...base, selectedId: "m3", t: 70 }), null);
+});
+
+test("where two clips overlap, the selected one keeps the picture to its end", () => {
+  // 0.8 s between the rallies: the next clip's pre pad starts inside this
+  // one's post pad.
+  const marks = calledSpans([[10, 18], [18.8, 25]]);
+  const base = { marks, selectedId: "m1", awaitingId: null, adjusting: false };
+  assert.equal(followPlayback({ ...base, t: 18.8 - CLIP_PRE_S }), null);
+  assert.equal(followPlayback({ ...base, t: 18 + CLIP_POST_S - 0.01 }), null);
+  assert.deepEqual(followPlayback({ ...base, t: 18 + CLIP_POST_S }), {
+    id: "m2",
+    stopAt: 25 + CLIP_POST_S,
+  });
+});
+
+test("nothing follows while the pad is busy with something else", () => {
+  const marks = calledSpans([[10, 18], [30, 41]]);
+  const t = 32;
+  const base = { marks, selectedId: "m1", awaitingId: null, adjusting: false, t };
+  assert.ok(followPlayback(base));
+  // Nothing selected: the tape is being marked, not reviewed.
+  assert.equal(followPlayback({ ...base, selectedId: null }), null);
+  // Edges on the bar.
+  assert.equal(followPlayback({ ...base, adjusting: true }), null);
+  // A point waiting for its answer.
+  assert.equal(followPlayback({ ...base, awaitingId: "m1" }), null);
+  // A rally being marked, anywhere in the list.
+  const marking = [...marks, { ...marks[1], id: "open", t0: 50, t1: null }];
+  assert.equal(followPlayback({ ...base, marks: marking }), null);
+  // A selection that is not in the list.
+  assert.equal(followPlayback({ ...base, selectedId: "gone" }), null);
+});
+
+test("following skips a rally still open between two points", () => {
+  // Only reachable with nothing open, so an open rally never is the next.
+  const marks = calledSpans([[10, 18], [30, 41]]);
+  assert.deepEqual(
+    followPlayback({ marks, selectedId: "m1", awaitingId: null, adjusting: false, t: 29 }),
+    { id: "m2", stopAt: 41 + CLIP_POST_S }
+  );
 });
 
 /* ---------------------------------------------------- parity fixture */
