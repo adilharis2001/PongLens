@@ -3,11 +3,10 @@ import Foundation
 // The arithmetic behind cutting a match on the phone (spec 2026-09-24,
 // section 7). Foundation only, so ios/Tests/run.sh compiles and checks it
 // without a simulator. The encoder that turns a plan into files is
-// HandCutEncoder.swift; nothing here touches AVFoundation.
-//
-// Phase 2 replaces `alternating` with the Swift port of the Python segment
-// rules. Everything else here (clamping, the expected cut clock, the
-// keyframe interval, the clip size) is shared by both.
+// HandCutEncoder.swift; nothing here touches AVFoundation. Which seconds
+// to keep comes from CutPlan.swift, the Swift port of the Python segment
+// rules; this file holds what the encoder needs around it (clamping, the
+// expected cut clock, the keyframe interval, the clip size).
 
 /// A span of a video, in seconds of the SOURCE file unless a caller says
 /// otherwise.
@@ -26,23 +25,6 @@ nonisolated enum HandCutPlan {
 
     /// Clips are 720 wide on the Mac (`scale=720:-2`).
     static let clipWidth = 720
-
-    /// The step 0 benchmark's synthetic plan: keep `on` seconds, drop `off`
-    /// seconds, repeat to the end of the source. A last kept piece shorter
-    /// than `minimumKeep` is dropped rather than encoded as a sliver.
-    static func alternating(
-        duration: Double, on: Double = 20, off: Double = 20, minimumKeep: Double = 1
-    ) -> [TimeWindow] {
-        guard duration.isFinite, duration > 0, on > 0, off >= 0 else { return [] }
-        var out: [TimeWindow] = []
-        var t = 0.0
-        while t < duration {
-            let end = min(duration, t + on)
-            if end - t >= minimumKeep { out.append(TimeWindow(start: t, end: end)) }
-            t += on + off
-        }
-        return out
-    }
 
     /// Segments clamped to [0, duration], empty ones dropped, sorted, and
     /// overlapping or touching ones merged. The encoder only ever sees a

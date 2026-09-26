@@ -361,10 +361,9 @@ struct AccountScreen: View {
 
     /// Hand cut on iPhone (spec 2026-09-24): the videos the app kept for
     /// marking, for accounts that can hand cut (or that still have one kept
-    /// from before the gate closed), and the admin's cutting speed test.
-    /// Rows at the foot of Storage, where a player looks to free space
-    /// (Adil, 2026-09-25: no separate "This iPhone" group). Nobody else
-    /// sees either row.
+    /// from before the gate closed). A row at the foot of Storage, where a
+    /// player looks to free space (Adil, 2026-09-25: no separate "This
+    /// iPhone" group). Nobody else sees it.
     @ViewBuilder
     private var keptVideoRows: some View {
         let keptVideos = DeviceVideoPolicy.shared.handCut
@@ -372,10 +371,6 @@ struct AccountScreen: View {
         if keptVideos {
             rowDivider
             linkRow("My app recordings", value: "device-videos")
-        }
-        if app.isAdmin {
-            rowDivider
-            linkRow("Cutting speed test", value: "cutting-speed-test")
         }
     }
 
