@@ -8,29 +8,6 @@ import Foundation
 func runHandCutChecks() {
     print("\n— hand cut on iPhone: plan, gates, kept videos —")
 
-    // MARK: Synthetic plan: 20 s on, 20 s off
-
-    eq(HandCutPlan.alternating(duration: 100),
-       [TimeWindow(start: 0, end: 20), TimeWindow(start: 40, end: 60), TimeWindow(start: 80, end: 100)],
-       "100 s keeps three whole pieces")
-    eq(HandCutPlan.alternating(duration: 95),
-       [TimeWindow(start: 0, end: 20), TimeWindow(start: 40, end: 60), TimeWindow(start: 80, end: 95)],
-       "a short last piece is kept to the end of the video")
-    eq(HandCutPlan.alternating(duration: 40.5),
-       [TimeWindow(start: 0, end: 20)],
-       "a last piece under a second is dropped, not encoded as a sliver")
-    eq(HandCutPlan.alternating(duration: 41),
-       [TimeWindow(start: 0, end: 20), TimeWindow(start: 40, end: 41)],
-       "a last piece of exactly a second is kept")
-    eq(HandCutPlan.alternating(duration: 12),
-       [TimeWindow(start: 0, end: 12)],
-       "a video shorter than one piece is one piece")
-    eq(HandCutPlan.alternating(duration: 0), [], "an empty video has no plan")
-    eq(HandCutPlan.alternating(duration: .nan), [], "an unreadable length has no plan")
-    let fortyFive = HandCutPlan.alternating(duration: 45 * 60)
-    eq(fortyFive.count, 68, "a 45-minute match is 68 pieces")
-    near(HandCutPlan.cutDuration(for: fortyFive), 1360, "and keeps 22:40")
-
     // MARK: Normalising a plan before the composition sees it
 
     eq(HandCutPlan.normalized(
@@ -47,7 +24,7 @@ func runHandCutChecks() {
 
     // MARK: Where each piece starts on the cut's clock
 
-    let plan = HandCutPlan.alternating(duration: 95)
+    let plan = [TimeWindow(start: 0, end: 20), TimeWindow(start: 40, end: 60), TimeWindow(start: 80, end: 95)]
     let starts = HandCutPlan.cutStarts(for: plan)
     eq(starts.count, 3, "one start per piece")
     near(starts[0], 0, "first piece starts the cut")

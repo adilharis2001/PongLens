@@ -289,6 +289,14 @@ final class DeviceHandCutQueue {
     /// Registering the same task identifier twice kills the app.
     @ObservationIgnored private static var registered: Set<String> = []
 
+    /// Continued processing identifiers use wildcard notation in the
+    /// Info.plist (BGTaskSchedulerPermittedIdentifiers holds this prefix
+    /// plus ".*"). Each submission gets its own suffix and registers that
+    /// concrete identifier just before it is submitted: registering the
+    /// wildcard itself is rejected ("not advertised in the application's
+    /// Info.plist"), measured on the iOS 26.5 simulator on 2026-09-24.
+    static let taskPrefix = "com.ponglens.PongLens.handcut"
+
     private init() {
         session = DeviceCutSession()
         uploader = session
@@ -481,7 +489,7 @@ final class DeviceHandCutQueue {
 
     private func requestBackgroundTask(_ jobId: UUID) async -> Bool {
         let suffix = UUID().uuidString.prefix(8).lowercased()
-        let identifier = "\(HandCutBenchmark.taskPrefix).cut-\(suffix)"
+        let identifier = "\(Self.taskPrefix).cut-\(suffix)"
         guard !Self.registered.contains(identifier) else { return false }
         let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
             let box = DeviceCutTaskBox(task: task)
@@ -996,12 +1004,11 @@ final class DeviceHandCutQueue {
         let started = job.uploadStartedAt ?? Date()
         let uploadWall = Date().timeIntervalSince(started)
         update(jobId) { $0.uploadWall = uploadWall }
-        let device = HandCutBenchmark.deviceInfo()
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
         guard let fresh = self.job(jobId),
               let manifest = DeviceCutManifest.build(
                 fresh,
-                encoder: .init(cut: .init(videoBitrate: fresh.cutVideoBitrate), device: device.model,
+                encoder: .init(cut: .init(videoBitrate: fresh.cutVideoBitrate), device: Self.deviceModel(),
                                os: UIDevice.current.systemVersion, appBuild: build),
                 timing: .init(cutWall: fresh.cut?.wall, clipsWall: fresh.clipsWall, uploadWall: uploadWall)),
               let data = try? manifest.encoded()
@@ -1018,6 +1025,19 @@ final class DeviceHandCutQueue {
             await backoff(jobId)
         }
         return .next
+    }
+
+    /// The hardware model for the manifest ("iPhone13,3"), or the simulated
+    /// one marked "(simulator)" on the simulator.
+    private static func deviceModel() -> String {
+        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] {
+            return "\(simulated) (simulator)"
+        }
+        var system = utsname()
+        uname(&system)
+        return withUnsafeBytes(of: &system.machine) { raw in
+            String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self)
+        }
     }
 
     private func submit(_ jobId: UUID) async -> Outcome {

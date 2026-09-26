@@ -13,9 +13,9 @@ import os
 // frames, the index at the front, AAC 128k; clips 720 wide, AAC 96k.
 //
 // The plan (which seconds to keep, where each point's clip sits) comes
-// from HandCutPlan.swift. Step 0's benchmark drives this with a synthetic
-// plan; phase 2 drives it with the Swift port of the Python rules. Nothing
-// here decides what to keep.
+// from CutPlan.swift, the Swift port of the Python rules, with the
+// arithmetic around it in HandCutPlan.swift. Nothing here decides what to
+// keep.
 //
 // Every heavy loop runs on its own serial queue, never the main actor and
 // never a cooperative-pool thread, and checks the cancel flag between

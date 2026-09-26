@@ -33,8 +33,8 @@
 	  a cut the player started keeps encoding with the app in the
 	  background. Wildcard notation, as BGContinuedProcessingTaskRequest
 	  requires: the bundle id, a context, then ".*"; each submission adds
-	  its own suffix. Must match HandCutBenchmark.taskWildcard. An array,
-	  so it lives here and not in an INFOPLIST_KEY_* build setting.
+	  its own suffix. Must be DeviceHandCutQueue.taskPrefix plus ".*". An
+	  array, so it lives here and not in an INFOPLIST_KEY_* build setting.
 	-->
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>

@@ -410,7 +410,7 @@ release for a phone that never comes back.
 
 | Step | What | Reaches |
 | --- | --- | --- |
-| 0 | **Measure on the iPhone 12**: encode a 10- and a 45-minute recording, 1080p and 4K, in the foreground and with the app backgrounded and the screen locked; time, heat, battery, file size against the Mac's | Admins |
+| 0 | **Measure on the iPhone 12**: encode a 10- and a 45-minute recording, 1080p and 4K, in the foreground and with the app backgrounded and the screen locked; time, heat, battery, file size against the Mac's. **Result (2026-09-26):** iPhone 12 Pro (iPhone13,3, iOS 26.6.2), foreground, 1080p30 HEVC 7:44 source, 4:00 kept: cut 41 s (5.9x real time), 12 clips 16 s, total 57 s, battery 90% → 85% unplugged, thermal nominal, start drift 0.000 s; background run not measured. The speed test was then removed from the app | Admins |
 | 0a | **Landscape mockups** (section 3a): every state, both modes, iPhone and mobile web. **Adil approves before step 1 touches landscape** | Adil |
 | 0b | **Measure frame-rate variation** across recent uploads, to size the timestamp fix | — |
 | 1 | **Web fixes**: the nine marker defects, the draft rules, practice (section 3b), the approved landscape layout on mobile web, and the section 8 copy and state fixes | Admins for the marker; everyone for copy |
