@@ -5,6 +5,9 @@ import {useEffect,useRef,useState} from 'react';
 import {comparisonPlaybackWindow,comparisonReview,comparisonReviewAllowed,parseComparisonRow,sameComparisonReview,type ComparisonReview,type ComparisonRow,type TimingVerdict,type WinnerVerdict} from '@/lib/research/matchComparison';
 import {readComparisonDraft,writeComparisonDraft,clearComparisonDraft} from '@/lib/research/matchComparisonDrafts';
 import {clock,frameStep} from '@/lib/research/pointEndings';
+import {BallEvidence} from '../point-endings/BallEvidence';
+import {isComparisonEvidence} from '@/lib/research/comparisonEvidence';
+import type {EndingEvidence} from '@/lib/research/endingEvidence';
 import {PlaybackTimeline} from '../point-endings/PlaybackTimeline';
 
 const field='w-full min-h-11 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus:border-cyan-glow focus:outline-none';
@@ -24,6 +27,12 @@ export function MatchComparisonReview({initialRows}:{initialRows:ComparisonRow[]
  const initialDraftRows=useRef(initialRows);
  const [statuses,setStatuses]=useState<Record<string,Status>>({});
  const [media,setMedia]=useState<{id:string;url:string}|null>(null);
+ const [evidenceSnapshot,setEvidenceSnapshot]=useState<{id:string;evidence:EndingEvidence}|null>(null);
+ const [evidenceError,setEvidenceError]=useState('');
+ const [evidenceRetry,setEvidenceRetry]=useState(0);
+ const [showTrail,setShowTrail]=useState(true);
+ const [showBounces,setShowBounces]=useState(true);
+ const [showTable,setShowTable]=useState(true);
  const [mediaError,setMediaError]=useState('');
  const [retry,setRetry]=useState(0);
  const [ready,setReady]=useState(false);
@@ -43,6 +52,7 @@ export function MatchComparisonReview({initialRows}:{initialRows:ComparisonRow[]
  const dirty=!!point&&!!review&&!sameComparisonReview(review,comparisonReview(point.label));
  const unsaved=rows.filter(r=>drafts[r.id]&&!sameComparisonReview(drafts[r.id],comparisonReview(r.label))).length;
  const url=media&&point&&media.id===point.id?media.url:null;
+ const evidence=evidenceSnapshot?.id===point?.id?evidenceSnapshot?.evidence??null:null;
  const matches=Array.from(new Map(rows.map(r=>[r.match_id,r.source.matchName])).entries());
 
  useEffect(()=>{
@@ -71,6 +81,15 @@ export function MatchComparisonReview({initialRows}:{initialRows:ComparisonRow[]
   })();
   return()=>{cancelled=true;abort.abort();};
  },[point?.id,retry]); // eslint-disable-line react-hooks/exhaustive-deps
+ useEffect(()=>{
+  if(!point)return;const id=point.id;const abort=new AbortController();let cancelled=false;
+  setEvidenceSnapshot(null);setEvidenceError('');
+  void (async()=>{
+   try{const response=await fetch(`/api/research/match-comparison/evidence?id=${id}`,{signal:abort.signal});const data=await response.json();if(!response.ok||data.id!==id||!isComparisonEvidence(data.evidence))throw Error(data.error??'Ball evidence could not be read.');if(!cancelled)setEvidenceSnapshot({id,evidence:data.evidence});}
+   catch(error){if(!cancelled)setEvidenceError(error instanceof Error?error.message:'Ball evidence could not be read.');}
+  })();
+  return()=>{cancelled=true;abort.abort();};
+ },[point?.id,evidenceRetry]); // eslint-disable-line react-hooks/exhaustive-deps
  useEffect(()=>{const v=video.current;return()=>{v?.pause();};},[url]);
  useEffect(()=>{if(video.current)video.current.playbackRate=rate;},[rate,url]);
  useEffect(()=>{
@@ -139,9 +158,19 @@ export function MatchComparisonReview({initialRows}:{initialRows:ComparisonRow[]
    <div className="min-w-0 flex-1">
     <div className="relative aspect-video overflow-hidden rounded-xl border border-edge bg-black">
      {url&&<video key={point.id+url} ref={video} src={url} playsInline preload="metadata" className="absolute inset-0 h-full w-full" onLoadedMetadata={e=>{const v=e.currentTarget;v.currentTime=source.preview.start;v.playbackRate=rate;playbackEnd.current=source.preview.end;setReady(true);}} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} onTimeUpdate={e=>{const v=e.currentTarget;if(!v.paused&&v.currentTime>=playbackEnd.current){v.pause();v.currentTime=playbackEnd.current;}}} onError={()=>{setReady(false);setMediaError('Could not play this video. Reload it to try again.');}}/>}
+     {url&&<BallEvidence key={point.id+url} video={video} evidence={evidence} trail={showTrail} bounces={showBounces} table={showTable}/>}
      {!ready&&!mediaError&&<div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">Loading video…</div>}
     </div>
     {mediaError&&<div role="alert" className="mt-3 space-y-2 text-sm text-rose-300"><p>{mediaError}</p><button className={secondary} onClick={()=>setRetry(n=>n+1)}>Reload video</button></div>}
+    <div className="mt-3 flex flex-wrap gap-2">
+     <button type="button" aria-pressed={showTrail} onClick={()=>setShowTrail(v=>!v)} className={`min-h-11 rounded-full border px-3 py-2 text-sm ${showTrail?'border-yellow-400/50 bg-yellow-400/10 text-yellow-200':'border-edge text-zinc-400'}`}>Ball trail</button>
+     <button type="button" aria-pressed={showBounces} onClick={()=>setShowBounces(v=>!v)} className={`min-h-11 rounded-full border px-3 py-2 text-sm ${showBounces?'border-amber-400/50 bg-amber-400/10 text-amber-200':'border-edge text-zinc-400'}`}>Detected bounces</button>
+     <button type="button" aria-pressed={showTable} onClick={()=>setShowTable(v=>!v)} className={`min-h-11 rounded-full border px-3 py-2 text-sm ${showTable?'border-cyan-400/50 bg-cyan-400/10 text-cyan-200':'border-edge text-zinc-400'}`}>Table outline</button>
+    </div>
+    {evidenceError?<div role="alert" className="mt-2 space-y-2 text-sm text-rose-300"><p>{evidenceError}</p><button className={secondary} onClick={()=>setEvidenceRetry(n=>n+1)}>Reload ball evidence</button></div>:!evidence?<p role="status" className="mt-2 text-sm text-zinc-400">Loading ball evidence…</p>:<>
+     <p className="mt-2 text-xs text-zinc-500">Original experiment detections. Gaps are missing tracks; bounce markers can be wrong.</p>
+     {evidence.bounces.length>0?<div aria-label="Jump to detected bounce" className="mt-2 flex max-w-full gap-2 overflow-x-auto pb-1">{evidence.bounces.map((b,i)=><button key={i} className="min-h-11 shrink-0 rounded-lg border border-edge px-3 py-2 text-sm text-amber-200 disabled:opacity-40" disabled={!ready} onClick={()=>seek(b.t)} aria-label={`Go to bounce ${i+1} at ${clock(b.t)}`}>{i+1} · {clock(b.t)}</button>)}</div>:<p className="mt-2 text-xs text-zinc-400">No bounces detected in this window.</p>}
+    </>}
     <PlaybackTimeline key={point.id+url} video={video} start={source.preview.start} end={source.preview.end} fps={source.fps} rawOffset={0} ready={ready} onSeek={seek}/>
     <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
      <button className={secondary} disabled={!ready} onClick={playPause}>{playing?'Pause':'Play'}</button>
