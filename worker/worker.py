@@ -819,7 +819,14 @@ def send_email(
     *,
     idempotency_key: str | None = None,
     cost_meter: CostMeter | None = None,
+    freeze: Callable[[str], str | None] | None = None,
 ):
+    """Send one email. `freeze` is for a caller that retries under one
+    idempotency key: it is handed this attempt's exact request body and
+    returns the body to send, which is the first attempt's once one has
+    been stored, so every retry is the request Resend already saw (see
+    resend_request_body). None from it means nothing is stored; this
+    attempt's own body goes out."""
     rendered = subject if isinstance(subject, RenderedEmail) else None
     subject_text = rendered.subject if rendered else subject
     if rendered is None and html_body is None:
@@ -852,6 +859,10 @@ def send_email(
         }
     if bcc_list:
         payload["bcc"] = bcc_list
+    if freeze is not None:
+        frozen = freeze(resend_request_body(payload).decode("utf-8"))
+        if frozen:
+            payload = json.loads(frozen)
     send_email_payload(
         payload,
         idempotency_key=idempotency_key,
@@ -13507,12 +13518,14 @@ def maybe_send_cost_alerts():
             message: RenderedEmail,
             *,
             idempotency_key: str,
+            freeze: Callable[[str], str | None] | None = None,
         ):
             return send_email(
                 to,
                 message,
                 idempotency_key=idempotency_key,
                 cost_meter=alert_meter,
+                freeze=freeze,
             )
 
         delivered = deliver_cost_alerts(
