@@ -104,8 +104,16 @@ export const FALLBACK_AI_CONSENT_VERSION = "2026-09-26";
 export const getTermsVersion = cache(async (): Promise<string> => {
   return (await getConfigValue("terms_version")) ?? FALLBACK_TERMS_VERSION;
 });
+/** Never older than the wording this build shows: app_config is cached for
+ *  an hour, and on 2026-09-26 the cache kept handing out the previous
+ *  version for that long after the sheet's words changed, so an Allow
+ *  would have been stamped with a version its reader never saw. The
+ *  stamps are dates, so the later string is the newer version. */
 export const getAiConsentVersion = cache(async (): Promise<string> => {
-  return (await getConfigValue("ai_consent_version")) ?? FALLBACK_AI_CONSENT_VERSION;
+  const configured = await getConfigValue("ai_consent_version");
+  return configured && configured > FALLBACK_AI_CONSENT_VERSION
+    ? configured
+    : FALLBACK_AI_CONSENT_VERSION;
 });
 
 /** Purchase availability is separate from metering and must be read fresh. */
