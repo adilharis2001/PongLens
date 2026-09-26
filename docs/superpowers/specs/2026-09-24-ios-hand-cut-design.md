@@ -7,6 +7,11 @@
 the placement and highlight request flows, and what a hand-marked match looks
 like on every surface today.
 
+**As shipped (2026-09-26):** "Reset" is **"Back to last point"**; a scoring draft of a processed match marked again opens at a
+**"Keep marking"** / **"Start again"** gate, each with its one-line caption, rather than straight into the pass; and nothing
+offers to cut on the Mac instead: the server takes a phone cut over silently after 15 minutes without a report (60 while the
+phone is uploading). Details in the lines changed below.
+
 **Companion:** `2026-09-24-ios-hand-cut-marker-inventory.md` lists every
 value, colour, timing, animation and word of the web marker. It is the
 contract for the iPhone port; this spec says what to build and why.
@@ -85,7 +90,7 @@ below. That covers, among the rest:
   count instead of a score. "Stop scoring" and "Score them too" switch modes
   mid-pass and keep every winner already called.
 - **The three-tap rhythm and its safety nets.** Begin Point, End Point, then
-  the answer. Reset while a rally is open. Begin while the picture is held
+  the answer. "Back to last point" (it read "Reset") while a rally is open. Begin while the picture is held
   leaves the point uncalled and says "Left uncalled."
 - **Review.** Tap a chip to play its clip, tap again to pause, clips chain
   with no gap, Prev and Next on the picture, Adjust with the two-handle bar
@@ -93,6 +98,10 @@ below. That covers, among the rest:
   again, Remove, Resume.
 - **How a draft reopens.** Straight into the scoring pass, into "Begin
   review", or into "Keep marking" / "Review the points", by the same rules.
+  As shipped, a scoring draft of a processed match marked again (Cut again)
+  opens at a gate instead of the pass: "Keep marking" ("Start from the points
+  already here and fix or score each one.") over "Start again" ("Clear every
+  point and mark the whole match yourself.").
 - **Every visual detail.** Chip colours, the open chip growing 1 pt a second
   up to 60, the cyan fill behind it, the rings for playing and selected, the
   110% scale and glows, the star, the 2 s pulse on the answers, the 2 s amber
@@ -169,7 +178,7 @@ canvas.
 | Top bar (42) | Score, games pill and "{name} serves" (Cut only: "{N} points"); the chip strip; Done; close |
 | Left rail | Me, {opponent}, Let. In Cut only they stay, greyed out (option A) |
 | Picture | 16:9, fitted by Scorekeeper's formula; only temporary things on it (play glyph, scrubber, messages) |
-| Right rail | The pair: Begin Point / End Point, Reset / End Point, Adjust / Confirm with Resume; Begin Cutting, or Keep marking and Review the points, before starting |
+| Right rail | The pair: Begin Point / End Point, Back to last point / End Point, Adjust / Confirm with Resume; Begin Cutting, or Keep marking and Review the points, before starting |
 | Bottom bar (41) | −5s (Prev when a point is selected), Undo, Speed, Star, Mark again, Remove, Stop scoring / Score them too, +5s (Next). While adjusting, the two-handle bar replaces the tools until Confirm |
 
 The four controls the web dropped in landscape (speed, Star, ±5 s, the mode
@@ -388,7 +397,7 @@ release for a phone that never comes back.
 | Surface | Change |
 | --- | --- |
 | `/admin/processing` | "Hand cut on iPhone" with the phone's stage ("Cutting on the iPhone", "Uploading from the iPhone"); new Mac stage "Checking the iPhone's cut"; a quiet phone is grey "Waiting for the iPhone", never amber |
-| Web raw page, desktop and mobile | "Cutting on your iPhone" with progress; "Cut on the Mac instead" after 24 h without a report |
+| Web raw page, desktop and mobile | The same stage names as any hand cut, with progress; never where it runs. As shipped, the server takes a phone cut over silently after 15 minutes without a report, 60 while the phone is uploading; the player is not told |
 | Home, library, raw page (web and iOS) | Hand-cut stage names ("Reading the marks", "Cutting the video", "Building the points") instead of the automatic ones ("Finding the points", "Removing dead time") |
 | Processing notices (web and iOS) | Promise the ready email for a hand cut; the worker already sends it |
 | Ready email | Does not say "Score it" to a player who scored while marking |
@@ -461,6 +470,6 @@ These supersede the matching lines above and in the marker inventory.
 | Done as an outlined pill | Done is the primary cyan button (footer and landscape top bar) |
 | "This match cannot be processed automatically afterwards." | Removed; see `2026-09-25-cut-again-design.md` |
 | "Free" on the row | Never used; "{N} marked" or nothing |
-| "Cut on the Mac instead", "Cutting on your iPhone", "Keep PongLens open while it cuts." | Players never see where a cut runs. A phone cut that can't finish hands over silently; the server also takes over a phone quiet for 15 minutes (migration `20260925105830`). Player labels are the same wherever it runs: "Cutting the video", "Uploading the result", "Saving the match" |
+| "Cut on the Mac instead", "Cutting on your iPhone", "Keep PongLens open while it cuts." | Players never see where a cut runs. A phone cut that can't finish hands over silently; the server also takes over a phone quiet for 15 minutes, or 60 when its last report was the upload (migrations `20260925105830`, `20260926141940`). Player labels are the same wherever it runs: "Cutting the video", "Uploading the result", "Saving the match" |
 | "Me serves" | "You serve" |
 | Row line "You tap where each point starts and who won." | "You mark where each point starts and ends." |

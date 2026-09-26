@@ -1,6 +1,8 @@
 # Mark the points: web marker inventory for the iOS port
 Read from GitHub main at 554c4a78 on 2026-09-24. Companion to 2026-09-24-ios-hand-cut-design.md; this file is the reference for exact values and copy.
 
+**As shipped (2026-09-26):** the button that undoes an early Begin is **"Back to last point"** (it read "Reset"; renamed below). A scoring draft of a processed match being marked again (Cut again) opens at a gate rather than straight into the pass: **"Keep marking"** ("Start from the points already here and fix or score each one.") and, under it, **"Start again"** ("Clear every point and mark the whole match yourself."). The choice gate's Keep marking gains a line too: "Carry on from the last point to the end of the match." A first cut's scoring draft still opens in the pass (§3).
+
 This covers everything in the web marker, read from the `.worktrees/ios-hand-cut` worktree at `codex/ios-hand-cut` (current main); nothing was edited or built. Three things matter most before building:
 - **The web has flaws that should not be copied as they are.** There are at least five, including "Mark again" failing on any point except the last and the final 1.5 seconds of taps being lost on close. They are listed in §10.8 and flagged ⚠ where they come up.
 - **Where the web has no rule, the iOS port needs a decision.** The biggest is phone landscape: the web puts its controls over the picture, and the iOS rule is solid rails beside it (§10.1).
@@ -139,7 +141,7 @@ Opacity suffixes (`/15`, `/60` and so on) mean alpha 0.15, 0.60.
   - If a rally is open (a forgotten end), the open rally closes at the new `t0`, unscored, and a new one opens there. If `t0 − open.t0 < 0.7` it refuses `short`.
   - Otherwise, if `t0 < lastClosedEnd` it refuses `past`.
   - It clears both selection and awaiting.
-  - ⚠ The forgotten-end path cannot be reached from the UI: while a rally is open the left button is Reset, and S resets too.
+  - ⚠ The forgotten-end path cannot be reached from the UI: while a rally is open the left button is Back to last point, and S does the same.
 - **`resetOpen`** (HC:390-409): drops the open mark and returns `backTo = lastClosedEnd ?? 0`. It pushes a `remove` undo entry, so Undo restores the open rally.
 - **`endMark`** (HC:419-438): refuses `noneOpen` or `short`. Sets `awaitingId = open.id` and `selectedId = null`.
 - **`setOutcome`** (HC:449-474): the target is `awaitingId ?? selectedId`, else it refuses `noneEnded`.
@@ -193,7 +195,7 @@ The four ways in:
 | openAs | Condition | Mode sheet? | `started` | Selected | Gate |
 |---|---|---|---|---|---|
 | `fresh` | No marks | yes (`mode == null`) | false | none | "Begin Cutting" |
-| `scoring` | Mode is score and not every point is called | no | **true** (pad live at once) | `firstUnscored` | none |
+| `scoring` | Mode is score and not every point is called | no | **true** (pad live at once); false when a processed match is marked again | `firstUnscored` | none; on Cut again, "Keep marking" + "Start again", each with its line |
 | `review` | Every point called (or cut mode), and `duration − lastEnd ≤ 45s` | no | false | `marks[0]` | "Begin review" |
 | `choice` | Every point called (or cut mode) and more than 45s remain, OR no duration known | no | false | `marks[0]` | "Keep marking" + "Review the points" |
 
@@ -267,12 +269,12 @@ The four ways in:
 
 ### 4.5 Point open (a rally in progress)
 - **Pair:**
-  - The left button becomes **"Reset"**, unlit (edge border, `bg-surface`, zinc-400; hover gives an `amber-400/50` border and amber-200 text).
+  - The left button becomes **"Back to last point"** (was "Reset"), unlit (edge border, `bg-surface`, zinc-400; hover gives an `amber-400/50` border and amber-200 text).
   - **"End Point"**: lit.
 - **The open chip:** a cyan border, `cyan/10` fill, cyan text, scaled to 110%, with a white glow `0 0 12px rgba(255,255,255,.35)`.
   - It grows as the rally runs (§5).
   - `aria-current="true"`.
-- **Reset:** removes the open mark, seeks to `lastClosedEnd ?? 0`, and plays (MP:713-724).
+- **Back to last point:** removes the open mark, seeks to `lastClosedEnd ?? 0`, and plays (MP:713-724).
 - **Answers:** disabled. An answer during a rally is refused ("End the point first."), which can only be reached from the keyboard.
 
 ### 4.6 Awaiting an answer, picture held (score mode, right after End Point)
@@ -471,7 +473,7 @@ The four ways in:
 3. **Start taps store the lead** `clamp(0.6 × rate, 0.6, 1.2)`, plus the raw `tap` and `rate`. End taps get no lead.
 4. **Only a pause this screen caused is one it undoes** (the `pausedForAnswer` flag). A player who paused by hand is not pushed back into motion by an answer.
 5. **Begin while held** means carry on: the point is left uncalled with "Left uncalled.", and no rally is started.
-6. **Reset** is Begin's replacement while a rally is open. It rewinds to the last end and plays.
+6. **Back to last point** is Begin's replacement while a rally is open. It rewinds to the last end and plays.
 7. **Undo** always resumes playback if this screen paused it.
 8. **Chip tap:** plays that point's clip; tapping the selected chip again pauses it.
 9. **Auto-walk:** a clip that plays out chains straight into the next closed point, except in score mode when the point it ended on is uncalled, in which case it holds.
@@ -493,7 +495,7 @@ The four ways in:
 |---|---|---|
 | Space / Enter | The gate's primary action: `beginMarking` on choice, `beginReview` on review, `beginCutting` otherwise | (Enter does nothing) |
 | Space | | Clears the hold flag, then toggles play/pause |
-| S | | Reset if a rally is open, else Begin |
+| S | | Back to last point if a rally is open, else Begin |
 | E | | End |
 | ← | | Cut mode, or with Shift: −5s. Otherwise: answer Me |
 | → | | Cut mode, or with Shift: +5s. Otherwise: answer Them |
@@ -503,7 +505,7 @@ The four ways in:
 
 **Key legend** (MP:1685-1714): only shown at 1024px and up.
 - Style: `kbd` keys with a 1px edge border, `bg-surface`, 9px mono zinc-400; labels 10px zinc-500.
-- Cut mode: S "Begin" (or "Reset" when a rally is open) · E "End" · U "Undo" · T "Star" · Space "Play".
+- Cut mode: S "Begin" (or "Back to last point" when a rally is open) · E "End" · U "Undo" · T "Star" · Space "Play".
 - Score mode adds: ← youLabel · → themLabel · K "Let".
 
 ---
@@ -554,7 +556,7 @@ Everything sits over the video, which fills the screen. `base = chromeFloor + 6 
 | Slot | Bottom | Height | Label |
 |---|---|---|---|
 | 1 | 58 | 62 | "End Point", or "Resume" in review |
-| 2 | 126 | 62 | "Begin Point" / "Reset", or "Adjust" / "Confirm" in review |
+| 2 | 126 | 62 | "Begin Point" / "Back to last point", or "Adjust" / "Confirm" in review |
 | 3 | 194 | 34 | "Undo" (11px, `ink/60`) |
 | 4 (review only) | 232 | 34 | "Mark again" |
 | 5 (review only) | 270 | 34 | "Remove" |
@@ -596,7 +598,7 @@ Examples: a tablet in landscape, or a small or touch laptop.
 | Review sheet | the unscored line is shown | no unscored line |
 | Serve sheet | on the way in, and on switching back to scoring | never |
 | Toggle pill | **"Stop scoring"**, aria "Stop calling who won each point" | **"Score them too"**, aria "Also call who won each point" |
-| Opening a draft | uncalled points open in the scoring pass | always the gate (review or choice) |
+| Opening a draft | uncalled points open in the scoring pass (on Cut again: the "Keep marking" / "Start again" gate) | always the gate (review or choice) |
 | Draft `mode` column | "score" | "cut" |
 
 - **Toggle pill style:** pill, 1px edge border, `px-3 py-2`, 11px semibold zinc-400; hover `cyan/50` border and zinc-100 text. It sits in the footer to the left of Done.

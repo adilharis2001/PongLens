@@ -2,6 +2,16 @@
 
 **Date:** September 25, 2026. **Status:** Design from Adil's decisions of the same day. Not implemented.
 
+**As shipped (2026-09-26).** What changed after this spec; the code and these lines win where they differ below.
+
+- **Pick-one, nothing selected.** The two ways (Automatically, Mark the points yourself) are one pick-one group under "Process again", and nothing is selected until the player taps one. Replace this match / Keep this match and add a new one also start with nothing selected, not Keep.
+- **Minutes line.** With the automatic way's Process again button: "Uses N of your M minutes."
+- **No cut strictness.** Strictness is not a choice anywhere a player sees; automatic re-cuts always send `normal`.
+- **Trim is `TrimPreview`,** the raw page's trim with its preview, on web and iOS.
+- **Keep is one call.** Automatic Keep calls `claim_auto_recut(p_replace := false)`, which copies the match and claims its processing in one transaction; `copy_match_for_recut` + `/api/process` is no longer used, so a refused charge leaves no unprocessed copy.
+- **Automatic Replace is on for everyone** (`app_config.recut_auto_replace = on`).
+- **Replace by hand says "Point notes will be deleted."** Marking by hand keeps each point's score through its mark; automatic Replace keeps "Points, scores and point notes will be deleted."
+
 **Research behind it:** `docs/research/2026-09-25-reversible-cuts/PROPOSAL.md` (what exists in the database and worker, verified against live definitions).
 
 ---
