@@ -216,3 +216,106 @@ candidate path on the Mac is the upload path, byte for byte in its decisions.
 | The worker misbehaves | `~/Library/Caches/PongLens/cut-again-phase2-20260925/rollback-mac.sh`: drains `69915d26…`, boots out main, fast and monitor, restores the backed-up plists, bootstraps, lifts `a8b08902…`'s drain files. Pulses return to `a8b08902…`. Works with the migration left in place |
 | The twin after a Mac rollback | Cloud stays off with `release_mismatch` (it is Off anyway). To pair it again: in `.worktrees/cloud-twin/worker/cloud_release`, `PONGLENS_CLOUD_SOURCE_RELEASE=".../match-releases/a8b089021d264ef68c90d42735b1f128dd3a254aee8e0f5e65d257137cf516c9"`, `modal deploy modal_app.py`, then `modal run modal_app.py --command register` |
 | The database | Switch `recut_auto_replace` off first, then run `rollback-20260925170532.sql` (this folder, one transaction). The new worker tolerates it: its re-cut sweep is silent without the functions, and `media_swept_at` stays |
+
+## Email fix release (2026-09-26): every lane on one release again
+
+Main, fast, the health monitor and the hand lane now all run sealed release
+`ab887b32…` from `93857d5e`, whose only change is the email recipient count
+that made every worker email fail after Resend had accepted it. The Linux twin
+`108528fd…` is built and probed but not deployed, because Modal disabled the
+workspace mid-release when the month's $30 credit ran out, and Adil approved
+switching the Mac first as a recorded exception. The $400 cost alert went out
+once, the $300 alert is marked sent without a new copy, and the retry loop has
+stopped.
+
+### What moved
+
+| Piece | Before | After |
+| --- | --- | --- |
+| Main, fast, health monitor | `69915d2650f7…` (source `9e21c10e`) | `ab887b32c11f415248553ff825a70b02eba463147a6c57950968304f3aae97f7` (source `93857d5e`), opened 2026-09-26 13:54:14 UTC |
+| Hand lane | `1af85388c9f9…` (source `7cede901`) | The same `ab887b32…`; it also gains main/fast's `acfaa94a` (automatic Replace, retired-cut sweep; the sweep runs on the main lane only) |
+| Cloud twin | `44611008…`, paired with `69915d26` | Unchanged. `108528fd3b8a85c17dca2a6b680ca29187a222589c663a212019b44f70e1c98d`, pipeline `43daa62396471d663204ff6c48c8bbcd078d6d28f538a94a29ccac31b5d3b5a1`, is built and probed, not deployed or registered |
+| `cloud_mode`, database, web, iOS | | Unchanged (`disabled`; no migration) |
+
+### The fix
+
+| | |
+| --- | --- |
+| Defect | `send_email_payload` counted recipients with `bcc_list`, a name that exists only in `send_email`. The NameError came after Resend accepted the message, so each worker email was delivered but recorded as failed |
+| Effect since 2026-09-19 | The $300 cost alert was retried about once a minute (10,339 claims) and, as Resend forgets an idempotency key after 24 hours, reached the admin once a day (19 to 26 Sep, eight copies). The $400 alert was never claimed, because each failed $300 attempt ends the run |
+| Change | `recipients=1 + len(payload.get("bcc") or [])`, plus `worker/tests/test_send_email_payload.py` |
+
+### The exception to the release order
+
+| Question | Answer |
+| --- | --- |
+| The rule | Deploy and register the twin before activating the Mac release (cloud-twin README, "Packaging a new release for the cloud") |
+| What happened | The twin built and probed; the shadow replay of upload `fcb21bbc` stopped during ball detection with "workspace … is disabled" at about 13:36 UTC. Modal billing: $30.14 metered this month against a $30.00 credit, $0.07 billed. This release spent $0.27 (build and probe) and $0.19 (partial replay). The deployed dispatcher has made no decision since 13:41:39 UTC |
+| Decision | Adil approved (relayed by the coordinating session, 2026-09-26) switching all four Mac launchers first and pairing the twin after he re-enables Modal |
+| Why it is safe | The dispatcher only starts a cloud worker when the registered twin's `cloud_mac_release_id` equals the Mac's pulse. It is now `69915d26…` against `ab887b32…`, so `release_match` is false: the cloud reports `disabled` while Off and would report `release_mismatch` on Standby or Run once, until `108528fd` is deployed and registered. The pipeline is unchanged (the diff is one metering line), so nothing about a match differs between the two |
+
+### Checks on the Mac release
+
+Ops folder: `~/Library/Caches/PongLens/email-fix-20260926/` (README.txt there lists every file).
+
+| Check | Result |
+| --- | --- |
+| Build tree | Clean detached worktree `.worktrees/email-fix-release` at `93857d5e` |
+| Runtime inputs | `inspect-local.json` byte-identical to Phase 2's |
+| Manifest vs live `69915d26` | adapters, behavior_env, body_model, database, runtime, schema identical; files: `worker/worker.py` changed, `worker/tests/test_send_email_payload.py` added; models and `bin/` identical |
+| Manifest vs hand `1af85388` | The above plus Phase 2's `email_templates.py`, `tests/test_auto_recut.py`, `tests/test_email_templates.py`, `tests/test_match_reprocess.py` |
+| `test_match_release`, `test_send_email_payload` | 30 OK, 2 OK |
+| Worker suite from the tree root | 1,303 tests, 24 errors: the same 18 as Phase 2, plus 6 in `test_queue_estimates_db` and `test_lesson_cloud_fallback_db`, which need the local Supabase in Docker (ports 54322/55322 time out; Docker Desktop's API returns 500). The live source `9e21c10e` fails the same 6 identically today |
+| Sealed smoke, `prabhas-diag/clip24.mp4` | imports, native, pose, table (16 of 16), ball, parity (17 passed), side changes twice: all exit 0, every result identical to `69915d26`'s apart from timings |
+| Staged and re-verified; check-only main, fast and hand | Pass; no bytecode inside the staged release |
+| Launchers | Four new plists, each differing from the live one only in the release id |
+
+### Linux twin (built, not live)
+
+| Check | Result |
+| --- | --- |
+| Requirements lists | Not changed: the Mac runtime is identical |
+| Probe (`modal run modal_app.py`) | Release verified, `pipeline_id` recomputes, `mac_release_id` = `ab887b32…`, Tesla T4, FFmpeg n8.1.2, BlurBall on CUDA 76 of 600 frames (as `44611008`'s probe) |
+| Shadow replay | Not completed (workspace disabled). No parity numbers exist for this twin |
+
+### Activation (`activate.sh`, log `activation.log`)
+
+| Step | UTC |
+| --- | --- |
+| Idle check: nothing queued or running on `jobs`, `jobs_fast` or `jobs_hand`; no pulse holding a job | 13:52:24 |
+| Old main, fast (`69915d26`) and hand (`1af85388`) drained; their drain files stay for rollback | 13:52:35 |
+| Four launchers backed up to `launcher-backup/`, new state pre-drained, bootout, plists copied, bootstrap (first try each) | 13:52:39 |
+| New lanes pulse `ab887b32…` drained, then opened | 13:54:14 |
+| Verified | `mac:main`, `mac:fast`, `mac:hand` pulse the full new id, idle; the monitor ran on the new release at 13:53:49; main-lane housekeeping and cost reconciliation ran without errors |
+
+### What the fix sent
+
+Read from Resend's own log (`resend-recent.txt`) and the database (`email-state-*.txt`).
+
+| Email | Outcome |
+| --- | --- |
+| $300 alert | Row `sent` at 13:53:58 (attempt 10,339). No new copy: Resend returned the copy of 2026-09-26 00:04:39 UTC, still inside its 24-hour key window |
+| $400 alert | Sent once at 13:54:01, delivered; row `sent` at attempt 1 |
+| "cost alert delivery failed" | None on the new release. The previous release logged 1,104 of them between 25 Sep 18:30 and 13:52:05 UTC today (and `a8b08902` 3,732 before that) |
+| Ready email for upload `1f5be46c` (Adil's own 25 Sep match) | Delivered on the first try, 2026-09-25 21:18:14 UTC (Resend `01a0da6e…`); the NameError only recorded it as failed. Every retry since has been refused by Resend (stored as `RuntimeError`, which the worker raises when Resend answers with an error; the text is not kept), including the first retry on this release at 14:35:18 (attempt 22). The fix does not change that path and nothing was re-sent. The row stops by itself after attempt 24 (about 16:35 UTC) and is marked expired. Worth a separate look: a durable ready-email retry appears never to succeed |
+| Processing-incident alerts | Nothing waiting; unchanged |
+
+### Rollback
+
+| Situation | Do this |
+| --- | --- |
+| The worker misbehaves | `~/Library/Caches/PongLens/email-fix-20260926/rollback-mac.sh`: drains `ab887b32…`, boots out all four, restores the backed-up plists, bootstraps, lifts the old drain files. Main, fast and monitor return to `69915d26…`, hand to `1af85388…`, and the email bug returns with them |
+| The twin | Nothing to undo: `44611008` is still registered and matches `69915d26` again after a rollback |
+
+### Still to do: pair the twin once Modal is re-enabled
+
+In `.worktrees/cloud-twin/worker/cloud_release`, with `MODAL_PROFILE=adilharis2001` and
+`PONGLENS_CLOUD_SOURCE_RELEASE="/Users/adil/Library/Application Support/PongLens/match-releases/ab887b32c11f415248553ff825a70b02eba463147a6c57950968304f3aae97f7"`:
+
+| # | Step | Pass when |
+| --- | --- | --- |
+| 1 | `modal run modal_app.py --command shadow --job-id fcb21bbc-e6e3-4395-86d8-cf9d1825ff98` (61 s upload, no table, about $0.30) | Exits 0 |
+| 2 | `python -B compare_parity.py --job-id fcb21bbc-e6e3-4395-86d8-cf9d1825ff98 --label modal-108528fd` (copy in the ops folder) | Within the accepted T4 tolerance; `44611008` gave 7 of 8 points matched, 7/7 same winner and reason on this upload |
+| 3 | `modal deploy modal_app.py`, then `modal run modal_app.py --command register` | `cloud_mac_release_id` = `ab887b32…`; the dispatcher reads `release_match = true` |
+
+The build reuses the cached image unless the staged release changed, so no rebuild is expected. `cloud_mode` stays Off throughout.
