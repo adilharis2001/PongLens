@@ -2,9 +2,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
-import { NeonBallHero } from "@/components/anim/NeonBallHero";
+import { RallyScene } from "@/components/marketing/RallyScene";
+import { LandingMotion } from "@/components/marketing/LandingMotion";
+import { ClipRibbon } from "@/components/marketing/ClipRibbon";
+import "./landing-cinematic.css";
 import { BrowserFrame } from "@/components/marketing/BrowserFrame";
-import { CTA_CLASS, Feature, Phone } from "@/components/marketing/Feature";
+import { CTA_CLASS, Feature as SharedFeature, Phone } from "@/components/marketing/Feature";
 import { IosBetaSignup } from "@/components/marketing/IosBetaSignup";
 import { LandingVideo } from "@/components/marketing/LandingVideo";
 import { PhoneFrame } from "@/components/marketing/PhoneFrame";
@@ -177,6 +180,13 @@ const jsonLd = (supportEmail: string) => ({
   ],
 });
 
+function Feature(props: React.ComponentProps<typeof SharedFeature>) {
+  return <div className={`landing-feature-wrap landing-${props.id}`}>
+    <SharedFeature {...props} media={<div className="feature-media">{props.media}</div>} />
+    {props.id === "just-the-play" && <ClipRibbon />}
+  </div>;
+}
+
 export default async function Home() {
   const supportEmail = await getSupportEmail();
   return (
@@ -186,40 +196,13 @@ export default async function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd(supportEmail)) }}
       />
       <SiteHeader />
-      <main className="flex-1">
-        {/* HERO: full-bleed animated arena with the copy floating over it,
-            as it was. Real screens belong in the sections below, where they
-            sit on flat ink; over the arena they read as pasted on. */}
-        <section className="relative flex min-h-[calc(100vh-4rem)] items-center overflow-hidden">
-          <div className="absolute inset-0 opacity-50 lg:opacity-100">
-            <NeonBallHero background />
-          </div>
-          <div
-            className="pointer-events-none absolute inset-0 hidden lg:block"
-            aria-hidden
-            style={{
-              background:
-                "linear-gradient(to right, rgba(10,10,18,.92) 0%, rgba(10,10,18,.55) 45%, rgba(10,10,18,.15) 75%, rgba(10,10,18,0) 100%)",
-            }}
-          />
-          <div
-            className="pointer-events-none absolute inset-0 hidden lg:block"
-            aria-hidden
-            style={{
-              background:
-                "linear-gradient(to top, rgba(10,10,18,.85) 0%, rgba(10,10,18,.25) 35%, rgba(10,10,18,0) 60%)",
-            }}
-          />
-          <div
-            className="pointer-events-none absolute inset-0 lg:hidden"
-            aria-hidden
-            style={{
-              background:
-                "linear-gradient(to top, rgba(10,10,18,.5) 0%, rgba(10,10,18,.1) 30%, rgba(10,10,18,0) 55%)",
-            }}
-          />
-          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-44 pt-16 text-center sm:pb-24 sm:pt-24 lg:text-left">
-            <div className="mx-auto max-w-3xl lg:mx-0">
+      <main className="flex-1 cinematic-landing">
+        <LandingMotion />
+        {/* Decorative motion stays behind the original readable hero content. */}
+        <section className="cinematic-hero">
+          <RallyScene />
+          <div className="hero-copy">
+            <div className="hero-copy-inner">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
                 A performance hub for{" "}
                 <span className="text-cyan-glow text-glow">
@@ -231,7 +214,7 @@ export default async function Home() {
                 points and creates one clip per point for you to score,
                 review and share with your coach.
               </p>
-              <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 lg:justify-start">
+              <div className="hero-actions">
                 <TrackedLink
                   href="/login"
                   event="cta_upload"
@@ -242,7 +225,7 @@ export default async function Home() {
                 </TrackedLink>
                 <IosBetaSignup placement="hero" />
               </div>
-              <p className="mt-5 text-sm text-zinc-400">
+              <p className="hero-allowance">
                 Free during beta, with {BETA_ALLOWANCE.processingMinutes}{" "}
                 processing minutes and {BETA_ALLOWANCE.storageGb} GB of
                 storage included.
@@ -337,11 +320,11 @@ export default async function Home() {
                 were slow, medium or fast.
               </p>
             </div>
-            <div className="mt-10 flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-5 lg:px-[max(1.5rem,calc((100vw-72rem)/2+1.5rem))]">
+            <div className="analysis-deck">
               {cards.map((c) => (
                 <div
                   key={c.src}
-                  className="w-[82%] shrink-0 snap-center overflow-hidden rounded-2xl border border-edge sm:w-[360px]"
+                  className="analysis-card"
                 >
                   <Image
                     src={c.src}
@@ -535,7 +518,7 @@ export default async function Home() {
         </section>
 
         {/* CLOSE */}
-        <section className="border-t border-edge bg-band">
+        <section className="landing-close border-t border-edge bg-band">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-16 text-center">
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
               Try it on your{" "}
