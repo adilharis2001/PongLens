@@ -6,7 +6,7 @@ import {containedFrame,evidenceAt,type EndingEvidence} from '@/lib/research/endi
 
 /** Same fading tail and timed rings as Serve accuracy, fitted to the video's
  * contained frame. Drawing never re-renders the 479-point labeling list. */
-export function BallEvidence({video,evidence,trail,bounces,review}:{video:RefObject<HTMLVideoElement|null>;evidence:EndingEvidence|null;trail:boolean;bounces:boolean;review?:BounceReview}) {
+export function BallEvidence({video,evidence,trail,bounces,review,table=false}:{video:RefObject<HTMLVideoElement|null>;evidence:EndingEvidence|null;trail:boolean;bounces:boolean;review?:BounceReview;table?:boolean}) {
  const canvas=useRef<HTMLCanvasElement>(null);
  useEffect(()=>{
   const v=video.current,c=canvas.current;if(!v||!c)return;
@@ -18,8 +18,13 @@ export function BallEvidence({video,evidence,trail,bounces,review}:{video:RefObj
    if(c.width!==Math.round(w*density)||c.height!==Math.round(h*density)){c.width=Math.round(w*density);c.height=Math.round(h*density);}
    const ctx=c.getContext('2d');if(!ctx)return;
    ctx.setTransform(density,0,0,density,0,0);ctx.clearRect(0,0,w,h);
-   if(!evidence||(!trail&&!bounces)||v.readyState<2)return;
+   if(!evidence||(!trail&&!bounces&&!table)||v.readyState<2)return;
    const box=containedFrame(w,h,v.videoWidth||evidence.width,v.videoHeight||evidence.height);
+   if(table&&evidence.tableCorners?.length===4){
+    ctx.globalAlpha=0.75;ctx.strokeStyle='#67e8f9';ctx.lineWidth=1.5;ctx.beginPath();
+    evidence.tableCorners.forEach(([x,y],i)=>{if(i===0)ctx.moveTo(box.x+x*box.width,box.y+y*box.height);else ctx.lineTo(box.x+x*box.width,box.y+y*box.height);});
+    ctx.closePath();ctx.stroke();ctx.globalAlpha=1;
+   }
    const state=evidenceAt(evidence,v.currentTime);
    if(trail)state.trail.forEach((p,i)=>{
     const x=box.x+p.x*box.width,y=box.y+p.y*box.height;
@@ -43,7 +48,7 @@ export function BallEvidence({video,evidence,trail,bounces,review}:{video:RefObj
    if(raf!==null){cancelAnimationFrame(raf);raf=null;}
    if(videoFrame!==null){v.cancelVideoFrameCallback(videoFrame);videoFrame=null;}
   };
-  const active=()=>!!evidence&&(trail||bounces)&&!document.hidden;
+  const active=()=>!!evidence&&(trail||bounces||table)&&!document.hidden;
   const paint=()=>{if(!document.hidden){draw();lastTime=v.currentTime;}};
   const tick=()=>{
    raf=null;videoFrame=null;
@@ -74,6 +79,6 @@ export function BallEvidence({video,evidence,trail,bounces,review}:{video:RefObj
    v.removeEventListener('timeupdate',timeUpdate);document.removeEventListener('visibilitychange',visibility);
    c.getContext('2d')?.clearRect(0,0,c.width,c.height);
   };
- },[video,evidence,trail,bounces,review]);
+ },[video,evidence,trail,bounces,review,table]);
  return <canvas ref={canvas} aria-label="Ball trail and detected bounce overlay" className="pointer-events-none absolute inset-0 h-full w-full"/>;
 }

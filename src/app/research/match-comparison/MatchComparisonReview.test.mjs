@@ -45,3 +45,27 @@ test('actual edits survive unmount/remount and newer revisions retain drafts as 
   if(root)await act(async()=>{root.unmount();});dom.window.close();for(const key of names){const descriptor=saved.get(key);if(descriptor)Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}
  }
 });
+test('switching comparisons clears evidence and ignores a late response from the previous point',async()=>{
+ const dom=new JSDOM('<div id="root"></div>',{url:'https://local.test/research/match-comparison'});
+ const names=['window','document','navigator','HTMLElement','IS_REACT_ACT_ENVIRONMENT','fetch'];
+ const saved=new Map(names.map(k=>[k,Object.getOwnPropertyDescriptor(globalThis,k)]));
+ const requests=[];
+ const fetch=async url=>{if(!url.includes('/evidence?'))return new Promise(()=>{});return new Promise(resolve=>requests.push({url,resolve}));};
+ for(const [key,value] of Object.entries({window:dom.window,document:dom.window.document,navigator:dom.window.navigator,HTMLElement:dom.window.HTMLElement,IS_REACT_ACT_ENVIRONMENT:true,fetch}))Object.defineProperty(globalThis,key,{value,writable:true,configurable:true});
+ const {createRoot}=await import('react-dom/client');const root=createRoot(document.getElementById('root'));
+ const second={...structuredClone(row),id:'00000000-0000-4000-8000-000000000002',sequence:2};
+ const evidence=t=>({width:1920,height:1080,rawOffset:0,track:[[t,.2,.3]],bounces:[{t,x:.2,y:.3}],tableCorners:[[.1,.1],[.4,.1],[.5,.4],[.1,.4]],lineage:'Frozen'});
+ const deliver=async(request,id,t)=>act(async()=>request.resolve({ok:true,json:async()=>({id,evidence:evidence(t)})}));
+ try{
+  await act(async()=>root.render(React.createElement(MatchComparisonReview,{initialRows:[row,second]})));
+  const select=Array.from(document.querySelectorAll('label')).find(l=>l.textContent.startsWith('Comparison')).querySelector('select');
+  await act(async()=>{select.value=second.id;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  await deliver(requests[1],second.id,12);
+  assert.ok(document.querySelector('[aria-label="Go to bounce 1 at 0:12.00"]'));
+  await deliver(requests[0],row.id,9);
+  assert.ok(document.querySelector('[aria-label="Go to bounce 1 at 0:12.00"]'));
+  assert.equal(document.querySelector('[aria-label="Go to bounce 1 at 0:09.00"]'),null);
+  await act(async()=>{select.value=row.id;select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+  assert.equal(document.querySelector('[aria-label="Jump to detected bounce"]'),null);assert.match(document.body.textContent,/Loading ball evidence/);
+ }finally{await act(async()=>root.unmount());dom.window.close();for(const key of names){const descriptor=saved.get(key);if(descriptor)Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}}
+});
