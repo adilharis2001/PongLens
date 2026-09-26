@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {clock,BOUNCE_KINDS,EMPTY_BOUNCE_REVIEW,sameEndingLabel,ENDING_REASONS,frameStep,nextUnlabeled,reasonText,savedLabel,validEndingLabel,type EndingLabel,type EndingRow} from '@/lib/research/pointEndings';
+import {clock,BOUNCE_KINDS,EMPTY_BOUNCE_REVIEW,bounceFrameTime,updateBounce,sameEndingLabel,ENDING_REASONS,frameStep,nextUnlabeled,reasonText,savedLabel,validEndingLabel,type EndingLabel,type EndingRow} from '@/lib/research/pointEndings';
 import {confirmSuggestions,displayLabel,pendingSuggestionKeys,reviewChangedFields,suggestionState} from '@/lib/research/endingSuggestions';
 import {LastBounceGuide} from './LastBounceGuide';
 import {RallyPredictionReview} from './RallyPredictionReview';
@@ -20,6 +20,9 @@ import {cutReviewComplete} from '@/lib/research/cutReview';
 import {nextStartReview,startReviewWindow,startReviewComplete,startReviewRows,type StartReviewCase} from '@/lib/research/startReview';
 import {CUT_REVIEW_POINTS} from '@/lib/research/cutReviewStudy';
 import {PlaybackTimeline} from './PlaybackTimeline';
+import {KeyboardShortcuts} from './KeyboardShortcuts';
+import {bounceName} from './BounceDetails';
+import {bounceOrder,keyForReason,kindForKey,reasonForKey,stepBounce,toggleLastBounce,typingTarget,withKind,withoutBounce,type BounceStop} from '@/lib/research/endingShortcuts';
 
 const field='w-full min-h-11 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus:border-cyan-glow focus:outline-none';
 const secondary='min-h-11 w-full rounded-lg border border-edge px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 disabled:opacity-40 sm:w-auto';
@@ -45,6 +48,9 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
  const [showBounces,setShowBounces]=useState(true);
  const [bounceOpenRequest,setBounceOpenRequest]=useState(0);
  const [bounceSelection,setBounceSelection]=useState({pointId:'',id:''});
+ const bounceSelectionRef=useRef(bounceSelection);bounceSelectionRef.current=bounceSelection;
+ const [showKeys,setShowKeys]=useState(false);
+ const [keyNote,setKeyNote]=useState('');
  const [evidenceResult,setEvidenceResult]=useState<{id:string;data:EndingEvidence}|null>(null);
  const [evidenceError,setEvidenceError]=useState('');
  const [evidenceRetry,setEvidenceRetry]=useState(0);
@@ -155,6 +161,70 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
  function play(){const v=video.current;if(!v||!point)return;if(!v.paused){v.pause();return;}if(v.currentTime>=point.source.end-0.05||v.currentTime<startReviewWindow(point.source,startCases.find(item=>item.pointId===point.id)).start)seekInitial();v.playbackRate=rate;void v.play().catch(()=>setMediaError('Video could not play. Reload the video to try again.'));}
  function confirm(keys?:string[],dismiss=false){const p=pointRef.current;if(p?.suggestion)change(confirmSuggestions(p.label,p.suggestion,keys,dismiss));}
  function next(){if(filter==='wrong'||filter==='nocall'){const index=navigationRows.findIndex(r=>r.id===selected);const ordered=[...navigationRows.slice(index+1),...navigationRows.slice(0,Math.max(index,0))];const p=ordered.find(r=>!savedLabel(r.label))??ordered[0];if(p)setSelected(p.id);return;}if(filter==='starts'){const next=nextStartReview(matchRows,startCases,selected);if(next)setSelected(next.id);return;}if(filter==='cuts'){const index=navigationRows.findIndex(r=>r.id===selected);const next=[...navigationRows.slice(index+1),...navigationRows.slice(0,index)].find(r=>!cutReviewComplete(r.label.cutReview));if(next)setSelected(next.id);return;}const index=matchRows.findIndex(r=>r.id===selected);const ordered=[...matchRows.slice(index+1),...matchRows.slice(0,index)];const p=ordered.find(r=>rallyPending(r.label,r.rallyPrediction))??ordered.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(matchRows,selected)??matchRows[index+1];if(p)setSelected(p.id);}
+ function previous(){const i=navigationRows.findIndex(r=>r.id===selected);if(i>0)setSelected(navigationRows[i-1].id);}
+ function selectBounce(pointId:string,id:string){const value={pointId,id};bounceSelectionRef.current=value;setBounceSelection(value);}
+ // Keyboard labeling. Reads refs, so fast consecutive keys never act on a stale point or bounce.
+ const keyHandler=useRef<(e:KeyboardEvent)=>void>(()=>{});
+ keyHandler.current=(e:KeyboardEvent)=>{
+   if(e.defaultPrevented||e.metaKey||e.ctrlKey||e.altKey)return;
+   if(typingTarget(e.target)){if(e.key==='Escape')(e.target as HTMLElement).blur();return;}
+   const p=pointRef.current;if(!p)return;
+   const k=e.key,handled=(note='')=>{e.preventDefault();setKeyNote(note);};
+   const review=p.label.bounceReview??EMPTY_BOUNCE_REVIEW;
+   const shownReview=displayLabel(p.label,p.suggestion).bounceReview??review;
+   const order=evidence?bounceOrder(evidence.bounces,evidence.rawOffset,review):[];
+   const sel=bounceSelectionRef.current,current=sel.pointId===p.id?sel.id:'';
+   const go=(stop:BounceStop)=>{selectBounce(p.id,stop.id);setBounceOpenRequest(n=>n+1);seek(stop.rawTime);};
+   if(k==='?'||(k==='/'&&e.shiftKey)){handled();setShowKeys(v=>!v);return;}
+   if(k==='Escape'){if(showKeys){handled();setShowKeys(false);}return;}
+   if(k==='Tab'){const stop=stepBounce(order,current,e.shiftKey?-1:1);handled(stop?'':'This point has no bounces to step through.');if(stop)go(stop);return;}
+   if(k===' '){handled();play();return;}
+   if(k==='ArrowLeft'||k==='ArrowRight'){if(!ready)return;handled();seek(frameStep(video.current?.currentTime??start,(e.shiftKey?10:1)*(k==='ArrowLeft'?-1:1),p.source.fps,start,end));return;}
+   if(e.shiftKey&&(k==='ArrowUp'||k==='ArrowDown')){const side=k==='ArrowDown'?'near':'far';handled(`Last paddle contact: ${side==='near'?'player nearer the camera':'player farther from the camera'}`);change({lastRallyContact:side});return;}
+   if(k==='Enter'){handled();if(e.shiftKey)previous();else next();return;}
+   const reason=reasonForKey(k);
+   if(reason){handled(`Point ended: ${ENDING_REASONS.find(([key])=>key===reason)?.[1]}`);change({reason,custom:''});return;}
+   const kind=k.length===1?kindForKey(k):null;
+   if(kind){
+     const stop=order.find(s=>s.id===current);
+     if(!stop){handled('Press Tab to choose a bounce first.');return;}
+     handled(`${bounceName(stop.id,review,start)}: ${BOUNCE_KINDS.find(([key])=>key===kind)?.[1]}`);
+     change({bounceReview:withKind(review,shownReview,stop,kind)});
+     const after=stepBounce(order,stop.id,1);if(after&&after.id!==stop.id)go(after);
+     return;
+   }
+   const lower=k.toLowerCase();
+   if(lower==='l'){
+     if(!current){handled('Press Tab to choose a bounce first.');return;}
+     const result=toggleLastBounce(review,shownReview,current);
+     if('refused' in result){handled(result.refused);return;}
+     if('dismissSuggestion' in result){handled('Suggested last bounce cleared.');confirm(['lastBounce'],true);return;}
+     handled(result.review.lastBounce?`${bounceName(current,review,start)} is the last playable bounce.`:'Last playable bounce cleared.');
+     change({bounceReview:result.review});return;
+   }
+   if(lower==='a'){
+     if(!ready||!evidence||review.events.length>=200)return;
+     const rawTime=bounceFrameTime(video.current?.currentTime??start,start,end);
+     const id=`added:${crypto.randomUUID()}` as const;
+     handled(`Added a bounce at ${clock(rawTime-start)}.`);
+     change({bounceReview:updateBounce(review,{id,rawTime,kind:'table',side:null})});
+     selectBounce(p.id,id);setBounceOpenRequest(n=>n+1);return;
+   }
+   if(k==='Backspace'||k==='Delete'){
+     if(!current)return;
+     handled(`${bounceName(current,review,start)} cleared.`);
+     if(p.suggestion&&suggestionState(p.label,p.suggestion,`event:${current}`)==='pending')confirm([`event:${current}`],true);
+     else change({bounceReview:withoutBounce(review,current)});
+     if(current.startsWith('added:')){const back=stepBounce(order,current,-1);selectBounce(p.id,back&&back.id!==current?back.id:'');}
+     return;
+   }
+   if(lower==='e'){if(!ready)return;handled();seekEnding();void video.current?.play();return;}
+   if(lower==='w'){if(!ready)return;handled();seek(start);void video.current?.play();return;}
+   if(lower==='y'&&pendingSuggestionKeys(p.label,p.suggestion).length>0){handled('Suggestions confirmed.');confirm();return;}
+ };
+ useEffect(()=>{const h=(e:KeyboardEvent)=>keyHandler.current(e);window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);},[]);
+ useEffect(()=>{setKeyNote('');},[selected]);
+ useEffect(()=>{if(!bounceSelection.id)return;const chip=document.querySelector<HTMLElement>(`[data-bounce="${bounceSelection.id}"]`);if(typeof chip?.scrollIntoView==='function')chip.scrollIntoView({block:'nearest',inline:'nearest'});},[bounceSelection]);
  function selectMatch(id:string){setMatchId(id);const list=rows.filter(r=>(id==='all'||r.match_id===id)&&(filter!=='cuts'||CUT_REVIEW_POINTS.has(r.id))&&(filter!=='starts'||startCases.some(item=>item.pointId===r.id)));const checked=filter==='wrong'||filter==='nocall'?list.filter(r=>filter==='wrong'?checkState(r.check)==='disagrees':checkState(r.check)==='no_call'):[];
   setSelected((filter==='wrong'||filter==='nocall'?(checked.find(r=>!savedLabel(r.label))??checked[0]):filter==='starts'?(nextStartReview(list,startCases)??list[0]):filter==='cuts'?(list.find(r=>!cutReviewComplete(r.label.cutReview))??list[0]):(list.find(r=>rallyPending(r.label,r.rallyPrediction))??list.find(r=>pendingSuggestionKeys(r.label,r.suggestion).length>0)??nextUnlabeled(list)??list[0]))?.id??'');}
  function retryVideo(){if(point)cache.current.delete(point.match_id);setMediaRetry(n=>n+1);}
@@ -202,8 +272,8 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
        {evidenceError&&<div role="alert" className="mt-2 text-sm text-rose-300">{evidenceError} <button className={secondary} onClick={()=>setEvidenceRetry(n=>n+1)}>Retry ball evidence</button></div>}
        {evidence&&showBounces&&<div className="mt-2">
          <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Jump to detected bounce">
-           {evidence.bounces.map((b,i)=><button key={i} disabled={!ready} onClick={()=>{seek(b.t+evidence.rawOffset);setBounceSelection({pointId:point.id,id:`detected:${i}`});}} className="min-h-11 shrink-0 rounded-lg border border-edge px-3 py-2 text-xs tabular-nums text-amber-200 hover:border-zinc-500 disabled:opacity-40" aria-label={`Go to bounce ${i+1} at ${clock(b.t+evidence.rawOffset-start)} into point`}>{i+1} · {clock(b.t+evidence.rawOffset-start)}{shown?.bounceReview?.lastBounce===`detected:${i}`?' · Last':''}{point.rallyPrediction?.lastBounce?.id===`detected:${i}`?' · Experiment last':''}{shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?` · ${BOUNCE_KINDS.find(([k])=>k===shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?.kind)?.[1]}`:''}{point.suggestion&&suggestionState(point.label,point.suggestion,`event:detected:${i}`)==='pending'?' · Suggested':''}</button>)}
-           {(point.label.bounceReview??EMPTY_BOUNCE_REVIEW).events.filter(e=>e.rawTime!==undefined).map(e=><button key={e.id} disabled={!ready} onClick={()=>{seek(e.rawTime!);setBounceSelection({pointId:point.id,id:e.id});}} className="min-h-11 shrink-0 rounded-lg border border-cyan-glow/50 px-3 py-2 text-xs tabular-nums text-cyan-100">Added · {clock(e.rawTime!-start)}{point.label.bounceReview?.lastBounce===e.id?' · Last':''}</button>)}
+           {evidence.bounces.map((b,i)=><button key={i} data-bounce={`detected:${i}`} aria-current={bounceSelection.pointId===point.id&&bounceSelection.id===`detected:${i}`?'true':undefined} disabled={!ready} onClick={()=>{seek(b.t+evidence.rawOffset);selectBounce(point.id,`detected:${i}`);}} className={`min-h-11 shrink-0 rounded-lg border px-3 py-2 text-xs tabular-nums text-amber-200 hover:border-zinc-500 disabled:opacity-40 ${bounceSelection.pointId===point.id&&bounceSelection.id===`detected:${i}`?'border-cyan-glow ring-1 ring-cyan-glow':'border-edge'}`} aria-label={`Go to bounce ${i+1} at ${clock(b.t+evidence.rawOffset-start)} into point`}>{i+1} · {clock(b.t+evidence.rawOffset-start)}{shown?.bounceReview?.lastBounce===`detected:${i}`?' · Last':''}{point.rallyPrediction?.lastBounce?.id===`detected:${i}`?' · Experiment last':''}{shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?` · ${BOUNCE_KINDS.find(([k])=>k===shown?.bounceReview?.events.find(e=>e.id===`detected:${i}`)?.kind)?.[1]}`:''}{point.suggestion&&suggestionState(point.label,point.suggestion,`event:detected:${i}`)==='pending'?' · Suggested':''}</button>)}
+           {(point.label.bounceReview??EMPTY_BOUNCE_REVIEW).events.filter(e=>e.rawTime!==undefined).map(e=><button key={e.id} data-bounce={e.id} aria-current={bounceSelection.pointId===point.id&&bounceSelection.id===e.id?'true':undefined} disabled={!ready} onClick={()=>{seek(e.rawTime!);selectBounce(point.id,e.id);}} className={`min-h-11 shrink-0 rounded-lg border px-3 py-2 text-xs tabular-nums text-cyan-100 ${bounceSelection.pointId===point.id&&bounceSelection.id===e.id?'border-cyan-glow ring-1 ring-cyan-glow':'border-cyan-glow/50'}`}>Added · {clock(e.rawTime!-start)}{point.label.bounceReview?.lastBounce===e.id?' · Last':''}</button>)}
          </div>
          <p className="mt-1 text-xs text-zinc-500">Detected bounces may include paddle contacts or bounces off the table.</p>
        </div>}
@@ -219,19 +289,20 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
          <button className={secondary} disabled={!ready} onClick={()=>{seek(start);void video.current?.play();}}>Play whole point</button>
          {point.source.tap!==null&&<button className={secondary} disabled={!ready} onClick={()=>seek(point.source.tap!)}>Go to saved tap</button>}
        </div>
+       <KeyboardShortcuts open={showKeys} onToggle={()=>setShowKeys(v=>!v)} note={keyNote}/>
        <CutReview key={`cut:${point.id}`} value={point.label.cutReview} initialOpen={filter==='cuts'||filter==='starts'} startCase={startCases.find(item=>item.pointId===point.id)} startReview={point.label.startReview} onStartReview={startReview=>change({startReview})} start={start} end={end} ready={ready} currentTime={()=>video.current?.currentTime??start} onSeek={seek} onChange={cutReview=>change({cutReview})}/>
-       <BounceDetails key={point.id} openRequest={bounceOpenRequest} value={point.label.bounceReview} suggestion={point.suggestion} suggestionReview={point.label.suggestionReview} onReviewSuggestion={confirm} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>setBounceSelection({pointId:point.id,id})} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??start}/>
+       <BounceDetails key={point.id} openRequest={bounceOpenRequest} value={point.label.bounceReview} suggestion={point.suggestion} suggestionReview={point.label.suggestionReview} onReviewSuggestion={confirm} evidence={evidence} start={start} end={end} ready={ready} selected={bounceSelection.pointId===point.id?bounceSelection.id:''} onSelect={id=>selectBounce(point.id,id)} onChange={bounceReview=>change({bounceReview})} onSeek={seek} currentTime={()=>video.current?.currentTime??start}/>
      </div>
      <div className="w-full shrink-0 lg:w-[340px]">
        <div className="space-y-4 rounded-xl border border-edge bg-surface-1 p-4">
          <div><h2 className="text-sm font-medium text-white">{point.source.matchName} · Point {point.source.number}</h2><p className="mt-1 text-xs text-zinc-500">Game {point.source.game} · Score before {point.source.scoreBefore.join('–')}</p></div>
          <div className="text-xs text-zinc-400"><p>Saved winner: {point.source.winner}</p>{point.source.server&&<p className="mt-1">Server: {point.source.server}</p>}<p className="mt-1">{point.source.tap===null?'No saved end tap':`Saved end tap: ${clock(point.source.tap-point.source.rawOffset)}`}</p></div>
          {point.check&&<WinnerCheckPanel check={point.check}/>}
-         {point.rallyPrediction&&<RallyPredictionReview prediction={point.rallyPrediction} label={point.label} start={start} ready={ready} onSeek={()=>{const b=point.rallyPrediction?.lastBounce;if(b){seek(b.rawTime);if(b.origin==='detected')setBounceSelection({pointId:point.id,id:b.id});}}} onConfirm={()=>{const p=pointRef.current;if(p?.rallyPrediction)change(confirmRallyBounce(p.label,p.rallyPrediction));}} onKeep={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'kept'))} onNoBounce={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'no_live_bounce'))} onUncertain={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'uncertain'))} onCorrect={()=>{const b=point.rallyPrediction?.lastBounce;setBounceSelection({pointId:point.id,id:b?.origin==='detected'?b.id:evidence?.bounces.length?'detected:0':''});setBounceOpenRequest(n=>n+1);document.getElementById('bounce-details-toggle')?.scrollIntoView({block:'center',behavior:'smooth'});}}/>}
+         {point.rallyPrediction&&<RallyPredictionReview prediction={point.rallyPrediction} label={point.label} start={start} ready={ready} onSeek={()=>{const b=point.rallyPrediction?.lastBounce;if(b){seek(b.rawTime);if(b.origin==='detected')selectBounce(point.id,b.id);}}} onConfirm={()=>{const p=pointRef.current;if(p?.rallyPrediction)change(confirmRallyBounce(p.label,p.rallyPrediction));}} onKeep={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'kept'))} onNoBounce={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'no_live_bounce'))} onUncertain={()=>change(finishRallyReview(point.label,point.rallyPrediction!,'uncertain'))} onCorrect={()=>{const b=point.rallyPrediction?.lastBounce;selectBounce(point.id,b?.origin==='detected'?b.id:evidence?.bounces.length?'detected:0':'');setBounceOpenRequest(n=>n+1);document.getElementById('bounce-details-toggle')?.scrollIntoView({block:'center',behavior:'smooth'});}}/>}
          <label className="block text-sm text-zinc-300" htmlFor="ending-reason">How did the point end?</label>
          <select id="ending-reason" className={`${field} ${pending.includes('reason')?'border-amber-400/50 text-amber-100':''}`} value={customSelected?`custom:${point.label.custom}`:shown?.reason??''} onChange={e=>{const value=e.target.value;if(!value&&point.suggestion&&suggestionState(point.label,point.suggestion,'reason')==='pending'){confirm(['reason'],true);return;}if(value.startsWith('custom:'))change({reason:'custom',custom:value.slice(7)});else change({reason:(value||null) as EndingLabel['reason'],custom:''});}}>
            <option value="">Choose a reason</option>
-           {ENDING_REASONS.map(([key,text])=><option key={key} value={key}>{text}</option>)}
+           {ENDING_REASONS.map(([key,text])=><option key={key} value={key}>{text}{keyForReason(key)?` (${keyForReason(key)})`:''}</option>)}
            {customOptions.length>0&&<optgroup label="Your custom reasons">{customOptions.map(c=><option key={c} value={`custom:${c}`}>{c}</option>)}</optgroup>}
          </select>
          {point.suggestion&&<SuggestionHint state={suggestionState(point.label,point.suggestion,'reason')} detail={point.suggestion.reason.detail} onConfirm={()=>confirm(['reason'])}/>}
@@ -262,7 +333,7 @@ export function PointEndingReview({initialRows,initialCustom,initialCutReview=fa
          {selectedStatus?.state==='error'&&<button className={secondary} onClick={()=>writers.current.get(point.id)?.retry()}>Retry save</button>}
          {pending.length>0&&<div><button type="button" className="min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-medium text-black" onClick={()=>confirm()}>Confirm this point’s suggestions</button></div>}
          <button className={pending.length?secondary:"min-h-11 w-full rounded-lg bg-cyan-glow px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-300 disabled:opacity-40"} disabled={filter==='wrong'||filter==='nocall'?!navigationRows.some(r=>r.id!==selected):filter==='starts'?!nextStartReview(matchRows,startCases,selected):filter==='cuts'?!navigationRows.some(r=>r.id!==selected&&!cutReviewComplete(r.label.cutReview)):!matchRows.some(r=>r.id!==selected&&(rallyPending(r.label,r.rallyPrediction)||pendingSuggestionKeys(r.label,r.suggestion).length>0))&&!nextUnlabeled(matchRows,selected)} onClick={next}>{filter==='wrong'||filter==='nocall'?'Next point to review':filter==='starts'?'Next start to review':filter==='cuts'?'Next cut to review':suggestedPoints||point.rallyPrediction?'Next point to review':'Next unlabeled point'}</button>
-         <button className={secondary} disabled={navigationRows.findIndex(r=>r.id===selected)<=0} onClick={()=>{const i=navigationRows.findIndex(r=>r.id===selected);if(i>0)setSelected(navigationRows[i-1].id);}}>Previous point</button>
+         <button className={secondary} disabled={navigationRows.findIndex(r=>r.id===selected)<=0} onClick={previous}>Previous point</button>
        </div>
      </div>
    </div>

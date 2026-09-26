@@ -6,6 +6,7 @@ import {displayLabel,suggestionState,type EndingSuggestion} from '@/lib/research
 import {SuggestionHint} from './SuggestionHint';
 import {EMPTY_LABEL,type SuggestionReview,BOUNCE_KINDS,EMPTY_BOUNCE_REVIEW,bounceFrameTime,clock,isRallyBounce,removeBounce,updateBounce,type BounceAnnotation,type BounceReview} from '@/lib/research/pointEndings';
 import type {EndingEvidence} from '@/lib/research/endingEvidence';
+import {keyForKind} from '@/lib/research/endingShortcuts';
 
 const field='mt-2 w-full min-w-0 min-h-11 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus:border-cyan-glow focus:outline-none';
 const button='min-h-11 w-full rounded-lg border border-edge px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 disabled:opacity-40 sm:w-auto';
@@ -60,7 +61,7 @@ export function BounceDetails({openRequest=0,value,suggestion,suggestionReview,o
      <label className="block min-w-0 text-sm text-zinc-300">Event type
       <select className={`${field} ${eventState==='pending'?'border-amber-400/50 text-amber-100':''}`} value={annotation?.kind??''} onChange={e=>{if(e.target.value)edit({kind:e.target.value as BounceAnnotation['kind']});else if(eventState==='pending'){onReviewSuggestion?.([`event:${selected}`],true);}else {onChange(removeBounce(review,selected));}}}>
        {!choice.id.startsWith('added:')&&<option value="">Not annotated</option>}
-       {BOUNCE_KINDS.filter(([key])=>(key!=='non_playing'&&key!=='rally')||key===kind).map(([key,text])=><option key={key} value={key}>{text}</option>)}
+       {BOUNCE_KINDS.filter(([key])=>(key!=='non_playing'&&key!=='rally')||key===kind).map(([key,text])=><option key={key} value={key}>{text}{keyForKind(key)?` (${keyForKind(key)})`:''}</option>)}
       </select>
      </label>
      <label className="block min-w-0 text-sm text-zinc-300">Side <span className="text-zinc-500">(optional)</span>
